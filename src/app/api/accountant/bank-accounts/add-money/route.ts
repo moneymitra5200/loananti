@@ -15,6 +15,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Valid amount is required' }, { status: 400 });
     }
 
+    if (!createdById) {
+      return NextResponse.json({ error: 'Created By ID is required' }, { status: 400 });
+    }
+
     // Get the bank account
     const bankAccount = await db.bankAccount.findUnique({
       where: { id: bankAccountId }
@@ -42,7 +46,8 @@ export async function POST(request: NextRequest) {
           balanceAfter: newBalance,
           description: description || 'Deposit to bank account',
           referenceType: 'MANUAL_DEPOSIT',
-          referenceId: null
+          referenceId: null,
+          createdById
         }
       });
 
