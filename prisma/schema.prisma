@@ -206,6 +206,13 @@ model Company {
   @@index([code])
 }
 
+// Global Loan Sequence - Tracks sequential loan numbers across all companies and loan types
+model LoanSequence {
+  id                    String   @id @default(cuid())
+  currentSequence       Int      @default(0)  // Current sequence number
+  lastUpdatedAt         DateTime @updatedAt
+}
+
 model LoanApplication {
   id                    String        @id @default(cuid())
   applicationNo         String        @unique

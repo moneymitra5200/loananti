@@ -5,46 +5,58 @@ import { EMIPaymentStatus } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
 import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 
-// Generate sequential loan number
-async function generateLoanNumber(): Promise<string> {
-  const today = new Date();
-  const year = today.getFullYear().toString().slice(-2);
-  const month = (today.getMonth() + 1).toString().padStart(2, '0');
-  const datePrefix = `LN${year}${month}`;
-  
+// Get or create the global loan sequence
+async function getNextLoanSequence(): Promise<number> {
   try {
-    // Get the highest loan number from both OfflineLoan and LoanApplication
-    const [lastOfflineLoan, lastOnlineLoan] = await Promise.all([
-      db.offlineLoan.findFirst({
-        where: { loanNumber: { startsWith: datePrefix } },
-        orderBy: { loanNumber: 'desc' },
-        select: { loanNumber: true }
-      }),
-      db.loanApplication.findFirst({
-        where: { applicationNo: { startsWith: datePrefix } },
-        orderBy: { applicationNo: 'desc' },
-        select: { applicationNo: true }
-      })
-    ]);
-    
-    // Extract sequence numbers
-    const offlineSeq = lastOfflineLoan?.loanNumber 
-      ? parseInt(lastOfflineLoan.loanNumber.slice(-5)) || 0 
-      : 0;
-    const onlineSeq = lastOnlineLoan?.applicationNo 
-      ? parseInt(lastOnlineLoan.applicationNo.slice(-5)) || 0 
-      : 0;
-    
-    // Use the highest sequence number + 1
-    const nextSeq = Math.max(offlineSeq, onlineSeq) + 1;
-    const sequence = nextSeq.toString().padStart(5, '0');
-    
-    return `${datePrefix}${sequence}`;
+    // Try to find existing sequence record
+    let sequenceRecord = await db.loanSequence.findFirst();
+
+    if (!sequenceRecord) {
+      // Create initial sequence record
+      sequenceRecord = await db.loanSequence.create({
+        data: { currentSequence: 1 }
+      });
+      return 1;
+    }
+
+    // Increment the sequence
+    const updated = await db.loanSequence.update({
+      where: { id: sequenceRecord.id },
+      data: { currentSequence: { increment: 1 } }
+    });
+
+    return updated.currentSequence;
   } catch (error) {
-    // Fallback to timestamp-based number if query fails
-    const timestamp = Date.now().toString().slice(-8);
-    return `LN${timestamp}`;
+    console.error('Error getting loan sequence:', error);
+    // Fallback: use timestamp
+    return Date.now();
   }
+}
+
+// Generate loan number for ORIGINAL loan: Company Code + Product Code + Customer Name
+async function generateOriginalLoanNumber(
+  companyCode: string,
+  loanType: string,
+  customerName: string
+): Promise<string> {
+  // Clean customer name - remove special characters and spaces, take first 15 chars
+  const cleanName = customerName
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .slice(0, 15);
+
+  return `${companyCode}-${loanType.toUpperCase()}-${cleanName}`;
+}
+
+// Generate loan number for MIRROR loan: Company Code + Product Code + Global Sequence (00001)
+async function generateMirrorLoanNumber(
+  companyCode: string,
+  loanType: string
+): Promise<string> {
+  const sequence = await getNextLoanSequence();
+  const sequenceStr = sequence.toString().padStart(5, '0');
+
+  return `${companyCode}-${loanType.toUpperCase()}-${sequenceStr}`;
 }
 
 // GET - Fetch offline loans (All users can see all company loans)
@@ -426,7 +438,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const loanNumber = await generateLoanNumber();
+    // Fetch company to get company code for loan number
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: { id: true, code: true, name: true }
+    });
+
+    if (!company) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 400 });
+    }
+
+    // Generate loan number: Company Code + Product Code + Customer Name
+    const loanNumber = await generateOriginalLoanNumber(
+      company.code,
+      loanType || 'PERSONAL',
+      customerName
+    );
 
     // Extract document URLs from uploadedDocs
     const docUrls: Record<string, string> = {};
@@ -671,7 +698,11 @@ export async function POST(request: NextRequest) {
         const leftoverAmount = 0; // Leftover is handled within the schedule
         
         // Generate mirror loan number
-        const mirrorLoanNumber = await generateLoanNumber();
+        // Generate mirror loan number: Company Code + Product Code + Global Sequence (00001)
+        const mirrorLoanNumber = await generateMirrorLoanNumber(
+          mirrorCompany.code,
+          loanType || 'PERSONAL'
+        );
         
         // Create mirror loan in mirror company
         const mirrorLoan = await db.offlineLoan.create({
