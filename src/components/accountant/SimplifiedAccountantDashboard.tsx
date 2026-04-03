@@ -20,7 +20,7 @@ import {
   FileSpreadsheet, BookOpen, Landmark, ArrowUpRight, ArrowDownRight,
   CreditCard, BookMarked, Clock, LogOut, User, Wallet, ArrowUp, ArrowDown,
   Building2, Plus, Receipt, Upload, QrCode, Scan, CheckCircle, XCircle, AlertCircle,
-  BookCopy
+  AlertTriangle, BookCopy
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfYear, endOfYear } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -241,6 +241,18 @@ export default function SimplifiedAccountantDashboard() {
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any>(null);
+
+  // Delete Bank Account Dialog State
+  const [showDeleteBankDialog, setShowDeleteBankDialog] = useState(false);
+  const [bankToDelete, setBankToDelete] = useState<BankAccount | null>(null);
+  const [deletingBank, setDeletingBank] = useState(false);
+
+  // Add Money to Bank Dialog State
+  const [showAddMoneyDialog, setShowAddMoneyDialog] = useState(false);
+  const [bankToAddMoney, setBankToAddMoney] = useState<BankAccount | null>(null);
+  const [addMoneyAmount, setAddMoneyAmount] = useState('');
+  const [addMoneyDescription, setAddMoneyDescription] = useState('');
+  const [addingMoney, setAddingMoney] = useState(false);
 
   // Expense Categories
   const expenseCategories = [
@@ -749,6 +761,91 @@ export default function SimplifiedAccountantDashboard() {
     }
   };
 
+  // Handle Delete Bank Account
+  const handleDeleteBankAccount = (account: BankAccount) => {
+    if (account.isDefault) {
+      toast.error('Cannot delete default bank account');
+      return;
+    }
+    setBankToDelete(account);
+    setShowDeleteBankDialog(true);
+  };
+
+  const confirmDeleteBankAccount = async () => {
+    if (!bankToDelete) return;
+    
+    setDeletingBank(true);
+    try {
+      const response = await fetch(`/api/bank-account?id=${bankToDelete.id}`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Bank account deleted successfully');
+        setShowDeleteBankDialog(false);
+        setBankToDelete(null);
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to delete bank account');
+      }
+    } catch (error) {
+      console.error('Error deleting bank account:', error);
+      toast.error('Failed to delete bank account');
+    } finally {
+      setDeletingBank(false);
+    }
+  };
+
+  // Handle Add Money to Bank Account
+  const handleAddMoney = (account: BankAccount) => {
+    setBankToAddMoney(account);
+    setAddMoneyAmount('');
+    setAddMoneyDescription('');
+    setShowAddMoneyDialog(true);
+  };
+
+  const confirmAddMoney = async () => {
+    if (!bankToAddMoney) return;
+    if (!addMoneyAmount || parseFloat(addMoneyAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    setAddingMoney(true);
+    try {
+      const response = await fetch('/api/accountant/bank-accounts/add-money', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bankAccountId: bankToAddMoney.id,
+          amount: parseFloat(addMoneyAmount),
+          description: addMoneyDescription || 'Deposit to bank account',
+          createdById: user?.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success(`₹${addMoneyAmount} added to ${bankToAddMoney.bankName}`);
+        setShowAddMoneyDialog(false);
+        setBankToAddMoney(null);
+        setAddMoneyAmount('');
+        setAddMoneyDescription('');
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to add money');
+      }
+    } catch (error) {
+      console.error('Error adding money:', error);
+      toast.error('Failed to add money');
+    } finally {
+      setAddingMoney(false);
+    }
+  };
+
   useEffect(() => {
     const loadCompanies = async () => {
       const companiesList = await fetchCompanies();
@@ -836,6 +933,8 @@ export default function SimplifiedAccountantDashboard() {
           formatCurrency={formatCurrency} 
           formatDate={formatDate}
           onAddBankAccount={() => setShowBankAccountDialog(true)}
+          onDeleteBankAccount={handleDeleteBankAccount}
+          onAddMoney={handleAddMoney}
         />;
       case 'cash-flow':
         return <CashFlowSection 
@@ -1882,6 +1981,110 @@ export default function SimplifiedAccountantDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Bank Account Dialog */}
+      <Dialog open={showDeleteBankDialog} onOpenChange={setShowDeleteBankDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Bank Account
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm text-red-800 mb-2">
+                You are about to permanently delete:
+              </p>
+              <div className="bg-white rounded p-3 mb-3">
+                <p className="font-semibold">{bankToDelete?.bankName}</p>
+                <p className="text-sm text-gray-500">Account: ****{bankToDelete?.accountNumber?.slice(-4)}</p>
+                <p className="text-sm text-gray-500">Balance: {formatCurrency(bankToDelete?.currentBalance || 0)}</p>
+              </div>
+              <p className="text-sm text-red-700">
+                This will also permanently delete all transactions associated with this bank account.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteBankDialog(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              onClick={confirmDeleteBankAccount} 
+              disabled={deletingBank}
+            >
+              {deletingBank && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {deletingBank ? 'Deleting...' : 'Delete Permanently'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Money to Bank Dialog */}
+      <Dialog open={showAddMoneyDialog} onOpenChange={setShowAddMoneyDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-green-600" />
+              Add Money to Bank Account
+            </DialogTitle>
+            <DialogDescription>
+              Deposit money to {bankToAddMoney?.bankName} - ****{bankToAddMoney?.accountNumber?.slice(-4)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-green-800">Current Balance:</span>
+                <span className="font-bold text-green-700">{formatCurrency(bankToAddMoney?.currentBalance || 0)}</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="addMoneyAmount">Amount to Add (₹) *</Label>
+              <Input
+                id="addMoneyAmount"
+                type="number"
+                placeholder="Enter amount"
+                value={addMoneyAmount}
+                onChange={(e) => setAddMoneyAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="addMoneyDescription">Description</Label>
+              <Textarea
+                id="addMoneyDescription"
+                placeholder="Enter description (optional)"
+                value={addMoneyDescription}
+                onChange={(e) => setAddMoneyDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddMoneyDialog(false)}>Cancel</Button>
+            <Button 
+              onClick={confirmAddMoney} 
+              disabled={addingMoney}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {addingMoney ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Money
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2188,7 +2391,9 @@ function BankAccountsSection({
   totalBalance,
   formatCurrency, 
   formatDate,
-  onAddBankAccount
+  onAddBankAccount,
+  onDeleteBankAccount,
+  onAddMoney
 }: { 
   accounts: BankAccount[]; 
   transactions: BankTransaction[];
@@ -2196,6 +2401,8 @@ function BankAccountsSection({
   formatCurrency: (a: number) => string; 
   formatDate: (d: Date | string) => string;
   onAddBankAccount?: () => void;
+  onDeleteBankAccount?: (account: BankAccount) => void;
+  onAddMoney?: (account: BankAccount) => void;
 }) {
   return (
     <div className="space-y-6">
@@ -2244,6 +2451,32 @@ function BankAccountsSection({
                     <p className="font-bold text-lg">{formatCurrency(account.currentBalance)}</p>
                     {account.isDefault && <Badge variant="secondary">Default</Badge>}
                   </div>
+                </div>
+                
+                {/* Action Buttons */}
+                <div className="mt-3 pt-3 border-t border-gray-200 flex items-center gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="text-green-600 border-green-300 hover:bg-green-50"
+                    onClick={() => onAddMoney?.(account)}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" />
+                    Add Money
+                  </Button>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="text-red-600 border-red-300 hover:bg-red-50"
+                    onClick={() => onDeleteBankAccount?.(account)}
+                    disabled={account.isDefault}
+                  >
+                    <XCircle className="h-3.5 w-3.5 mr-1" />
+                    Delete
+                  </Button>
+                  {account.isDefault && (
+                    <span className="text-xs text-gray-500 ml-2">Default account cannot be deleted</span>
+                  )}
                 </div>
                 
                 {/* Payment Display Info */}
