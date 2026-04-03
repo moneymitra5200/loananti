@@ -74,11 +74,24 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
       }
 
-      // Check if this loan is mirrored (has a mirror loan mapping)
-      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      // Check if this loan is an original loan (has a mirror loan mapping)
+      const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
         where: { originalLoanId: loanId }
       });
-      const isMirrored = !!mirrorMapping;
+      
+      // Check if this loan is a mirror loan (is the mirror of another loan)
+      const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
+        where: { mirrorLoanId: loanId }
+      });
+      
+      const isMirrored = !!mirrorMappingAsOriginal; // This is original, has a mirror
+      const isMirrorLoan = !!mirrorMappingAsMirror; // This is a mirror loan, cannot pay directly
+      
+      // Get mirror info for display
+      const mirrorInfo = mirrorMappingAsOriginal || mirrorMappingAsMirror;
+      const displayColor = mirrorInfo?.displayColor || null;
+      const mirrorTenure = mirrorInfo?.mirrorTenure || null;
+      const extraEMICount = mirrorInfo?.extraEMICount || 0;
 
       // Calculate summary
       const summary = {
@@ -91,7 +104,20 @@ export async function GET(request: NextRequest) {
         totalOutstanding: loan.emis.reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0)
       };
 
-      return NextResponse.json({ success: true, loan: { ...loan, isMirrored }, summary });
+      return NextResponse.json({ 
+        success: true, 
+        loan: { 
+          ...loan, 
+          isMirrored,
+          isMirrorLoan,
+          displayColor,
+          mirrorTenure,
+          extraEMICount,
+          originalLoanId: mirrorMappingAsMirror?.originalLoanId || null,
+          mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || null
+        }, 
+        summary 
+      });
     }
 
     // Get today's and tomorrow's EMIs to collect

@@ -441,18 +441,24 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
                     <h3 className="text-sm font-semibold text-gray-600 px-1">Active Loans ({activeLoans.length})</h3>
                     <AnimatePresence>
                       {activeLoans.map((loan, index) => {
-                        const loanColor = isMirrorLoan(loan.id) ? getLoanColor(loan.id) : null;
-                        const shouldBlink = isDueDateNear(loan.summary.nextDueEMI);
                         const mapping = mirrorMappings[loan.id];
+                        const hexColor = mapping?.displayColor;
+                        const shouldBlink = isDueDateNear(loan.summary.nextDueEMI);
+                        const isMirror = mapping?.mirrorLoanId === loan.id;
                         
                         return (
                           <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
                             transition={{ delay: index * 0.03 }}
                             className={`p-4 rounded-lg border transition-all ${
-                              loanColor 
-                                ? `${loanColor.bg} ${loanColor.border}` 
-                                : 'border-gray-100 bg-white'
-                            } ${shouldBlink ? 'animate-pulse ring-2 ring-red-400' : ''} hover:shadow-md`}>
+                              shouldBlink ? 'animate-pulse ring-2 ring-red-400' : ''
+                            } hover:shadow-md`}
+                            style={hexColor ? {
+                              backgroundColor: `${hexColor}15`,
+                              borderColor: `${hexColor}60`,
+                              borderLeftWidth: '4px',
+                              borderLeftColor: hexColor
+                            } : undefined}
+                          >
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -466,8 +472,15 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
                                     <Badge variant="secondary" className="bg-purple-50 text-purple-700"><Clock className="h-3 w-3 mr-1" />Interest Only</Badge>
                                   )}
                                   {mapping && (
-                                    <Badge variant="secondary" className={`${loanColor?.text || 'text-gray-700'} border ${loanColor?.border || 'border-gray-300'}`}>
-                                      {mapping.mirrorLoanId === loan.id ? 'Mirror' : 'Original'} Loan
+                                    <Badge 
+                                      variant="secondary" 
+                                      style={hexColor ? {
+                                        backgroundColor: `${hexColor}20`,
+                                        color: hexColor,
+                                        borderColor: `${hexColor}40`
+                                      } : undefined}
+                                    >
+                                      {isMirror ? 'Mirror' : 'Original'} Loan
                                     </Badge>
                                   )}
                                   {shouldBlink && (

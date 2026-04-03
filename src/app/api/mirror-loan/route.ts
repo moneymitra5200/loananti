@@ -90,6 +90,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, companies: mirrorCompanies });
     }
 
+    // Get all mirror loan mappings (for offline loans display)
+    if (action === 'all-mappings') {
+      const mappings = await db.mirrorLoanMapping.findMany({
+        select: {
+          id: true,
+          originalLoanId: true,
+          mirrorLoanId: true,
+          originalCompanyId: true,
+          mirrorCompanyId: true,
+          displayColor: true,
+          extraEMICount: true,
+          mirrorTenure: true,
+          originalInterestRate: true,
+          mirrorInterestRate: true,
+          mirrorEMIsPaid: true,
+          extraEMIsPaid: true,
+        }
+      });
+
+      return NextResponse.json({ success: true, mappings });
+    }
+
     if (action === 'preview') {
       const principal = parseFloat(searchParams.get('principal') || '0');
       const originalRate = parseFloat(searchParams.get('originalRate') || '24');

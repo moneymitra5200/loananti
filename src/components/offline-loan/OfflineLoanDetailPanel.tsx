@@ -102,7 +102,13 @@ interface LoanDetail {
   electionCardDoc?: string;
   housePhotoDoc?: string;
   emis: EMI[];
-  isMirrored?: boolean; // Is this loan mirrored to another company?
+  isMirrored?: boolean; // Is this loan mirrored to another company? (this is original)
+  isMirrorLoan?: boolean; // Is this a mirror loan? (cannot pay directly)
+  displayColor?: string | null; // Display color for loan pair
+  mirrorTenure?: number | null; // Mirror loan tenure
+  extraEMICount?: number; // Extra EMIs count
+  originalLoanId?: string | null; // If this is mirror, reference to original
+  mirrorLoanId?: string | null; // If this is original, reference to mirror
 }
 
 interface EMI {
@@ -124,6 +130,7 @@ interface EMI {
   collectedByName?: string;
   isInterestOnly?: boolean;
   interestOnlyAmount?: number;
+  notes?: string;
 }
 
 export default function OfflineLoanDetailPanel({
@@ -704,18 +711,31 @@ export default function OfflineLoanDetailPanel({
             className="fixed right-0 top-0 h-full w-full md:w-[600px] lg:w-[700px] bg-white shadow-2xl z-50 flex flex-col"
           >
             {/* Header */}
-            <div className={`flex items-center justify-between p-4 border-b text-white ${
-              isInterestOnlyLoan
-                ? 'bg-gradient-to-r from-purple-500 to-violet-600'
-                : 'bg-gradient-to-r from-emerald-600 to-teal-600'
-            }`}>
+            <div 
+              className={`flex items-center justify-between p-4 border-b text-white ${
+                loan?.isMirrorLoan 
+                  ? 'bg-gradient-to-r from-orange-500 to-amber-600'
+                  : isInterestOnlyLoan
+                    ? 'bg-gradient-to-r from-purple-500 to-violet-600'
+                    : 'bg-gradient-to-r from-emerald-600 to-teal-600'
+              }`}
+              style={loan?.displayColor ? { 
+                background: `linear-gradient(to right, ${loan.displayColor}dd, ${loan.displayColor})` 
+              } : {}}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <Receipt className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg">
-                    {isInterestOnlyLoan ? 'Interest-Only Loan' : 'Offline Loan Details'}
+                  <h2 className="font-bold text-lg flex items-center gap-2">
+                    {loan?.isMirrorLoan ? 'Mirror Loan' : isInterestOnlyLoan ? 'Interest-Only Loan' : 'Offline Loan Details'}
+                    {loan?.isMirrorLoan && (
+                      <Badge className="bg-white/30 text-white border-white/50">Synced from Original</Badge>
+                    )}
+                    {loan?.isMirrored && !loan?.isMirrorLoan && (
+                      <Badge className="bg-white/30 text-white border-white/50">Has Mirror</Badge>
+                    )}
                   </h2>
                   <p className="text-sm text-white/80">{loan?.loanNumber || 'Loading...'}</p>
                 </div>
@@ -738,6 +758,40 @@ export default function OfflineLoanDetailPanel({
                 </Button>
               </div>
             </div>
+
+            {/* Mirror Loan Warning Banner */}
+            {loan?.isMirrorLoan && (
+              <div className="p-3 bg-amber-50 border-b border-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">This is a Mirror Loan</p>
+                    <p className="text-xs text-amber-700">
+                      EMI payments are automatically synced from the original loan. 
+                      Pay EMIs on the original loan (Company 3) to update this mirror loan.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Original Loan Info Banner */}
+            {loan?.isMirrored && !loan?.isMirrorLoan && (
+              <div className="p-3 bg-blue-50 border-b border-blue-200">
+                <div className="flex items-start gap-2">
+                  <Info className="h-5 w-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-blue-800">This loan has a Mirror</p>
+                    <p className="text-xs text-blue-700">
+                      When you pay EMIs on this loan, the mirror loan EMI will be automatically synced.
+                      {loan.extraEMICount && loan.extraEMICount > 0 && (
+                        <span className="font-medium"> Extra EMIs ({loan.extraEMICount}) go to Personal Credit.</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Credit Info Bar */}
             <div className="flex items-center justify-between p-3 bg-gradient-to-r from-amber-50 to-orange-50 border-b">
@@ -1164,8 +1218,12 @@ export default function OfflineLoanDetailPanel({
                               <div className="space-y-2">
                                 {loan.emis.map((emi) => {
                                   const isPaidOrHandled = emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID';
-                                  const canPay = !isPaidOrHandled;
+                                  // Mirror loans cannot be paid directly - they sync from original
+                                  const canPay = !isPaidOrHandled && !loan?.isMirrorLoan;
                                   const isSelected = selectedEmiIds.has(emi.id);
+                                  
+                                  // Check if this is an extra EMI (for original loans with mirror)
+                                  const isExtraEMI = loan?.isMirrored && loan?.mirrorTenure && emi.installmentNumber > loan.mirrorTenure;
 
                                   return (
                                     <div
@@ -1205,13 +1263,28 @@ export default function OfflineLoanDetailPanel({
                                             )}
                                           </div>
                                           <div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                               <p className="font-medium">EMI #{emi.installmentNumber}</p>
                                               <Badge className={getEMIStatusColor(emi.paymentStatus)}>
                                                 {emi.paymentStatus.replace(/_/g, ' ')}
                                               </Badge>
+                                              {/* Extra EMI Badge */}
+                                              {isExtraEMI && (
+                                                <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+                                                  Extra EMI (Personal Credit)
+                                                </Badge>
+                                              )}
+                                              {/* Mirror synced indicator */}
+                                              {loan?.isMirrorLoan && isPaidOrHandled && emi.paymentReference?.includes('Synced') && (
+                                                <Badge className="bg-blue-100 text-blue-700 border-blue-300">
+                                                  Synced from Original
+                                                </Badge>
+                                              )}
                                             </div>
                                             <p className="text-sm text-gray-500">Due: {formatDate(emi.dueDate)}</p>
+                                            {emi.notes && (
+                                              <p className="text-xs text-gray-400 mt-1">{emi.notes}</p>
+                                            )}
                                           </div>
                                         </div>
                                         <div className="flex items-center gap-3">
@@ -1222,6 +1295,7 @@ export default function OfflineLoanDetailPanel({
                                             </p>
                                           </div>
                                           {/* Pay Button - Available for all unpaid EMIs (no sequential restriction) */}
+                                          {/* Mirror loans cannot be paid directly - they sync from original */}
                                           {canPay && (
                                             <Button
                                               size="sm"
@@ -1231,6 +1305,12 @@ export default function OfflineLoanDetailPanel({
                                               <IndianRupee className="h-4 w-4 mr-1" />
                                               Pay
                                             </Button>
+                                          )}
+                                          {/* Show synced indicator for mirror loan EMIs */}
+                                          {loan?.isMirrorLoan && !isPaidOrHandled && (
+                                            <Badge className="bg-gray-100 text-gray-600">
+                                              Auto-sync
+                                            </Badge>
                                           )}
                                         </div>
                                       </div>
