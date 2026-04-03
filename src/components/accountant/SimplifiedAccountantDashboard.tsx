@@ -217,6 +217,26 @@ export default function SimplifiedAccountantDashboard() {
   const [cashDescription, setCashDescription] = useState('');
   const [addingCashEntry, setAddingCashEntry] = useState(false);
 
+  // Equity Dialog State
+  const [showEquityDialog, setShowEquityDialog] = useState(false);
+  const [equityAmount, setEquityAmount] = useState('');
+  const [equityDescription, setEquityDescription] = useState('');
+  const [addingEquity, setAddingEquity] = useState(false);
+
+  // Borrowed Money Dialog State
+  const [showBorrowedDialog, setShowBorrowedDialog] = useState(false);
+  const [borrowedAmount, setBorrowedAmount] = useState('');
+  const [borrowedSource, setBorrowedSource] = useState('');
+  const [borrowedDescription, setBorrowedDescription] = useState('');
+  const [addingBorrowed, setAddingBorrowed] = useState(false);
+
+  // Invest Money Dialog State
+  const [showInvestDialog, setShowInvestDialog] = useState(false);
+  const [investAmount, setInvestAmount] = useState('');
+  const [investDestination, setInvestDestination] = useState('');
+  const [investDescription, setInvestDescription] = useState('');
+  const [addingInvest, setAddingInvest] = useState(false);
+
   // Scan/Reconcile Dialog State
   const [showScanDialog, setShowScanDialog] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -563,6 +583,139 @@ export default function SimplifiedAccountantDashboard() {
     }
   };
 
+  // Handle Add Equity
+  const handleAddEquity = async () => {
+    if (!selectedCompanyId) {
+      toast.error('Please select a company first');
+      return;
+    }
+    if (!equityAmount || parseFloat(equityAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    setAddingEquity(true);
+    try {
+      const response = await fetch('/api/accountant/equity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          amount: parseFloat(equityAmount),
+          description: equityDescription,
+          createdById: user?.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Equity added successfully');
+        setShowEquityDialog(false);
+        setEquityAmount('');
+        setEquityDescription('');
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to add equity');
+      }
+    } catch (error) {
+      console.error('Error adding equity:', error);
+      toast.error('Failed to add equity');
+    } finally {
+      setAddingEquity(false);
+    }
+  };
+
+  // Handle Add Borrowed Money
+  const handleAddBorrowedMoney = async () => {
+    if (!selectedCompanyId) {
+      toast.error('Please select a company first');
+      return;
+    }
+    if (!borrowedAmount || parseFloat(borrowedAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    setAddingBorrowed(true);
+    try {
+      const response = await fetch('/api/accountant/borrowed-money', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          amount: parseFloat(borrowedAmount),
+          source: borrowedSource,
+          description: borrowedDescription,
+          createdById: user?.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Borrowed money recorded successfully');
+        setShowBorrowedDialog(false);
+        setBorrowedAmount('');
+        setBorrowedSource('');
+        setBorrowedDescription('');
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to record borrowed money');
+      }
+    } catch (error) {
+      console.error('Error adding borrowed money:', error);
+      toast.error('Failed to record borrowed money');
+    } finally {
+      setAddingBorrowed(false);
+    }
+  };
+
+  // Handle Add Invest Money
+  const handleAddInvestMoney = async () => {
+    if (!selectedCompanyId) {
+      toast.error('Please select a company first');
+      return;
+    }
+    if (!investAmount || parseFloat(investAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    setAddingInvest(true);
+    try {
+      const response = await fetch('/api/accountant/invest-money', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          amount: parseFloat(investAmount),
+          destination: investDestination,
+          description: investDescription,
+          createdById: user?.id
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Investment recorded successfully');
+        setShowInvestDialog(false);
+        setInvestAmount('');
+        setInvestDestination('');
+        setInvestDescription('');
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to record investment');
+      }
+    } catch (error) {
+      console.error('Error adding investment:', error);
+      toast.error('Failed to record investment');
+    } finally {
+      setAddingInvest(false);
+    }
+  };
+
   // Handle Scan/Reconcile
   const handleScanReconcile = async () => {
     setScanning(true);
@@ -671,6 +824,9 @@ export default function SimplifiedAccountantDashboard() {
           formatCurrency={formatCurrency} 
           selectedYear={selectedYear}
           onYearChange={setSelectedYear}
+          onAddEquity={() => setShowEquityDialog(true)}
+          onAddBorrowedMoney={() => setShowBorrowedDialog(true)}
+          onAddInvestMoney={() => setShowInvestDialog(true)}
         />;
       case 'bank-accounts':
         return <BankAccountsSection 
@@ -1529,6 +1685,198 @@ export default function SimplifiedAccountantDashboard() {
                   <Scan className="h-4 w-4 mr-2" />
                   Start Scan
                 </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Equity Dialog */}
+      <Dialog open={showEquityDialog} onOpenChange={setShowEquityDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-green-600" />
+              Add Equity
+            </DialogTitle>
+            <DialogDescription>
+              Record equity capital for {selectedCompany?.name || 'the selected company'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="equityAmount">Amount (₹) *</Label>
+              <Input
+                id="equityAmount"
+                type="number"
+                placeholder="Enter amount"
+                value={equityAmount}
+                onChange={(e) => setEquityAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="equityDescription">Description</Label>
+              <Textarea
+                id="equityDescription"
+                placeholder="Enter description..."
+                value={equityDescription}
+                onChange={(e) => setEquityDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEquityDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddEquity}
+              disabled={addingEquity}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {addingEquity ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                'Add Equity'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Borrowed Money Dialog */}
+      <Dialog open={showBorrowedDialog} onOpenChange={setShowBorrowedDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-orange-600" />
+              Add Borrowed Money
+            </DialogTitle>
+            <DialogDescription>
+              Record borrowed funds for {selectedCompany?.name || 'the selected company'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="borrowedAmount">Amount (₹) *</Label>
+              <Input
+                id="borrowedAmount"
+                type="number"
+                placeholder="Enter amount"
+                value={borrowedAmount}
+                onChange={(e) => setBorrowedAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="borrowedSource">Source</Label>
+              <Input
+                id="borrowedSource"
+                placeholder="e.g., Bank Loan, Private Lender"
+                value={borrowedSource}
+                onChange={(e) => setBorrowedSource(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="borrowedDescription">Description</Label>
+              <Textarea
+                id="borrowedDescription"
+                placeholder="Enter description..."
+                value={borrowedDescription}
+                onChange={(e) => setBorrowedDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBorrowedDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddBorrowedMoney}
+              disabled={addingBorrowed}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {addingBorrowed ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                'Add Borrowed Money'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Invest Money Dialog */}
+      <Dialog open={showInvestDialog} onOpenChange={setShowInvestDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowUpRight className="h-5 w-5 text-indigo-600" />
+              Add Invest Money
+            </DialogTitle>
+            <DialogDescription>
+              Record investment made by {selectedCompany?.name || 'the selected company'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="investAmount">Amount (₹) *</Label>
+              <Input
+                id="investAmount"
+                type="number"
+                placeholder="Enter amount"
+                value={investAmount}
+                onChange={(e) => setInvestAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="investDestination">Destination</Label>
+              <Input
+                id="investDestination"
+                placeholder="e.g., Fixed Deposit, Mutual Fund"
+                value={investDestination}
+                onChange={(e) => setInvestDestination(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="investDescription">Description</Label>
+              <Textarea
+                id="investDescription"
+                placeholder="Enter description..."
+                value={investDescription}
+                onChange={(e) => setInvestDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInvestDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddInvestMoney}
+              disabled={addingInvest}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {addingInvest ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                'Add Investment'
               )}
             </Button>
           </DialogFooter>
