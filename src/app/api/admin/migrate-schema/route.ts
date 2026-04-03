@@ -97,6 +97,24 @@ async function runMigration(): Promise<{ success: boolean; results: string[] }> 
       results
     );
 
+    // Create LoanSequence table if not exists
+    try {
+      await db.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS LoanSequence (
+          id VARCHAR(191) PRIMARY KEY DEFAULT (CONCAT('seq_', SUBSTRING(MD5(RAND()), 1, 20))),
+          currentSequence INT DEFAULT 0,
+          lastUpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+      results.push('✅ LoanSequence table created or already exists');
+    } catch (e: any) {
+      if (e.message?.includes('already exists')) {
+        results.push('✓ LoanSequence table already exists');
+      } else {
+        results.push(`❌ LoanSequence table: ${e.message}`);
+      }
+    }
+
     return { success: true, results };
   } catch (error: any) {
     results.push(`❌ Migration error: ${error.message}`);
