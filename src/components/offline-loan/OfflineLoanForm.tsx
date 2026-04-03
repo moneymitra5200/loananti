@@ -107,6 +107,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [loadingBankAccounts, setLoadingBankAccounts] = useState(false);
   const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
@@ -404,10 +405,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   useEffect(() => {
     if (isMirrorLoan && mirrorCompanyId) {
       // For mirror loans, fetch the mirror company's bank accounts for disbursement
+      setBankAccounts([]); // Clear existing accounts first
+      setFormData(prev => ({ ...prev, bankAccountId: '' })); // Reset selection
       fetchBankAccounts(mirrorCompanyId);
       setCashbookBalance(null);
-      // Reset bank account selection when mirror company changes
-      setFormData(prev => ({ ...prev, bankAccountId: '' }));
     } else if (!isMirrorLoan && formData.companyId) {
       // Normal flow - fetch based on selected company
       if (isSelectedCompany3()) {
@@ -493,24 +494,27 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
 
   const fetchBankAccounts = async (companyId: string) => {
     try {
-      const res = await fetch(`/api/accounting/bank?action=list&companyId=${companyId}`);
+      setLoadingBankAccounts(true);
+      // Use the accountant bank-accounts API which properly filters by company
+      const res = await fetch(`/api/accountant/bank-accounts?companyId=${companyId}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.success) {
-          // Filter bank accounts by company
-          const companyBanks = (data.data || []).filter((b: BankAccount) => 
-            !b.companyId || b.companyId === companyId
-          );
-          setBankAccounts(companyBanks);
-          // Auto-select default bank
-          const defaultBank = companyBanks.find((b: BankAccount) => b.isDefault);
-          if (defaultBank) {
-            setFormData(prev => ({ ...prev, bankAccountId: defaultBank.id }));
-          }
+        const accounts = data.bankAccounts || [];
+        setBankAccounts(accounts);
+        // Auto-select default bank
+        const defaultBank = accounts.find((b: BankAccount) => b.isDefault);
+        if (defaultBank) {
+          setFormData(prev => ({ ...prev, bankAccountId: defaultBank.id }));
+        } else if (accounts.length > 0) {
+          // Select first bank if no default
+          setFormData(prev => ({ ...prev, bankAccountId: accounts[0].id }));
         }
       }
     } catch (error) {
       console.error('Failed to fetch bank accounts:', error);
+      setBankAccounts([]);
+    } finally {
+      setLoadingBankAccounts(false);
     }
   };
 
@@ -1193,22 +1197,33 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                         )}
                         
                         {/* Secondary Payment Page for Extra EMIs */}
-                        {mirrorLoanSummary && mirrorLoanSummary.extraEMICount > 0 && paymentPages.length > 0 && (
-                          <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                            <Label className="text-amber-800 font-medium">Secondary Payment Page for Extra EMIs</Label>
-                            <p className="text-xs text-amber-600 mb-2">
-                              Extra EMIs (profit for Company 3) will be recorded to this payment page
+                        {mirrorLoanSummary && mirrorLoanSummary.extraEMICount > 0 && (
+                          <div className="p-4 bg-amber-50 rounded-lg border border-amber-300">
+                            <div className="flex items-center gap-2 mb-2">
+                              <AlertCircle className="h-5 w-5 text-amber-600" />
+                              <Label className="text-amber-800 font-semibold">Secondary Payment Page for Extra EMIs</Label>
+                            </div>
+                            <p className="text-sm text-amber-700 mb-3">
+                              <strong>{mirrorLoanSummary.extraEMICount} Extra EMIs</strong> (profit for Company 3) need a payment page so customers can pay online.
                             </p>
-                            <Select value={extraEmiPaymentPageId} onValueChange={setExtraEmiPaymentPageId}>
-                              <SelectTrigger className="mt-1 bg-white">
-                                <SelectValue placeholder="Select payment page (optional)..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {paymentPages.map(page => (
-                                  <SelectItem key={page.id} value={page.id}>{page.name}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {paymentPages.length > 0 ? (
+                              <Select value={extraEmiPaymentPageId} onValueChange={setExtraEmiPaymentPageId}>
+                                <SelectTrigger className="bg-white">
+                                  <SelectValue placeholder="Select payment page for extra EMIs..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {paymentPages.map(page => (
+                                    <SelectItem key={page.id} value={page.id}>{page.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div className="p-3 bg-white rounded-lg border border-amber-200">
+                                <p className="text-sm text-gray-600">
+                                  ⚠️ No secondary payment pages found. Please create one in Settings first.
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1392,11 +1407,16 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       </AlertDescription>
                     </Alert>
                     
-                    {bankAccounts.length === 0 ? (
-                      <Alert className="bg-gray-50 border-gray-200">
-                        <Info className="h-4 w-4 text-gray-600" />
-                        <AlertDescription className="text-gray-700 text-sm">
-                          No bank accounts found for the mirror company. Please add bank accounts first.
+                    {loadingBankAccounts ? (
+                      <div className="flex items-center gap-2 p-4 bg-white rounded-lg border">
+                        <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
+                        <span className="text-sm text-gray-600">Loading bank accounts from {companies.find(c => c.id === mirrorCompanyId)?.name}...</span>
+                      </div>
+                    ) : bankAccounts.length === 0 ? (
+                      <Alert className="bg-red-50 border-red-200">
+                        <AlertCircle className="h-4 w-4 text-red-600" />
+                        <AlertDescription className="text-red-700 text-sm">
+                          No bank accounts found for <strong>{companies.find(c => c.id === mirrorCompanyId)?.name}</strong>. Please add bank accounts first.
                         </AlertDescription>
                       </Alert>
                     ) : (
