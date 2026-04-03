@@ -400,6 +400,26 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     }
   }, [formData.companyId, companies.length]);
 
+  // Fetch bank accounts when mirror company is selected (for mirror loan disbursement)
+  useEffect(() => {
+    if (isMirrorLoan && mirrorCompanyId) {
+      // For mirror loans, fetch the mirror company's bank accounts for disbursement
+      fetchBankAccounts(mirrorCompanyId);
+      setCashbookBalance(null);
+      // Reset bank account selection when mirror company changes
+      setFormData(prev => ({ ...prev, bankAccountId: '' }));
+    } else if (!isMirrorLoan && formData.companyId) {
+      // Normal flow - fetch based on selected company
+      if (isSelectedCompany3()) {
+        fetchCashbookBalance(formData.companyId);
+        setBankAccounts([]);
+      } else {
+        fetchBankAccounts(formData.companyId);
+        setCashbookBalance(null);
+      }
+    }
+  }, [isMirrorLoan, mirrorCompanyId]);
+
   // Fetch cashbook balance for Company 3
   const fetchCashbookBalance = async (companyId: string) => {
     try {
@@ -1362,6 +1382,74 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       Please select a company first to see available accounts.
                     </AlertDescription>
                   </Alert>
+                ) : isMirrorLoan && mirrorCompanyId ? (
+                  // Mirror Loan - Show Mirror Company's Bank Accounts
+                  <div className="space-y-4">
+                    <Alert className="bg-purple-50 border-purple-200">
+                      <TrendingUp className="h-4 w-4 text-purple-600" />
+                      <AlertDescription className="text-purple-700 text-sm">
+                        <strong>Mirror Loan Selected</strong> - Disbursement will be from the mirror company's bank account.
+                      </AlertDescription>
+                    </Alert>
+                    
+                    {bankAccounts.length === 0 ? (
+                      <Alert className="bg-gray-50 border-gray-200">
+                        <Info className="h-4 w-4 text-gray-600" />
+                        <AlertDescription className="text-gray-700 text-sm">
+                          No bank accounts found for the mirror company. Please add bank accounts first.
+                        </AlertDescription>
+                      </Alert>
+                    ) : (
+                      <>
+                        <div className="p-4 bg-gradient-to-r from-purple-100 to-indigo-100 rounded-lg border border-purple-300">
+                          <p className="text-sm text-purple-700 mb-2">
+                            Mirror Company: <strong>{companies.find(c => c.id === mirrorCompanyId)?.name}</strong>
+                          </p>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Payment Mode</Label>
+                              <Select value={formData.disbursementMode} onValueChange={(v) => handleInputChange('disbursementMode', v)}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
+                                  <SelectItem value="CASH">Cash</SelectItem>
+                                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Reference Number</Label>
+                              <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Cheque No. / Ref" />
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label>Select Bank Account for Disbursement *</Label>
+                          <Select 
+                            value={formData.bankAccountId || ''} 
+                            onValueChange={(v) => handleInputChange('bankAccountId', v)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select bank account..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {bankAccounts.map(acc => (
+                                <SelectItem key={acc.id} value={acc.id}>
+                                  {acc.bankName} - {acc.accountNumber}
+                                  <span className="text-gray-500 ml-1">(Bal: ₹{acc.currentBalance?.toLocaleString()})</span>
+                                  {acc.isDefault && <span className="text-amber-600 ml-1">★ Default</span>}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-purple-600">
+                            The loan amount will be deducted from the mirror company's bank account
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 ) : isSelectedCompany3() ? (
                   // Company 3 - Show Cashbook instead of Bank Accounts
                   <div className="space-y-4">
