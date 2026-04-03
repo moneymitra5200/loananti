@@ -1872,6 +1872,8 @@ model OfflineLoan {
   productId             String?             // Reference to CMSService (loan product)
   // Bank account for disbursement
   bankAccountId         String?             // Bank account used for disbursement
+  // Mirror Loan Display Color - Same color for original + mirror pair
+  displayColor          String?             // Hex color code like "#FF5733" - unique per loan pair
   // Timestamps
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt

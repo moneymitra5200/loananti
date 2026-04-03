@@ -124,9 +124,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [cashbookBalance, setCashbookBalance] = useState<number | null>(null);
   const [loadingCashbook, setLoadingCashbook] = useState(false);
   
-  // Secondary Payment Page for Extra EMIs (Mirror Loan)
-  const [paymentPages, setPaymentPages] = useState<Array<{ id: string; name: string }>>([]);
-  const [extraEmiPaymentPageId, setExtraEmiPaymentPageId] = useState('');
+  // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
   // Form data - declared before useMemo hooks that depend on it
   const [formData, setFormData] = useState({
@@ -379,7 +377,6 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     if (open) {
       fetchCompanies();
       fetchLoanProducts();
-      fetchPaymentPages();
     }
   }, [open]);
 
@@ -518,18 +515,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     }
   };
 
-  // Fetch secondary payment pages for mirror loan extra EMIs
-  const fetchPaymentPages = async () => {
-    try {
-      const response = await fetch('/api/emi-payment-settings?action=secondary-pages');
-      const data = await response.json();
-      if (data.success) {
-        setPaymentPages(data.pages || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch payment pages:', error);
-    }
-  };
+
 
   // Calculate EMI based on interest type
   const calculateEmi = () => {
@@ -740,8 +726,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         mirrorCompanyId: isMirrorLoan ? mirrorCompanyId : null,
         mirrorInterestRate: isMirrorLoan ? getMirrorInterestRate(mirrorCompanyId) : null,
         mirrorInterestType: isMirrorLoan ? 'REDUCING' : null,
-        // Extra EMI Payment Page for mirror loans
-        extraEmiPaymentPageId: isMirrorLoan ? extraEmiPaymentPageId || null : null
+        // Extra EMI goes to personal credit (not company credit)
+        extraEmiGoesToPersonalCredit: isMirrorLoan ? true : false
       };
 
       // Add Gold Loan Receipt Data
@@ -819,7 +805,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     setIsInterestOnly(false);
     setIsMirrorLoan(false);
     setMirrorCompanyId('');
-    setExtraEmiPaymentPageId('');
+
     setCashbookBalance(null);
     // Reset Gold Loan Data
     setGoldLoanData({
@@ -1196,34 +1182,17 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                           </div>
                         )}
                         
-                        {/* Secondary Payment Page for Extra EMIs */}
+                        {/* Extra EMI Info - Always goes to Personal Credit */}
                         {mirrorLoanSummary && mirrorLoanSummary.extraEMICount > 0 && (
                           <div className="p-4 bg-amber-50 rounded-lg border border-amber-300">
                             <div className="flex items-center gap-2 mb-2">
                               <AlertCircle className="h-5 w-5 text-amber-600" />
-                              <Label className="text-amber-800 font-semibold">Secondary Payment Page for Extra EMIs</Label>
+                              <Label className="text-amber-800 font-semibold">Extra EMIs - Personal Credit</Label>
                             </div>
-                            <p className="text-sm text-amber-700 mb-3">
-                              <strong>{mirrorLoanSummary.extraEMICount} Extra EMIs</strong> (profit for Company 3) need a payment page so customers can pay online.
+                            <p className="text-sm text-amber-700">
+                              <strong>{mirrorLoanSummary.extraEMICount} Extra EMIs</strong> (profit for Company 3) will go directly to <strong>Personal Credit</strong>. 
+                              No secondary payment page needed for offline loans.
                             </p>
-                            {paymentPages.length > 0 ? (
-                              <Select value={extraEmiPaymentPageId} onValueChange={setExtraEmiPaymentPageId}>
-                                <SelectTrigger className="bg-white">
-                                  <SelectValue placeholder="Select payment page for extra EMIs..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {paymentPages.map(page => (
-                                    <SelectItem key={page.id} value={page.id}>{page.name}</SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <div className="p-3 bg-white rounded-lg border border-amber-200">
-                                <p className="text-sm text-gray-600">
-                                  ⚠️ No secondary payment pages found. Please create one in Settings first.
-                                </p>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
