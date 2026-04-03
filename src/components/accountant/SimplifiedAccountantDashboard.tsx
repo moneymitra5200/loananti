@@ -103,7 +103,9 @@ interface BalanceSheetData {
       name: string;
       amount: number;
       type: string;
-      details?: Array<{ bankName: string; accountNumber: string; balance: number }>;
+      canAdd?: boolean;
+      isCalculated?: boolean;
+      formula?: string;
     }>;
     total: number;
   };
@@ -113,19 +115,25 @@ interface BalanceSheetData {
       amount: number;
       type: string;
       count?: number;
-      details?: any[];
-      isDifference?: boolean;
+      canAdd?: boolean;
+      details?: Array<{ bankName: string; accountNumber: string; balance: number }>;
     }>;
     total: number;
   };
   summary: {
     cashBookBalance: number;
     bankBalance: number;
+    investMoney: number;
+    equity: number;
+    borrowedMoney: number;
+    profitLoss: number;
+    finalEquity: number;
+    loanPrincipal: number;
+    interestReceivable: number;
     onlineLoansCount: number;
     offlineLoansCount: number;
-    totalPrincipalOutstanding: number;
-    totalInterestPending: number;
-    profitLoss: number;
+    totalIncome: number;
+    totalExpenses: number;
     isBalanced: boolean;
   };
 }
@@ -1611,12 +1619,18 @@ function BalanceSheetSection({
   data, 
   formatCurrency,
   selectedYear,
-  onYearChange
+  onYearChange,
+  onAddEquity,
+  onAddBorrowedMoney,
+  onAddInvestMoney
 }: { 
   data: BalanceSheetData | null; 
   formatCurrency: (a: number) => string;
   selectedYear: string;
   onYearChange: (year: string) => void;
+  onAddEquity: () => void;
+  onAddBorrowedMoney: () => void;
+  onAddInvestMoney: () => void;
 }) {
   if (!data) {
     return <Card><CardContent className="p-6 text-center text-gray-500">No data available</CardContent></Card>;
@@ -1633,7 +1647,7 @@ function BalanceSheetSection({
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <FileSpreadsheet className="h-5 w-5 text-blue-500" />
-              Balance Sheet
+              Balance Sheet (Trial Balance)
             </CardTitle>
             <Select value={selectedYear} onValueChange={onYearChange}>
               <SelectTrigger className="w-40">
@@ -1659,21 +1673,79 @@ function BalanceSheetSection({
       <Card>
         <CardContent className="p-0">
           <div className="grid grid-cols-2 divide-x">
-            {/* LEFT SIDE - Assets */}
+            {/* LEFT SIDE - Liabilities (Source of Funds) */}
             <div className="p-4">
-              <h3 className="text-lg font-bold text-center bg-green-100 text-green-800 py-2 rounded-t-lg mb-4">
-                LEFT SIDE (Assets / Funds Available)
+              <h3 className="text-lg font-bold text-center bg-red-100 text-red-800 py-2 rounded-t-lg mb-4">
+                LEFT SIDE (Liabilities)
               </h3>
               <div className="space-y-2">
                 {data.leftSide?.items?.map((item, idx) => (
                   <div key={idx} className="border rounded-lg p-3">
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
-                        {item.type === 'CASH' && <Wallet className="h-4 w-4 text-amber-600" />}
-                        {item.type === 'BANK' && <Landmark className="h-4 w-4 text-blue-600" />}
+                        {item.type === 'EQUITY' && <TrendingUp className="h-4 w-4 text-green-600" />}
+                        {item.type === 'BORROWED_MONEY' && <DollarSign className="h-4 w-4 text-orange-600" />}
+                        {item.type === 'FINAL_EQUITY' && <Calculator className="h-4 w-4 text-purple-600" />}
                         <span className="font-medium">{item.name}</span>
+                        {item.isCalculated && (
+                          <span className="text-xs text-gray-500 ml-1">(Auto)</span>
+                        )}
                       </div>
-                      <span className="font-bold text-lg">{formatCurrency(item.amount)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg">{formatCurrency(item.amount)}</span>
+                        {item.canAdd && item.type === 'EQUITY' && (
+                          <Button size="sm" variant="outline" onClick={onAddEquity} className="h-7 text-xs">
+                            <Plus className="h-3 w-3 mr-1" />Add
+                          </Button>
+                        )}
+                        {item.canAdd && item.type === 'BORROWED_MONEY' && (
+                          <Button size="sm" variant="outline" onClick={onAddBorrowedMoney} className="h-7 text-xs">
+                            <Plus className="h-3 w-3 mr-1" />Add
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {item.formula && (
+                      <p className="text-xs text-gray-500 mt-1">{item.formula}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* Left Total */}
+              <div className="mt-4 bg-red-600 text-white rounded-lg p-3 flex justify-between items-center">
+                <span className="text-lg font-bold">TOTAL</span>
+                <span className="text-xl font-bold">{formatCurrency(data.leftSide?.total || 0)}</span>
+              </div>
+            </div>
+
+            {/* RIGHT SIDE - Assets (How Funds Are Used) */}
+            <div className="p-4 bg-gray-50">
+              <h3 className="text-lg font-bold text-center bg-green-100 text-green-800 py-2 rounded-t-lg mb-4">
+                RIGHT SIDE (Assets)
+              </h3>
+              <div className="space-y-2">
+                {data.rightSide?.items?.map((item, idx) => (
+                  <div key={idx} className="border rounded-lg p-3">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        {item.type === 'BANK' && <Landmark className="h-4 w-4 text-blue-600" />}
+                        {item.type === 'CASH' && <Wallet className="h-4 w-4 text-amber-600" />}
+                        {item.type === 'INVEST_MONEY' && <ArrowUpRight className="h-4 w-4 text-indigo-600" />}
+                        {item.type === 'LOAN_PRINCIPAL' && <CreditCard className="h-4 w-4 text-purple-600" />}
+                        {item.type === 'INTEREST_RECEIVABLE' && <TrendingUp className="h-4 w-4 text-green-600" />}
+                        <span className="font-medium">
+                          {item.name}
+                          {item.count !== undefined && <span className="text-gray-500 text-sm ml-1">({item.count} loans)</span>}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg">{formatCurrency(item.amount)}</span>
+                        {item.canAdd && item.type === 'INVEST_MONEY' && (
+                          <Button size="sm" variant="outline" onClick={onAddInvestMoney} className="h-7 text-xs">
+                            <Plus className="h-3 w-3 mr-1" />Add
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     {/* Show bank account details */}
                     {item.details && item.details.length > 0 && (
@@ -1689,48 +1761,8 @@ function BalanceSheetSection({
                   </div>
                 ))}
               </div>
-              {/* Left Total */}
-              <div className="mt-4 bg-green-600 text-white rounded-lg p-3 flex justify-between items-center">
-                <span className="text-lg font-bold">TOTAL</span>
-                <span className="text-xl font-bold">{formatCurrency(data.leftSide?.total || 0)}</span>
-              </div>
-            </div>
-
-            {/* RIGHT SIDE - Deployments */}
-            <div className="p-4 bg-gray-50">
-              <h3 className="text-lg font-bold text-center bg-purple-100 text-purple-800 py-2 rounded-t-lg mb-4">
-                RIGHT SIDE (Loans / Deployments)
-              </h3>
-              <div className="space-y-2">
-                {data.rightSide?.items?.map((item, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`border rounded-lg p-3 ${item.isDifference ? 'border-2 border-dashed' : ''}`}
-                  >
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        {(item.type === 'ONLINE_PRINCIPAL' || item.type === 'OFFLINE_PRINCIPAL') && 
-                          <ArrowUpRight className="h-4 w-4 text-blue-600" />
-                        }
-                        {(item.type === 'ONLINE_INTEREST' || item.type === 'OFFLINE_INTEREST') && 
-                          <TrendingUp className="h-4 w-4 text-green-600" />
-                        }
-                        {item.type === 'PROFIT' && <ArrowUpRight className="h-4 w-4 text-green-600" />}
-                        {item.type === 'LOSS' && <ArrowDownRight className="h-4 w-4 text-red-600" />}
-                        <span className="font-medium">
-                          {item.name}
-                          {item.count !== undefined && <span className="text-gray-500 text-sm ml-1">({item.count} loans)</span>}
-                        </span>
-                      </div>
-                      <span className={`font-bold text-lg ${item.type === 'LOSS' ? 'text-red-600' : ''}`}>
-                        {item.type === 'LOSS' ? '-' : ''}{formatCurrency(item.amount)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
               {/* Right Total */}
-              <div className="mt-4 bg-purple-600 text-white rounded-lg p-3 flex justify-between items-center">
+              <div className="mt-4 bg-green-600 text-white rounded-lg p-3 flex justify-between items-center">
                 <span className="text-lg font-bold">TOTAL</span>
                 <span className="text-xl font-bold">{formatCurrency(data.rightSide?.total || 0)}</span>
               </div>
@@ -1761,12 +1793,19 @@ function BalanceSheetSection({
       </Card>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <Card className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">
+      <div className="grid grid-cols-5 gap-4">
+        <Card className="bg-gradient-to-r from-green-500 to-green-600 text-white">
           <CardContent className="p-4 text-center">
-            <Wallet className="h-8 w-8 mx-auto mb-2 opacity-80" />
-            <p className="text-amber-100 text-sm">Cash in Hand</p>
-            <p className="text-xl font-bold">{formatCurrency(data.summary?.cashBookBalance || 0)}</p>
+            <TrendingUp className="h-8 w-8 mx-auto mb-2 opacity-80" />
+            <p className="text-green-100 text-sm">Equity</p>
+            <p className="text-xl font-bold">{formatCurrency(data.summary?.equity || 0)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white">
+          <CardContent className="p-4 text-center">
+            <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-80" />
+            <p className="text-orange-100 text-sm">Borrowed</p>
+            <p className="text-xl font-bold">{formatCurrency(data.summary?.borrowedMoney || 0)}</p>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
@@ -1776,17 +1815,17 @@ function BalanceSheetSection({
             <p className="text-xl font-bold">{formatCurrency(data.summary?.bankBalance || 0)}</p>
           </CardContent>
         </Card>
-        <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white">
+        <Card className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">
           <CardContent className="p-4 text-center">
-            <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-80" />
-            <p className="text-purple-100 text-sm">Loans Outstanding</p>
-            <p className="text-xl font-bold">{formatCurrency(data.summary?.totalPrincipalOutstanding || 0)}</p>
+            <Wallet className="h-8 w-8 mx-auto mb-2 opacity-80" />
+            <p className="text-amber-100 text-sm">Cashbook</p>
+            <p className="text-xl font-bold">{formatCurrency(data.summary?.cashBookBalance || 0)}</p>
           </CardContent>
         </Card>
-        <Card className={`bg-gradient-to-r ${data.summary?.profitLoss >= 0 ? 'from-green-500 to-green-600' : 'from-red-500 to-red-600'} text-white`}>
+        <Card className={`bg-gradient-to-r ${data.summary?.profitLoss >= 0 ? 'from-purple-500 to-purple-600' : 'from-red-500 to-red-600'} text-white`}>
           <CardContent className="p-4 text-center">
-            <TrendingUp className="h-8 w-8 mx-auto mb-2 opacity-80" />
-            <p className="text-green-100 text-sm">{data.summary?.profitLoss >= 0 ? 'Profit' : 'Loss'}</p>
+            <Calculator className="h-8 w-8 mx-auto mb-2 opacity-80" />
+            <p className="text-purple-100 text-sm">{data.summary?.profitLoss >= 0 ? 'Profit' : 'Loss'}</p>
             <p className="text-xl font-bold">{formatCurrency(Math.abs(data.summary?.profitLoss || 0))}</p>
           </CardContent>
         </Card>

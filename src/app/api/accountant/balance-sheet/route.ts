@@ -4,13 +4,17 @@ import { db } from '@/lib/db';
 /**
  * NEW BALANCE SHEET API
  * 
- * LEFT SIDE (Assets/Funds Available):
- * - CashBook Balance (Cash in hand)
- * - Bank Balance (Money in bank)
+ * LEFT SIDE (Liabilities / Source of Funds):
+ * - Equity (Capital invested by owners)
+ * - Borrowed Money (Loans taken from banks/investors)
+ * - Final Equity (Equity + Borrowed ± Profit/Loss)
  * 
- * RIGHT SIDE (Where Funds Are Deployed):
- * - Outstanding Loans (Principal + Pending Interest)
- * - Profit/Loss (Difference to balance both sides)
+ * RIGHT SIDE (Assets / How Funds Are Used):
+ * - Bank Balance
+ * - Cashbook Balance
+ * - Invest Money (Money invested out)
+ * - Loan Principal (Outstanding principal from loans given)
+ * - Interest Receivable (Pending interest from customers)
  * 
  * Company-wise: Separate for Company 1 and Company 2
  * Year-wise: Filter by financial year
@@ -60,17 +64,10 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================
-    // LEFT SIDE - Assets (Funds Available)
+    // RIGHT SIDE - Assets (How Funds Are Used)
     // ============================================
 
-    // 1. CashBook Balance
-    const cashBook = await db.cashBook.findUnique({
-      where: { companyId },
-      select: { currentBalance: true }
-    });
-    const cashBookBalance = cashBook?.currentBalance || 0;
-
-    // 2. Bank Accounts Balance
+    // 1. Bank Balance
     const bankAccounts = await db.bankAccount.findMany({
       where: { companyId, isActive: true },
       select: { 
@@ -82,11 +79,27 @@ export async function GET(request: NextRequest) {
     });
     const totalBankBalance = bankAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
 
-    // ============================================
-    // RIGHT SIDE - Deployments (Loans Given)
-    // ============================================
+    // 2. CashBook Balance
+    const cashBook = await db.cashBook.findUnique({
+      where: { companyId },
+      select: { currentBalance: true }
+    });
+    const cashBookBalance = cashBook?.currentBalance || 0;
 
-    // 1. Online Loans - Outstanding Principal + Pending Interest
+    // 3. Invest Money - Get from ChartOfAccount (account code 2201 - Investor Capital as investment out)
+    let investMoney = 0;
+    const investAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: '2201' // Investor Capital
+      },
+      select: { currentBalance: true }
+    });
+    if (investAccount) {
+      investMoney = Math.abs(investAccount.currentBalance);
+    }
+
+    // 4. Loan Principal Outstanding - from all active loans
     const onlineLoans = await db.loanApplication.findMany({
       where: { 
         companyId, 
@@ -103,18 +116,14 @@ export async function GET(request: NextRequest) {
         emiSchedules: {
           select: {
             principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
             paidPrincipal: true,
+            interestAmount: true,
             paidInterest: true,
-            paymentStatus: true
           }
         }
       }
     });
 
-    // 2. Offline Loans - Outstanding Principal + Pending Interest
     const offlineLoans = await db.offlineLoan.findMany({
       where: { 
         companyId, 
@@ -125,91 +134,99 @@ export async function GET(request: NextRequest) {
         loanNumber: true,
         loanAmount: true,
         interestRate: true,
-        interestType: true,
         customerName: true,
         customerPhone: true,
         emis: {
           select: {
             principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
             paidPrincipal: true,
+            interestAmount: true,
             paidInterest: true,
-            paymentStatus: true
           }
         }
       }
     });
 
-    // Calculate Outstanding for Online Loans
+    // Calculate totals
     let onlinePrincipalOutstanding = 0;
     let onlineInterestPending = 0;
     
-    const onlineLoanDetails = onlineLoans.map(loan => {
-      const principalOutstanding = loan.emiSchedules.reduce((sum, emi) => {
-        return sum + (emi.principalAmount - emi.paidPrincipal);
-      }, 0);
-      
-      const interestPending = loan.emiSchedules.reduce((sum, emi) => {
-        return sum + (emi.interestAmount - emi.paidInterest);
-      }, 0);
-      
-      onlinePrincipalOutstanding += principalOutstanding;
-      onlineInterestPending += interestPending;
-      
-      return {
-        id: loan.id,
-        loanNo: loan.applicationNo,
-        customerName: loan.customer?.name || 'N/A',
-        customerPhone: loan.customer?.phone || 'N/A',
-        disbursedAmount: loan.disbursedAmount || 0,
-        principalOutstanding,
-        interestPending,
-        totalOutstanding: principalOutstanding + interestPending
-      };
+    onlineLoans.forEach(loan => {
+      loan.emiSchedules.forEach(emi => {
+        onlinePrincipalOutstanding += (emi.principalAmount - emi.paidPrincipal);
+        onlineInterestPending += (emi.interestAmount - emi.paidInterest);
+      });
     });
 
-    // Calculate Outstanding for Offline Loans
     let offlinePrincipalOutstanding = 0;
     let offlineInterestPending = 0;
     
-    const offlineLoanDetails = offlineLoans.map(loan => {
-      const principalOutstanding = loan.emis.reduce((sum, emi) => {
-        return sum + (emi.principalAmount - emi.paidPrincipal);
-      }, 0);
-      
-      const interestPending = loan.emis.reduce((sum, emi) => {
-        return sum + (emi.interestAmount - emi.paidInterest);
-      }, 0);
-      
-      offlinePrincipalOutstanding += principalOutstanding;
-      offlineInterestPending += interestPending;
-      
-      return {
-        id: loan.id,
-        loanNo: loan.loanNumber,
-        customerName: loan.customerName || 'N/A',
-        customerPhone: loan.customerPhone || 'N/A',
-        loanAmount: loan.loanAmount,
-        principalOutstanding,
-        interestPending,
-        totalOutstanding: principalOutstanding + interestPending
-      };
+    offlineLoans.forEach(loan => {
+      loan.emis.forEach(emi => {
+        offlinePrincipalOutstanding += (emi.principalAmount - emi.paidPrincipal);
+        offlineInterestPending += (emi.interestAmount - emi.paidInterest);
+      });
     });
 
+    const totalLoanPrincipal = onlinePrincipalOutstanding + offlinePrincipalOutstanding;
+    const totalInterestReceivable = onlineInterestPending + offlineInterestPending;
+
     // ============================================
-    // BALANCE CALCULATION
+    // LEFT SIDE - Liabilities (Source of Funds)
+    // ============================================
+
+    // 1. Equity - Get from ChartOfAccount (account code 5000 or 5100)
+    let equity = 0;
+    const equityAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: { in: ['5000', '5100'] }
+      },
+      select: { currentBalance: true, accountCode: true },
+      orderBy: { accountCode: 'asc' }
+    });
+    if (equityAccount) {
+      equity = equityAccount.currentBalance;
+    }
+
+    // 2. Borrowed Money - Get from ChartOfAccount (account code 2202 - Borrowed Funds)
+    let borrowedMoney = 0;
+    const borrowedAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: '2202' // Borrowed Funds
+      },
+      select: { currentBalance: true }
+    });
+    if (borrowedAccount) {
+      borrowedMoney = Math.abs(borrowedAccount.currentBalance);
+    }
+
+    // 3. Profit/Loss from P&L
+    // Calculate income - expenses for the period
+    const incomeAccounts = await db.chartOfAccount.findMany({
+      where: { companyId, accountType: 'INCOME' },
+      select: { currentBalance: true }
+    });
+    const totalIncome = incomeAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
+
+    const expenseAccounts = await db.chartOfAccount.findMany({
+      where: { companyId, accountType: 'EXPENSE' },
+      select: { currentBalance: true }
+    });
+    const totalExpenses = expenseAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
+
+    const profitLoss = totalIncome - totalExpenses;
+
+    // 4. Final Equity = Equity + Borrowed Money ± Profit/Loss
+    const finalEquity = equity + borrowedMoney + profitLoss;
+
+    // ============================================
+    // TOTALS
     // ============================================
     
-    const leftTotal = cashBookBalance + totalBankBalance;
-    const loansTotal = onlinePrincipalOutstanding + offlinePrincipalOutstanding + 
-                       onlineInterestPending + offlineInterestPending;
-    
-    // Profit/Loss = Left Total - Loans Total (to balance both sides)
-    const profitLoss = leftTotal - loansTotal;
-    
-    const rightTotal = loansTotal + profitLoss;
+    const rightTotal = totalBankBalance + cashBookBalance + investMoney + totalLoanPrincipal + totalInterestReceivable;
+    const leftTotal = equity + borrowedMoney + finalEquity;
 
     // Get financial years list for dropdown
     const financialYears = await db.financialYear.findMany({
@@ -234,14 +251,35 @@ export async function GET(request: NextRequest) {
       financialYear: year ? `FY ${year}-${parseInt(year) + 1}` : `FY ${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       yearOptions,
       
-      // LEFT SIDE - Assets
+      // LEFT SIDE - Liabilities (Source of Funds)
       leftSide: {
         items: [
           {
-            name: 'Cash in Hand (CashBook)',
-            amount: cashBookBalance,
-            type: 'CASH'
+            name: 'Equity',
+            amount: equity,
+            type: 'EQUITY',
+            canAdd: true
           },
+          {
+            name: 'Borrowed Money',
+            amount: borrowedMoney,
+            type: 'BORROWED_MONEY',
+            canAdd: true
+          },
+          {
+            name: 'Final Equity',
+            amount: finalEquity,
+            type: 'FINAL_EQUITY',
+            isCalculated: true,
+            formula: 'Equity + Borrowed Money ± Profit/Loss'
+          }
+        ],
+        total: leftTotal
+      },
+      
+      // RIGHT SIDE - Assets (How Funds Are Used)
+      rightSide: {
+        items: [
           {
             name: 'Bank Balance',
             amount: totalBankBalance,
@@ -251,43 +289,30 @@ export async function GET(request: NextRequest) {
               accountNumber: acc.accountNumber,
               balance: acc.currentBalance
             }))
-          }
-        ],
-        total: leftTotal
-      },
-      
-      // RIGHT SIDE - Deployments
-      rightSide: {
-        items: [
-          {
-            name: 'Online Loans Outstanding (Principal)',
-            amount: onlinePrincipalOutstanding,
-            type: 'ONLINE_PRINCIPAL',
-            count: onlineLoans.length,
-            details: onlineLoanDetails
           },
           {
-            name: 'Offline Loans Outstanding (Principal)',
-            amount: offlinePrincipalOutstanding,
-            type: 'OFFLINE_PRINCIPAL',
-            count: offlineLoans.length,
-            details: offlineLoanDetails
+            name: 'Cashbook Balance',
+            amount: cashBookBalance,
+            type: 'CASH'
           },
           {
-            name: 'Interest Receivable (Online)',
-            amount: onlineInterestPending,
-            type: 'ONLINE_INTEREST'
+            name: 'Invest Money',
+            amount: investMoney,
+            type: 'INVEST_MONEY',
+            canAdd: true
           },
           {
-            name: 'Interest Receivable (Offline)',
-            amount: offlineInterestPending,
-            type: 'OFFLINE_INTEREST'
+            name: 'Loan Principal',
+            amount: totalLoanPrincipal,
+            type: 'LOAN_PRINCIPAL',
+            count: onlineLoans.length + offlineLoans.length,
+            onlineLoans: onlineLoans.length,
+            offlineLoans: offlineLoans.length
           },
           {
-            name: profitLoss >= 0 ? 'Profit' : 'Loss',
-            amount: Math.abs(profitLoss),
-            type: profitLoss >= 0 ? 'PROFIT' : 'LOSS',
-            isDifference: true
+            name: 'Interest Receivable',
+            amount: totalInterestReceivable,
+            type: 'INTEREST_RECEIVABLE'
           }
         ],
         total: rightTotal
@@ -297,11 +322,17 @@ export async function GET(request: NextRequest) {
       summary: {
         cashBookBalance,
         bankBalance: totalBankBalance,
+        investMoney,
+        equity,
+        borrowedMoney,
+        profitLoss,
+        finalEquity,
+        loanPrincipal: totalLoanPrincipal,
+        interestReceivable: totalInterestReceivable,
         onlineLoansCount: onlineLoans.length,
         offlineLoansCount: offlineLoans.length,
-        totalPrincipalOutstanding: onlinePrincipalOutstanding + offlinePrincipalOutstanding,
-        totalInterestPending: onlineInterestPending + offlineInterestPending,
-        profitLoss,
+        totalIncome,
+        totalExpenses,
         isBalanced: Math.abs(leftTotal - rightTotal) < 0.01
       }
     });
