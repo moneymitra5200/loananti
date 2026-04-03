@@ -1,0 +1,874 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  IndianRupee, Banknote, CreditCard, Receipt, AlertCircle,
+  Calculator, TrendingUp, Clock, CalendarIcon, Info, AlertTriangle,
+  CheckCircle2, User, Building2, Wallet
+} from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+import { format, addDays } from 'date-fns';
+
+interface EMIItem {
+  id: string;
+  installmentNumber: number;
+  totalAmount: number;
+  principalAmount: number;
+  interestAmount: number;
+  dueDate: string;
+  paymentStatus: string;
+  paidAmount: number;
+  paidPrincipal: number;
+  paidInterest: number;
+  outstandingPrincipal: number;
+  isPartialPayment?: boolean;
+  isInterestOnly?: boolean;
+  nextPaymentDate?: string;
+  offlineLoan?: {
+    id: string;
+    loanNumber: string;
+    customerName: string;
+    customerPhone: string;
+    loanAmount: number;
+    interestRate: number;
+    tenure: number;
+    company?: { id: string; name: string };
+  };
+  loanApplication?: {
+    id: string;
+    applicationNo: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    company?: { id: string; name: string };
+  };
+}
+
+interface EMIPaymentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  emi: EMIItem | null;
+  type: 'online' | 'offline';
+  userId: string;
+  userRole: string;
+  onPaymentComplete: () => void;
+  // New props for credit system
+  isExtraEMI?: boolean;  // True if this is an extra EMI after mirror tenure
+  isSecondaryPaymentPage?: boolean;  // True if Secondary Payment Page is assigned
+  mirrorLoanInfo?: {
+    isMirrorLoan: boolean;
+    mirrorCompanyId?: string;
+    mirrorPrincipal?: number;
+    mirrorInterest?: number;
+    mirrorTenure?: number;
+  };
+}
+
+type CreditType = 'PERSONAL' | 'COMPANY';
+type PaymentModeOption = 'ONLINE' | 'CASH';
+
+export default function EMIPaymentDialog({
+  open,
+  onOpenChange,
+  emi,
+  type,
+  userId,
+  userRole,
+  onPaymentComplete,
+  isExtraEMI = false,
+  isSecondaryPaymentPage = false,
+  mirrorLoanInfo
+}: EMIPaymentDialogProps) {
+  // Credit system state
+  const [creditType, setCreditType] = useState<CreditType>('COMPANY');
+  const [paymentMode, setPaymentMode] = useState<PaymentModeOption>('ONLINE');
+  
+  // Legacy state for partial/interest-only
+  const [paymentType, setPaymentType] = useState<'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY'>('FULL_EMI');
+  const [partialAmount, setPartialAmount] = useState('');
+  const [nextPaymentDate, setNextPaymentDate] = useState<Date | undefined>(undefined);
+  const [paymentReference, setPaymentReference] = useState('');
+  const [processing, setProcessing] = useState(false);
+  const [interestOnlyConfirmed, setInterestOnlyConfirmed] = useState(false);
+
+  // Determine if this is an Extra EMI
+  const isActuallyExtraEMI = isExtraEMI || (mirrorLoanInfo && emi && emi.installmentNumber > (mirrorLoanInfo.mirrorTenure || 0));
+  
+  // Determine if Personal Credit should be available
+  // Personal Credit is only for Extra EMIs when Secondary Payment Page is assigned
+  const showPersonalCredit = isActuallyExtraEMI && isSecondaryPaymentPage;
+
+  useEffect(() => {
+    // Auto-select Personal Credit if it's an Extra EMI with Secondary Payment Page
+    if (showPersonalCredit) {
+      setCreditType('PERSONAL');
+      setPaymentMode('CASH'); // Personal Credit is always CASH
+    }
+  }, [showPersonalCredit]);
+
+  if (!emi) return null;
+
+  const customerName = type === 'offline'
+    ? emi.offlineLoan?.customerName
+    : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim();
+
+  const loanNumber = type === 'offline'
+    ? emi.offlineLoan?.loanNumber
+    : emi.loanApplication?.applicationNo;
+
+  const companyId = type === 'offline'
+    ? emi.offlineLoan?.company?.id
+    : emi.loanApplication?.company?.id;
+
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+  };
+
+  // Check if EMI is advance payment (due date month not started)
+  const isEmiAdvancePayment = () => {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    const emiDueDate = new Date(emi.dueDate);
+    const emiDueMonth = emiDueDate.getMonth();
+    const emiDueYear = emiDueDate.getFullYear();
+
+    return currentYear < emiDueYear || 
+      (currentYear === emiDueYear && currentMonth < emiDueMonth);
+  };
+
+  const isAdvance = isEmiAdvancePayment();
+
+  // Calculate amounts based on payment type and credit type
+  const getPaymentDetails = () => {
+    const remainingAmount = emi.totalAmount - (emi.paidAmount || 0);
+    const remainingPrincipal = emi.principalAmount - (emi.paidPrincipal || 0);
+    const remainingInterest = emi.interestAmount - (emi.paidInterest || 0);
+    
+    // For Mirror Loans - use mirror amounts if available
+    const effectivePrincipal = mirrorLoanInfo?.isMirrorLoan && mirrorLoanInfo.mirrorPrincipal 
+      ? mirrorLoanInfo.mirrorPrincipal 
+      : remainingPrincipal;
+    const effectiveInterest = mirrorLoanInfo?.isMirrorLoan && mirrorLoanInfo.mirrorInterest 
+      ? mirrorLoanInfo.mirrorInterest 
+      : remainingInterest;
+    const effectiveTotal = effectivePrincipal + effectiveInterest;
+    
+    // For Extra EMIs - full amount is profit (principal only for accounting)
+    if (isActuallyExtraEMI) {
+      return {
+        amount: remainingPrincipal,
+        principal: remainingPrincipal,
+        interest: 0,
+        description: 'Extra EMI Payment - Full Profit',
+        remainingAfter: 0,
+        isAdvance: false
+      };
+    }
+    
+    switch (paymentType) {
+      case 'FULL_EMI':
+        // For advance payments, collect only principal (no interest)
+        if (isAdvance) {
+          return {
+            amount: effectivePrincipal,
+            principal: effectivePrincipal,
+            interest: 0,
+            description: 'Advance Payment - Principal Only',
+            remainingAfter: 0,
+            isAdvance: true
+          };
+        }
+        return {
+          amount: effectiveTotal,
+          principal: effectivePrincipal,
+          interest: effectiveInterest,
+          description: 'Full EMI Payment',
+          remainingAfter: 0,
+          isAdvance: false
+        };
+      case 'PARTIAL_PAYMENT':
+        const partialValue = parseFloat(partialAmount) || 0;
+        const ratio = effectiveTotal > 0 ? partialValue / effectiveTotal : 0;
+        return {
+          amount: partialValue,
+          principal: effectivePrincipal * ratio,
+          interest: effectiveInterest * ratio,
+          description: `Partial Payment (${(ratio * 100).toFixed(1)}% of remaining)`,
+          remainingAfter: effectiveTotal - partialValue
+        };
+      case 'INTEREST_ONLY':
+        return {
+          amount: effectiveInterest,
+          principal: 0,
+          interest: effectiveInterest,
+          description: 'Interest Only Payment',
+          remainingAfter: effectivePrincipal // Principal will be deferred
+        };
+    }
+  };
+
+  const details = getPaymentDetails();
+  const remainingAmount = emi.totalAmount - (emi.paidAmount || 0);
+  const remainingPrincipal = emi.principalAmount - (emi.paidPrincipal || 0);
+  const remainingInterest = emi.interestAmount - (emi.paidInterest || 0);
+
+  // Calculate future EMI adjustment for partial payments
+  const calculateFutureAdjustment = () => {
+    if (paymentType !== 'PARTIAL_PAYMENT' || type !== 'offline') return null;
+
+    const partialValue = parseFloat(partialAmount) || 0;
+    const outstandingPrincipal = emi.outstandingPrincipal;
+    const interestRate = emi.offlineLoan?.interestRate || 12;
+    const remainingTenure = (emi.offlineLoan?.tenure || 12) - emi.installmentNumber;
+
+    if (remainingTenure <= 0) return null;
+
+    const ratio = remainingAmount > 0 ? partialValue / remainingAmount : 0;
+    const principalPaid = remainingPrincipal * ratio;
+    const newOutstandingPrincipal = outstandingPrincipal - principalPaid;
+
+    const monthlyRate = interestRate / 100 / 12;
+    const newEmi = newOutstandingPrincipal * monthlyRate * Math.pow(1 + monthlyRate, remainingTenure) 
+                   / (Math.pow(1 + monthlyRate, remainingTenure) - 1);
+
+    return {
+      principalPaid,
+      newOutstandingPrincipal,
+      newEmi: Math.round(newEmi),
+      remainingTenure
+    };
+  };
+
+  const adjustment = calculateFutureAdjustment();
+
+  const handlePayment = async () => {
+    // Validation for partial payment
+    if (paymentType === 'PARTIAL_PAYMENT') {
+      if (!partialAmount || parseFloat(partialAmount) <= 0) {
+        toast({ title: 'Error', description: 'Please enter a valid partial amount', variant: 'destructive' });
+        return;
+      }
+      if (parseFloat(partialAmount) > remainingAmount) {
+        toast({ title: 'Error', description: 'Partial amount cannot exceed remaining amount', variant: 'destructive' });
+        return;
+      }
+      if (!nextPaymentDate) {
+        toast({ title: 'Error', description: 'Please select when you will pay the remaining amount', variant: 'destructive' });
+        return;
+      }
+    }
+
+    // Validation for interest only payment
+    if (paymentType === 'INTEREST_ONLY' && !interestOnlyConfirmed) {
+      toast({ title: 'Error', description: 'Please confirm that you understand the principal will be deferred', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setProcessing(true);
+
+      // For offline loans
+      if (type === 'offline') {
+        const requestBody: Record<string, unknown> = {
+          action: 'pay-emi',
+          emiId: emi.id,
+          userId,
+          userRole,
+          paymentMode: creditType === 'PERSONAL' ? 'CASH' : paymentMode,
+          amount: details.amount,
+          paymentType: paymentType === 'FULL_EMI' ? 'FULL' : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL' : 'INTEREST_ONLY',
+          remarks: paymentType === 'PARTIAL_PAYMENT' ? `Partial payment - remaining due: ${formatCurrency(details.remainingAfter)}` : '',
+          isAdvancePayment: details.isAdvance || false,
+          // New credit system fields
+          creditType: creditType,
+          isPersonalCredit: creditType === 'PERSONAL',
+          isExtraEMI: isActuallyExtraEMI,
+          isMirrorLoan: mirrorLoanInfo?.isMirrorLoan || false,
+          mirrorPrincipal: mirrorLoanInfo?.mirrorPrincipal,
+          mirrorInterest: mirrorLoanInfo?.mirrorInterest,
+        };
+
+        if (paymentType === 'PARTIAL_PAYMENT' && nextPaymentDate) {
+          requestBody.remainingPaymentDate = nextPaymentDate.toISOString();
+        }
+
+        const res = await fetch('/api/offline-loan', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            toast({
+              title: 'Payment Successful',
+              description: creditType === 'PERSONAL' 
+                ? `${formatCurrency(details.amount)} collected (Personal Credit - Company 3 Cashbook)`
+                : `${formatCurrency(details.amount)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)`
+            });
+            onPaymentComplete();
+            onOpenChange(false);
+            resetForm();
+          } else {
+            toast({ title: 'Error', description: data.error || 'Payment failed', variant: 'destructive' });
+          }
+        } else {
+          const error = await res.json();
+          toast({ title: 'Error', description: error.error || 'Failed to process payment', variant: 'destructive' });
+        }
+      } else {
+        // For online loans
+        const formData = new FormData();
+        formData.append('emiId', emi.id);
+        formData.append('loanId', emi.loanApplication?.id || '');
+        formData.append('amount', details.amount.toString());
+        formData.append('paymentMode', creditType === 'PERSONAL' ? 'CASH' : paymentMode);
+        formData.append('paidBy', userId);
+        formData.append('paymentType', paymentType);
+        formData.append('remarks', paymentType === 'PARTIAL_PAYMENT' ? `Partial payment - remaining due: ${formatCurrency(details.remainingAfter)}` : '');
+        formData.append('isAdvancePayment', String(details.isAdvance || false));
+        // New credit system fields
+        formData.append('creditType', creditType);
+        formData.append('isPersonalCredit', String(creditType === 'PERSONAL'));
+        formData.append('isExtraEMI', String(isActuallyExtraEMI));
+        formData.append('isMirrorLoan', String(mirrorLoanInfo?.isMirrorLoan || false));
+        if (mirrorLoanInfo?.mirrorPrincipal) {
+          formData.append('mirrorPrincipal', mirrorLoanInfo.mirrorPrincipal.toString());
+        }
+        if (mirrorLoanInfo?.mirrorInterest) {
+          formData.append('mirrorInterest', mirrorLoanInfo.mirrorInterest.toString());
+        }
+
+        if (paymentType === 'PARTIAL_PAYMENT') {
+          formData.append('partialAmount', partialAmount);
+          formData.append('nextPaymentDate', nextPaymentDate?.toISOString() || '');
+        }
+
+        const res = await fetch('/api/emi/pay', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            toast({
+              title: 'Payment Successful',
+              description: creditType === 'PERSONAL' 
+                ? `${formatCurrency(details.amount)} collected (Personal Credit - Company 3 Cashbook)`
+                : `${formatCurrency(details.amount)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)`
+            });
+            onPaymentComplete();
+            onOpenChange(false);
+            resetForm();
+          } else {
+            toast({ title: 'Error', description: data.error || 'Payment failed', variant: 'destructive' });
+          }
+        } else {
+          const error = await res.json();
+          toast({ title: 'Error', description: error.error || 'Failed to process payment', variant: 'destructive' });
+        }
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast({ title: 'Error', description: 'Failed to process payment', variant: 'destructive' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const resetForm = () => {
+    setPaymentType('FULL_EMI');
+    setCreditType('COMPANY');
+    setPaymentMode('ONLINE');
+    setPartialAmount('');
+    setNextPaymentDate(undefined);
+    setPaymentReference('');
+    setInterestOnlyConfirmed(false);
+  };
+
+  const minNextPaymentDate = addDays(new Date(emi.dueDate), 1);
+  const maxNextPaymentDate = addDays(new Date(), 60);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <IndianRupee className="h-5 w-5 text-emerald-500" />
+            Collect EMI Payment
+          </DialogTitle>
+          <DialogDescription>
+            {type === 'offline' ? 'Offline Loan' : 'Online Loan'} - {loanNumber}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          {/* EMI Details */}
+          <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Customer</span>
+              <span className="font-medium">{customerName}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">EMI Number</span>
+              <span className="font-medium">#{emi.installmentNumber}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Due Date</span>
+              <span className="font-medium">{formatDate(emi.dueDate)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Total Amount</span>
+              <span className="font-bold text-lg">{formatCurrency(emi.totalAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">Principal</span>
+              <span>{formatCurrency(emi.principalAmount)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-400">Interest</span>
+              <span>{formatCurrency(emi.interestAmount)}</span>
+            </div>
+            {emi.paidAmount > 0 && (
+              <>
+                <div className="flex justify-between items-center text-sm text-green-600">
+                  <span>Already Paid</span>
+                  <span>{formatCurrency(emi.paidAmount)}</span>
+                </div>
+                <div className="flex justify-between items-center font-medium pt-2 border-t">
+                  <span className="text-gray-600">Remaining</span>
+                  <span className="text-orange-600">{formatCurrency(remainingAmount)}</span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Extra EMI / Mirror Loan Badge */}
+          {(isActuallyExtraEMI || mirrorLoanInfo?.isMirrorLoan) && (
+            <div className="flex gap-2">
+              {isActuallyExtraEMI && (
+                <Badge className="bg-purple-500">Extra EMI (After Mirror Tenure)</Badge>
+              )}
+              {mirrorLoanInfo?.isMirrorLoan && !isActuallyExtraEMI && (
+                <Badge className="bg-blue-500">Mirror Loan EMI</Badge>
+              )}
+            </div>
+          )}
+
+          {/* ============ NEW CREDIT TYPE SELECTION ============ */}
+          <div className="space-y-3">
+            <Label className="font-medium text-base">Credit Type</Label>
+            
+            {/* Personal Credit Option - Only for Extra EMIs with Secondary Payment Page */}
+            {showPersonalCredit && (
+              <div 
+                className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                  creditType === 'PERSONAL' 
+                    ? 'border-emerald-500 bg-emerald-50' 
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+                onClick={() => {
+                  setCreditType('PERSONAL');
+                  setPaymentMode('CASH'); // Personal Credit is always CASH
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    creditType === 'PERSONAL' ? 'border-emerald-500' : 'border-gray-300'
+                  }`}>
+                    {creditType === 'PERSONAL' && (
+                      <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-emerald-600" />
+                      <span className="font-medium">Personal Credit</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Payment Mode: <Badge variant="outline" className="ml-1">CASH only</Badge>
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Entry in: Company 3 Cashbook | Your personal credit increases
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Company Credit Option */}
+            <div 
+              className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                creditType === 'COMPANY' 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              onClick={() => setCreditType('COMPANY')}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                  creditType === 'COMPANY' ? 'border-blue-500' : 'border-gray-300'
+                }`}>
+                  {creditType === 'COMPANY' && (
+                    <div className="w-3 h-3 rounded-full bg-blue-500" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">Company Credit</span>
+                  </div>
+                  
+                  {/* Payment Mode Options for Company Credit */}
+                  {creditType === 'COMPANY' && (
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={paymentMode === 'ONLINE' ? 'default' : 'outline'}
+                        className={paymentMode === 'ONLINE' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPaymentMode('ONLINE');
+                        }}
+                      >
+                        <CreditCard className="h-4 w-4 mr-1" />
+                        Online (Bank)
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={paymentMode === 'CASH' ? 'default' : 'outline'}
+                        className={paymentMode === 'CASH' ? 'bg-amber-500 hover:bg-amber-600' : ''}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPaymentMode('CASH');
+                        }}
+                      >
+                        <Banknote className="h-4 w-4 mr-1" />
+                        Cash
+                      </Button>
+                    </div>
+                  )}
+                  
+                  <p className="text-xs text-gray-400 mt-2">
+                    Entry in: {paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} of Loan Company | Company credit increases
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Type Selection - Only for non-extra EMIs */}
+          {!isActuallyExtraEMI && (
+            <div className="space-y-2">
+              <Label className="font-medium">Payment Type</Label>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  type="button"
+                  variant={paymentType === 'FULL_EMI' ? 'default' : 'outline'}
+                  className={`h-auto py-3 flex-col ${paymentType === 'FULL_EMI' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}`}
+                  onClick={() => setPaymentType('FULL_EMI')}
+                >
+                  <IndianRupee className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Full EMI</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentType === 'PARTIAL_PAYMENT' ? 'default' : 'outline'}
+                  className={`h-auto py-3 flex-col ${paymentType === 'PARTIAL_PAYMENT' ? 'bg-amber-500 hover:bg-amber-600' : ''}`}
+                  onClick={() => setPaymentType('PARTIAL_PAYMENT')}
+                >
+                  <Calculator className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Partial</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
+                  className={`h-auto py-3 flex-col ${paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}`}
+                  onClick={() => setPaymentType('INTEREST_ONLY')}
+                >
+                  <TrendingUp className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Interest Only</span>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Full EMI Info */}
+          {paymentType === 'FULL_EMI' && !isActuallyExtraEMI && (
+            <div className={`p-4 rounded-lg border ${isAdvance ? 'bg-blue-50 border-blue-200' : 'bg-emerald-50 border-emerald-200'}`}>
+              <div className="flex items-start gap-2">
+                {isAdvance ? (
+                  <Info className="h-5 w-5 text-blue-500 mt-0.5" />
+                ) : (
+                  <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5" />
+                )}
+                <div className={`text-sm ${isAdvance ? 'text-blue-700' : 'text-emerald-700'}`}>
+                  <p className="font-medium">
+                    {isAdvance ? 'Advance Payment - Principal Only' : 'Full EMI Payment'}
+                  </p>
+                  {isAdvance ? (
+                    <>
+                      <p className="mt-1">
+                        This EMI's due date month has not started. Only principal will be collected.
+                      </p>
+                      <p className="mt-2 font-bold text-lg">
+                        Amount to pay: {formatCurrency(remainingPrincipal)}
+                      </p>
+                      <div className="mt-2 text-xs text-blue-600">
+                        <p>Principal: {formatCurrency(remainingPrincipal)}</p>
+                        <p>Interest: ₹0 (waived for advance payment)</p>
+                        <p className="mt-1 text-green-600 font-medium">You save: {formatCurrency(remainingInterest)}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-1">Pay the complete remaining amount of {formatCurrency(remainingAmount)}</p>
+                      <div className="mt-2 text-xs text-emerald-600">
+                        <p>Principal: {formatCurrency(remainingPrincipal)}</p>
+                        <p>Interest: {formatCurrency(remainingInterest)}</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Extra EMI Info */}
+          {isActuallyExtraEMI && (
+            <div className="p-4 rounded-lg border bg-purple-50 border-purple-200">
+              <div className="flex items-start gap-2">
+                <Info className="h-5 w-5 text-purple-500 mt-0.5" />
+                <div className="text-sm text-purple-700">
+                  <p className="font-medium">Extra EMI Payment (After Mirror Tenure)</p>
+                  <p className="mt-1">
+                    This EMI is beyond the mirror loan tenure. Full amount is profit for Company 3.
+                  </p>
+                  <p className="mt-2 font-bold text-lg">
+                    Amount to pay: {formatCurrency(remainingPrincipal)}
+                  </p>
+                  {creditType === 'PERSONAL' && (
+                    <p className="text-xs text-emerald-600 mt-1">
+                      Your personal credit will increase by {formatCurrency(remainingPrincipal)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Partial Payment Section */}
+          {paymentType === 'PARTIAL_PAYMENT' && !isActuallyExtraEMI && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Partial Amount (Max: {formatCurrency(remainingAmount)})</Label>
+                <div className="relative">
+                  <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="number"
+                    value={partialAmount}
+                    onChange={(e) => setPartialAmount(e.target.value)}
+                    placeholder="Enter amount..."
+                    max={remainingAmount}
+                    className="pl-8"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  When will you pay the remaining amount?
+                </Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={`w-full justify-start text-left font-normal ${!nextPaymentDate && 'text-muted-foreground'}`}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {nextPaymentDate ? format(nextPaymentDate, 'PPP') : 'Select a date'}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={nextPaymentDate}
+                      onSelect={setNextPaymentDate}
+                      disabled={(date) => date < minNextPaymentDate || date > maxNextPaymentDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5" />
+                  <div className="text-sm text-amber-700">
+                    <p className="font-medium">Important Note</p>
+                    <p>The remaining amount will be rescheduled to the selected date.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Interest Only Section */}
+          {paymentType === 'INTEREST_ONLY' && !isActuallyExtraEMI && (
+            <div className="space-y-4">
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-2">
+                  <Info className="h-5 w-5 text-blue-500 mt-0.5" />
+                  <div className="text-sm text-blue-700">
+                    <p className="font-medium">Interest Only Payment</p>
+                    <p className="mt-1">You will pay only the interest component:</p>
+                    <p className="text-xl font-bold mt-2">{formatCurrency(remainingInterest)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
+                  <div className="text-sm text-amber-700">
+                    <p className="font-medium">Warning</p>
+                    <p>The principal amount will increase your next EMI.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-start space-x-2 p-3 border rounded-lg bg-gray-50">
+                <Checkbox
+                  id="interest-only-confirm"
+                  checked={interestOnlyConfirmed}
+                  onCheckedChange={(checked) => setInterestOnlyConfirmed(checked as boolean)}
+                />
+                <div className="grid gap-1.5 leading-none">
+                  <label
+                    htmlFor="interest-only-confirm"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    I understand and confirm
+                  </label>
+                  <p className="text-xs text-gray-500">
+                    The principal amount ({formatCurrency(remainingPrincipal)}) will be added to next month's EMI
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Payment Summary */}
+          <div className={`p-4 rounded-lg border ${
+            creditType === 'PERSONAL' 
+              ? 'bg-emerald-50 border-emerald-200' 
+              : paymentMode === 'ONLINE'
+                ? 'bg-blue-50 border-blue-200'
+                : 'bg-amber-50 border-amber-200'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              {creditType === 'PERSONAL' ? (
+                <User className="h-4 w-4 text-emerald-600" />
+              ) : paymentMode === 'ONLINE' ? (
+                <CreditCard className="h-4 w-4 text-blue-600" />
+              ) : (
+                <Banknote className="h-4 w-4 text-amber-600" />
+              )}
+              <span className="font-medium text-sm">
+                {creditType === 'PERSONAL' 
+                  ? 'Personal Credit - Company 3 Cashbook'
+                  : paymentMode === 'ONLINE'
+                    ? 'Company Credit - Bank Account Entry'
+                    : 'Company Credit - Cashbook Entry'
+                }
+              </span>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">{details.description}</p>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Amount to Collect</span>
+              <span className="text-xl font-bold text-gray-800">{formatCurrency(details.amount)}</span>
+            </div>
+            {paymentType === 'PARTIAL_PAYMENT' && details.remainingAfter > 0 && (
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Remaining Balance:</span>
+                  <span className="font-medium text-orange-600">{formatCurrency(details.remainingAfter)}</span>
+                </div>
+                {nextPaymentDate && (
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-gray-400">Due by:</span>
+                    <span>{format(nextPaymentDate, 'dd MMM yyyy')}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+              <Clock className="h-4 w-4" />
+              <span>
+                {creditType === 'PERSONAL' 
+                  ? 'Your personal credit will increase'
+                  : 'Company credit will increase'
+                }
+              </span>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1 bg-emerald-500 hover:bg-emerald-600"
+              onClick={handlePayment}
+              disabled={
+                processing || 
+                (paymentType === 'PARTIAL_PAYMENT' && (!partialAmount || !nextPaymentDate)) ||
+                (paymentType === 'INTEREST_ONLY' && !interestOnlyConfirmed)
+              }
+            >
+              {processing ? 'Processing...' : `Collect ${formatCurrency(details.amount)}`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

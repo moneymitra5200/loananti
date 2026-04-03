@@ -1,0 +1,12 @@
+export { default as ApprovalDialog } from './ApprovalDialog';
+export { default as LoanDetailsDialog } from './LoanDetailsDialog';
+export { default as UserDialogs } from './UserDialogs';
+export { default as ComprehensiveLoanDialog } from './ComprehensiveLoanDialog';
+export { default as ProductDialog } from './ProductDialog';
+export { default as InterestOnlyDialogs } from './InterestOnlyDialogs';
+export { default as BulkApprovalDialog } from './BulkApprovalDialog';
+export { default as DeleteLoanDialog } from './DeleteLoanDialog';
+export { default as RoleSelectDialog } from './RoleSelectDialog';
+export { default as DeleteConfirmDialog } from './DeleteConfirmDialog';
+export { default as UserDetailsDialog } from './UserDetailsDialog';
+export { default as GenericConfirmDialog } from './GenericConfirmDialog';

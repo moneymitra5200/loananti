@@ -1,0 +1,52 @@
+{
+  "name": "Money Mitra - Loan Management System",
+  "short_name": "Money Mitra",
+  "description": "Professional Loan Management & Accounting System for modern lending businesses",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#10b981",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-IN",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "/logo-circle.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo-circle.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/logo-square.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Apply for Loan",
+      "short_name": "Apply",
+      "description": "Start a new loan application",
+      "url": "/?action=apply",
+      "icons": [{ "src": "/logo-circle.png", "sizes": "any" }]
+    },
+    {
+      "name": "Pay EMI",
+      "short_name": "Pay EMI",
+      "description": "Pay your EMI installment",
+      "url": "/?action=pay-emi",
+      "icons": [{ "src": "/logo-circle.png", "sizes": "any" }]
+    }
+  ],
+  "screenshots": [],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
