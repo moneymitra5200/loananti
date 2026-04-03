@@ -19,7 +19,8 @@ import {
 import {
   Calendar, IndianRupee, Clock, AlertTriangle, CheckCircle,
   Phone, MapPin, User, Wallet, CreditCard, Banknote, Receipt,
-  Upload, FileCheck, Building2, Info, X, ImageIcon, Settings
+  Upload, FileCheck, Building2, Info, X, ImageIcon, Settings,
+  Search, Calculator
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import EMISettingsButton from '@/components/shared/EMISettingsButton';
@@ -28,6 +29,8 @@ interface EMIItem {
   id: string;
   installmentNumber: number;
   totalAmount: number;
+  principalAmount: number;
+  interestAmount: number;
   dueDate: string;
   paymentStatus: string;
   paidAmount: number;
@@ -58,12 +61,18 @@ interface EMICollectionSectionProps {
 }
 
 export default function EMICollectionSection({ userId, userRole, onPaymentComplete }: EMICollectionSectionProps) {
-  const [loading, setLoading] = useState(true);
-  const [todayEmis, setTodayEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
-  const [tomorrowEmis, setTomorrowEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
-  const [overdueEmis, setOverdueEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
-  const [summary, setSummary] = useState({ today: { count: 0, amount: 0 }, tomorrow: { count: 0, amount: 0 }, overdue: { count: 0, amount: 0 } });
-  
+  const [loading, setLoading] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  });
+  const [emis, setEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
+  const [summary, setSummary] = useState({
+    online: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 },
+    offline: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 },
+    combined: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 }
+  });
+
   // Payment dialog
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMIItem | null>(null);
@@ -75,27 +84,22 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const [utrNumber, setUtrNumber] = useState('');
   const [remarks, setRemarks] = useState('');
   const [paying, setPaying] = useState(false);
-  
-  // Active tab
-  const [activeTab, setActiveTab] = useState<'today' | 'tomorrow' | 'overdue'>('today');
-  
+
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchEmis();
-  }, [userId, userRole]);
+    fetchEmisByDate();
+  }, [selectedDate, userId, userRole]);
 
-  const fetchEmis = async () => {
+  const fetchEmisByDate = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/emi-reminder?action=today-tomorrow&userId=${userId}&userRole=${userRole}`);
+      const res = await fetch(`/api/emi-reminder?action=by-date&date=${selectedDate}&userId=${userId}&userRole=${userRole}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          setTodayEmis(data.todayEmis);
-          setTomorrowEmis(data.tomorrowEmis);
-          setOverdueEmis(data.overdueEmis);
+          setEmis({ online: data.onlineEmis, offline: data.offlineEmis });
           setSummary(data.summary);
         }
       }
@@ -142,14 +146,14 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
 
     try {
       setPaying(true);
-      
+
       // Upload proof if provided
       let proofDocumentPath = null;
       if (proofFile) {
         const formData = new FormData();
         formData.append('file', proofFile);
         formData.append('documentType', 'emi-proof');
-        
+
         const uploadRes = await fetch('/api/upload/document', {
           method: 'POST',
           body: formData
@@ -159,10 +163,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           proofDocumentPath = uploadData.url;
         }
       }
-      
+
       // Create credit transaction with dual credit system
-      const customerName = selectedType === 'offline' 
-        ? selectedEmi.offlineLoan?.customerName 
+      const customerName = selectedType === 'offline'
+        ? selectedEmi.offlineLoan?.customerName
         : `${selectedEmi.loanApplication?.firstName || ''} ${selectedEmi.loanApplication?.lastName || ''}`.trim();
       const customerPhone = selectedType === 'offline'
         ? selectedEmi.offlineLoan?.customerPhone
@@ -170,7 +174,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       const loanNo = selectedType === 'offline'
         ? selectedEmi.offlineLoan?.loanNumber
         : selectedEmi.loanApplication?.applicationNo;
-      
+
       // Create credit transaction
       const creditRes = await fetch('/api/credit', {
         method: 'POST',
@@ -198,16 +202,16 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           remarks
         })
       });
-      
+
       const creditData = await creditRes.json();
-      
+
       if (!creditData.success) {
         throw new Error(creditData.error || 'Failed to update credit');
       }
-      
+
       // Update EMI status
       const endpoint = selectedType === 'offline' ? '/api/offline-loan' : '/api/customer/payment';
-      
+
       const body = selectedType === 'offline' ? {
         action: 'pay-emi',
         emiId: selectedEmi.id,
@@ -240,10 +244,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           setRemarks('');
           setCreditType('COMPANY');
           setPaymentMode('CASH');
-          
-          fetchEmis();
+
+          fetchEmisByDate();
           onPaymentComplete?.();
-          
+
           toast({
             title: 'Payment Collected',
             description: `EMI collected successfully. ${creditType === 'COMPANY' && paymentMode === 'CASH' ? 'Company credit' : 'Personal credit'} increased by ${formatCurrency(selectedEmi.totalAmount)}`,
@@ -302,18 +306,18 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     }
   };
 
-  const renderEmiCard = (emi: EMIItem, type: 'online' | 'offline', isOverdue: boolean = false) => {
-    const customerName = type === 'offline' 
-      ? emi.offlineLoan?.customerName 
+  const renderEmiCard = (emi: EMIItem, type: 'online' | 'offline') => {
+    const customerName = type === 'offline'
+      ? emi.offlineLoan?.customerName
       : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim();
-    const loanNumber = type === 'offline' 
-      ? emi.offlineLoan?.loanNumber 
+    const loanNumber = type === 'offline'
+      ? emi.offlineLoan?.loanNumber
       : emi.loanApplication?.applicationNo;
-    const phone = type === 'offline' 
-      ? emi.offlineLoan?.customerPhone 
+    const phone = type === 'offline'
+      ? emi.offlineLoan?.customerPhone
       : emi.loanApplication?.phone;
-    const address = type === 'offline' 
-      ? emi.offlineLoan?.customerAddress 
+    const address = type === 'offline'
+      ? emi.offlineLoan?.customerAddress
       : emi.loanApplication?.address;
 
     return (
@@ -321,7 +325,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         key={emi.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`p-4 rounded-lg border ${isOverdue ? 'border-red-200 bg-red-50' : 'border-gray-100 bg-white'} hover:shadow-md transition-shadow`}
+        className="p-4 rounded-lg border border-gray-100 bg-white hover:shadow-md transition-shadow"
       >
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -330,19 +334,13 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 {type === 'offline' ? 'Offline' : 'Online'}
               </Badge>
               <span className="text-sm font-medium text-gray-600">EMI #{emi.installmentNumber}</span>
-              {isOverdue && (
-                <Badge variant="destructive" className="text-xs">
-                  <AlertTriangle className="h-3 w-3 mr-1" />
-                  Overdue
-                </Badge>
-              )}
             </div>
-            
+
             <div className="flex items-center gap-2 mb-1">
               <User className="h-4 w-4 text-gray-400" />
               <span className="font-medium text-gray-900">{customerName}</span>
             </div>
-            
+
             <div className="text-sm text-gray-500 space-y-1">
               <div className="flex items-center gap-2">
                 <Receipt className="h-3 w-3" />
@@ -358,9 +356,17 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   <span className="truncate max-w-[200px]">{address}</span>
                 </div>
               )}
+              <div className="flex items-center gap-4 mt-2 pt-2 border-t border-gray-100">
+                <span className="text-xs text-gray-400">
+                  Principal: <span className="font-medium text-gray-600">{formatCurrency(emi.principalAmount)}</span>
+                </span>
+                <span className="text-xs text-gray-400">
+                  Interest: <span className="font-medium text-gray-600">{formatCurrency(emi.interestAmount)}</span>
+                </span>
+              </div>
             </div>
           </div>
-          
+
           <div className="text-right">
             <p className="text-lg font-bold text-gray-900">{formatCurrency(emi.totalAmount)}</p>
             <p className="text-xs text-gray-500">Due: {formatDate(emi.dueDate)}</p>
@@ -388,25 +394,6 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     );
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-24 bg-gray-100 rounded"></div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const totalToday = todayEmis.online.length + todayEmis.offline.length;
-  const totalTomorrow = tomorrowEmis.online.length + tomorrowEmis.offline.length;
-  const totalOverdue = overdueEmis.online.length + overdueEmis.offline.length;
-
   const creditInfo = getCreditInfo();
   const requiresProof = paymentMode !== 'CASH' || creditType === 'PERSONAL';
 
@@ -419,127 +406,103 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
               <Wallet className="h-5 w-5" />
               EMI Collection
             </CardTitle>
-            <div className="flex gap-2">
-              <Badge className="bg-white/20 text-white border-0">
-                Today: {totalToday} ({formatCurrency(summary.today.amount)})
-              </Badge>
-            </div>
           </div>
         </CardHeader>
-        
-        {/* Tab Navigation */}
-        <div className="flex border-b">
-          <button
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === 'today' 
-                ? 'text-emerald-600 border-b-2 border-emerald-500 bg-emerald-50' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setActiveTab('today')}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Calendar className="h-4 w-4" />
-              Today ({totalToday})
-            </div>
-          </button>
-          <button
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === 'tomorrow' 
-                ? 'text-emerald-600 border-b-2 border-emerald-500 bg-emerald-50' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setActiveTab('tomorrow')}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Clock className="h-4 w-4" />
-              Tomorrow ({totalTomorrow})
-            </div>
-          </button>
-          <button
-            className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
-              activeTab === 'overdue' 
-                ? 'text-red-600 border-b-2 border-red-500 bg-red-50' 
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setActiveTab('overdue')}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              Overdue ({totalOverdue})
-            </div>
-          </button>
-        </div>
-        
+
         <CardContent className="p-4">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="text-center p-3 rounded-lg bg-emerald-50 border border-emerald-100">
-              <p className="text-xs text-emerald-600 font-medium">Today</p>
-              <p className="text-lg font-bold text-emerald-700">{formatCurrency(summary.today.amount)}</p>
-              <p className="text-xs text-emerald-500">{summary.today.count} EMIs</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-blue-50 border border-blue-100">
-              <p className="text-xs text-blue-600 font-medium">Tomorrow</p>
-              <p className="text-lg font-bold text-blue-700">{formatCurrency(summary.tomorrow.amount)}</p>
-              <p className="text-xs text-blue-500">{summary.tomorrow.count} EMIs</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-red-50 border border-red-100">
-              <p className="text-xs text-red-600 font-medium">Overdue</p>
-              <p className="text-lg font-bold text-red-700">{formatCurrency(summary.overdue.amount)}</p>
-              <p className="text-xs text-red-500">{summary.overdue.count} EMIs</p>
+          {/* Date Selection Section */}
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
+            <Label className="text-sm font-medium text-gray-700 mb-2 block">Select Date</Label>
+            <div className="flex gap-3 items-center">
+              <div className="relative flex-1">
+                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Button
+                onClick={fetchEmisByDate}
+                className="bg-emerald-500 hover:bg-emerald-600"
+              >
+                <Search className="h-4 w-4 mr-1" />
+                Search
+              </Button>
             </div>
           </div>
 
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 gap-3 mb-4">
+            {/* Combined Total */}
+            <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-emerald-600 font-medium">Total Collection for {formatDate(selectedDate)}</p>
+                  <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.combined.totalAmount)}</p>
+                  <p className="text-xs text-emerald-500 mt-1">{summary.combined.count} EMIs</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="h-3 w-3" />
+                      <span>Principal: <span className="font-medium text-gray-700">{formatCurrency(summary.combined.totalPrincipal)}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <IndianRupee className="h-3 w-3" />
+                      <span>Interest: <span className="font-medium text-gray-700">{formatCurrency(summary.combined.totalInterest)}</span></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Online/Offline Breakdown */}
+            {(summary.online.count > 0 || summary.offline.count > 0) && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
+                  <p className="text-xs text-blue-600 font-medium">Online Loans</p>
+                  <p className="text-lg font-bold text-blue-700">{formatCurrency(summary.online.totalAmount)}</p>
+                  <p className="text-xs text-blue-500">{summary.online.count} EMIs</p>
+                  <div className="text-xs text-gray-500 mt-1">
+                    P: {formatCurrency(summary.online.totalPrincipal)} | I: {formatCurrency(summary.online.totalInterest)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-purple-50 border border-purple-100">
+                  <p className="text-xs text-purple-600 font-medium">Offline Loans</p>
+                  <p className="text-lg font-bold text-purple-700">{formatCurrency(summary.offline.totalAmount)}</p>
+                  <p className="text-xs text-purple-500">{summary.offline.count} EMIs</p>
+                  <div className="text-xs text-gray-500 mt-1">
+                    P: {formatCurrency(summary.offline.totalPrincipal)} | I: {formatCurrency(summary.offline.totalInterest)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* EMI List */}
-          <ScrollArea className="h-[300px]">
-            {activeTab === 'today' && (
-              <>
-                {totalToday === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p>No EMIs to collect today</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {todayEmis.offline.map(emi => renderEmiCard(emi, 'offline'))}
-                    {todayEmis.online.map(emi => renderEmiCard(emi, 'online'))}
-                  </div>
-                )}
-              </>
-            )}
-            
-            {activeTab === 'tomorrow' && (
-              <>
-                {totalTomorrow === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p>No EMIs for tomorrow</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {tomorrowEmis.offline.map(emi => renderEmiCard(emi, 'offline'))}
-                    {tomorrowEmis.online.map(emi => renderEmiCard(emi, 'online'))}
-                  </div>
-                )}
-              </>
-            )}
-            
-            {activeTab === 'overdue' && (
-              <>
-                {totalOverdue === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p>No overdue EMIs</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {overdueEmis.offline.map(emi => renderEmiCard(emi, 'offline', true))}
-                    {overdueEmis.online.map(emi => renderEmiCard(emi, 'online', true))}
-                  </div>
-                )}
-              </>
-            )}
-          </ScrollArea>
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-24 bg-gray-100 rounded-lg animate-pulse"></div>
+              ))}
+            </div>
+          ) : (
+            <ScrollArea className="h-[300px]">
+              {summary.combined.count === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p>No EMIs to collect on {formatDate(selectedDate)}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {emis.offline.map(emi => renderEmiCard(emi, 'offline'))}
+                  {emis.online.map(emi => renderEmiCard(emi, 'online'))}
+                </div>
+              )}
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
 
@@ -552,7 +515,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
               Select payment mode and credit type. Only CASH increases company credit.
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedEmi && (
             <div className="space-y-4 pt-4">
               {/* EMI Details */}
@@ -562,7 +525,15 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   <span className="font-medium">#{selectedEmi.installmentNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Amount</span>
+                  <span className="text-gray-500">Principal</span>
+                  <span className="font-medium">{formatCurrency(selectedEmi.principalAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Interest</span>
+                  <span className="font-medium">{formatCurrency(selectedEmi.interestAmount)}</span>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <span className="text-gray-500 font-medium">Total Amount</span>
                   <span className="font-bold text-lg">{formatCurrency(selectedEmi.totalAmount)}</span>
                 </div>
                 <div className="flex justify-between">

@@ -268,6 +268,108 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Get EMIs by specific date
+    if (action === 'by-date') {
+      const dateStr = searchParams.get('date'); // Format: YYYY-MM-DD
+
+      if (!dateStr) {
+        return NextResponse.json({ error: 'date parameter is required (YYYY-MM-DD format)' }, { status: 400 });
+      }
+
+      const selectedDate = new Date(dateStr);
+      selectedDate.setHours(0, 0, 0, 0);
+
+      const nextDay = new Date(selectedDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      // Get online EMIs for the selected date
+      const onlineEmiWhere: Record<string, unknown> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { gte: selectedDate, lt: nextDay }
+      };
+
+      if (userRole === 'AGENT') {
+        onlineEmiWhere.loanApplication = {
+          sessionForm: { agentId: userId }
+        };
+      }
+
+      const onlineEmis = await db.eMISchedule.findMany({
+        where: onlineEmiWhere,
+        include: {
+          loanApplication: {
+            select: {
+              id: true,
+              applicationNo: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              address: true,
+              companyId: true
+            }
+          }
+        },
+        orderBy: { dueDate: 'asc' }
+      });
+
+      // Get offline EMIs for the selected date
+      const offlineEmiWhere: Record<string, unknown> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { gte: selectedDate, lt: nextDay }
+      };
+
+      if (userRole === 'AGENT') {
+        offlineEmiWhere.offlineLoan = { createdById: userId };
+      }
+
+      const offlineEmis = await db.offlineLoanEMI.findMany({
+        where: offlineEmiWhere,
+        include: {
+          offlineLoan: {
+            select: {
+              id: true,
+              loanNumber: true,
+              customerName: true,
+              customerPhone: true,
+              customerAddress: true,
+              companyId: true
+            }
+          }
+        },
+        orderBy: { dueDate: 'asc' }
+      });
+
+      // Calculate totals with principal and interest breakdown
+      const summary = {
+        online: {
+          count: onlineEmis.length,
+          totalAmount: onlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: onlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: onlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+        },
+        offline: {
+          count: offlineEmis.length,
+          totalAmount: offlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: offlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: offlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+        },
+        combined: {
+          count: onlineEmis.length + offlineEmis.length,
+          totalAmount: onlineEmis.reduce((sum, e) => sum + e.totalAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: onlineEmis.reduce((sum, e) => sum + e.principalAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: onlineEmis.reduce((sum, e) => sum + e.interestAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+        }
+      };
+
+      return NextResponse.json({
+        success: true,
+        date: dateStr,
+        onlineEmis,
+        offlineEmis,
+        summary
+      });
+    }
+
     // Get all EMIs to collect (for SuperAdmin view)
     if (action === 'all-to-collect') {
       const today = new Date();
