@@ -1446,15 +1446,17 @@ export async function PUT(request: NextRequest) {
       });
     }
 
-    // Pay EMI with partial payment support
+    // Pay EMI with partial payment support - OPTIMIZED VERSION
     if (action === 'pay-emi' && emiId && userId) {
       const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment } = body;
       // paymentType: 'FULL', 'PARTIAL', 'INTEREST_ONLY', 'ADVANCE'
       // creditType: 'COMPANY', 'PERSONAL'
       // isAdvancePayment: true when paying EMI before its due date month starts (collect principal only)
 
-      // Run EMI and User queries in parallel for faster response
-      const [emiResult, userResult] = await Promise.all([
+      // ============ STEP 1: FETCH EMI AND USER ============
+      const startTime = Date.now();
+      
+      const [emiResult, userResult, companies] = await Promise.all([
         db.offlineLoanEMI.findUnique({
           where: { id: emiId },
           include: { offlineLoan: true }
@@ -1462,11 +1464,17 @@ export async function PUT(request: NextRequest) {
         db.user.findUnique({
           where: { id: userId },
           select: { id: true, credit: true, companyCredit: true, personalCredit: true, role: true, name: true }
+        }),
+        db.company.findMany({
+          orderBy: { createdAt: 'asc' },
+          take: 3,
+          select: { id: true, code: true }
         })
       ]);
 
       const emi = emiResult;
       const user = userResult;
+      const company3Id = companies.length >= 3 ? companies[2].id : null;
 
       if (!emi) {
         return NextResponse.json({ error: 'EMI not found' }, { status: 404 });
@@ -1477,9 +1485,6 @@ export async function PUT(request: NextRequest) {
       }
 
       // ============ MIRROR LOAN CHECK ============
-      // Mirror loans cannot be paid directly - they sync from original loan
-      
-      // Check 1: Check if the loan itself is marked as mirror loan
       if (emi.offlineLoan.isMirrorLoan) {
         return NextResponse.json({
           error: 'Cannot pay mirror loan directly',
@@ -1488,22 +1493,34 @@ export async function PUT(request: NextRequest) {
           isMirrorLoan: true
         }, { status: 400 });
       }
-      
-      // Check 2: Check via mapping (fallback for older loans) - run in parallel with bank account and extra EMI check
-      const [mirrorLoanCheck, defaultBank, mirrorMappingCheck] = await Promise.all([
+
+      // Check if payment type is allowed
+      if (paymentType === 'INTEREST_ONLY' && emi.offlineLoan.allowInterestOnly === false) {
+        return NextResponse.json({ error: 'Interest-only payments are not allowed for this loan' }, { status: 400 });
+      }
+      if (paymentType === 'PARTIAL' && emi.offlineLoan.allowPartialPayment === false) {
+        return NextResponse.json({ error: 'Partial payments are not allowed for this loan' }, { status: 400 });
+      }
+
+      // ============ STEP 2: FETCH ALL MIRROR/BANK DATA IN PARALLEL ============
+      const [mirrorLoanMapping, mirrorLoanCheck, defaultBank] = await Promise.all([
+        // Check if this loan has a mirror (original -> mirror)
         db.mirrorLoanMapping.findFirst({
-          where: { mirrorLoanId: emi.offlineLoanId }
+          where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true },
+          select: { id: true, mirrorLoanId: true, mirrorTenure: true, mirrorCompanyId: true }
         }),
-        // Get default bank account in parallel
-        !bankAccountId && emi.offlineLoan.companyId ? db.bankAccount.findFirst({
-          where: { companyId: emi.offlineLoan.companyId, isDefault: true }
-        }) : Promise.resolve(null),
-        // Check for extra EMI detection (loan has a mirror)
+        // Check if this is a mirror loan (mirror -> original)
         db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: emi.offlineLoanId }
-        })
+          where: { mirrorLoanId: emi.offlineLoanId },
+          select: { id: true, originalLoanId: true }
+        }),
+        // Get default bank
+        emi.offlineLoan.companyId ? db.bankAccount.findFirst({
+          where: { companyId: emi.offlineLoan.companyId, isDefault: true }
+        }) : Promise.resolve(null)
       ]);
 
+      // Mirror loan check via mapping
       if (mirrorLoanCheck) {
         return NextResponse.json({
           error: 'Cannot pay mirror loan directly',
@@ -1513,30 +1530,16 @@ export async function PUT(request: NextRequest) {
         }, { status: 400 });
       }
 
-      // Check if payment type is allowed for this loan
-      if (paymentType === 'INTEREST_ONLY' && emi.offlineLoan.allowInterestOnly === false) {
-        return NextResponse.json({ error: 'Interest-only payments are not allowed for this loan' }, { status: 400 });
-      }
-      if (paymentType === 'PARTIAL' && emi.offlineLoan.allowPartialPayment === false) {
-        return NextResponse.json({ error: 'Partial payments are not allowed for this loan' }, { status: 400 });
-      }
+      console.log(`[EMI Payment] Data fetch completed in ${Date.now() - startTime}ms`);
 
-      // ============ ADVANCE PAYMENT CHECK ============
-      // Check if EMI is being paid before its due date month starts
+      // ============ STEP 3: CALCULATE PAYMENT ============
       const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
       const emiDueDate = new Date(emi.dueDate);
-      const emiDueMonth = emiDueDate.getMonth();
-      const emiDueYear = emiDueDate.getFullYear();
+      const isEmiAdvancePayment = currentDate.getFullYear() < emiDueDate.getFullYear() || 
+        (currentDate.getFullYear() === emiDueDate.getFullYear() && currentDate.getMonth() < emiDueDate.getMonth());
 
-      // EMI is advance if: current date's month/year < EMI due date's month/year
-      const isEmiAdvancePayment = currentYear < emiDueYear || 
-        (currentYear === emiDueYear && currentMonth < emiDueMonth);
+      console.log(`[EMI Payment] EMI #${emi.installmentNumber} Due: ${emiDueDate.toISOString().split('T')[0]}, Is Advance: ${isEmiAdvancePayment}`);
 
-      console.log(`[EMI Payment] EMI #${emi.installmentNumber} Due: ${emiDueDate.toISOString().split('T')[0]}, Current: ${currentDate.toISOString().split('T')[0]}, Is Advance: ${isEmiAdvancePayment}`);
-
-      // Store previous state for undo
       const previousState = {
         paidAmount: emi.paidAmount,
         paidPrincipal: emi.paidPrincipal,
@@ -1552,26 +1555,18 @@ export async function PUT(request: NextRequest) {
 
       // Calculate based on payment type
       if (paymentType === 'FULL' || paymentType === 'ADVANCE') {
-        // ============ ADVANCE PAYMENT LOGIC ============
-        // If EMI is being paid before its due date month: COLLECT PRINCIPAL ONLY
-        // If EMI is being paid in/past due date month: COLLECT PRINCIPAL + INTEREST
         if (isAdvancePayment === true || isEmiAdvancePayment) {
-          // ADVANCE PAYMENT - Principal Only
           paidPrincipal = emi.principalAmount;
-          paidInterest = 0; // No interest for advance payment
+          paidInterest = 0;
           paidAmount = emi.principalAmount;
           paymentStatus = 'PAID';
-          console.log(`[EMI Payment] ADVANCE payment - Principal only: ₹${paidPrincipal}`);
         } else {
-          // REGULAR FULL PAYMENT
           paidAmount = emi.totalAmount;
           paidPrincipal = emi.principalAmount;
           paidInterest = emi.interestAmount;
           paymentStatus = 'PAID';
-          console.log(`[EMI Payment] FULL payment - Principal: ₹${paidPrincipal}, Interest: ₹${paidInterest}`);
         }
       } else if (paymentType === 'PARTIAL') {
-        // Partial payment - distribute proportionally
         const remainingAmount = emi.totalAmount - paidAmount;
         const paymentRatio = amount / remainingAmount;
         paidPrincipal += emi.principalAmount * paymentRatio;
@@ -1579,183 +1574,34 @@ export async function PUT(request: NextRequest) {
         paidAmount += amount;
         paymentStatus = paidAmount >= emi.totalAmount ? 'PAID' : 'PARTIALLY_PAID';
       } else if (paymentType === 'INTEREST_ONLY') {
-        // Interest-only payment: collect interest, defer full EMI to end
         paidInterest = emi.interestAmount;
         paidAmount = emi.interestAmount;
-        paidPrincipal = 0; // Principal is NOT paid
+        paidPrincipal = 0;
         paymentStatus = 'INTEREST_ONLY_PAID';
-        // Note: A new deferred EMI will be created at the end of the schedule
       }
 
       const paymentAmount = amount || emi.totalAmount;
-      
-      // For interest-only, the payment amount is just the interest
       const actualPaymentAmount = paymentType === 'INTEREST_ONLY' ? emi.interestAmount : paymentAmount;
       
-      // ============ CHECK IF THIS IS AN EXTRA EMI (MIRROR LOAN) ============
-      // Extra EMIs always go to PERSONAL credit - not company credit
-      // Using pre-fetched mirrorMappingCheck from earlier parallel query
-      const isExtraEMI = mirrorMappingCheck && emi.installmentNumber > mirrorMappingCheck.mirrorTenure;
+      // Check for extra EMI
+      const isExtraEMI = mirrorLoanMapping && emi.installmentNumber > mirrorLoanMapping.mirrorTenure;
       
-      // Update credit based on credit type selection
-      // EXTRA EMIs always go to PERSONAL credit
-      let creditUpdateData: any = {};
       let creditTypeUsed = creditType || 'COMPANY';
-      
-      // Force PERSONAL credit for extra EMIs
       if (isExtraEMI) {
         creditTypeUsed = 'PERSONAL';
         console.log(`[EMI Payment] EMI #${emi.installmentNumber} is EXTRA EMI - forcing PERSONAL credit`);
       }
       
-      if (creditTypeUsed === 'COMPANY') {
-        const newCompanyCredit = (user.companyCredit || 0) + actualPaymentAmount;
-        creditUpdateData = { companyCredit: newCompanyCredit };
-      } else {
-        const newPersonalCredit = (user.personalCredit || 0) + actualPaymentAmount;
-        creditUpdateData = { personalCredit: newPersonalCredit };
-      }
+      const creditUpdateData = creditTypeUsed === 'COMPANY' 
+        ? { companyCredit: (user.companyCredit || 0) + actualPaymentAmount }
+        : { personalCredit: (user.personalCredit || 0) + actualPaymentAmount };
 
-      // Use pre-fetched default bank account
       const targetBankAccountId = bankAccountId || defaultBank?.id || null;
 
-      // Process bank transaction for CASH payments (updates bank balance)
-      let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
-      if (paymentMode === 'CASH' && targetBankAccountId && emi.offlineLoan.companyId) {
-        try {
-          bankTransactionResult = await processBankTransaction({
-            bankAccountId: targetBankAccountId,
-            transactionType: 'EMI_PAYMENT',
-            amount: actualPaymentAmount,
-            description: `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber} - ${paymentType}${paymentType === 'INTEREST_ONLY' ? ' (Interest Only - EMI Deferred)' : ''}`,
-            referenceType: 'OFFLINE_EMI',
-            referenceId: emiId,
-            createdById: userId,
-            companyId: emi.offlineLoan.companyId,
-            loanId: emi.offlineLoanId,
-            customerId: emi.offlineLoan.customerId || undefined,
-            principalComponent: paidPrincipal,
-            interestComponent: paidInterest,
-            paymentMode: paymentMode || 'CASH',
-            bankRefNumber: paymentReference
-          });
-        } catch (bankError) {
-          console.error('Bank transaction failed (continuing without):', bankError);
-          // Continue without bank transaction - don't fail the EMI payment
-        }
-      }
-
-      // ============ PARTIAL PAYMENT - ONLY CURRENT EMI DATE CHANGES ============
-      // When customer makes PARTIAL payment with a remaining payment date:
-      // Only the current EMI's nextPaymentDate is updated
-      // Subsequent EMIs dates remain UNCHANGED as per new requirement
-      // Example: EMI 1 due Jan 1, partial paid on Jan 5
-      //          → EMI 1's nextPaymentDate set to Jan 5
-      //          → EMI 2 due date remains Feb 1 (unchanged)
-      if (paymentType === 'PARTIAL' && remainingPaymentDate) {
-        console.log(`[Partial Payment Offline] Processing for EMI #${emi.installmentNumber}`);
-        console.log(`[Partial Payment Offline] Remaining payment date: ${remainingPaymentDate}`);
-        console.log(`[Partial Payment Offline] Subsequent EMI dates will NOT be changed.`);
-
-        // The current EMI's nextPaymentDate is already updated in the EMI record
-        // No need to shift subsequent EMIs
-      }
-
-      // ============ INTEREST ONLY - PYRAMID METHOD ============
-      // When customer pays ONLY INTEREST on EMI:
-      // 1. Create NEW EMI with unpaid principal + new interest at next position
-      // 2. Shift all subsequent EMIs by 1 position
-      let deferredEMI: Awaited<ReturnType<typeof db.offlineLoanEMI.create>> | null = null;
-      if (paymentType === 'INTEREST_ONLY') {
-        console.log(`[Interest Only Offline] Processing for EMI #${emi.installmentNumber}`);
-
-        // Get the due date day pattern from first pending EMI (consistent across all EMIs)
-        const firstPendingEmi = await db.offlineLoanEMI.findFirst({
-          where: {
-            offlineLoanId: emi.offlineLoanId,
-            paymentStatus: 'PENDING'
-          },
-          orderBy: { installmentNumber: 'asc' },
-          select: { installmentNumber: true, dueDate: true }
-        });
-        const dueDateDay = firstPendingEmi?.dueDate?.getDate() || emi.dueDate.getDate() || 15;
-        console.log(`[Interest Only Offline] Due date pattern: Day ${dueDateDay} of each month`);
-
-        // New EMI's due date = Current EMI's due date + 1 month
-        const newEmiDueDate = new Date(emi.dueDate);
-        newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
-        newEmiDueDate.setDate(dueDateDay);
-
-        // Get all subsequent EMIs and shift them (DESCENDING order to avoid unique constraint violations)
-        const subsequentEmis = await db.offlineLoanEMI.findMany({
-          where: {
-            offlineLoanId: emi.offlineLoanId,
-            installmentNumber: { gt: emi.installmentNumber }
-          },
-          orderBy: { installmentNumber: 'desc' }
-        });
-
-        console.log(`[Interest Only Offline] Found ${subsequentEmis.length} subsequent EMIs to shift`);
-
-        // Shift all subsequent EMIs by 1 in PARALLEL using a transaction (much faster than sequential)
-        // We need to use raw SQL for batch update with dynamic values
-        if (subsequentEmis.length > 0) {
-          await db.$transaction(
-            subsequentEmis.map(subsequentEmi => {
-              const shiftedDueDate = new Date(subsequentEmi.dueDate);
-              shiftedDueDate.setMonth(shiftedDueDate.getMonth() + 1);
-              shiftedDueDate.setDate(dueDateDay);
-              
-              return db.offlineLoanEMI.update({
-                where: { id: subsequentEmi.id },
-                data: {
-                  installmentNumber: subsequentEmi.installmentNumber + 1,
-                  dueDate: shiftedDueDate,
-                  originalDueDate: subsequentEmi.originalDueDate || subsequentEmi.dueDate
-                }
-              });
-            })
-          );
-          console.log(`[Interest Only Offline] Shifted ${subsequentEmis.length} EMIs in parallel`);
-        }
-
-        // ============ CREATE NEW EMI (SAME LOGIC AS ONLINE LOAN) ============
-        // The NEW EMI contains:
-        // - Principal: Same as original EMI's principal (deferred, not paid)
-        // - Interest: Same as original EMI's interest (customer already paid this, but it's part of the new EMI)
-        // - Total: Principal + Interest (same as original EMI total)
-        // 
-        // Example: Original EMI #1 has Principal ₹8,000 + Interest ₹2,000 = Total ₹10,000
-        // Customer pays Interest Only ₹2,000
-        // NEW EMI #2 created with Principal ₹8,000 + Interest ₹2,000 = Total ₹10,000
-        // (The interest in NEW EMI is the SAME as original, not recalculated)
-        
-        const deferredPrincipal = emi.principalAmount;
-        const deferredInterest = emi.interestAmount; // SAME interest as original EMI (not recalculated)
-        const newEmiTotalAmount = deferredPrincipal + deferredInterest; // Same as original EMI total
-
-        // Create NEW EMI at the position right after the interest-paid EMI
-        deferredEMI = await db.offlineLoanEMI.create({
-          data: {
-            offlineLoanId: emi.offlineLoanId,
-            installmentNumber: emi.installmentNumber + 1, // Position after interest-paid EMI
-            dueDate: newEmiDueDate,
-            principalAmount: deferredPrincipal,
-            interestAmount: deferredInterest,
-            totalAmount: newEmiTotalAmount,
-            outstandingPrincipal: emi.outstandingPrincipal,
-            paymentStatus: 'PENDING',
-            isDeferred: true,
-            deferredFromEMI: emi.installmentNumber,
-            notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]} (EMI #${emi.installmentNumber} due + 1 month). Principal: ₹${deferredPrincipal}, Interest: ₹${deferredInterest}, Total: ₹${newEmiTotalAmount}`
-          }
-        });
-        console.log(`[Interest Only Offline] Created NEW EMI #${deferredEMI.installmentNumber} with Due: ${newEmiDueDate.toISOString().split('T')[0]}, Principal: ₹${deferredPrincipal}, Interest: ₹${deferredInterest}, Total: ₹${newEmiTotalAmount}`);
-      }
-
-      // Update EMI and add credit
-      const [updatedEmi] = await db.$transaction([
-        db.offlineLoanEMI.update({
+      // ============ STEP 4: PROCESS PAYMENT IN TRANSACTION ============
+      const updatedEmi = await db.$transaction(async (tx) => {
+        // Update EMI
+        const updated = await tx.offlineLoanEMI.update({
           where: { id: emiId },
           data: {
             paidAmount,
@@ -1768,21 +1614,23 @@ export async function PUT(request: NextRequest) {
             collectedById: userId,
             collectedByName: user.name,
             collectedAt: now,
-            // For partial payment, update the EMI's due date to the new payment date
-            // ONLY this EMI's date changes - subsequent EMIs remain unchanged
             ...(paymentType === 'PARTIAL' && remainingPaymentDate ? {
-              dueDate: new Date(remainingPaymentDate),  // Update the actual due date
+              dueDate: new Date(remainingPaymentDate),
               nextPaymentDate: new Date(remainingPaymentDate),
               isPartialPayment: true,
               remainingAmount: emi.totalAmount - paidAmount
             } : {})
           }
-        }),
-        db.user.update({
+        });
+
+        // Update user credit
+        await tx.user.update({
           where: { id: userId },
           data: creditUpdateData
-        }),
-        db.creditTransaction.create({
+        });
+
+        // Create credit transaction
+        await tx.creditTransaction.create({
           data: {
             userId,
             transactionType: 'CREDIT_INCREASE',
@@ -1803,9 +1651,10 @@ export async function PUT(request: NextRequest) {
             collectedFrom: emi.offlineLoan.customerName,
             collectedFromPhone: emi.offlineLoan.customerPhone
           }
-        }),
-        // Log action for undo
-        db.actionLog.create({
+        });
+
+        // Action log
+        await tx.actionLog.create({
           data: {
             userId,
             userRole: user.role,
@@ -1814,275 +1663,48 @@ export async function PUT(request: NextRequest) {
             recordId: emiId,
             recordType: 'OfflineLoanEMI',
             previousData: JSON.stringify(previousState),
-            newData: JSON.stringify({
-              paidAmount,
-              paidPrincipal,
-              paidInterest,
-              paymentStatus,
-              paymentAmount,
-              collectorId: userId,
-              collectorName: user.name,
-              paymentMode,
-              bankTransactionId: bankTransactionResult?.bankTransactionId
-            }),
+            newData: JSON.stringify({ paidAmount, paidPrincipal, paidInterest, paymentStatus, paymentAmount, collectorId: userId, collectorName: user.name, paymentMode }),
             description: `Collected EMI #${emi.installmentNumber} for ${emi.offlineLoan.loanNumber}`,
             canUndo: true
           }
-        })
-      ]);
-
-      // ============================================
-      // RECORD ACCOUNTING ENTRIES FOR MIRROR LOANS
-      // ============================================
-      // Rules:
-      // 1. EMIs within mirror tenure: Mirror EMI → Mirror company, Difference → Original company (C3)
-      // 2. EXTRA EMIs: Entire amount → Original company (C3)
-      // 3. For PARTIAL payments: Use actual payment amount with proportional principal/interest
-      // ============================================
-      try {
-        // Get Company 3 ID for personal credit
-        const company3Id = await getCompany3Id();
-        
-        // Check if this is a mirror loan (has mirror mapping)
-        const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true }
         });
-        
-        if (company3Id && emi.offlineLoan.companyId) {
-          const isMirrorLoan = !!mirrorMappingForAccounting;
-          const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
+
+        // Handle Interest Only - create deferred EMI
+        if (paymentType === 'INTEREST_ONLY') {
+          const newEmiDueDate = new Date(emi.dueDate);
+          newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
           
-          if (isMirrorLoan && !isExtraEMI && mirrorMappingForAccounting?.mirrorLoanId) {
-            // ============ MIRROR EMI (within mirror tenure) ============
-            // Get the mirror EMI to know the mirror amount
-            const mirrorEmiForAccounting = await db.offlineLoanEMI.findFirst({
-              where: {
-                offlineLoanId: mirrorMappingForAccounting.mirrorLoanId,
-                installmentNumber: emi.installmentNumber
-              }
-            });
-            
-            if (mirrorEmiForAccounting) {
-              // For FULL payments: Use mirror EMI amount in mirror company's books
-              // For PARTIAL payments: Use actual payment amount with proportional principal/interest
-              const isFullPayment = paymentStatus === 'PAID';
-              
-              let accountingAmount: number;
-              let accountingPrincipal: number;
-              let accountingInterest: number;
-              
-              if (isFullPayment) {
-                // FULL payment: Record full mirror EMI amount in mirror company's books
-                accountingAmount = mirrorEmiForAccounting.totalAmount;
-                accountingPrincipal = mirrorEmiForAccounting.principalAmount;
-                accountingInterest = mirrorEmiForAccounting.interestAmount;
-              } else {
-                // PARTIAL payment: Record only the actual payment amount
-                // Use the same principal/interest ratio as the original EMI payment
-                accountingAmount = actualPaymentAmount;
-                accountingPrincipal = paidPrincipal;
-                accountingInterest = paidInterest;
-              }
-              
-              const originalEMIAmount = actualPaymentAmount;
-              const differenceAmount = isFullPayment ? Math.max(0, originalEMIAmount - accountingAmount) : 0;
-              
-              console.log(`[Accounting] MIRROR EMI #${emi.installmentNumber} (${isFullPayment ? 'FULL' : 'PARTIAL'})`);
-              console.log(`[Accounting] Original Payment: ₹${originalEMIAmount}, Mirror Amount: ₹${accountingAmount}, Difference: ₹${differenceAmount}`);
-              
-              // Entry 1: Payment amount → Mirror company cashbook
-              await recordEMIPaymentAccounting({
-                amount: accountingAmount,
-                principalComponent: accountingPrincipal,
-                interestComponent: accountingInterest,
-                paymentMode: paymentMode || 'CASH',
-                paymentType: paymentType || 'FULL',
-                creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-                loanCompanyId: emi.offlineLoan.companyId,
-                company3Id,
-                loanId: emi.offlineLoanId,
-                emiId: emi.id,
-                paymentId: updatedEmi.id,
-                loanNumber: emi.offlineLoan.loanNumber,
-                installmentNumber: emi.installmentNumber,
-                userId,
-                mirrorLoanId: mirrorMappingForAccounting.mirrorLoanId,
-                mirrorPrincipal: accountingPrincipal,
-                mirrorInterest: accountingInterest,
-                mirrorCompanyId: mirrorMappingForAccounting.mirrorCompanyId,
-                isMirrorPayment: true // This tells accounting to use MIRROR company's books
-              });
-              
-              console.log(`[Accounting] Entry 1: ₹${accountingAmount} → Mirror Company (${mirrorMappingForAccounting.mirrorCompanyId}) cashbook`);
-              
-              // Entry 2: Difference amount → Original company (C3) cashbook (only for FULL payments with difference)
-              if (differenceAmount > 0) {
-                await recordCashBookEntry({
-                  companyId: emi.offlineLoan.companyId, // Original company (C3)
-                  entryType: 'CREDIT',
-                  amount: differenceAmount,
-                  description: `EMI Difference #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} (Extra interest profit)`,
-                  referenceType: 'MIRROR_EMI_DIFFERENCE',
-                  referenceId: updatedEmi.id,
-                  createdById: userId
-                });
-                
-                console.log(`[Accounting] Entry 2: ₹${differenceAmount} → Original Company (${emi.offlineLoan.companyId}) cashbook as difference`);
-              }
-            } else {
-              console.warn('[Accounting] Mirror EMI not found - using original company');
-              await recordEMIPaymentAccounting({
-                amount: actualPaymentAmount,
-                principalComponent: paidPrincipal,
-                interestComponent: paidInterest,
-                paymentMode: paymentMode || 'CASH',
-                paymentType: paymentType || 'FULL',
-                creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-                loanCompanyId: emi.offlineLoan.companyId,
-                company3Id,
-                loanId: emi.offlineLoanId,
-                emiId: emi.id,
-                paymentId: updatedEmi.id,
-                loanNumber: emi.offlineLoan.loanNumber,
-                installmentNumber: emi.installmentNumber,
-                userId
-              });
+          await tx.offlineLoanEMI.create({
+            data: {
+              offlineLoanId: emi.offlineLoanId,
+              installmentNumber: emi.installmentNumber + 1,
+              dueDate: newEmiDueDate,
+              principalAmount: emi.principalAmount,
+              interestAmount: emi.interestAmount,
+              totalAmount: emi.principalAmount + emi.interestAmount,
+              outstandingPrincipal: emi.outstandingPrincipal,
+              paymentStatus: 'PENDING',
+              isDeferred: true,
+              deferredFromEMI: emi.installmentNumber,
+              notes: `Created from Interest Only payment on EMI #${emi.installmentNumber}`
             }
-          } else if (isExtraEMI) {
-            // ============ EXTRA EMI (beyond mirror tenure) ============
-            // Entire amount goes to Original company (C3)
-            console.log(`[Accounting] EXTRA EMI #${emi.installmentNumber} - Entire ₹${actualPaymentAmount} → Original Company cashbook`);
-            
-            await recordCashBookEntry({
-              companyId: emi.offlineLoan.companyId, // Original company (C3)
-              entryType: 'CREDIT',
-              amount: actualPaymentAmount,
-              description: `EXTRA EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} (Beyond mirror tenure - full profit)`,
-              referenceType: 'EXTRA_EMI_PAYMENT',
-              referenceId: updatedEmi.id,
-              createdById: userId
-            });
-          } else {
-            // ============ REGULAR EMI (no mirror loan) ============
-            await recordEMIPaymentAccounting({
-              amount: actualPaymentAmount,
-              principalComponent: paidPrincipal,
-              interestComponent: paidInterest,
-              paymentMode: paymentMode || 'CASH',
-              paymentType: paymentType || 'FULL',
-              creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-              loanCompanyId: emi.offlineLoan.companyId,
-              company3Id,
-              loanId: emi.offlineLoanId,
-              emiId: emi.id,
-              paymentId: updatedEmi.id,
-              loanNumber: emi.offlineLoan.loanNumber,
-              installmentNumber: emi.installmentNumber,
-              userId
-            });
-            
-            console.log(`[Accounting] Regular EMI #${emi.installmentNumber} - ₹${actualPaymentAmount} → Company cashbook`);
-          }
-          
-          console.log(`[Accounting] Recorded EMI payment accounting - Credit: ${creditTypeUsed}, Mode: ${paymentMode}`);
-        } else {
-          console.warn('[Accounting] Company 3 or loan company not found - skipping accounting');
+          });
         }
-      } catch (accountingError) {
-        // Log but don't fail the payment
-        console.error('[Accounting] Failed to record accounting entry:', accountingError);
-      }
 
-      // Check if all EMIs are paid
-      const allEmis = await db.offlineLoanEMI.findMany({
-        where: { offlineLoanId: emi.offlineLoanId }
-      });
+        // Sync to mirror loan if exists
+        if (mirrorLoanMapping?.mirrorLoanId && emi.installmentNumber <= mirrorLoanMapping.mirrorTenure) {
+          const mirrorEmi = await tx.offlineLoanEMI.findFirst({
+            where: {
+              offlineLoanId: mirrorLoanMapping.mirrorLoanId,
+              installmentNumber: emi.installmentNumber
+            }
+          });
 
-      // All EMIs must be fully paid (PAID or INTEREST_ONLY_PAID counts as paid)
-      const allPaid = allEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
-
-      console.log(`[Offline Loan] Checking if all EMIs paid for loan ${emi.offlineLoanId}: ${allPaid}`);
-      console.log(`[Offline Loan] EMI Statuses: ${allEmis.map(e => `${e.installmentNumber}:${e.paymentStatus}`).join(', ')}`);
-
-      if (allPaid) {
-        console.log(`[Offline Loan] Marking loan ${emi.offlineLoanId} as CLOSED`);
-        await db.offlineLoan.update({
-          where: { id: emi.offlineLoanId },
-          data: { status: 'CLOSED', closedAt: new Date() }
-        });
-      }
-
-      // ============ MIRROR LOAN SYNC (SAME AS ONLINE LOANS) ============
-      // When EMI is paid on original loan, sync to mirror loan
-      // Mirror loan now EXISTS as a separate OfflineLoan record
-      
-      // First, try to find mapping in the mapping table
-      let mirrorMapping = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true }
-      });
-      
-      // If no mapping found, check if there's a mirror loan directly via originalLoanId field
-      // This handles the case where the mapping wasn't created but the mirror loan exists
-      let mirrorLoan: {
-        id: string;
-        loanNumber: string;
-        tenure: number;
-        companyId: string | null;
-        interestRate: number;
-        interestType: string;
-      } | null = null;
-      let mirrorTenureFromLoan = 0;
-      
-      if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
-        // Look for mirror loan that references this original loan
-        mirrorLoan = await db.offlineLoan.findFirst({
-          where: { 
-            originalLoanId: emi.offlineLoanId,
-            isMirrorLoan: true 
-          },
-          select: { 
-            id: true, 
-            loanNumber: true, 
-            tenure: true, 
-            companyId: true,
-            interestRate: true,
-            interestType: true
-          }
-        });
-        
-        if (mirrorLoan) {
-          console.log(`[Mirror Sync] Found mirror loan ${mirrorLoan.id} via originalLoanId field (no mapping table entry)`);
-          mirrorTenureFromLoan = mirrorLoan.tenure;
-        }
-      } else {
-        mirrorTenureFromLoan = mirrorMapping.mirrorTenure;
-      }
-
-      // Determine the mirror loan ID and tenure
-      const effectiveMirrorLoanId = mirrorMapping?.mirrorLoanId || mirrorLoan?.id;
-      const effectiveMirrorTenure = mirrorMapping?.mirrorTenure || mirrorTenureFromLoan;
-
-      if (effectiveMirrorLoanId) {
-        console.log(`[Mirror Sync] Original loan ${emi.offlineLoanId} has mirror loan ${effectiveMirrorLoanId}, mirror tenure: ${effectiveMirrorTenure}`);
-
-        // Find the corresponding EMI in mirror loan
-        const mirrorEmi = await db.offlineLoanEMI.findFirst({
-          where: {
-            offlineLoanId: effectiveMirrorLoanId,
-            installmentNumber: emi.installmentNumber
-          }
-        });
-
-        if (mirrorEmi && (mirrorEmi.paymentStatus === 'PENDING' || mirrorEmi.paymentStatus === 'PARTIALLY_PAID')) {
-          // Check if this is within the mirror tenure (not an extra EMI)
-          if (emi.installmentNumber <= effectiveMirrorTenure) {
-            // Determine mirror EMI status based on original EMI's payment status
+          if (mirrorEmi && (mirrorEmi.paymentStatus === 'PENDING' || mirrorEmi.paymentStatus === 'PARTIALLY_PAID')) {
             const isFullPayment = paymentStatus === 'PAID';
-            const isPartialPayment = paymentStatus === 'PARTIALLY_PAID';
-
+            
             if (isFullPayment) {
-              // FULL PAYMENT: Set mirror EMI to PAID with full amount
-              await db.offlineLoanEMI.update({
+              await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus: 'PAID',
@@ -2090,119 +1712,99 @@ export async function PUT(request: NextRequest) {
                   paidPrincipal: mirrorEmi.principalAmount,
                   paidInterest: mirrorEmi.interestAmount,
                   paidDate: now,
-                  paymentMode: paymentMode,
-                  paymentReference: `Synced from original loan EMI #${emi.installmentNumber} (FULL)`,
+                  paymentMode,
                   collectedById: userId,
                   collectedByName: user.name,
                   collectedAt: now,
-                  notes: `[MIRROR SYNC] Auto-paid from original loan EMI #${emi.installmentNumber} (FULL payment)`
+                  notes: `[MIRROR SYNC] Auto-paid from original loan (FULL)`
                 }
               });
-              console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId} as PAID (FULL payment)`);
-            } else if (isPartialPayment) {
-              // PARTIAL PAYMENT: Set mirror EMI to PARTIALLY_PAID with proportional amount
-              // Calculate the payment ratio from original EMI
-              const originalPaidAmount = paidAmount;
-              const originalTotalAmount = emi.totalAmount;
-              const paymentRatio = originalPaidAmount / originalTotalAmount;
-
-              // Apply same ratio to mirror EMI amounts
-              const mirrorPaidAmount = Math.round(mirrorEmi.totalAmount * paymentRatio * 100) / 100;
-              const mirrorPaidPrincipal = Math.round(mirrorEmi.principalAmount * paymentRatio * 100) / 100;
-              const mirrorPaidInterest = Math.round(mirrorEmi.interestAmount * paymentRatio * 100) / 100;
-
-              await db.offlineLoanEMI.update({
+            } else if (paymentStatus === 'PARTIALLY_PAID') {
+              const paymentRatio = paidAmount / emi.totalAmount;
+              await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus: 'PARTIALLY_PAID',
-                  paidAmount: mirrorPaidAmount,
-                  paidPrincipal: mirrorPaidPrincipal,
-                  paidInterest: mirrorPaidInterest,
+                  paidAmount: Math.round(mirrorEmi.totalAmount * paymentRatio * 100) / 100,
+                  paidPrincipal: Math.round(mirrorEmi.principalAmount * paymentRatio * 100) / 100,
+                  paidInterest: Math.round(mirrorEmi.interestAmount * paymentRatio * 100) / 100,
                   paidDate: now,
-                  paymentMode: paymentMode,
-                  paymentReference: `Synced from original loan EMI #${emi.installmentNumber} (PARTIAL)`,
+                  paymentMode,
                   collectedById: userId,
                   collectedByName: user.name,
                   collectedAt: now,
-                  notes: `[MIRROR SYNC] Partial payment from original loan EMI #${emi.installmentNumber} (${Math.round(paymentRatio * 100)}%)`
-                }
-              });
-              console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId} as PARTIALLY_PAID (${Math.round(paymentRatio * 100)}%)`);
-            }
-
-            // Update mirror EMIs paid count (if mapping exists) - only for FULL payments
-            if (mirrorMapping && isFullPayment) {
-              await db.mirrorLoanMapping.update({
-                where: { id: mirrorMapping.id },
-                data: {
-                  mirrorEMIsPaid: { increment: 1 }
+                  notes: `[MIRROR SYNC] Partial payment (${Math.round(paymentRatio * 100)}%)`
                 }
               });
             }
-
-          } else {
-            // This is an EXTRA EMI - goes to personal credit of Company 3 (already handled above)
-            console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${effectiveMirrorTenure})`);
-
-            // Update extra EMIs paid count (if mapping exists)
-            if (mirrorMapping) {
-              await db.mirrorLoanMapping.update({
-                where: { id: mirrorMapping.id },
-                data: {
-                  extraEMIsPaid: { increment: 1 },
-                  totalProfitReceived: { increment: actualPaymentAmount }
-                }
-              });
-            }
-
-            console.log(`[Mirror Sync] Extra EMI #${emi.installmentNumber} - profit ₹${actualPaymentAmount} recorded for Company 3`);
-          }
-        } else if (!mirrorEmi) {
-          console.log(`[Mirror Sync] No corresponding EMI #${emi.installmentNumber} in mirror loan - this is expected for extra EMIs`);
-
-          // This is an EXTRA EMI - update the count (if mapping exists)
-          if (mirrorMapping) {
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: {
-                extraEMIsPaid: { increment: 1 },
-                totalProfitReceived: { increment: actualPaymentAmount }
-              }
-            });
           }
         }
 
-        // Check if mirror loan is complete
-        const mirrorEmisPaid = await db.offlineLoanEMI.count({
-          where: {
-            offlineLoanId: effectiveMirrorLoanId,
-            paymentStatus: 'PAID'
-          }
+        // Check if loan is complete
+        const allEmis = await tx.offlineLoanEMI.findMany({
+          where: { offlineLoanId: emi.offlineLoanId },
+          select: { paymentStatus: true }
         });
-
-        if (mirrorEmisPaid >= effectiveMirrorTenure) {
-          console.log(`[Mirror Sync] Mirror loan ${effectiveMirrorLoanId} is complete!`);
-
-          // Mark mirror loan as closed
-          await db.offlineLoan.update({
-            where: { id: effectiveMirrorLoanId },
-            data: { status: 'CLOSED', closedAt: new Date() }
+        
+        const allPaid = allEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
+        if (allPaid) {
+          await tx.offlineLoan.update({
+            where: { id: emi.offlineLoanId },
+            data: { status: 'CLOSED', closedAt: now }
           });
+        }
 
-          // Update mirror completed timestamp (if mapping exists)
-          if (mirrorMapping) {
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: { mirrorCompletedAt: new Date() }
-            });
-          }
+        return updated;
+      });
+
+      console.log(`[EMI Payment] Transaction completed in ${Date.now() - startTime}ms total`);
+
+      // Process bank transaction (non-blocking, outside transaction)
+      let bankTransactionResult = null;
+      if (paymentMode === 'CASH' && targetBankAccountId && emi.offlineLoan.companyId) {
+        try {
+          bankTransactionResult = await processBankTransaction({
+            bankAccountId: targetBankAccountId,
+            transactionType: 'EMI_PAYMENT',
+            amount: actualPaymentAmount,
+            description: `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber}`,
+            referenceType: 'OFFLINE_EMI',
+            referenceId: emiId,
+            createdById: userId,
+            companyId: emi.offlineLoan.companyId,
+            loanId: emi.offlineLoanId,
+            customerId: emi.offlineLoan.customerId || undefined,
+            principalComponent: paidPrincipal,
+            interestComponent: paidInterest,
+            paymentMode: paymentMode || 'CASH',
+            bankRefNumber: paymentReference
+          });
+        } catch (bankError) {
+          console.error('Bank transaction failed:', bankError);
+        }
+      }
+
+      // Simple cashbook entry (non-blocking)
+      if (company3Id && emi.offlineLoan.companyId && actualPaymentAmount > 0) {
+        try {
+          await recordCashBookEntry({
+            companyId: isExtraEMI ? emi.offlineLoan.companyId : (mirrorLoanMapping?.mirrorCompanyId || emi.offlineLoan.companyId),
+            entryType: 'CREDIT',
+            amount: actualPaymentAmount,
+            description: `EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber}${isExtraEMI ? ' (EXTRA)' : ''}`,
+            referenceType: 'EMI_PAYMENT',
+            referenceId: updatedEmi.id,
+            createdById: userId
+          });
+        } catch (cashbookError) {
+          console.error('Cashbook entry failed:', cashbookError);
         }
       }
 
       return NextResponse.json({
         success: true,
         emi: updatedEmi,
-        creditAdded: actualPaymentAmount,  // Use actualPaymentAmount for correct interest-only amount
+        creditAdded: actualPaymentAmount,
         creditType: creditTypeUsed,
         newCompanyCredit: creditTypeUsed === 'COMPANY' ? (user.companyCredit || 0) + actualPaymentAmount : user.companyCredit,
         newPersonalCredit: creditTypeUsed === 'PERSONAL' ? (user.personalCredit || 0) + actualPaymentAmount : user.personalCredit,
@@ -2210,7 +1812,8 @@ export async function PUT(request: NextRequest) {
           id: bankTransactionResult.bankTransactionId,
           balanceAfter: bankTransactionResult.balanceAfter
         } : null,
-        mirrorSynced: mirrorMapping ? true : false
+        mirrorSynced: !!mirrorLoanMapping,
+        processingTime: Date.now() - startTime
       });
     }
 
