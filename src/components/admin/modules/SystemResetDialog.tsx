@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { AlertTriangle, XCircle, CheckCircle, RefreshCw, Loader2, Shield, FileText, Wallet, Landmark, Users, Activity, CreditCard } from 'lucide-react';
+import { AlertTriangle, XCircle, CheckCircle, RefreshCw, Loader2, Shield, FileText, Wallet, Landmark, Users, Activity, CreditCard, Calculator, BookOpen } from 'lucide-react';
 
 interface ResetOptions {
   loanApplications: boolean;
@@ -20,6 +20,16 @@ interface ResetOptions {
   auditLogs: boolean;
   notifications: boolean;
   documents: boolean;
+  // Accounting Portal Options
+  chartOfAccounts: boolean;
+  financialYears: boolean;
+  journalEntries: boolean;
+  expenses: boolean;
+  gstConfig: boolean;
+  cashBook: boolean;
+  accountingSettings: boolean;
+  fixedAssets: boolean;
+  allAccounting: boolean;
 }
 
 interface Props {
@@ -40,6 +50,16 @@ const defaultOptions: ResetOptions = {
   auditLogs: true,
   notifications: true,
   documents: true,
+  // Accounting Portal - ALL TRUE by default
+  chartOfAccounts: true,
+  financialYears: true,
+  journalEntries: true,
+  expenses: true,
+  gstConfig: true,
+  cashBook: true,
+  accountingSettings: true,
+  fixedAssets: true,
+  allAccounting: true,
 };
 
 function SystemResetDialog({
@@ -63,11 +83,37 @@ function SystemResetDialog({
       auditLogs: checked,
       notifications: checked,
       documents: checked,
+      // Accounting
+      chartOfAccounts: checked,
+      financialYears: checked,
+      journalEntries: checked,
+      expenses: checked,
+      gstConfig: checked,
+      cashBook: checked,
+      accountingSettings: checked,
+      fixedAssets: checked,
+      allAccounting: checked,
     });
   };
 
   const handleOptionChange = (key: keyof ResetOptions, checked: boolean) => {
     setResetOptions(prev => ({ ...prev, [key]: checked }));
+  };
+
+  // Handle "All Accounting" master toggle
+  const handleAllAccountingChange = (checked: boolean) => {
+    setResetOptions(prev => ({
+      ...prev,
+      allAccounting: checked,
+      chartOfAccounts: checked,
+      financialYears: checked,
+      journalEntries: checked,
+      expenses: checked,
+      gstConfig: checked,
+      cashBook: checked,
+      accountingSettings: checked,
+      fixedAssets: checked,
+    }));
   };
 
   const handleReset = () => {
@@ -83,6 +129,10 @@ function SystemResetDialog({
   };
 
   const selectedCount = Object.values(resetOptions).filter(Boolean).length;
+
+  // Check if all accounting options are selected
+  const allAccountingOptions = ['chartOfAccounts', 'financialYears', 'journalEntries', 'expenses', 'gstConfig', 'cashBook', 'accountingSettings', 'fixedAssets'] as const;
+  const allAccountingSelected = allAccountingOptions.every(key => resetOptions[key]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -126,6 +176,114 @@ function SystemResetDialog({
                 </Label>
               </div>
               <span className="text-sm text-gray-500">{selectedCount} items selected</span>
+            </div>
+
+            {/* Accounting Portal - FULL RESET */}
+            <div className="p-4 bg-teal-50 rounded-lg border border-teal-200">
+              <h5 className="font-semibold text-teal-700 mb-3 flex items-center gap-2">
+                <Calculator className="h-4 w-4" />
+                Accounting Portal (Full Reset)
+              </h5>
+              
+              {/* Master Toggle */}
+              <div className="flex items-center space-x-2 mb-3 p-2 bg-teal-100 rounded">
+                <Checkbox
+                  id="allAccounting"
+                  checked={resetOptions.allAccounting && allAccountingSelected}
+                  onCheckedChange={(checked) => handleAllAccountingChange(checked as boolean)}
+                />
+                <Label htmlFor="allAccounting" className="font-semibold cursor-pointer text-teal-800">
+                  ALL ACCOUNTING DATA (Master Toggle)
+                </Label>
+              </div>
+              
+              <div className="grid md:grid-cols-2 gap-3 ml-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="chartOfAccounts"
+                    checked={resetOptions.chartOfAccounts}
+                    onCheckedChange={(checked) => handleOptionChange('chartOfAccounts', checked as boolean)}
+                  />
+                  <Label htmlFor="chartOfAccounts" className="cursor-pointer">
+                    Chart of Accounts
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="financialYears"
+                    checked={resetOptions.financialYears}
+                    onCheckedChange={(checked) => handleOptionChange('financialYears', checked as boolean)}
+                  />
+                  <Label htmlFor="financialYears" className="cursor-pointer">
+                    Financial Years
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="journalEntries"
+                    checked={resetOptions.journalEntries}
+                    onCheckedChange={(checked) => handleOptionChange('journalEntries', checked as boolean)}
+                  />
+                  <Label htmlFor="journalEntries" className="cursor-pointer">
+                    Journal Entries & Lines
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="expenses"
+                    checked={resetOptions.expenses}
+                    onCheckedChange={(checked) => handleOptionChange('expenses', checked as boolean)}
+                  />
+                  <Label htmlFor="expenses" className="cursor-pointer">
+                    Expenses
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="gstConfig"
+                    checked={resetOptions.gstConfig}
+                    onCheckedChange={(checked) => handleOptionChange('gstConfig', checked as boolean)}
+                  />
+                  <Label htmlFor="gstConfig" className="cursor-pointer">
+                    GST Configuration
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="cashBook"
+                    checked={resetOptions.cashBook}
+                    onCheckedChange={(checked) => handleOptionChange('cashBook', checked as boolean)}
+                  />
+                  <Label htmlFor="cashBook" className="cursor-pointer">
+                    Cash Book Entries
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="accountingSettings"
+                    checked={resetOptions.accountingSettings}
+                    onCheckedChange={(checked) => handleOptionChange('accountingSettings', checked as boolean)}
+                  />
+                  <Label htmlFor="accountingSettings" className="cursor-pointer">
+                    Accounting Settings
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="fixedAssets"
+                    checked={resetOptions.fixedAssets}
+                    onCheckedChange={(checked) => handleOptionChange('fixedAssets', checked as boolean)}
+                  />
+                  <Label htmlFor="fixedAssets" className="cursor-pointer">
+                    Fixed Assets & Depreciation
+                  </Label>
+                </div>
+              </div>
+              
+              <p className="text-xs text-teal-600 mt-3 ml-4">
+                <BookOpen className="h-3 w-3 inline mr-1" />
+                Includes: Ledger Balances, Reports Cache, Loan Sequences, Mirror Loan Mappings
+              </p>
             </div>
 
             {/* Loan Related */}

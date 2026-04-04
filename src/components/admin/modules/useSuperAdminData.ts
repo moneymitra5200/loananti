@@ -162,16 +162,20 @@ export function useSuperAdminData(user: any) {
     }
   };
 
-  const resetSystem = async () => {
+  const resetSystem = async (options?: any) => {
     try {
       const response = await fetch('/api/system/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmReset: 'RESET_SYSTEM', userId: user?.id })
+        body: JSON.stringify({ 
+          confirmReset: 'RESET_SYSTEM', 
+          userId: user?.id,
+          options: options // Pass reset options including accounting
+        })
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        toast({ title: 'System Reset Complete' });
+        toast({ title: 'System Reset Complete', description: 'All selected data has been reset' });
         fetchData();
         return true;
       }
