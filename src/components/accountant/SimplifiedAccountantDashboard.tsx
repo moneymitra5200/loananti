@@ -221,6 +221,8 @@ export default function SimplifiedAccountantDashboard() {
   const [showEquityDialog, setShowEquityDialog] = useState(false);
   const [equityAmount, setEquityAmount] = useState('');
   const [equityDescription, setEquityDescription] = useState('');
+  const [equityPaymentMode, setEquityPaymentMode] = useState<'BANK' | 'CASH'>('CASH');
+  const [equityBankAccountId, setEquityBankAccountId] = useState('');
   const [addingEquity, setAddingEquity] = useState(false);
 
   // Borrowed Money Dialog State
@@ -605,6 +607,10 @@ export default function SimplifiedAccountantDashboard() {
       toast.error('Please enter a valid amount');
       return;
     }
+    if (equityPaymentMode === 'BANK' && !equityBankAccountId && bankAccounts.length > 0) {
+      toast.error('Please select a bank account');
+      return;
+    }
 
     setAddingEquity(true);
     try {
@@ -614,7 +620,9 @@ export default function SimplifiedAccountantDashboard() {
         body: JSON.stringify({
           companyId: selectedCompanyId,
           amount: parseFloat(equityAmount),
-          description: equityDescription,
+          description: equityDescription || "Owner's equity investment",
+          paymentMode: equityPaymentMode,
+          bankAccountId: equityPaymentMode === 'BANK' ? equityBankAccountId : null,
           createdById: user?.id
         })
       });
@@ -626,6 +634,8 @@ export default function SimplifiedAccountantDashboard() {
         setShowEquityDialog(false);
         setEquityAmount('');
         setEquityDescription('');
+        setEquityPaymentMode('CASH');
+        setEquityBankAccountId('');
         fetchAllData();
       } else {
         toast.error(data.error || 'Failed to add equity');
@@ -1796,29 +1806,75 @@ export default function SimplifiedAccountantDashboard() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-green-600" />
-              Add Equity
+              Add Owner's Equity
             </DialogTitle>
             <DialogDescription>
-              Record equity capital for {selectedCompany?.name || 'the selected company'}
+              Record equity capital you're bringing into the business
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            {/* Info Box */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <p className="text-sm text-green-800">
+                <strong>Equity</strong> = Money YOU invest in the business. This is your stake/ownership in the company.
+              </p>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="equityAmount">Amount (₹) *</Label>
               <Input
                 id="equityAmount"
                 type="number"
-                placeholder="Enter amount"
+                placeholder="Enter amount you're investing"
                 value={equityAmount}
                 onChange={(e) => setEquityAmount(e.target.value)}
               />
             </div>
+
+            {/* Payment Mode */}
             <div className="space-y-2">
-              <Label htmlFor="equityDescription">Description</Label>
+              <Label>How are you bringing this money?</Label>
+              <RadioGroup 
+                value={equityPaymentMode} 
+                onValueChange={(v) => setEquityPaymentMode(v as 'BANK' | 'CASH')}
+                className="flex gap-4"
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="CASH" id="equity-cash" />
+                  <Label htmlFor="equity-cash" className="cursor-pointer">Cash</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="BANK" id="equity-bank" />
+                  <Label htmlFor="equity-bank" className="cursor-pointer">Bank</Label>
+                </div>
+              </RadioGroup>
+            </div>
+
+            {/* Bank Account Selection */}
+            {equityPaymentMode === 'BANK' && bankAccounts.length > 0 && (
+              <div className="space-y-2">
+                <Label>Select Bank Account</Label>
+                <Select value={equityBankAccountId} onValueChange={setEquityBankAccountId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bankAccounts.map((acc) => (
+                      <SelectItem key={acc.id} value={acc.id}>
+                        {acc.bankName} - ****{acc.accountNumber.slice(-4)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="equityDescription">Description (Optional)</Label>
               <Textarea
                 id="equityDescription"
-                placeholder="Enter description..."
+                placeholder="e.g., Initial capital investment"
                 value={equityDescription}
                 onChange={(e) => setEquityDescription(e.target.value)}
                 rows={2}

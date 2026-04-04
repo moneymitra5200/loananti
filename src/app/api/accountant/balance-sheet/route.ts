@@ -181,9 +181,26 @@ export async function GET(request: NextRequest) {
     // LEFT SIDE - Liabilities (Source of Funds)
     // ============================================
 
-    // 1. Equity = Opening Balance of Bank Accounts + Opening Balance of Cash Book
-    // This is AUTO-CALCULATED, not manually added
-    const equity = totalBankOpeningBalance + cashBookOpeningBalance;
+    // 1. Owner's Equity - Get from ChartOfAccount (account code 5000 - Owner Capital)
+    // This is equity the owner brings to the business
+    let ownerEquity = 0;
+    const equityAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: '5000' // Owner Capital
+      },
+      select: { currentBalance: true }
+    });
+    if (equityAccount) {
+      ownerEquity = equityAccount.currentBalance;
+    }
+
+    // 2. Opening Balance Equity = Opening Balance of Bank Accounts + Opening Balance of Cash Book
+    // This is AUTO-CALCULATED from opening balances
+    const openingBalanceEquity = totalBankOpeningBalance + cashBookOpeningBalance;
+
+    // Total Equity = Owner's Equity + Opening Balance Equity
+    const totalEquity = ownerEquity + openingBalanceEquity;
 
     // 2. Borrowed Money - Get from ChartOfAccount (account code 2202 - Borrowed Funds)
     let borrowedMoney = 0;
@@ -214,15 +231,15 @@ export async function GET(request: NextRequest) {
 
     const profitLoss = totalIncome - totalExpenses;
 
-    // 4. Final Equity = Equity + Profit/Loss (Borrowed money is shown separately)
-    const finalEquity = equity + profitLoss;
+    // 4. Final Equity = Owner's Equity + Opening Balance + Profit/Loss (Borrowed money is shown separately)
+    const finalEquity = totalEquity + profitLoss;
 
     // ============================================
     // TOTALS
     // ============================================
     
     const rightTotal = totalBankBalance + cashBookBalance + investMoney + totalLoanPrincipal + totalInterestReceivable;
-    const leftTotal = equity + borrowedMoney + profitLoss;
+    const leftTotal = totalEquity + borrowedMoney + profitLoss;
 
     // Get financial years list for dropdown
     const financialYears = await db.financialYear.findMany({
@@ -251,9 +268,16 @@ export async function GET(request: NextRequest) {
       leftSide: {
         items: [
           {
-            name: 'Equity (Opening Balance)',
-            amount: equity,
+            name: "Owner's Equity",
+            amount: ownerEquity,
             type: 'EQUITY',
+            canAdd: true,
+            description: 'Money invested by owner to start/run the business'
+          },
+          {
+            name: 'Opening Balance Equity',
+            amount: openingBalanceEquity,
+            type: 'OPENING_EQUITY',
             isCalculated: true,
             formula: 'Bank Opening Balance + Cash Book Opening Balance',
             details: [
@@ -324,7 +348,9 @@ export async function GET(request: NextRequest) {
         cashBookBalance,
         bankBalance: totalBankBalance,
         investMoney,
-        equity,
+        ownerEquity,
+        openingBalanceEquity,
+        equity: totalEquity,
         borrowedMoney,
         profitLoss,
         finalEquity,
