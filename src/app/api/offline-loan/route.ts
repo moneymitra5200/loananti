@@ -1489,10 +1489,20 @@ export async function PUT(request: NextRequest) {
         }, { status: 400 });
       }
       
-      // Check 2: Check via mapping (fallback for older loans)
-      const mirrorLoanCheck = await db.mirrorLoanMapping.findFirst({
-        where: { mirrorLoanId: emi.offlineLoanId }
-      });
+      // Check 2: Check via mapping (fallback for older loans) - run in parallel with bank account and extra EMI check
+      const [mirrorLoanCheck, defaultBank, mirrorMappingCheck] = await Promise.all([
+        db.mirrorLoanMapping.findFirst({
+          where: { mirrorLoanId: emi.offlineLoanId }
+        }),
+        // Get default bank account in parallel
+        !bankAccountId && emi.offlineLoan.companyId ? db.bankAccount.findFirst({
+          where: { companyId: emi.offlineLoan.companyId, isDefault: true }
+        }) : Promise.resolve(null),
+        // Check for extra EMI detection (loan has a mirror)
+        db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: emi.offlineLoanId }
+        })
+      ]);
 
       if (mirrorLoanCheck) {
         return NextResponse.json({
@@ -1584,10 +1594,7 @@ export async function PUT(request: NextRequest) {
       
       // ============ CHECK IF THIS IS AN EXTRA EMI (MIRROR LOAN) ============
       // Extra EMIs always go to PERSONAL credit - not company credit
-      const mirrorMappingCheck = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: emi.offlineLoanId }
-      });
-      
+      // Using pre-fetched mirrorMappingCheck from earlier parallel query
       const isExtraEMI = mirrorMappingCheck && emi.installmentNumber > mirrorMappingCheck.mirrorTenure;
       
       // Update credit based on credit type selection
@@ -1609,16 +1616,8 @@ export async function PUT(request: NextRequest) {
         creditUpdateData = { personalCredit: newPersonalCredit };
       }
 
-      // Get company's default bank account if not provided
-      let targetBankAccountId = bankAccountId;
-      if (!targetBankAccountId && emi.offlineLoan.companyId) {
-        const defaultBank = await db.bankAccount.findFirst({
-          where: { companyId: emi.offlineLoan.companyId, isDefault: true }
-        });
-        if (defaultBank) {
-          targetBankAccountId = defaultBank.id;
-        }
-      }
+      // Use pre-fetched default bank account
+      const targetBankAccountId = bankAccountId || defaultBank?.id || null;
 
       // Process bank transaction for CASH payments (updates bank balance)
       let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
@@ -1838,6 +1837,7 @@ export async function PUT(request: NextRequest) {
       // Rules:
       // 1. EMIs within mirror tenure: Mirror EMI → Mirror company, Difference → Original company (C3)
       // 2. EXTRA EMIs: Entire amount → Original company (C3)
+      // 3. For PARTIAL payments: Use actual payment amount with proportional principal/interest
       // ============================================
       try {
         // Get Company 3 ID for personal credit
@@ -1863,18 +1863,38 @@ export async function PUT(request: NextRequest) {
             });
             
             if (mirrorEmiForAccounting) {
-              const mirrorEMIAmount = mirrorEmiForAccounting.totalAmount;
+              // For FULL payments: Use mirror EMI amount in mirror company's books
+              // For PARTIAL payments: Use actual payment amount with proportional principal/interest
+              const isFullPayment = paymentStatus === 'PAID';
+              
+              let accountingAmount: number;
+              let accountingPrincipal: number;
+              let accountingInterest: number;
+              
+              if (isFullPayment) {
+                // FULL payment: Record full mirror EMI amount in mirror company's books
+                accountingAmount = mirrorEmiForAccounting.totalAmount;
+                accountingPrincipal = mirrorEmiForAccounting.principalAmount;
+                accountingInterest = mirrorEmiForAccounting.interestAmount;
+              } else {
+                // PARTIAL payment: Record only the actual payment amount
+                // Use the same principal/interest ratio as the original EMI payment
+                accountingAmount = actualPaymentAmount;
+                accountingPrincipal = paidPrincipal;
+                accountingInterest = paidInterest;
+              }
+              
               const originalEMIAmount = actualPaymentAmount;
-              const differenceAmount = Math.max(0, originalEMIAmount - mirrorEMIAmount);
+              const differenceAmount = isFullPayment ? Math.max(0, originalEMIAmount - accountingAmount) : 0;
               
-              console.log(`[Accounting] MIRROR EMI #${emi.installmentNumber}`);
-              console.log(`[Accounting] Original EMI: ₹${originalEMIAmount}, Mirror EMI: ₹${mirrorEMIAmount}, Difference: ₹${differenceAmount}`);
+              console.log(`[Accounting] MIRROR EMI #${emi.installmentNumber} (${isFullPayment ? 'FULL' : 'PARTIAL'})`);
+              console.log(`[Accounting] Original Payment: ₹${originalEMIAmount}, Mirror Amount: ₹${accountingAmount}, Difference: ₹${differenceAmount}`);
               
-              // Entry 1: Mirror EMI amount → Mirror company cashbook
+              // Entry 1: Payment amount → Mirror company cashbook
               await recordEMIPaymentAccounting({
-                amount: mirrorEMIAmount,
-                principalComponent: mirrorEmiForAccounting.principalAmount,
-                interestComponent: mirrorEmiForAccounting.interestAmount,
+                amount: accountingAmount,
+                principalComponent: accountingPrincipal,
+                interestComponent: accountingInterest,
                 paymentMode: paymentMode || 'CASH',
                 paymentType: paymentType || 'FULL',
                 creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
@@ -1887,15 +1907,15 @@ export async function PUT(request: NextRequest) {
                 installmentNumber: emi.installmentNumber,
                 userId,
                 mirrorLoanId: mirrorMappingForAccounting.mirrorLoanId,
-                mirrorPrincipal: mirrorEmiForAccounting.principalAmount,
-                mirrorInterest: mirrorEmiForAccounting.interestAmount,
+                mirrorPrincipal: accountingPrincipal,
+                mirrorInterest: accountingInterest,
                 mirrorCompanyId: mirrorMappingForAccounting.mirrorCompanyId,
                 isMirrorPayment: true // This tells accounting to use MIRROR company's books
               });
               
-              console.log(`[Accounting] Entry 1: ₹${mirrorEMIAmount} → Mirror Company (${mirrorMappingForAccounting.mirrorCompanyId}) cashbook`);
+              console.log(`[Accounting] Entry 1: ₹${accountingAmount} → Mirror Company (${mirrorMappingForAccounting.mirrorCompanyId}) cashbook`);
               
-              // Entry 2: Difference amount → Original company (C3) cashbook
+              // Entry 2: Difference amount → Original company (C3) cashbook (only for FULL payments with difference)
               if (differenceAmount > 0) {
                 await recordCashBookEntry({
                   companyId: emi.offlineLoan.companyId, // Original company (C3)
