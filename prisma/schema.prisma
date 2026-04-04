@@ -2454,12 +2454,16 @@ model SecondaryPaymentPage {
 model MirrorLoanMapping {
   id                    String   @id @default(cuid())
   originalLoanId        String   // Original loan ID (stays with Company 3)
-  mirrorLoanId          String?  // Mirror loan ID (the separate loan created in Company 1/C2)
+  mirrorLoanId          String?  // Mirror loan ID (the separate loan created in Company 1/C2) - NULL for offline loans
   originalCompanyId     String   // Company 3 - the company that owns the loan (receives extra EMI profit)
   mirrorCompanyId       String   // Company 1 - the operational company (receives mirror interest)
 
   // Mirror Type
   mirrorType            String   // COMPANY_1_15_PERCENT or COMPANY_2_SAME_RATE
+
+  // Offline Loan Support
+  isOfflineLoan         Boolean  @default(false)  // TRUE if this mapping is for an offline loan
+  mirrorLoanNumber      String?  // Generated mirror loan number (for offline loans, stored here instead of creating separate loan)
 
   // Display Color - Unique color for this mirror pair (both loans show same color)
   displayColor          String?  // Hex color code like "#FF5733"

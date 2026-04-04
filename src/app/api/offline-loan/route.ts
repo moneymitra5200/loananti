@@ -88,22 +88,24 @@ export async function GET(request: NextRequest) {
 
       // Check if this loan is an original loan (has a mirror loan mapping)
       const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId }
+        where: { originalLoanId: loanId, isOfflineLoan: true }
       });
-      
+
       // Check if this loan is a mirror loan (is the mirror of another loan)
+      // For offline loans, this will be false since we don't create separate mirror loans
       const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
         where: { mirrorLoanId: loanId }
       });
-      
+
       const isMirrored = !!mirrorMappingAsOriginal; // This is original, has a mirror
       const isMirrorLoan = !!mirrorMappingAsMirror; // This is a mirror loan, cannot pay directly
-      
+
       // Get mirror info for display
       const mirrorInfo = mirrorMappingAsOriginal || mirrorMappingAsMirror;
       const displayColor = mirrorInfo?.displayColor || null;
       const mirrorTenure = mirrorInfo?.mirrorTenure || null;
       const extraEMICount = mirrorInfo?.extraEMICount || 0;
+      const mirrorLoanNumber = mirrorMappingAsOriginal?.mirrorLoanNumber || null;
 
       // Calculate summary
       const summary = {
@@ -116,19 +118,22 @@ export async function GET(request: NextRequest) {
         totalOutstanding: loan.emis.reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0)
       };
 
-      return NextResponse.json({ 
-        success: true, 
-        loan: { 
-          ...loan, 
+      return NextResponse.json({
+        success: true,
+        loan: {
+          ...loan,
           isMirrored,
           isMirrorLoan,
           displayColor,
           mirrorTenure,
           extraEMICount,
+          mirrorLoanNumber, // The mirror loan number stored in mapping
           originalLoanId: mirrorMappingAsMirror?.originalLoanId || null,
-          mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || null
-        }, 
-        summary 
+          mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || null,
+          mirrorCompanyId: mirrorMappingAsOriginal?.mirrorCompanyId || null,
+          mirrorInterestRate: mirrorMappingAsOriginal?.mirrorInterestRate || null
+        },
+        summary
       });
     }
 
@@ -250,6 +255,113 @@ export async function GET(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, calendar });
+    }
+
+    // Get mirror EMI schedule for an offline loan (calculated on-the-fly)
+    if (action === 'mirror-schedule') {
+      const mirrorMappingId = searchParams.get('mappingId');
+
+      if (!mirrorMappingId) {
+        return NextResponse.json({ error: 'Mapping ID required' }, { status: 400 });
+      }
+
+      // Get the mirror loan mapping
+      const mapping = await db.mirrorLoanMapping.findUnique({
+        where: { id: mirrorMappingId },
+        include: {
+          mirrorCompany: { select: { id: true, name: true, code: true } },
+          originalCompany: { select: { id: true, name: true, code: true } }
+        }
+      });
+
+      if (!mapping) {
+        return NextResponse.json({ error: 'Mirror mapping not found' }, { status: 404 });
+      }
+
+      // Get the original offline loan
+      const originalLoan = await db.offlineLoan.findUnique({
+        where: { id: mapping.originalLoanId },
+        include: {
+          emis: { orderBy: { installmentNumber: 'asc' } }
+        }
+      });
+
+      if (!originalLoan) {
+        return NextResponse.json({ error: 'Original loan not found' }, { status: 404 });
+      }
+
+      // Calculate mirror EMI schedule on-the-fly
+      const { calculateMirrorLoan } = await import('@/lib/mirror-loan');
+      const mirrorCalculation = calculateMirrorLoan(
+        originalLoan.loanAmount,
+        mapping.originalInterestRate,
+        mapping.originalTenure,
+        mapping.originalInterestType as 'FLAT' | 'REDUCING',
+        mapping.mirrorInterestRate,
+        mapping.mirrorInterestType as 'FLAT' | 'REDUCING'
+      );
+
+      // Get paid EMIs count from original loan
+      const paidEMIs = originalLoan.emis.filter(e => e.paymentStatus === 'PAID').length;
+
+      // Build mirror schedule with due dates matching original loan
+      const mirrorSchedule = mirrorCalculation.mirrorLoan.schedule.map((item, index) => {
+        const originalEMI = originalLoan.emis[index];
+        const dueDate = originalEMI ? originalEMI.dueDate : new Date(originalLoan.startDate);
+
+        return {
+          installmentNumber: item.installmentNumber,
+          dueDate,
+          principal: item.principal,
+          interest: item.interest,
+          totalAmount: item.emi,
+          outstandingPrincipal: item.outstandingPrincipal,
+          paymentStatus: index < paidEMIs ? 'PAID' : (index < mapping.mirrorEMIsPaid ? 'PAID' : 'PENDING'),
+          paidDate: index < paidEMIs ? originalLoan.emis[index]?.paidDate : null
+        };
+      });
+
+      // Calculate extra EMIs (for Company 3 profit)
+      const extraEMISchedule = [];
+      for (let i = mirrorSchedule.length; i < originalLoan.emis.length; i++) {
+        const originalEMI = originalLoan.emis[i];
+        extraEMISchedule.push({
+          installmentNumber: i + 1,
+          dueDate: originalEMI.dueDate,
+          principal: originalEMI.principalAmount,
+          interest: originalEMI.interestAmount,
+          totalAmount: originalEMI.totalAmount,
+          paymentStatus: originalEMI.paymentStatus,
+          paidDate: originalEMI.paidDate,
+          isExtraEMI: true
+        });
+      }
+
+      return NextResponse.json({
+        success: true,
+        mapping: {
+          id: mapping.id,
+          mirrorLoanNumber: mapping.mirrorLoanNumber,
+          mirrorCompany: mapping.mirrorCompany,
+          originalCompany: mapping.originalCompany,
+          originalInterestRate: mapping.originalInterestRate,
+          mirrorInterestRate: mapping.mirrorInterestRate,
+          originalTenure: mapping.originalTenure,
+          mirrorTenure: mapping.mirrorTenure,
+          extraEMICount: mapping.extraEMICount,
+          displayColor: mapping.displayColor
+        },
+        mirrorSchedule,
+        extraEMISchedule,
+        summary: {
+          totalMirrorEMIs: mirrorSchedule.length,
+          paidMirrorEMIs: Math.min(paidEMIs, mirrorSchedule.length),
+          totalExtraEMIs: extraEMISchedule.length,
+          paidExtraEMIs: mapping.extraEMIsPaid,
+          mirrorInterestTotal: mirrorCalculation.mirrorLoan.totalInterest,
+          originalInterestTotal: mirrorCalculation.originalLoan.totalInterest
+        }
+      });
     }
 
     // Get list of offline loans (ALL COMPANY LOANS - NO CREATOR FILTERING)
@@ -616,43 +728,37 @@ export async function POST(request: NextRequest) {
       });
     }
     
-    // Handle Mirror Loan creation - Create actual mirror loan and mapping
-    let mirrorLoanResult: { mirrorLoanId: string; mirrorLoanNumber: string; extraEMICount: number } | null = null;
-    
+    // Handle Mirror Loan creation - Create ONLY mapping (like online loans), NOT a separate loan
+    // Mirror schedule is calculated on-the-fly when needed
+    let mirrorLoanResult: { mirrorLoanNumber: string; extraEMICount: number } | null = null;
+
     if (isMirrorLoan && mirrorCompanyId && loan) {
       try {
         // Get mirror company details
         const mirrorCompany = await db.company.findUnique({
           where: { id: mirrorCompanyId }
         });
-        
+
         if (!mirrorCompany) {
           throw new Error('Mirror company not found');
         }
-        
+
         // Determine mirror type and rate based on company
         // Company 1 = 15% Reducing, Company 2 = 24% Reducing
         const isCompany1 = mirrorCompany.code === 'C1' || mirrorCompany.id.includes('1');
-        const mirrorType = isCompany1 
-          ? 'COMPANY_1_15_PERCENT' 
+        const mirrorType = isCompany1
+          ? 'COMPANY_1_15_PERCENT'
           : 'COMPANY_2_SAME_RATE';
-        
+
         // Calculate mirror loan EMI schedule
         // Company 1 = 15%, Company 2 = 24%
         const mirrorRate = mirrorInterestRate ? parseFloat(mirrorInterestRate) : (isCompany1 ? 15 : 24);
         const mirrorTypeInterest = 'REDUCING'; // Always REDUCING for mirror loans
-        
+
         // Calculate EMI schedule for mirror loan using SAME EMI amount as original
         // This is the key to mirror loan logic - same EMI, different interest calculation
         const originalEmiAmount = calculatedEmiAmount;
-        const mirrorEmiCalculation = calculateEMI(
-          loanAmount,
-          mirrorRate,
-          tenure || 12,
-          mirrorTypeInterest as 'FLAT' | 'REDUCING',
-          new Date(startDate)
-        );
-        
+
         // Recalculate mirror schedule with same EMI as original
         // This ensures the customer pays the same EMI amount
         const mirrorSchedule: Array<{
@@ -662,16 +768,16 @@ export async function POST(request: NextRequest) {
           totalAmount: number;
           outstandingPrincipal: number;
         }> = [];
-        
+
         const monthlyRate = mirrorRate / 100 / 12;
         let outstandingPrincipal = loanAmount;
         let installmentNumber = 1;
-        
+
         while (outstandingPrincipal > 0.01 && installmentNumber <= 100) {
           const interest = outstandingPrincipal * monthlyRate;
           let principalPaid = originalEmiAmount - interest;
           let emiAmount = originalEmiAmount;
-          
+
           if (principalPaid >= outstandingPrincipal) {
             principalPaid = outstandingPrincipal;
             emiAmount = principalPaid + interest;
@@ -679,7 +785,7 @@ export async function POST(request: NextRequest) {
           } else {
             outstandingPrincipal = Math.max(0, outstandingPrincipal - principalPaid);
           }
-          
+
           mirrorSchedule.push({
             installmentNumber,
             principal: principalPaid,
@@ -687,120 +793,53 @@ export async function POST(request: NextRequest) {
             totalAmount: emiAmount,
             outstandingPrincipal
           });
-          
+
           installmentNumber++;
         }
-        
+
         // Calculate extra EMIs
         const originalTenure = tenure || 12;
         const mirrorTenure = mirrorSchedule.length;
         const extraEMICount = Math.max(0, originalTenure - mirrorTenure);
         const leftoverAmount = 0; // Leftover is handled within the schedule
-        
-        // Generate mirror loan number
+
         // Generate mirror loan number: Company Code + Product Code + Global Sequence (00001)
         const mirrorLoanNumber = await generateMirrorLoanNumber(
           mirrorCompany.code,
           loanType || 'PERSONAL'
         );
-        
-        // Create mirror loan in mirror company
-        const mirrorLoan = await db.offlineLoan.create({
-          data: {
-            loanNumber: mirrorLoanNumber,
-            createdById,
-            createdByRole,
-            companyId: mirrorCompanyId,
-            customerId,
-            customerName,
-            customerPhone,
-            customerEmail,
-            customerAadhaar,
-            customerPan,
-            customerAddress,
-            customerCity,
-            customerState,
-            customerPincode,
-            customerDOB: customerDOB ? new Date(customerDOB) : null,
-            customerOccupation,
-            customerMonthlyIncome,
-            reference1Name,
-            reference1Phone,
-            reference1Relation,
-            reference2Name,
-            reference2Phone,
-            reference2Relation,
-            loanType: loanType || 'PERSONAL',
-            interestType: mirrorTypeInterest as 'FLAT' | 'REDUCING',
-            productId: productId || null,
-            loanAmount,
-            interestRate: mirrorRate,
-            tenure: mirrorTenure,
-            emiAmount: calculatedEmiAmount, // Same EMI as original
-            processingFee: 0, // No processing fee for mirror
-            disbursementDate: new Date(disbursementDate),
-            disbursementMode: 'BANK_TRANSFER',
-            status: 'ACTIVE',
-            startDate: new Date(startDate),
-            notes: `Mirror loan for ${loanNumber}`,
-            internalNotes: `Mirror of ${loanNumber} from ${mirrorCompany.name}`,
-            allowInterestOnly: false,
-            allowPartialPayment: true,
-            isInterestOnlyLoan: false,
-            partialPaymentEnabled: true
-          }
-        });
-        
-        // Create EMI schedule for mirror loan using the recalculated schedule
-        const mirrorEmis = mirrorSchedule.map((item, index) => {
-          const dueDate = new Date(startDate);
-          dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
-          dueDate.setHours(0, 0, 0, 0);
-          
-          return {
-            offlineLoanId: mirrorLoan.id,
-            installmentNumber: item.installmentNumber,
-            dueDate,
-            principalAmount: item.principal,
-            interestAmount: item.interest,
-            totalAmount: item.totalAmount,
-            outstandingPrincipal: item.outstandingPrincipal,
-            paymentStatus: EMIPaymentStatus.PENDING
-          };
-        });
-        
-        await db.offlineLoanEMI.createMany({
-          data: mirrorEmis
-        });
-        
+
+        // ============================================
+        // IMPORTANT: Do NOT create a separate mirror loan record
+        // Just create the mapping (like online loans)
+        // The mirror schedule is calculated on-the-fly when needed
+        // ============================================
+
         // Generate display color for the pair
         const displayColors = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#06B6D4'];
         const colorIndex = Math.abs(loan.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % displayColors.length;
         const displayColor = displayColors[colorIndex];
-        
-        // Update both original and mirror loan with the same display color
+
+        // Update original loan with the display color
         await db.offlineLoan.update({
           where: { id: loan.id },
           data: { displayColor }
         });
-        await db.offlineLoan.update({
-          where: { id: mirrorLoan.id },
-          data: { displayColor }
-        });
-        console.log(`[Mirror Loan] Set display color ${displayColor} for loan pair ${loan.loanNumber} + ${mirrorLoanNumber}`);
-        
+        console.log(`[Mirror Loan] Set display color ${displayColor} for loan ${loanNumber} (mirror: ${mirrorLoanNumber})`);
+
         // Calculate total mirror interest
         const totalMirrorInterest = mirrorSchedule.reduce((sum, item) => sum + item.interest, 0);
-        
-        // Create mirror loan mapping
+
+        // Create mirror loan mapping (WITHOUT mirrorLoanId - just like online loans)
         await db.mirrorLoanMapping.create({
           data: {
             originalLoanId: loan.id,
-            mirrorLoanId: mirrorLoan.id,
+            mirrorLoanId: null, // No separate loan created - just like online loans
             originalCompanyId: companyId,
             mirrorCompanyId,
             mirrorType,
+            isOfflineLoan: true, // Mark as offline loan mapping
+            mirrorLoanNumber, // Store the generated mirror loan number
             displayColor,
             originalInterestRate: interestRate,
             originalInterestType: interestType || 'FLAT',
@@ -817,12 +856,12 @@ export async function POST(request: NextRequest) {
             createdBy: createdById
           }
         });
-        
+
         // Create bank transaction for mirror loan disbursement (from mirror company's bank)
         const mirrorDefaultBank = await db.bankAccount.findFirst({
           where: { companyId: mirrorCompanyId, isDefault: true }
         });
-        
+
         if (mirrorDefaultBank) {
           await processBankTransaction({
             bankAccountId: mirrorDefaultBank.id,
@@ -830,23 +869,22 @@ export async function POST(request: NextRequest) {
             amount: loanAmount,
             description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
             referenceType: 'MIRROR_LOAN_DISBURSEMENT',
-            referenceId: mirrorLoan.id,
+            referenceId: loan.id, // Reference to original loan
             createdById,
             companyId: mirrorCompanyId,
-            loanId: mirrorLoan.id,
+            loanId: loan.id, // Reference to original loan
             customerId: customerId || undefined,
             paymentMode: 'BANK_TRANSFER'
           });
         }
-        
+
         mirrorLoanResult = {
-          mirrorLoanId: mirrorLoan.id,
-          mirrorLoanNumber: mirrorLoan.loanNumber,
+          mirrorLoanNumber,
           extraEMICount
         };
-        
-        console.log(`[Mirror Loan] Created mirror loan ${mirrorLoanNumber} for original ${loanNumber}, Extra EMIs: ${extraEMICount}`);
-        
+
+        console.log(`[Mirror Loan] Created mirror mapping ${mirrorLoanNumber} for original ${loanNumber}, Extra EMIs: ${extraEMICount} (NO separate loan created - works like online)`);
+
       } catch (mirrorError) {
         console.error('Mirror loan creation failed:', mirrorError);
         // Don't fail the main loan creation
@@ -1681,100 +1719,52 @@ export async function PUT(request: NextRequest) {
       }
 
       // ============ MIRROR LOAN SYNC ============
-      // Check if this original loan has a mirror loan - sync the EMI payment
+      // Check if this original loan has a mirror loan mapping - update progress
+      // For offline loans, mirrorLoanId is NULL (no separate loan created)
+      // We just update the mapping progress to track mirror EMI payments
       const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: emi.offlineLoanId }
+        where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true }
       });
 
-      if (mirrorMapping && mirrorMapping.mirrorLoanId) {
-        console.log(`[Mirror Sync] Original loan ${emi.offlineLoanId} has mirror loan ${mirrorMapping.mirrorLoanId}`);
-        
-        // Find the corresponding EMI in mirror loan
-        const mirrorEmi = await db.offlineLoanEMI.findFirst({
-          where: {
-            offlineLoanId: mirrorMapping.mirrorLoanId,
-            installmentNumber: emi.installmentNumber
-          }
-        });
+      if (mirrorMapping) {
+        console.log(`[Mirror Sync] Original loan ${emi.offlineLoanId} has mirror mapping (mirror number: ${mirrorMapping.mirrorLoanNumber})`);
 
-        if (mirrorEmi && mirrorEmi.paymentStatus === 'PENDING') {
-          // Check if this is within the mirror tenure (not an extra EMI)
-          if (emi.installmentNumber <= mirrorMapping.mirrorTenure) {
-            // Sync the payment to mirror loan EMI
-            await db.offlineLoanEMI.update({
-              where: { id: mirrorEmi.id },
-              data: {
-                paymentStatus: 'PAID',
-                paidAmount: mirrorEmi.totalAmount,
-                paidPrincipal: mirrorEmi.principalAmount,
-                paidInterest: mirrorEmi.interestAmount,
-                paidDate: now,
-                paymentMode: paymentMode,
-                paymentReference: `Synced from original loan EMI #${emi.installmentNumber}`,
-                collectedById: userId,
-                collectedByName: user.name,
-                collectedAt: now,
-                notes: `[MIRROR SYNC] Auto-paid from original loan EMI #${emi.installmentNumber}`
-              }
-            });
-            
-            // Update mirror EMIs paid count
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: {
-                mirrorEMIsPaid: { increment: 1 }
-              }
-            });
-            
-            console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${mirrorMapping.mirrorLoanId}`);
-          } else {
-            // This is an EXTRA EMI - goes to personal credit of Company 3
-            console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${mirrorMapping.mirrorTenure})`);
-            
-            // Update extra EMIs paid count
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: {
-                extraEMIsPaid: { increment: 1 }
-              }
-            });
-            
-            console.log(`[Mirror Sync] Extra EMI #${emi.installmentNumber} - profit goes to Company 3 personal credit`);
-          }
-        } else if (!mirrorEmi) {
-          console.log(`[Mirror Sync] No corresponding EMI #${emi.installmentNumber} in mirror loan - this is expected for extra EMIs`);
-          
-          // This is an EXTRA EMI - update the count
+        // Check if this EMI is within mirror tenure or is an extra EMI
+        if (emi.installmentNumber <= mirrorMapping.mirrorTenure) {
+          // This is a regular EMI within mirror tenure - update mirror EMIs paid count
           await db.mirrorLoanMapping.update({
             where: { id: mirrorMapping.id },
             data: {
-              extraEMIsPaid: { increment: 1 }
+              mirrorEMIsPaid: { increment: 1 }
             }
           });
-        }
-        
-        // Check if mirror loan is complete
-        const mirrorEmisPaid = await db.offlineLoanEMI.count({
-          where: {
-            offlineLoanId: mirrorMapping.mirrorLoanId,
-            paymentStatus: 'PAID'
+
+          console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is within mirror tenure (${mirrorMapping.mirrorTenure}) - mirrorEMIsPaid incremented`);
+
+          // Check if mirror loan is complete
+          if (emi.installmentNumber >= mirrorMapping.mirrorTenure) {
+            console.log(`[Mirror Sync] Mirror loan ${mirrorMapping.mirrorLoanNumber} is complete!`);
+
+            // Update mirror completed timestamp
+            await db.mirrorLoanMapping.update({
+              where: { id: mirrorMapping.id },
+              data: { mirrorCompletedAt: new Date() }
+            });
           }
-        });
-        
-        if (mirrorEmisPaid >= mirrorMapping.mirrorTenure) {
-          console.log(`[Mirror Sync] Mirror loan ${mirrorMapping.mirrorLoanId} is complete!`);
-          
-          // Mark mirror loan as closed
-          await db.offlineLoan.update({
-            where: { id: mirrorMapping.mirrorLoanId },
-            data: { status: 'CLOSED', closedAt: new Date() }
-          });
-          
-          // Update mirror completed timestamp
+        } else {
+          // This is an EXTRA EMI - goes to personal credit of Company 3 (already handled above)
+          console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${mirrorMapping.mirrorTenure})`);
+
+          // Update extra EMIs paid count
           await db.mirrorLoanMapping.update({
             where: { id: mirrorMapping.id },
-            data: { mirrorCompletedAt: new Date() }
+            data: {
+              extraEMIsPaid: { increment: 1 },
+              totalProfitReceived: { increment: actualPaymentAmount }
+            }
           });
+
+          console.log(`[Mirror Sync] Extra EMI #${emi.installmentNumber} - profit ₹${actualPaymentAmount} recorded for Company 3`);
         }
       }
 
