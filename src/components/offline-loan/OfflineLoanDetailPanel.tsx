@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import ReceiptSection from '@/components/receipt/ReceiptSection';
+import ReceiptDialog from '@/components/receipt/ReceiptDialog';
 
 interface OfflineLoanDetailPanelProps {
   loanId: string | null;
@@ -2262,111 +2263,12 @@ export default function OfflineLoanDetailPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Receipt Dialog for Mirror Loans */}
-      <Dialog open={receiptDialogOpen} onOpenChange={setReceiptDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-blue-600" />
-              EMI Receipt
-            </DialogTitle>
-            <DialogDescription>
-              Receipt for EMI #{receiptData?.emiNumber}
-            </DialogDescription>
-          </DialogHeader>
-          {receiptData && (
-            <div className="space-y-4">
-              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-gray-500">Loan Number</p>
-                    <p className="font-medium">{receiptData.loanNumber}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">EMI Number</p>
-                    <p className="font-medium">#{receiptData.emiNumber}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Customer</p>
-                    <p className="font-medium">{receiptData.customerName}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Paid Date</p>
-                    <p className="font-medium">{receiptData.paidDate ? formatDate(receiptData.paidDate) : 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Principal</p>
-                    <p className="font-medium text-green-600">{formatCurrency(receiptData.principalAmount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Interest</p>
-                    <p className="font-medium text-blue-600">{formatCurrency(receiptData.interestAmount)}</p>
-                  </div>
-                  <div className="col-span-2 pt-2 border-t">
-                    <div className="flex justify-between items-center">
-                      <p className="text-gray-700 font-medium">Total Amount</p>
-                      <p className="text-xl font-bold text-emerald-600">{formatCurrency(receiptData.totalAmount)}</p>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Payment Mode</p>
-                    <p className="font-medium">{receiptData.paymentMode || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Reference</p>
-                    <p className="font-medium text-xs">{receiptData.paymentReference || 'Synced from Original'}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    // Print receipt
-                    const printContent = `
-                      <html>
-                        <head><title>Receipt - EMI #${receiptData.emiNumber}</title></head>
-                        <body style="font-family: Arial, sans-serif; padding: 20px;">
-                          <h2 style="text-align: center;">EMI Receipt</h2>
-                          <hr/>
-                          <p><strong>Loan Number:</strong> ${receiptData.loanNumber}</p>
-                          <p><strong>EMI Number:</strong> #${receiptData.emiNumber}</p>
-                          <p><strong>Customer:</strong> ${receiptData.customerName}</p>
-                          <p><strong>Paid Date:</strong> ${receiptData.paidDate ? formatDate(receiptData.paidDate) : 'N/A'}</p>
-                          <hr/>
-                          <p><strong>Principal:</strong> ${formatCurrency(receiptData.principalAmount)}</p>
-                          <p><strong>Interest:</strong> ${formatCurrency(receiptData.interestAmount)}</p>
-                          <hr/>
-                          <p style="font-size: 18px;"><strong>Total:</strong> ${formatCurrency(receiptData.totalAmount)}</p>
-                          <p><strong>Payment Mode:</strong> ${receiptData.paymentMode || 'N/A'}</p>
-                          <hr/>
-                          <p style="text-align: center; color: #666;">Thank you for your payment!</p>
-                        </body>
-                      </html>
-                    `;
-                    const printWindow = window.open('', '_blank');
-                    if (printWindow) {
-                      printWindow.document.write(printContent);
-                      printWindow.document.close();
-                      printWindow.print();
-                    }
-                  }}
-                >
-                  <Receipt className="h-4 w-4 mr-1" />
-                  Print
-                </Button>
-                <Button
-                  className="flex-1 bg-blue-500 hover:bg-blue-600"
-                  onClick={() => setReceiptDialogOpen(false)}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Receipt Dialog - Same as Online Loans */}
+      <ReceiptDialog
+        open={receiptDialogOpen}
+        onOpenChange={setReceiptDialogOpen}
+        receiptData={receiptData}
+      />
     </>
   );
 }
