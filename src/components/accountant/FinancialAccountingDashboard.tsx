@@ -106,11 +106,24 @@ interface ProfitLossData {
   netProfit: number;
 }
 
+interface BalanceSheetItem {
+  name: string;
+  amount: number;
+  type: string;
+  isCalculated?: boolean;
+  formula?: string;
+  details?: Array<{ name: string; amount: number; bankName?: string; accountNumber?: string; balance?: number }>;
+  canAdd?: boolean;
+  count?: number;
+  onlineLoans?: number;
+  offlineLoans?: number;
+}
+
 interface BalanceSheetData {
   company: { id: string; name: string; code: string };
   financialYear: string;
-  leftSide: { items: Array<{ name: string; amount: number; type: string }>; total: number };
-  rightSide: { items: Array<{ name: string; amount: number; type: string }>; total: number };
+  leftSide: { items: Array<BalanceSheetItem>; total: number };
+  rightSide: { items: Array<BalanceSheetItem>; total: number };
   summary: {
     cashBookBalance: number;
     bankBalance: number;
