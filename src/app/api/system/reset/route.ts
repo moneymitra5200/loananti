@@ -182,10 +182,18 @@ export async function POST(request: NextRequest) {
         await Promise.all([
           db.notification.deleteMany({}).then(r => { stats.notifications = r.count; }).catch(e => { errors.push(`notification: ${e.message}`); }),
           db.reminder.deleteMany({}).then(r => { stats.reminders = r.count; }).catch(e => { errors.push(`reminder: ${e.message}`); }),
+          db.notificationSetting.deleteMany({}).then(r => { stats.notificationSettings = r.count; }).catch(() => {}),
+          db.notificationTemplate.deleteMany({}).then(r => { stats.notificationTemplates = r.count; }).catch(() => {}),
+          // Chatbot data
           db.chatbotSession.deleteMany({}).then(r => { stats.chatbotSessions = r.count; }).catch(() => {}),
+          db.chatbotMessage.deleteMany({}).then(r => { stats.chatbotMessages = r.count; }).catch(() => {}),
+          // Live chat data
           db.liveChatMessage.deleteMany({}).then(r => { stats.liveChatMessages = r.count; }).catch(() => {}),
           db.liveChatSession.deleteMany({}).then(r => { stats.liveChatSessions = r.count; }).catch(() => {}),
+          // Support tickets
           db.supportTicket.deleteMany({}).then(r => { stats.supportTickets = r.count; }).catch(() => {}),
+          db.ticketMessage.deleteMany({}).then(r => { stats.ticketMessages = r.count; }).catch(() => {}),
+          db.ticketActivity.deleteMany({}).then(r => { stats.ticketActivities = r.count; }).catch(() => {}),
         ]);
       } catch (e) {
         errors.push(`Phase 1 (notifications): ${e instanceof Error ? e.message : 'Unknown'}`);
@@ -203,7 +211,9 @@ export async function POST(request: NextRequest) {
           db.ledgerBalance.deleteMany({}).then(r => { stats.ledgerBalances = r.count; }).catch(e => { errors.push(`ledgerBalance: ${e.message}`); }),
           db.cashierSettlement.deleteMany({}).then(r => { stats.cashierSettlements = r.count; }).catch(() => {}),
           db.dailyCollection.deleteMany({}).then(r => { stats.dailyCollections = r.count; }).catch(() => {}),
-          db.creditTransaction.deleteMany({}).then(r => { stats.creditTransactions = r.count; }).catch(e => { errors.push(`creditTransaction: ${e.message}`); })
+          db.creditTransaction.deleteMany({}).then(r => { stats.creditTransactions = r.count; }).catch(e => { errors.push(`creditTransaction: ${e.message}`); }),
+          // Interest payment history
+          db.interestPaymentHistory.deleteMany({}).then(r => { stats.interestPaymentHistory = r.count; }).catch(() => {}),
         ]);
       } catch (e) {
         errors.push(`Phase 1 (transactions): ${e instanceof Error ? e.message : 'Unknown'}`);
@@ -249,6 +259,13 @@ export async function POST(request: NextRequest) {
           db.referral.deleteMany({}).catch(() => {}),
           db.paymentRequest.deleteMany({}).catch(() => {}),
           db.secondaryPaymentPage.deleteMany({}).catch(() => {}),
+          // Agent/Commission related
+          db.commissionSlab.deleteMany({}).catch(() => {}),
+          db.agentPerformance.deleteMany({}).catch(() => {}),
+          // Grace period config
+          db.gracePeriodConfig.deleteMany({}).catch(() => {}),
+          // Secure documents
+          db.secureDocument.deleteMany({}).catch(() => {}),
         ]);
         
         // Delete Mirror Loan related
@@ -257,7 +274,7 @@ export async function POST(request: NextRequest) {
           db.pendingMirrorLoan.deleteMany({}).catch(() => {}),
         ]);
         
-        // Delete Session Form and Loan Form
+        // Delete SessionForm and LoanForm
         await Promise.all([
           db.sessionForm.deleteMany({}).catch(() => {}),
           db.loanForm.deleteMany({}).catch(() => {}),
@@ -434,7 +451,31 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // PHASE 8: Delete UPLOADED DOCUMENTS
+    // PHASE 8: Delete CMS and Configuration
+    // ========================================
+    
+    console.log('[System Reset] Deleting CMS and configuration...');
+    try {
+      await Promise.all([
+        // CMS data
+        db.cMSService.deleteMany({}).then(r => { stats.cmsServices = r.count; }).catch(() => {}),
+        db.cMSBanner.deleteMany({}).then(r => { stats.cmsBanners = r.count; }).catch(() => {}),
+        db.cMSTestimonial.deleteMany({}).then(r => { stats.cmsTestimonials = r.count; }).catch(() => {}),
+        // Form config
+        db.formConfig.deleteMany({}).then(r => { stats.formConfigs = r.count; }).catch(() => {}),
+        // Payment settings
+        db.paymentOptionSettings.deleteMany({}).then(r => { stats.paymentOptionSettings = r.count; }).catch(() => {}),
+        db.companyPaymentSettings.deleteMany({}).then(r => { stats.companyPaymentSettings = r.count; }).catch(() => {}),
+        db.companyPaymentPage.deleteMany({}).then(r => { stats.companyPaymentPages = r.count; }).catch(() => {}),
+        // Uploaded files
+        db.uploadedFile.deleteMany({}).then(r => { stats.uploadedFilesDb = r.count; }).catch(() => {}),
+      ]);
+    } catch (e) {
+      errors.push(`Phase 8 (cms): ${e instanceof Error ? e.message : 'Unknown'}`);
+    }
+
+    // ========================================
+    // PHASE 9: Delete UPLOADED DOCUMENTS
     // ========================================
     
     if (resetOptions.documents) {
@@ -450,6 +491,29 @@ export async function POST(request: NextRequest) {
           stats.uploadedFiles = 1;
         } catch {}
       } catch {}
+    }
+
+    // ========================================
+    // PHASE 10: Clear Deleted Users
+    // ========================================
+    
+    console.log('[System Reset] Clearing deleted users...');
+    try {
+      await db.deletedUser.deleteMany({}).then(r => { stats.deletedUsers = r.count; }).catch(() => {});
+    } catch (e) {
+      errors.push(`Phase 10 (deletedUsers): ${e instanceof Error ? e.message : 'Unknown'}`);
+    }
+
+    // ========================================
+    // PHASE 11: Clear User Sessions (keep users logged in if needed)
+    // ========================================
+    
+    console.log('[System Reset] Clearing user sessions...');
+    try {
+      await db.userSession.deleteMany({}).then(r => { stats.userSessions = r.count; }).catch(() => {});
+      await db.userPreference.deleteMany({}).then(r => { stats.userPreferences = r.count; }).catch(() => {});
+    } catch (e) {
+      errors.push(`Phase 11 (sessions): ${e instanceof Error ? e.message : 'Unknown'}`);
     }
 
     const duration = (Date.now() - startTime) / 1000;
@@ -474,7 +538,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'System reset completed',
+      message: 'System reset completed - ALL accounting portal sections cleared',
       stats: { duration: `${duration}s`, deleted: stats },
       errors: errors.length > 0 ? errors : undefined
     });

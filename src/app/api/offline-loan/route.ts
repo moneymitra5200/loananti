@@ -968,8 +968,7 @@ export async function POST(request: NextRequest) {
                 description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
                 referenceType: 'MIRROR_LOAN_DISBURSEMENT',
                 referenceId: mirrorLoan.id,
-                createdById,
-                companyId: mirrorCompanyId
+                createdById
               }
             });
 
