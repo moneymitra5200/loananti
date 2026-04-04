@@ -12,6 +12,16 @@ interface ResetOptions {
   auditLogs: boolean;
   notifications: boolean;
   documents: boolean;
+  // Accounting Portal Options
+  chartOfAccounts: boolean;
+  financialYears: boolean;
+  journalEntries: boolean;
+  expenses: boolean;
+  gstConfig: boolean;
+  cashBook: boolean;
+  accountingSettings: boolean;
+  fixedAssets: boolean;
+  allAccounting: boolean;
 }
 
 // GET - Check system status before reset
@@ -19,7 +29,7 @@ export async function GET(request: NextRequest) {
   try {
     // Test database connection
     await db.$queryRaw`SELECT 1 as test`;
-    
+
     // Get counts of data that can be reset
     const [
       loanApplicationsCount,
@@ -30,6 +40,14 @@ export async function GET(request: NextRequest) {
       customersCount,
       auditLogsCount,
       notificationsCount,
+      // Accounting counts
+      chartOfAccountsCount,
+      financialYearsCount,
+      journalEntriesCount,
+      expensesCount,
+      gstConfigCount,
+      cashBookCount,
+      fixedAssetsCount,
     ] = await Promise.all([
       db.loanApplication.count().catch(() => 0),
       db.eMISchedule.count().catch(() => 0),
@@ -39,6 +57,14 @@ export async function GET(request: NextRequest) {
       db.user.count({ where: { role: 'CUSTOMER' } }).catch(() => 0),
       db.auditLog.count().catch(() => 0),
       db.notification.count().catch(() => 0),
+      // Accounting counts
+      db.chartOfAccount.count().catch(() => 0),
+      db.financialYear.count().catch(() => 0),
+      db.journalEntry.count().catch(() => 0),
+      db.expense.count().catch(() => 0),
+      db.gSTConfig.count().catch(() => 0),
+      db.cashBook.count().catch(() => 0),
+      db.fixedAsset.count().catch(() => 0),
     ]);
 
     return NextResponse.json({
@@ -52,11 +78,21 @@ export async function GET(request: NextRequest) {
         customers: customersCount,
         auditLogs: auditLogsCount,
         notifications: notificationsCount,
+        // Accounting status
+        accounting: {
+          chartOfAccounts: chartOfAccountsCount,
+          financialYears: financialYearsCount,
+          journalEntries: journalEntriesCount,
+          expenses: expensesCount,
+          gstConfig: gstConfigCount,
+          cashBook: cashBookCount,
+          fixedAssets: fixedAssetsCount,
+        }
       }
     });
   } catch (error) {
     console.error('[System Reset Status] Error:', error);
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Database connection failed',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
@@ -105,6 +141,16 @@ export async function POST(request: NextRequest) {
       auditLogs: true,
       notifications: true,
       documents: true,
+      // Accounting Portal - ALL TRUE by default
+      chartOfAccounts: true,
+      financialYears: true,
+      journalEntries: true,
+      expenses: true,
+      gstConfig: true,
+      cashBook: true,
+      accountingSettings: true,
+      fixedAssets: true,
+      allAccounting: true,
     };
 
     console.log('[System Reset] Starting with options:', resetOptions);
@@ -294,7 +340,7 @@ export async function POST(request: NextRequest) {
     // ========================================
     // PHASE 6: Reset CREDITS
     // ========================================
-    
+
     if (resetOptions.credits) {
       console.log('[System Reset] Resetting credits...');
       try {
@@ -309,7 +355,86 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // PHASE 7: Delete UPLOADED DOCUMENTS
+    // PHASE 7: ACCOUNTING PORTAL - FULL RESET
+    // ========================================
+
+    if (resetOptions.allAccounting || resetOptions.journalEntries || resetOptions.chartOfAccounts) {
+      console.log('[System Reset] Resetting Accounting Portal...');
+
+      try {
+        // Delete Journal Entry Lines first (references JournalEntry)
+        if (resetOptions.allAccounting || resetOptions.journalEntries) {
+          console.log('[System Reset] Deleting journal entries...');
+          await db.journalEntryLine.deleteMany({}).then(r => { stats.journalEntryLines = r.count; }).catch(() => {});
+          await db.journalEntry.deleteMany({}).then(r => { stats.journalEntries = r.count; }).catch(() => {});
+        }
+
+        // Delete Ledger Balances (references ChartOfAccount and FinancialYear)
+        await db.ledgerBalance.deleteMany({}).then(r => { stats.ledgerBalances = r.count; }).catch(() => {});
+
+        // Delete Reports Cache
+        await db.reportsCache.deleteMany({}).then(r => { stats.reportsCache = r.count; }).catch(() => {});
+
+        // Delete Chart of Accounts
+        if (resetOptions.allAccounting || resetOptions.chartOfAccounts) {
+          console.log('[System Reset] Deleting chart of accounts...');
+          await db.chartOfAccount.deleteMany({}).then(r => { stats.chartOfAccounts = r.count; }).catch(() => {});
+        }
+
+        // Delete Financial Years
+        if (resetOptions.allAccounting || resetOptions.financialYears) {
+          console.log('[System Reset] Deleting financial years...');
+          await db.financialYear.deleteMany({}).then(r => { stats.financialYears = r.count; }).catch(() => {});
+        }
+
+        // Delete Expenses
+        if (resetOptions.allAccounting || resetOptions.expenses) {
+          console.log('[System Reset] Deleting expenses...');
+          await db.expense.deleteMany({}).then(r => { stats.expenses = r.count; }).catch(() => {});
+        }
+
+        // Delete GST Config
+        if (resetOptions.allAccounting || resetOptions.gstConfig) {
+          console.log('[System Reset] Deleting GST config...');
+          await db.gSTConfig.deleteMany({}).then(r => { stats.gstConfigs = r.count; }).catch(() => {});
+        }
+
+        // Delete Cash Book Entries and Cash Book
+        if (resetOptions.allAccounting || resetOptions.cashBook) {
+          console.log('[System Reset] Deleting cash book...');
+          await db.cashBookEntry.deleteMany({}).then(r => { stats.cashBookEntries = r.count; }).catch(() => {});
+          await db.cashBook.deleteMany({}).then(r => { stats.cashBooks = r.count; }).catch(() => {});
+        }
+
+        // Delete Accounting Settings
+        if (resetOptions.allAccounting || resetOptions.accountingSettings) {
+          console.log('[System Reset] Deleting accounting settings...');
+          await db.accountingSettings.deleteMany({}).then(r => { stats.accountingSettings = r.count; }).catch(() => {});
+          await db.companyAccountingSettings.deleteMany({}).then(r => { stats.companyAccountingSettings = r.count; }).catch(() => {});
+        }
+
+        // Delete Fixed Assets and Depreciation Logs
+        if (resetOptions.allAccounting || resetOptions.fixedAssets) {
+          console.log('[System Reset] Deleting fixed assets...');
+          await db.assetDepreciationLog.deleteMany({}).then(r => { stats.assetDepreciationLogs = r.count; }).catch(() => {});
+          await db.fixedAsset.deleteMany({}).then(r => { stats.fixedAssets = r.count; }).catch(() => {});
+        }
+
+        // Delete Ledgers (company-level ledgers)
+        await db.ledger.deleteMany({}).then(r => { stats.ledgers = r.count; }).catch(() => {});
+
+        // Reset Loan Sequence (for mirror loan numbering)
+        await db.loanSequence.deleteMany({}).then(r => { stats.loanSequence = r.count; }).catch(() => {});
+
+        console.log('[System Reset] Accounting portal reset complete:', stats);
+
+      } catch (e) {
+        errors.push(`Phase 7 (accounting): ${e instanceof Error ? e.message : 'Unknown'}`);
+      }
+    }
+
+    // ========================================
+    // PHASE 8: Delete UPLOADED DOCUMENTS
     // ========================================
     
     if (resetOptions.documents) {
