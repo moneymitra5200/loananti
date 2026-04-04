@@ -110,6 +110,8 @@ interface LoanDetail {
   originalLoanId?: string | null; // If this is mirror, reference to original
   mirrorLoanId?: string | null; // If this is original, reference to mirror
   mirrorCompanyId?: string | null; // Mirror company ID (for original loans)
+  mirrorCompanyName?: string | null; // Mirror company name for UI display
+  mirrorCompanyCode?: string | null; // Mirror company code for UI display
   mirrorInterestRate?: number | null; // Mirror interest rate
 }
 
@@ -716,22 +718,8 @@ export default function OfflineLoanDetailPanel({
   // For mirror loans, only Company Credit is available
   const isMirroredLoan = loan?.isMirrored && loan?.mirrorCompanyId;
   
-  // Get mirror company info
-  const [mirrorCompanyName, setMirrorCompanyName] = useState<string>('');
-  
-  // Fetch mirror company name when loan changes
-  useEffect(() => {
-    if (loan?.mirrorCompanyId) {
-      fetch(`/api/company?id=${loan.mirrorCompanyId}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.company) {
-            setMirrorCompanyName(data.company.name);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [loan?.mirrorCompanyId]);
+  // Get mirror company name from loan object (API now returns it directly)
+  const mirrorCompanyName = loan?.mirrorCompanyName || '';
   
   // Check if EMI is within mirror tenure or extra EMI
   const isExtraEmi = (installmentNumber: number): boolean => {
@@ -739,8 +727,16 @@ export default function OfflineLoanDetailPanel({
     return installmentNumber > loan.mirrorTenure;
   };
   
-  // Get the company name for cashbook entry based on EMI number and mirror status
-  const getCashbookCompanyName = (emiNumber: number = 1): string => {
+  // Get the company name for cashbook entry based on EMI number, mirror status, and credit type
+  // PERSONAL Credit → ALWAYS Original Company (Company 3)
+  // COMPANY Credit → Mirror Company for mirror EMIs, Original Company for extra EMIs
+  const getCashbookCompanyName = (emiNumber: number = 1, forCreditType: 'PERSONAL' | 'COMPANY' = 'COMPANY'): string => {
+    // Personal Credit ALWAYS goes to Original Company (Company 3)
+    if (forCreditType === 'PERSONAL') {
+      return loan?.company?.name || 'Original Company';
+    }
+    
+    // Company Credit depends on mirror status
     if (isMirroredLoan) {
       // For mirrored loans, check if this is an extra EMI
       if (isExtraEmi(emiNumber)) {
@@ -1758,7 +1754,7 @@ export default function OfflineLoanDetailPanel({
                         <span>CASH only</span>
                       </div>
                       <div className="text-gray-500">
-                        Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)} Cashbook
+                        Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1, 'PERSONAL')} Cashbook
                       </div>
                       <div className="font-medium text-amber-700">
                         Current: ₹{formatCurrency(personalCredit)}
@@ -1803,7 +1799,7 @@ export default function OfflineLoanDetailPanel({
                             <span>ONLINE or CASH</span>
                           </div>
                           <div className="text-gray-500">
-                            Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)}'s Books
+                            Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1, 'COMPANY')}'s Books
                           </div>
                         </>
                       )}
@@ -1837,7 +1833,7 @@ export default function OfflineLoanDetailPanel({
                 </div>
                 <div className="mt-3 p-3 bg-amber-100 rounded-lg">
                   <p className="text-xs text-amber-700">
-                    <strong>Entry will be recorded in:</strong> {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)} Cashbook
+                    <strong>Entry will be recorded in:</strong> {getCashbookCompanyName(selectedEmi?.installmentNumber || 1, 'PERSONAL')} Cashbook
                   </p>
                   <p className="text-xs text-amber-600 mt-1">
                     +₹{formatCurrency(paymentAmount)} will be added to your Personal Credit

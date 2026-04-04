@@ -88,13 +88,19 @@ export async function GET(request: NextRequest) {
 
       // Check if this loan is an original loan (has a mirror loan mapping)
       const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: true }
+        where: { originalLoanId: loanId, isOfflineLoan: true },
+        include: {
+          mirrorCompany: { select: { id: true, name: true, code: true } }
+        }
       });
 
       // Check if this loan is a mirror loan (is the mirror of another loan)
       // For offline loans, check both the mapping AND the isMirrorLoan field on the loan
       const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
-        where: { mirrorLoanId: loanId }
+        where: { mirrorLoanId: loanId },
+        include: {
+          originalCompany: { select: { id: true, name: true, code: true } }
+        }
       });
 
       // Determine if this is a mirror loan - check both the loan field and mapping
@@ -107,6 +113,10 @@ export async function GET(request: NextRequest) {
       const mirrorTenure = mirrorInfo?.mirrorTenure || null;
       const extraEMICount = mirrorInfo?.extraEMICount || 0;
       const mirrorLoanNumber = mirrorMappingAsOriginal?.mirrorLoanNumber || null;
+      
+      // Get mirror company name for display
+      const mirrorCompanyName = mirrorMappingAsOriginal?.mirrorCompany?.name || null;
+      const mirrorCompanyCode = mirrorMappingAsOriginal?.mirrorCompany?.code || null;
 
       // Calculate summary
       const summary = {
@@ -129,6 +139,8 @@ export async function GET(request: NextRequest) {
           mirrorTenure,
           extraEMICount,
           mirrorLoanNumber, // The mirror loan number stored in mapping
+          mirrorCompanyName, // Mirror company name for UI display
+          mirrorCompanyCode, // Mirror company code for UI display
           originalLoanId: mirrorMappingAsMirror?.originalLoanId || null,
           mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || null,
           mirrorCompanyId: mirrorMappingAsOriginal?.mirrorCompanyId || null,
