@@ -87,12 +87,31 @@ export async function GET(request: NextRequest) {
       }
 
       // Check if this loan is an original loan (has a mirror loan mapping)
-      const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
+      let mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
         where: { originalLoanId: loanId, isOfflineLoan: true },
         include: {
           mirrorCompany: { select: { id: true, name: true, code: true } }
         }
       });
+      
+      // If no mapping found, check if there's a mirror loan directly via originalLoanId field
+      // This handles the case where the mapping wasn't created but the mirror loan exists
+      let mirrorLoanDirect = null;
+      if (!mirrorMappingAsOriginal) {
+        mirrorLoanDirect = await db.offlineLoan.findFirst({
+          where: { 
+            originalLoanId: loanId,
+            isMirrorLoan: true 
+          },
+          include: {
+            company: { select: { id: true, name: true, code: true } }
+          }
+        });
+        
+        if (mirrorLoanDirect) {
+          console.log(`[Offline Loan] Found mirror loan ${mirrorLoanDirect.id} via originalLoanId field (no mapping table entry)`);
+        }
+      }
 
       // Check if this loan is a mirror loan (is the mirror of another loan)
       // For offline loans, check both the mapping AND the isMirrorLoan field on the loan
@@ -105,18 +124,27 @@ export async function GET(request: NextRequest) {
 
       // Determine if this is a mirror loan - check both the loan field and mapping
       const isMirrorLoan = loan.isMirrorLoan || !!mirrorMappingAsMirror;
-      const isMirrored = !!mirrorMappingAsOriginal; // This is original, has a mirror
+      const isMirrored = !!mirrorMappingAsOriginal || !!mirrorLoanDirect; // This is original, has a mirror
 
-      // Get mirror info for display
-      const mirrorInfo = mirrorMappingAsOriginal || mirrorMappingAsMirror;
+      // Get mirror info for display - use mapping first, then direct loan
+      const mirrorInfo = mirrorMappingAsOriginal || (mirrorLoanDirect ? {
+        mirrorLoanId: mirrorLoanDirect.id,
+        mirrorCompanyId: mirrorLoanDirect.companyId,
+        mirrorCompany: mirrorLoanDirect.company,
+        mirrorTenure: mirrorLoanDirect.tenure,
+        mirrorInterestRate: mirrorLoanDirect.interestRate,
+        displayColor: mirrorLoanDirect.displayColor || loan.displayColor,
+        extraEMICount: Math.max(0, loan.tenure - mirrorLoanDirect.tenure)
+      } : null);
+      
       const displayColor = mirrorInfo?.displayColor || null;
       const mirrorTenure = mirrorInfo?.mirrorTenure || null;
       const extraEMICount = mirrorInfo?.extraEMICount || 0;
-      const mirrorLoanNumber = mirrorMappingAsOriginal?.mirrorLoanNumber || null;
+      const mirrorLoanNumber = mirrorMappingAsOriginal?.mirrorLoanNumber || mirrorLoanDirect?.loanNumber || null;
       
       // Get mirror company name for display
-      const mirrorCompanyName = mirrorMappingAsOriginal?.mirrorCompany?.name || null;
-      const mirrorCompanyCode = mirrorMappingAsOriginal?.mirrorCompany?.code || null;
+      const mirrorCompanyName = mirrorInfo?.mirrorCompany?.name || null;
+      const mirrorCompanyCode = mirrorInfo?.mirrorCompany?.code || null;
 
       // Calculate summary
       const summary = {
@@ -138,13 +166,13 @@ export async function GET(request: NextRequest) {
           displayColor,
           mirrorTenure,
           extraEMICount,
-          mirrorLoanNumber, // The mirror loan number stored in mapping
+          mirrorLoanNumber, // The mirror loan number stored in mapping or from direct loan
           mirrorCompanyName, // Mirror company name for UI display
           mirrorCompanyCode, // Mirror company code for UI display
           originalLoanId: mirrorMappingAsMirror?.originalLoanId || null,
-          mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || null,
-          mirrorCompanyId: mirrorMappingAsOriginal?.mirrorCompanyId || null,
-          mirrorInterestRate: mirrorMappingAsOriginal?.mirrorInterestRate || null
+          mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || mirrorLoanDirect?.id || null,
+          mirrorCompanyId: mirrorMappingAsOriginal?.mirrorCompanyId || mirrorLoanDirect?.companyId || null,
+          mirrorInterestRate: mirrorMappingAsOriginal?.mirrorInterestRate || mirrorLoanDirect?.interestRate || null
         },
         summary
       });
@@ -1959,24 +1987,60 @@ export async function PUT(request: NextRequest) {
       // ============ MIRROR LOAN SYNC (SAME AS ONLINE LOANS) ============
       // When EMI is paid on original loan, sync to mirror loan
       // Mirror loan now EXISTS as a separate OfflineLoan record
-      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      
+      // First, try to find mapping in the mapping table
+      let mirrorMapping = await db.mirrorLoanMapping.findFirst({
         where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true }
       });
+      
+      // If no mapping found, check if there's a mirror loan directly via originalLoanId field
+      // This handles the case where the mapping wasn't created but the mirror loan exists
+      let mirrorLoan = null;
+      let mirrorTenureFromLoan = 0;
+      
+      if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
+        // Look for mirror loan that references this original loan
+        mirrorLoan = await db.offlineLoan.findFirst({
+          where: { 
+            originalLoanId: emi.offlineLoanId,
+            isMirrorLoan: true 
+          },
+          select: { 
+            id: true, 
+            loanNumber: true, 
+            tenure: true, 
+            companyId: true,
+            interestRate: true,
+            interestType: true
+          }
+        });
+        
+        if (mirrorLoan) {
+          console.log(`[Mirror Sync] Found mirror loan ${mirrorLoan.id} via originalLoanId field (no mapping table entry)`);
+          mirrorTenureFromLoan = mirrorLoan.tenure;
+        }
+      } else {
+        mirrorTenureFromLoan = mirrorMapping.mirrorTenure;
+      }
 
-      if (mirrorMapping && mirrorMapping.mirrorLoanId) {
-        console.log(`[Mirror Sync] Original loan ${emi.offlineLoanId} has mirror loan ${mirrorMapping.mirrorLoanId}`);
+      // Determine the mirror loan ID and tenure
+      const effectiveMirrorLoanId = mirrorMapping?.mirrorLoanId || mirrorLoan?.id;
+      const effectiveMirrorTenure = mirrorMapping?.mirrorTenure || mirrorTenureFromLoan;
+
+      if (effectiveMirrorLoanId) {
+        console.log(`[Mirror Sync] Original loan ${emi.offlineLoanId} has mirror loan ${effectiveMirrorLoanId}, mirror tenure: ${effectiveMirrorTenure}`);
 
         // Find the corresponding EMI in mirror loan
         const mirrorEmi = await db.offlineLoanEMI.findFirst({
           where: {
-            offlineLoanId: mirrorMapping.mirrorLoanId,
+            offlineLoanId: effectiveMirrorLoanId,
             installmentNumber: emi.installmentNumber
           }
         });
 
         if (mirrorEmi && mirrorEmi.paymentStatus === 'PENDING') {
           // Check if this is within the mirror tenure (not an extra EMI)
-          if (emi.installmentNumber <= mirrorMapping.mirrorTenure) {
+          if (emi.installmentNumber <= effectiveMirrorTenure) {
             // Sync the payment to mirror loan EMI
             await db.offlineLoanEMI.update({
               where: { id: mirrorEmi.id },
@@ -1995,20 +2059,39 @@ export async function PUT(request: NextRequest) {
               }
             });
 
-            // Update mirror EMIs paid count
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: {
-                mirrorEMIsPaid: { increment: 1 }
-              }
-            });
+            // Update mirror EMIs paid count (if mapping exists)
+            if (mirrorMapping) {
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorMapping.id },
+                data: {
+                  mirrorEMIsPaid: { increment: 1 }
+                }
+              });
+            }
 
-            console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${mirrorMapping.mirrorLoanId}`);
+            console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId}`);
           } else {
             // This is an EXTRA EMI - goes to personal credit of Company 3 (already handled above)
-            console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${mirrorMapping.mirrorTenure})`);
+            console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${effectiveMirrorTenure})`);
 
-            // Update extra EMIs paid count
+            // Update extra EMIs paid count (if mapping exists)
+            if (mirrorMapping) {
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorMapping.id },
+                data: {
+                  extraEMIsPaid: { increment: 1 },
+                  totalProfitReceived: { increment: actualPaymentAmount }
+                }
+              });
+            }
+
+            console.log(`[Mirror Sync] Extra EMI #${emi.installmentNumber} - profit ₹${actualPaymentAmount} recorded for Company 3`);
+          }
+        } else if (!mirrorEmi) {
+          console.log(`[Mirror Sync] No corresponding EMI #${emi.installmentNumber} in mirror loan - this is expected for extra EMIs`);
+
+          // This is an EXTRA EMI - update the count (if mapping exists)
+          if (mirrorMapping) {
             await db.mirrorLoanMapping.update({
               where: { id: mirrorMapping.id },
               data: {
@@ -2016,44 +2099,33 @@ export async function PUT(request: NextRequest) {
                 totalProfitReceived: { increment: actualPaymentAmount }
               }
             });
-
-            console.log(`[Mirror Sync] Extra EMI #${emi.installmentNumber} - profit ₹${actualPaymentAmount} recorded for Company 3`);
           }
-        } else if (!mirrorEmi) {
-          console.log(`[Mirror Sync] No corresponding EMI #${emi.installmentNumber} in mirror loan - this is expected for extra EMIs`);
-
-          // This is an EXTRA EMI - update the count
-          await db.mirrorLoanMapping.update({
-            where: { id: mirrorMapping.id },
-            data: {
-              extraEMIsPaid: { increment: 1 },
-              totalProfitReceived: { increment: actualPaymentAmount }
-            }
-          });
         }
 
         // Check if mirror loan is complete
         const mirrorEmisPaid = await db.offlineLoanEMI.count({
           where: {
-            offlineLoanId: mirrorMapping.mirrorLoanId,
+            offlineLoanId: effectiveMirrorLoanId,
             paymentStatus: 'PAID'
           }
         });
 
-        if (mirrorEmisPaid >= mirrorMapping.mirrorTenure) {
-          console.log(`[Mirror Sync] Mirror loan ${mirrorMapping.mirrorLoanId} is complete!`);
+        if (mirrorEmisPaid >= effectiveMirrorTenure) {
+          console.log(`[Mirror Sync] Mirror loan ${effectiveMirrorLoanId} is complete!`);
 
           // Mark mirror loan as closed
           await db.offlineLoan.update({
-            where: { id: mirrorMapping.mirrorLoanId },
+            where: { id: effectiveMirrorLoanId },
             data: { status: 'CLOSED', closedAt: new Date() }
           });
 
-          // Update mirror completed timestamp
-          await db.mirrorLoanMapping.update({
-            where: { id: mirrorMapping.id },
-            data: { mirrorCompletedAt: new Date() }
-          });
+          // Update mirror completed timestamp (if mapping exists)
+          if (mirrorMapping) {
+            await db.mirrorLoanMapping.update({
+              where: { id: mirrorMapping.id },
+              data: { mirrorCompletedAt: new Date() }
+            });
+          }
         }
       }
 
