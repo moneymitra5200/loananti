@@ -271,8 +271,8 @@ export async function GET(request: NextRequest) {
             name: "Owner's Equity",
             amount: ownerEquity,
             type: 'EQUITY',
-            canAdd: true,
-            description: 'Money invested by owner to start/run the business'
+            canAdd: false,
+            description: 'Money invested by owner - Add via Journal Entry (Debit Bank/Cash, Credit Equity)'
           },
           {
             name: 'Opening Balance Equity',
@@ -289,7 +289,8 @@ export async function GET(request: NextRequest) {
             name: 'Borrowed Money',
             amount: borrowedMoney,
             type: 'BORROWED_MONEY',
-            canAdd: true
+            canAdd: false,
+            description: 'Add via Journal Entry (Debit Bank, Credit Borrowed Funds)'
           },
           {
             name: 'Profit/Loss',
@@ -324,7 +325,8 @@ export async function GET(request: NextRequest) {
             name: 'Invest Money',
             amount: investMoney,
             type: 'INVEST_MONEY',
-            canAdd: true
+            canAdd: false,
+            description: 'Add via Journal Entry (Debit Invest Account, Credit Bank/Cash)'
           },
           {
             name: 'Loan Principal',
