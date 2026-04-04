@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
       cashBook = await db.cashBook.create({
         data: {
           companyId,
+          openingBalance: 0,
           currentBalance: 0
         }
       });
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       cashBookId: cashBook.id,
+      openingBalance: cashBook.openingBalance || 0,
       currentBalance: cashBook.currentBalance,
       entries
     });
@@ -44,26 +46,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Add cash entry
+// POST - Add cash entry or set opening balance
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, entryType, amount, description, createdById } = body;
+    const { companyId, entryType, amount, description, createdById, setOpeningBalance } = body;
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
-    }
-
-    if (!entryType || !['CREDIT', 'DEBIT'].includes(entryType)) {
-      return NextResponse.json({ error: 'Valid entry type (CREDIT or DEBIT) is required' }, { status: 400 });
-    }
-
-    if (!amount || amount <= 0) {
-      return NextResponse.json({ error: 'Valid amount is required' }, { status: 400 });
-    }
-
-    if (!description) {
-      return NextResponse.json({ error: 'Description is required' }, { status: 400 });
     }
 
     // Get or create cashbook for the company
@@ -75,9 +65,41 @@ export async function POST(request: NextRequest) {
       cashBook = await db.cashBook.create({
         data: {
           companyId,
+          openingBalance: 0,
           currentBalance: 0
         }
       });
+    }
+
+    // If setting opening balance
+    if (setOpeningBalance) {
+      const updated = await db.cashBook.update({
+        where: { id: cashBook.id },
+        data: { 
+          openingBalance: amount,
+          currentBalance: amount // Set current balance to opening balance initially
+        }
+      });
+      
+      return NextResponse.json({
+        success: true,
+        message: 'Opening balance set successfully',
+        openingBalance: updated.openingBalance,
+        currentBalance: updated.currentBalance
+      });
+    }
+
+    // Regular cash entry
+    if (!entryType || !['CREDIT', 'DEBIT'].includes(entryType)) {
+      return NextResponse.json({ error: 'Valid entry type (CREDIT or DEBIT) is required' }, { status: 400 });
+    }
+
+    if (!amount || amount <= 0) {
+      return NextResponse.json({ error: 'Valid amount is required' }, { status: 400 });
+    }
+
+    if (!description) {
+      return NextResponse.json({ error: 'Description is required' }, { status: 400 });
     }
 
     // Calculate new balance

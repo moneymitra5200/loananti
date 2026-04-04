@@ -1143,6 +1143,7 @@ model BankAccount {
 model CashBook {
   id              String   @id @default(cuid())
   companyId       String   @unique  // One cash book per company (Company 3)
+  openingBalance  Float    @default(0)  // Opening balance for the financial year
   currentBalance  Float    @default(0)  // Can be positive or negative
   lastUpdatedById String?  // Who last updated the balance
   lastUpdatedAt   DateTime?

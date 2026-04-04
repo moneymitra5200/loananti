@@ -404,42 +404,89 @@ function BalanceSheetSection({
             <FileSpreadsheet className="h-5 w-5 text-blue-600" />
             Balance Sheet
           </CardTitle>
-          <CardDescription>Financial position statement</CardDescription>
+          <CardDescription>
+            Financial position statement • Equity is auto-calculated from Opening Balances
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Assets (Left Side) */}
+            {/* LEFT SIDE - Liabilities (Source of Funds) */}
             <div>
-              <h3 className="font-semibold text-blue-600 mb-3">Assets</h3>
+              <h3 className="font-semibold text-purple-600 mb-3 flex items-center gap-2">
+                <ArrowDownRight className="h-4 w-4" />
+                Liabilities (Source of Funds)
+              </h3>
               <div className="space-y-2">
                 {data.leftSide.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between p-2 bg-blue-50 rounded">
-                    <span>{item.name}</span>
-                    <span className="font-medium">{formatCurrency(item.amount)}</span>
+                  <div key={idx} className="p-2 bg-purple-50 rounded">
+                    <div className="flex justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>{item.name}</span>
+                        {item.isCalculated && (
+                          <Badge variant="outline" className="text-xs">Auto</Badge>
+                        )}
+                      </div>
+                      <span className={`font-medium ${item.amount >= 0 ? 'text-purple-600' : 'text-red-600'}`}>
+                        {formatCurrency(item.amount)}
+                      </span>
+                    </div>
+                    {item.formula && (
+                      <p className="text-xs text-muted-foreground mt-1">{item.formula}</p>
+                    )}
+                    {item.details && (
+                      <div className="mt-2 pl-4 border-l-2 border-purple-200 text-sm text-muted-foreground">
+                        {item.details.map((detail: any, i: number) => (
+                          <div key={i} className="flex justify-between py-1">
+                            <span>{detail.name}</span>
+                            <span>{formatCurrency(detail.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <Separator />
+                <div className="flex justify-between p-2 bg-purple-100 rounded font-semibold">
+                  <span>Total Liabilities</span>
+                  <span className="text-purple-700">{formatCurrency(data.leftSide.total)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* RIGHT SIDE - Assets (How Funds Are Used) */}
+            <div>
+              <h3 className="font-semibold text-blue-600 mb-3 flex items-center gap-2">
+                <ArrowUpRight className="h-4 w-4" />
+                Assets (How Funds Are Used)
+              </h3>
+              <div className="space-y-2">
+                {data.rightSide.items.map((item, idx) => (
+                  <div key={idx} className="p-2 bg-blue-50 rounded">
+                    <div className="flex justify-between">
+                      <span>{item.name}</span>
+                      <span className="font-medium text-blue-600">{formatCurrency(item.amount)}</span>
+                    </div>
+                    {item.details && item.details.length > 0 && (
+                      <div className="mt-2 pl-4 border-l-2 border-blue-200 text-sm text-muted-foreground">
+                        {item.details.map((detail: any, i: number) => (
+                          <div key={i} className="flex justify-between py-1">
+                            <span>{detail.bankName || detail.name}</span>
+                            <span>{formatCurrency(detail.balance || detail.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {item.count !== undefined && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {item.count} loans ({item.onlineLoans} online, {item.offlineLoans} offline)
+                      </p>
+                    )}
                   </div>
                 ))}
                 <Separator />
                 <div className="flex justify-between p-2 bg-blue-100 rounded font-semibold">
                   <span>Total Assets</span>
-                  <span className="text-blue-700">{formatCurrency(data.leftSide.total)}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Liabilities & Equity (Right Side) */}
-            <div>
-              <h3 className="font-semibold text-purple-600 mb-3">Liabilities & Equity</h3>
-              <div className="space-y-2">
-                {data.rightSide.items.map((item, idx) => (
-                  <div key={idx} className="flex justify-between p-2 bg-purple-50 rounded">
-                    <span>{item.name}</span>
-                    <span className="font-medium">{formatCurrency(item.amount)}</span>
-                  </div>
-                ))}
-                <Separator />
-                <div className="flex justify-between p-2 bg-purple-100 rounded font-semibold">
-                  <span>Total Liabilities & Equity</span>
-                  <span className="text-purple-700">{formatCurrency(data.rightSide.total)}</span>
+                  <span className="text-blue-700">{formatCurrency(data.rightSide.total)}</span>
                 </div>
               </div>
             </div>
@@ -816,14 +863,33 @@ function LedgerSection({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (selectedCompanyId) {
+    if (!selectedCompanyId) return;
+    
+    let isMounted = true;
+    
+    // Use setTimeout to avoid synchronous setState warning
+    const fetchData = async () => {
       setLoading(true);
-      fetch(`/api/accounting/ledger?companyId=${selectedCompanyId}`)
-        .then(res => res.json())
-        .then(data => setLedgers(data.ledgers || []))
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    }
+      try {
+        const res = await fetch(`/api/accounting/ledger?companyId=${selectedCompanyId}`);
+        const data = await res.json();
+        if (isMounted) {
+          setLedgers(data.ledgers || []);
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    fetchData();
+    
+    return () => {
+      isMounted = false;
+    };
   }, [selectedCompanyId]);
 
   return (
