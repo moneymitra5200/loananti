@@ -601,3 +601,32 @@ Stage Summary:
   - For Extra EMIs (beyond mirror tenure) → Shows original company name
   - Dynamic company name based on EMI number and mirror status
 - Build passes, lint passes
+
+---
+Task ID: 26
+Task: Fix Mirror Loan EMI Payment - Correct Cashbook Company Display
+
+Work Log:
+- **Problem**: UI was showing wrong company name for mirror loan EMI payments
+  - Personal Credit was showing mirror company (wrong)
+  - Company Credit was showing wrong company in some cases
+- **Solution**: Updated `getCashbookCompanyName()` function with credit type parameter
+  - Personal Credit → ALWAYS shows Original Company (Company 3)
+  - Company Credit → Shows Mirror Company for mirror EMIs
+  - Extra EMIs → Shows Original Company (profit for Company 3)
+- **API Enhancement**: Added mirror company name to loan detail response
+  - `mirrorCompanyName` and `mirrorCompanyCode` now returned directly
+  - Removed need for separate API call to fetch company name
+- **UI Updates**:
+  - Personal Credit option shows: "Entry: [Original Company] Cashbook"
+  - Company Credit option shows: "Entry: [Mirror Company]'s Books" (for mirror EMIs)
+  - Payment Mode section shows correct company based on credit type
+
+Stage Summary:
+- **Personal Credit Rule**: Entry ALWAYS goes to Original Company (Company 3) Cashbook
+- **Company Credit Rule**: 
+  - Mirror EMIs (within tenure) → Mirror Company Cashbook
+  - Extra EMIs (beyond tenure) → Original Company Cashbook
+- **Backend Accounting**: Already correct - mirror EMI amount goes to mirror company
+- Commit: 538b614
+- Pushed to Git
