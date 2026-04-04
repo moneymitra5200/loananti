@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 /**
- * TRIAL BALANCE API for Accountant Dashboard
+ * TRIAL BALANCE API
  * 
  * Shows all accounts with their debit/credit balances
  * Verifies: Total Debits = Total Credits
@@ -91,6 +91,8 @@ export async function GET(request: NextRequest) {
 
     let totalDebitBalance = 0;
     let totalCreditBalance = 0;
+    let totalOpeningDebit = 0;
+    let totalOpeningCredit = 0;
 
     for (const account of accounts) {
       const balances = accountBalances[account.id];
@@ -128,6 +130,15 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Opening balance summary
+      if (balances.openingBalance > 0) {
+        if (isDebitAccount) {
+          totalOpeningDebit += balances.openingBalance;
+        } else {
+          totalOpeningCredit += balances.openingBalance;
+        }
+      }
+
       trialBalance.push({
         accountId: account.id,
         accountCode: account.accountCode,
@@ -142,18 +153,41 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const isBalanced = Math.abs(totalDebitBalance - totalCreditBalance) < 0.01;
+    // Group by account type
+    const groupedByType: Record<string, typeof trialBalance> = {
+      ASSET: [],
+      LIABILITY: [],
+      EQUITY: [],
+      INCOME: [],
+      EXPENSE: [],
+    };
+
+    for (const item of trialBalance) {
+      if (groupedByType[item.accountType]) {
+        groupedByType[item.accountType].push(item);
+      }
+    }
+
+    // Summary
+    const summary = {
+      totalAccounts: accounts.length,
+      totalDebitBalance,
+      totalCreditBalance,
+      isBalanced: Math.abs(totalDebitBalance - totalCreditBalance) < 0.01,
+      difference: Math.abs(totalDebitBalance - totalCreditBalance),
+      totalOpeningDebit,
+      totalOpeningCredit,
+      totalTransactions: journalEntries.length,
+      asOfDate: dateFilter,
+    };
 
     return NextResponse.json({
       success: true,
-      trialBalance,
-      totalDebits: totalDebitBalance,
-      totalCredits: totalCreditBalance,
-      isBalanced,
-      difference: Math.abs(totalDebitBalance - totalCreditBalance),
-      accountCount: accounts.length,
-      entryCount: journalEntries.length,
-      asOfDate: dateFilter,
+      data: {
+        trialBalance,
+        groupedByType,
+        summary,
+      },
     });
   } catch (error) {
     console.error('Trial balance fetch error:', error);
