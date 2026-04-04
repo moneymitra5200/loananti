@@ -874,6 +874,7 @@ function LedgerSection({
 }) {
   const [ledgers, setLedgers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedCompanyId) return;
@@ -905,52 +906,251 @@ function LedgerSection({
     };
   }, [selectedCompanyId]);
 
+  // Get selected ledger details
+  const selectedLedger = selectedAccount !== null ? ledgers.find(l => l.accountId === selectedAccount) : null;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BookCopy className="h-5 w-5 text-indigo-600" />
+            Ledger Accounts
+          </CardTitle>
+          <CardDescription>Account-wise transaction history</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+            </div>
+          ) : ledgers.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground">
+              <BookCopy className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>No ledger entries found</p>
+              <p className="text-sm mt-2">Journal entries will appear here after EMI payments</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Account Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {ledgers.map((ledger) => (
+                  <Card 
+                    key={ledger.accountId} 
+                    className={`cursor-pointer transition-all hover:shadow-md ${selectedAccount === ledger.accountId ? 'ring-2 ring-emerald-500' : ''}`}
+                    onClick={() => setSelectedAccount(selectedAccount === ledger.accountId ? null : ledger.accountId)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">{ledger.accountCode}</p>
+                          <p className="font-medium">{ledger.accountName}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {ledger.transactions?.length || 0} transactions
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-bold ${ledger.closingBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {formatCurrency(ledger.closingBalance)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Closing Balance</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Selected Account Details */}
+              {selectedLedger && selectedLedger.transactions?.length > 0 && (
+                <Card className="mt-4">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center justify-between">
+                      <span>{selectedLedger.accountName} - Transactions</span>
+                      <Button variant="ghost" size="sm" onClick={() => setSelectedAccount(null)}>
+                        Close
+                      </Button>
+                    </CardTitle>
+                    <div className="flex gap-4 text-sm">
+                      <span>Opening: {formatCurrency(selectedLedger.openingBalance)}</span>
+                      <span>Total Debit: {formatCurrency(selectedLedger.totalDebit)}</span>
+                      <span>Total Credit: {formatCurrency(selectedLedger.totalCredit)}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[300px]">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Entry No.</TableHead>
+                            <TableHead>Description</TableHead>
+                            <TableHead className="text-right">Debit</TableHead>
+                            <TableHead className="text-right">Credit</TableHead>
+                            <TableHead className="text-right">Balance</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedLedger.transactions.map((txn: any, idx: number) => (
+                            <TableRow key={idx}>
+                              <TableCell>{formatDate(txn.date)}</TableCell>
+                              <TableCell>{txn.entryNumber}</TableCell>
+                              <TableCell className="max-w-xs truncate">{txn.narration}</TableCell>
+                              <TableCell className="text-right text-red-600">{formatCurrency(txn.debit || 0)}</TableCell>
+                              <TableCell className="text-right text-green-600">{formatCurrency(txn.credit || 0)}</TableCell>
+                              <TableCell className="text-right font-medium">{formatCurrency(txn.balance || 0)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Trial Balance Section
+function TrialBalanceSection({ 
+  selectedCompanyId,
+  formatCurrency
+}: { 
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+}) {
+  const [trialBalance, setTrialBalance] = useState<any[]>([]);
+  const [totals, setTotals] = useState({ totalDebits: 0, totalCredits: 0, isBalanced: true });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+    
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/accountant/trial-balance?companyId=${selectedCompanyId}`);
+        const data = await res.json();
+        if (isMounted) {
+          setTrialBalance(data.trialBalance || []);
+          setTotals({
+            totalDebits: data.totalDebits || 0,
+            totalCredits: data.totalCredits || 0,
+            isBalanced: data.isBalanced ?? true
+          });
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    fetchData();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedCompanyId]);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <BookCopy className="h-5 w-5 text-indigo-600" />
-          Ledger
+          <Calculator className="h-5 w-5 text-purple-600" />
+          Trial Balance
         </CardTitle>
-        <CardDescription>Account-wise transaction history</CardDescription>
+        <CardDescription>Summary of all account balances</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="py-12 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
           </div>
-        ) : ledgers.length === 0 ? (
+        ) : trialBalance.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground">
-            <BookCopy className="h-12 w-12 mx-auto mb-2 opacity-50" />
-            <p>No ledger entries found</p>
+            <Calculator className="h-12 w-12 mx-auto mb-2 opacity-50" />
+            <p>No accounts found</p>
+            <p className="text-sm mt-2">Chart of accounts will appear here after initialization</p>
           </div>
         ) : (
-          <ScrollArea className="h-[500px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Account</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Debit</TableHead>
-                  <TableHead className="text-right">Credit</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ledgers.map((ledger, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell>{formatDate(ledger.date)}</TableCell>
-                    <TableCell>{ledger.accountName}</TableCell>
-                    <TableCell className="max-w-xs truncate">{ledger.description}</TableCell>
-                    <TableCell className="text-right text-red-600">{formatCurrency(ledger.debit || 0)}</TableCell>
-                    <TableCell className="text-right text-green-600">{formatCurrency(ledger.credit || 0)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(ledger.balance || 0)}</TableCell>
+          <>
+            <ScrollArea className="h-[400px]">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account Code</TableHead>
+                    <TableHead>Account Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Debit Balance</TableHead>
+                    <TableHead className="text-right">Credit Balance</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </ScrollArea>
+                </TableHeader>
+                <TableBody>
+                  {trialBalance.map((account, idx) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-mono text-sm">{account.accountCode}</TableCell>
+                      <TableCell>{account.accountName}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={
+                          account.accountType === 'ASSET' ? 'border-blue-500 text-blue-600' :
+                          account.accountType === 'LIABILITY' ? 'border-purple-500 text-purple-600' :
+                          account.accountType === 'INCOME' ? 'border-green-500 text-green-600' :
+                          account.accountType === 'EXPENSE' ? 'border-red-500 text-red-600' :
+                          'border-gray-500 text-gray-600'
+                        }>
+                          {account.accountType}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {account.debitBalance > 0 ? formatCurrency(account.debitBalance) : '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {account.creditBalance > 0 ? formatCurrency(account.creditBalance) : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+
+            <div className={`mt-4 p-4 rounded-lg ${totals.isBalanced ? 'bg-green-50' : 'bg-red-50'}`}>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Debits</p>
+                  <p className="text-xl font-bold text-red-600">{formatCurrency(totals.totalDebits)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Total Credits</p>
+                  <p className="text-xl font-bold text-green-600">{formatCurrency(totals.totalCredits)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <div className="flex items-center gap-2">
+                    {totals.isBalanced ? (
+                      <>
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                        <span className="font-medium text-green-700">Balanced</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle className="h-5 w-5 text-red-600" />
+                        <span className="font-medium text-red-700">Not Balanced</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -1120,6 +1320,7 @@ export default function FinancialAccountingDashboard() {
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
     { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
+    { id: 'trial-balance', label: 'Trial Balance', icon: Calculator },
     { id: 'cash-flow', label: 'Cash Flow', icon: DollarSign },
     { id: 'bank-accounts', label: 'Bank Accounts', icon: Landmark },
     { id: 'daybook', label: 'Daybook', icon: BookOpen },
@@ -1146,6 +1347,8 @@ export default function FinancialAccountingDashboard() {
         return <ProfitLossSection data={profitLoss} formatCurrency={formatCurrency} />;
       case 'balance-sheet':
         return <BalanceSheetSection data={balanceSheet} formatCurrency={formatCurrency} />;
+      case 'trial-balance':
+        return <TrialBalanceSection selectedCompanyId={selectedCompanyId} formatCurrency={formatCurrency} />;
       case 'cash-flow':
         return (
           <CashFlowSection 

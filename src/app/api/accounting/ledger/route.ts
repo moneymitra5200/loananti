@@ -11,6 +11,7 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
     const loanId = searchParams.get('loanId');
     const customerId = searchParams.get('customerId');
+    const companyId = searchParams.get('companyId');
 
     switch (action) {
       case 'account-ledger':
@@ -20,12 +21,13 @@ export async function GET(request: NextRequest) {
       case 'customer-ledger':
         return await getCustomerLedger(customerId, startDate, endDate);
       case 'general-ledger':
-        return await getGeneralLedger(startDate, endDate);
+        return await getGeneralLedger(startDate, endDate, companyId);
       case 'sub-ledger':
         const subAccountCode = searchParams.get('subAccountCode');
         return await getSubLedger(subAccountCode, startDate, endDate);
       default:
-        return await getGeneralLedger(startDate, endDate);
+        // Default: return ledgers for the company
+        return await getCompanyLedgers(companyId, startDate, endDate);
     }
   } catch (error) {
     console.error('Ledger API error:', error);
@@ -34,6 +36,127 @@ export async function GET(request: NextRequest) {
 }
 
 // ==================== HELPER FUNCTIONS ====================
+
+// New function to get ledgers for a specific company
+async function getCompanyLedgers(companyId: string | null, startDate: string | null, endDate: string | null) {
+  if (!companyId) {
+    return NextResponse.json({ error: 'Company ID required' }, { status: 400 });
+  }
+
+  const start = startDate ? new Date(startDate) : new Date(new Date().setMonth(new Date().getMonth() - 1));
+  const end = endDate ? new Date(endDate) : new Date();
+
+  // Get all accounts for this company
+  const accounts = await db.chartOfAccount.findMany({
+    where: { companyId, isActive: true },
+    orderBy: { accountCode: 'asc' },
+  });
+
+  // Get all journal entries for this company
+  const journalEntries = await db.journalEntry.findMany({
+    where: {
+      companyId,
+      entryDate: { gte: start, lte: end },
+      isApproved: true,
+      isReversed: false,
+    },
+    include: {
+      lines: {
+        include: {
+          account: true,
+        },
+      },
+    },
+    orderBy: { entryDate: 'asc' },
+  });
+
+  // Build ledgers by account
+  const ledgers: Array<{
+    accountId: string;
+    accountCode: string;
+    accountName: string;
+    accountType: string;
+    openingBalance: number;
+    transactions: Array<{
+      date: Date;
+      entryNumber: string;
+      narration: string;
+      debit: number;
+      credit: number;
+      balance: number;
+    }>;
+    closingBalance: number;
+    totalDebit: number;
+    totalCredit: number;
+  }> = [];
+
+  for (const account of accounts) {
+    const accountTransactions: Array<{
+      date: Date;
+      entryNumber: string;
+      narration: string;
+      debit: number;
+      credit: number;
+      balance: number;
+    }> = [];
+    
+    let balance = account.openingBalance || 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
+
+    // Process journal entries for this account
+    for (const entry of journalEntries) {
+      for (const line of entry.lines) {
+        if (line.accountId === account.id) {
+          if (isDebitAccount) {
+            balance += line.debitAmount - line.creditAmount;
+          } else {
+            balance += line.creditAmount - line.debitAmount;
+          }
+
+          totalDebit += line.debitAmount;
+          totalCredit += line.creditAmount;
+
+          accountTransactions.push({
+            date: entry.entryDate,
+            entryNumber: entry.entryNumber,
+            narration: entry.narration || '',
+            debit: line.debitAmount,
+            credit: line.creditAmount,
+            balance,
+          });
+        }
+      }
+    }
+
+    ledgers.push({
+      accountId: account.id,
+      accountCode: account.accountCode,
+      accountName: account.accountName,
+      accountType: account.accountType,
+      openingBalance: account.openingBalance || 0,
+      transactions: accountTransactions,
+      closingBalance: balance,
+      totalDebit,
+      totalCredit,
+    });
+  }
+
+  // Filter to only show accounts with transactions
+  const activeLedgers = ledgers.filter(
+    (l) => l.transactions.length > 0 || l.closingBalance !== l.openingBalance
+  );
+
+  return NextResponse.json({
+    success: true,
+    ledgers: activeLedgers,
+    period: { start, end },
+    totalAccounts: accounts.length,
+    activeAccounts: activeLedgers.length,
+  });
+}
 
 async function getAccountLedger(accountId: string | null, startDate: string | null, endDate: string | null) {
   if (!accountId) {
@@ -283,22 +406,33 @@ async function getCustomerLedger(customerId: string | null, startDate: string | 
   });
 }
 
-async function getGeneralLedger(startDate: string | null, endDate: string | null) {
+async function getGeneralLedger(startDate: string | null, endDate: string | null, companyId?: string | null) {
   const start = startDate ? new Date(startDate) : new Date(new Date().setMonth(new Date().getMonth() - 1));
   const end = endDate ? new Date(endDate) : new Date();
 
   // Get all accounts with their balances
+  const where: any = { isActive: true };
+  if (companyId) {
+    where.companyId = companyId;
+  }
+
   const accounts = await db.chartOfAccount.findMany({
-    where: { isActive: true },
+    where,
     orderBy: { accountCode: 'asc' },
   });
 
   // Get journal entries for the period
+  const journalWhere: any = {
+    entryDate: { gte: start, lte: end },
+    isApproved: true,
+    isReversed: false,
+  };
+  if (companyId) {
+    journalWhere.companyId = companyId;
+  }
+
   const journalEntries = await db.journalEntry.findMany({
-    where: {
-      entryDate: { gte: start, lte: end },
-      isApproved: true,
-    },
+    where: journalWhere,
     include: {
       lines: {
         include: {
