@@ -109,6 +109,8 @@ interface LoanDetail {
   extraEMICount?: number; // Extra EMIs count
   originalLoanId?: string | null; // If this is mirror, reference to original
   mirrorLoanId?: string | null; // If this is original, reference to mirror
+  mirrorCompanyId?: string | null; // Mirror company ID (for original loans)
+  mirrorInterestRate?: number | null; // Mirror interest rate
 }
 
 interface EMI {
@@ -709,6 +711,33 @@ export default function OfflineLoanDetailPanel({
   // Check if loan is from Company 3 and not mirrored
   // For Company 3 non-mirrored loans, Company Credit only shows CASH option (no bank account)
   const isCompany3NonMirroredLoan = loan?.company?.code === 'C3' && !loan?.isMirrored;
+  
+  // Check if this is a MIRROR loan (original from C3 mirrored to C1/C2)
+  // For mirror loans, only Company Credit is available
+  const isMirroredLoan = loan?.isMirrored && loan?.mirrorCompanyId;
+  
+  // Get mirror company info
+  const [mirrorCompanyName, setMirrorCompanyName] = useState<string>('');
+  
+  // Fetch mirror company name when loan changes
+  useEffect(() => {
+    if (loan?.mirrorCompanyId) {
+      fetch(`/api/company?id=${loan.mirrorCompanyId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.company) {
+            setMirrorCompanyName(data.company.name);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [loan?.mirrorCompanyId]);
+  
+  // Check if EMI is within mirror tenure or extra EMI
+  const isExtraEmi = (installmentNumber: number): boolean => {
+    if (!loan?.mirrorTenure) return false;
+    return installmentNumber > loan.mirrorTenure;
+  };
 
   return (
     <>
@@ -1616,93 +1645,163 @@ export default function OfflineLoanDetailPanel({
             {/* ========================================== */}
             {/* CREDIT TYPE SELECTION - MAIN CHOICE */}
             {/* ========================================== */}
-            <div className="p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
-              <Label className="text-slate-800 font-semibold mb-3 block">
-                <Wallet className="h-4 w-4 inline mr-2" />
-                Credit Type *
-              </Label>
-              <div className="grid grid-cols-2 gap-3">
-                {/* Personal Credit Option */}
+            
+            {/* For MIRROR loans - Only Company Credit available */}
+            {isMirroredLoan ? (
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Info className="h-4 w-4 text-blue-600" />
+                  <Label className="text-blue-800 font-semibold">
+                    Mirror Loan Payment
+                  </Label>
+                </div>
+                
+                {/* EMI Info for Mirror Loan */}
+                {selectedEmi && (
+                  <div className={`p-3 rounded-lg mb-3 ${isExtraEmi(selectedEmi.installmentNumber) ? 'bg-amber-100 border border-amber-300' : 'bg-green-100 border border-green-300'}`}>
+                    {isExtraEmi(selectedEmi.installmentNumber) ? (
+                      <div className="text-xs">
+                        <div className="flex items-center gap-1 text-amber-700 font-semibold mb-1">
+                          <AlertCircle className="h-3 w-3" />
+                          EXTRA EMI #{selectedEmi.installmentNumber}
+                        </div>
+                        <div className="text-amber-600">
+                          Entry: <strong>{loan?.company?.name || 'Company 3'}</strong> Cashbook (Extra profit EMI)
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs">
+                        <div className="flex items-center gap-1 text-green-700 font-semibold mb-1">
+                          <CheckCircle className="h-3 w-3" />
+                          EMI #{selectedEmi.installmentNumber} within Mirror Tenure
+                        </div>
+                        <div className="text-green-600">
+                          Entry: <strong>{mirrorCompanyName || 'Mirror Company'}</strong> Cashbook
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                {/* Company Credit - Only Option for Mirror Loans */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setCreditType('PERSONAL');
-                    setPaymentMode('CASH'); // Personal Credit is always CASH
-                  }}
-                  className={`p-4 rounded-lg border-2 text-left transition-all ${
-                    creditType === 'PERSONAL' 
-                      ? 'border-amber-500 bg-amber-50' 
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
+                  className="w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-left"
                 >
                   <div className="flex items-center gap-2 mb-2">
-                    <User className={`h-5 w-5 ${creditType === 'PERSONAL' ? 'text-amber-600' : 'text-gray-400'}`} />
-                    <span className={`font-semibold ${creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>
-                      Personal Credit
+                    <Building className="h-5 w-5 text-blue-600" />
+                    <span className="font-semibold text-blue-800">
+                      Company Credit (Only Option)
                     </span>
                   </div>
                   <div className="text-xs space-y-1">
                     <div className="flex items-center gap-1 text-gray-600">
-                      <Banknote className="h-3 w-3" />
-                      <span>CASH only</span>
+                      <Landmark className="h-3 w-3" />
+                      <span>ONLINE or CASH</span>
                     </div>
-                    <div className="text-gray-500">
-                      Entry: Company 3 Cashbook
+                    <div className="text-blue-600">
+                      Entry: {mirrorCompanyName || 'Mirror Company'}'s Books
                     </div>
-                    <div className="font-medium text-amber-700">
-                      Current: ₹{formatCurrency(personalCredit)}
-                    </div>
-                  </div>
-                </button>
-
-                {/* Company Credit Option */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCreditType('COMPANY');
-                    setPaymentMode('CASH'); // Default to CASH for company credit
-                  }}
-                  className={`p-4 rounded-lg border-2 text-left transition-all ${
-                    creditType === 'COMPANY' 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Building className={`h-5 w-5 ${creditType === 'COMPANY' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className={`font-semibold ${creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>
-                      Company Credit
-                    </span>
-                  </div>
-                  <div className="text-xs space-y-1">
-                    {isCompany3NonMirroredLoan ? (
-                      <>
-                        <div className="flex items-center gap-1 text-gray-600">
-                          <Banknote className="h-3 w-3" />
-                          <span>CASH only</span>
-                        </div>
-                        <div className="text-gray-500">
-                          Entry: Company 3 Cashbook
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-1 text-gray-600">
-                          <Landmark className="h-3 w-3" />
-                          <span>ONLINE or CASH</span>
-                        </div>
-                        <div className="text-gray-500">
-                          Entry: Loan Company's Books
-                        </div>
-                      </>
-                    )}
                     <div className="font-medium text-blue-700">
                       Current: ₹{formatCurrency(companyCredit)}
                     </div>
                   </div>
                 </button>
+                
+                <p className="text-xs text-blue-600 mt-2">
+                  For mirror loans, only Company Credit is available. Entry will be recorded in Mirror Company's books.
+                </p>
               </div>
-            </div>
+            ) : (
+              /* Normal Credit Type Selection for Non-Mirror Loans */
+              <div className="p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
+                <Label className="text-slate-800 font-semibold mb-3 block">
+                  <Wallet className="h-4 w-4 inline mr-2" />
+                  Credit Type *
+                </Label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Personal Credit Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreditType('PERSONAL');
+                      setPaymentMode('CASH'); // Personal Credit is always CASH
+                    }}
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${
+                      creditType === 'PERSONAL' 
+                        ? 'border-amber-500 bg-amber-50' 
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <User className={`h-5 w-5 ${creditType === 'PERSONAL' ? 'text-amber-600' : 'text-gray-400'}`} />
+                      <span className={`font-semibold ${creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>
+                        Personal Credit
+                      </span>
+                    </div>
+                    <div className="text-xs space-y-1">
+                      <div className="flex items-center gap-1 text-gray-600">
+                        <Banknote className="h-3 w-3" />
+                        <span>CASH only</span>
+                      </div>
+                      <div className="text-gray-500">
+                        Entry: Company 3 Cashbook
+                      </div>
+                      <div className="font-medium text-amber-700">
+                        Current: ₹{formatCurrency(personalCredit)}
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Company Credit Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreditType('COMPANY');
+                      setPaymentMode('CASH'); // Default to CASH for company credit
+                    }}
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${
+                      creditType === 'COMPANY' 
+                        ? 'border-blue-500 bg-blue-50' 
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Building className={`h-5 w-5 ${creditType === 'COMPANY' ? 'text-blue-600' : 'text-gray-400'}`} />
+                      <span className={`font-semibold ${creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>
+                        Company Credit
+                      </span>
+                    </div>
+                    <div className="text-xs space-y-1">
+                      {isCompany3NonMirroredLoan ? (
+                        <>
+                          <div className="flex items-center gap-1 text-gray-600">
+                            <Banknote className="h-3 w-3" />
+                            <span>CASH only</span>
+                          </div>
+                          <div className="text-gray-500">
+                            Entry: Company 3 Cashbook
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-1 text-gray-600">
+                            <Landmark className="h-3 w-3" />
+                            <span>ONLINE or CASH</span>
+                          </div>
+                          <div className="text-gray-500">
+                            Entry: Loan Company's Books
+                          </div>
+                        </>
+                      )}
+                      <div className="font-medium text-blue-700">
+                        Current: ₹{formatCurrency(companyCredit)}
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* ========================================== */}
             {/* PAYMENT MODE - BASED ON CREDIT TYPE */}
@@ -1739,8 +1838,65 @@ export default function OfflineLoanDetailPanel({
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
                 
-                {/* Company 3 non-mirrored - CASH only (no bank account) */}
-                {isCompany3NonMirroredLoan ? (
+                {/* Mirror loans or Company 3 non-mirrored - Show entry info */}
+                {isMirroredLoan ? (
+                  /* Mirror Loan - Show correct company based on EMI number */
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      {/* ONLINE Option */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMode('ONLINE')}
+                        className={`p-3 rounded-lg border-2 text-left transition-all ${
+                          paymentMode === 'ONLINE' 
+                            ? 'border-blue-500 bg-blue-100' 
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Landmark className={`h-4 w-4 ${paymentMode === 'ONLINE' ? 'text-blue-600' : 'text-gray-400'}`} />
+                          <span className={`font-medium ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
+                            ONLINE
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Entry: {mirrorCompanyName || 'Mirror Company'}'s Bank
+                        </p>
+                      </button>
+
+                      {/* CASH Option */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMode('CASH')}
+                        className={`p-3 rounded-lg border-2 text-left transition-all ${
+                          paymentMode === 'CASH' 
+                            ? 'border-blue-500 bg-blue-100' 
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Banknote className={`h-4 w-4 ${paymentMode === 'CASH' ? 'text-blue-600' : 'text-gray-400'}`} />
+                          <span className={`font-medium ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
+                            CASH
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Entry: {mirrorCompanyName || 'Mirror Company'}'s Cashbook
+                        </p>
+                      </button>
+                    </div>
+                    <div className="p-3 bg-green-100 rounded-lg border border-green-300">
+                      <p className="text-xs text-green-700">
+                        <strong>Entry will be recorded in:</strong> {mirrorCompanyName || 'Mirror Company'}
+                        {paymentMode === 'ONLINE' ? "'s Bank Account" : "'s Cashbook"}
+                      </p>
+                      <p className="text-xs text-green-600 mt-1">
+                        +₹{formatCurrency(paymentAmount)} will be added to Company Credit
+                      </p>
+                    </div>
+                  </div>
+                ) : isCompany3NonMirroredLoan ? (
+                  /* Company 3 non-mirrored - CASH only (no bank account) */
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs text-blue-600 mt-1">
@@ -1798,19 +1954,21 @@ export default function OfflineLoanDetailPanel({
                     </button>
                   </div>
                 )}
-                <div className="mt-3 p-3 bg-blue-100 rounded-lg">
-                  <p className="text-xs text-blue-700">
-                    <strong>Entry will be recorded in:</strong> {' '}
-                    {isCompany3NonMirroredLoan 
-                      ? "Company 3 Cashbook (no bank account)"
-                      : paymentMode === 'ONLINE' 
-                        ? "Loan Company's Bank Account" 
-                        : "Loan Company's Cashbook"}
-                  </p>
-                  <p className="text-xs text-blue-600 mt-1">
-                    +₹{formatCurrency(paymentAmount)} will be added to Company Credit
-                  </p>
-                </div>
+                {!isMirroredLoan && (
+                  <div className="mt-3 p-3 bg-blue-100 rounded-lg">
+                    <p className="text-xs text-blue-700">
+                      <strong>Entry will be recorded in:</strong> {' '}
+                      {isCompany3NonMirroredLoan 
+                        ? "Company 3 Cashbook (no bank account)"
+                        : paymentMode === 'ONLINE' 
+                          ? "Loan Company's Bank Account" 
+                          : "Loan Company's Cashbook"}
+                    </p>
+                    <p className="text-xs text-blue-600 mt-1">
+                      +₹{formatCurrency(paymentAmount)} will be added to Company Credit
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
