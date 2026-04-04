@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import fs from 'fs';
+import path from 'path';
 
 export async function POST(request: NextRequest) {
   try {
@@ -259,8 +261,6 @@ export async function POST(request: NextRequest) {
     
     // Delete all QR codes from the QR code directory
     try {
-      const fs = require('fs');
-      const path = require('path');
       const qrDir = path.join(process.cwd(), 'public', 'qrcodes');
       const docDir = path.join(process.cwd(), 'public', 'documents');
       const uploadDir = path.join(process.cwd(), 'upload');
