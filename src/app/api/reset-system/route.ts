@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
     console.log('[RESET] Starting full system reset...');
 
-    const stats: Record<string, number> = {};
+    const stats: Record<string, number | string> = {};
 
     // Delete all data in the correct order (respecting foreign key constraints)
     
