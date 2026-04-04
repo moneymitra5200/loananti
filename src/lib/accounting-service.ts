@@ -16,49 +16,90 @@ import { AccountType } from '@prisma/client';
 // CHART OF ACCOUNTS DEFAULT STRUCTURE
 // ============================================
 
+// GNUCASH-STYLE CHART OF ACCOUNTS
+// Standard Indian Accounting Structure
+// Account Codes follow GnuCash convention:
+// - 1xxx: Assets
+// - 2xxx: Liabilities  
+// - 3xxx: Equity
+// - 4xxx: Income
+// - 5xxx: Expenses
 export const DEFAULT_CHART_OF_ACCOUNTS = {
   ASSETS: [
-    { code: '1000', name: 'Loan Principal Outstanding', type: 'ASSET', isSystemAccount: true, description: 'Total principal amount disbursed to borrowers' },
-    { code: '1100', name: 'Interest Receivable', type: 'ASSET', isSystemAccount: true, description: 'Interest accrued but not yet received' },
-    { code: '1200', name: 'Processing Fee Receivable', type: 'ASSET', isSystemAccount: true, description: 'Processing fees due from customers' },
-    { code: '1300', name: 'Penalty Receivable', type: 'ASSET', isSystemAccount: true, description: 'Late payment penalties due' },
-    { code: '1400', name: 'Bank Account', type: 'ASSET', isSystemAccount: true, description: 'Main bank account' },
-    { code: '1500', name: 'Cash Account', type: 'ASSET', isSystemAccount: true, description: 'Cash in hand' },
-    { code: '1600', name: 'Other Receivables', type: 'ASSET', isSystemAccount: false, description: 'Other amounts receivable' },
-    { code: '1700', name: 'TDS Receivable', type: 'ASSET', isSystemAccount: false, description: 'Tax Deducted at Source receivable' },
+    // Current Assets (1100-1199)
+    { code: '1101', name: 'Cash in Hand', type: 'ASSET', isSystemAccount: true, description: 'Physical cash on hand' },
+    { code: '1102', name: 'Cash at Bank', type: 'ASSET', isSystemAccount: true, description: 'Bank accounts' },
+    { code: '1103', name: 'Bank - Main Operating', type: 'ASSET', isSystemAccount: true, description: 'Primary operating bank account' },
+    { code: '1104', name: 'Bank - Secondary', type: 'ASSET', isSystemAccount: false, description: 'Secondary bank account' },
+    // Loans Receivable (1200-1299)
+    { code: '1200', name: 'Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Total loans given to borrowers' },
+    { code: '1201', name: 'Online Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Loans from online applications' },
+    { code: '1210', name: 'Offline Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Loans from offline entries' },
+    // Other Receivables (1300-1399)
+    { code: '1301', name: 'Interest Receivable', type: 'ASSET', isSystemAccount: true, description: 'Interest accrued but not yet received' },
+    { code: '1302', name: 'Processing Fee Receivable', type: 'ASSET', isSystemAccount: true, description: 'Processing fees due from customers' },
+    { code: '1303', name: 'Penalty Receivable', type: 'ASSET', isSystemAccount: true, description: 'Late payment penalties due' },
+    { code: '1304', name: 'Other Receivables', type: 'ASSET', isSystemAccount: false, description: 'Other amounts receivable' },
+    // Fixed Assets (1500-1599)
+    { code: '1500', name: 'Fixed Assets', type: 'ASSET', isSystemAccount: true, description: 'Long-term assets' },
+    { code: '1501', name: 'Furniture & Fixtures', type: 'ASSET', isSystemAccount: false, description: 'Office furniture' },
+    { code: '1502', name: 'Office Equipment', type: 'ASSET', isSystemAccount: false, description: 'Computers and equipment' },
   ],
   LIABILITIES: [
-    { code: '2000', name: 'Investor Capital', type: 'LIABILITY', isSystemAccount: true, description: 'Capital received from investors' },
-    { code: '2100', name: 'Borrowed Funds', type: 'LIABILITY', isSystemAccount: true, description: 'Funds borrowed from banks/institutions' },
-    { code: '2200', name: 'Payables', type: 'LIABILITY', isSystemAccount: true, description: 'Amounts payable to vendors/suppliers' },
-    { code: '2300', name: 'GST Payable', type: 'LIABILITY', isSystemAccount: true, description: 'GST collected to be paid to government' },
-    { code: '2400', name: 'TDS Payable', type: 'LIABILITY', isSystemAccount: true, description: 'TDS collected to be paid to government' },
-    { code: '2500', name: 'Agent Commission Payable', type: 'LIABILITY', isSystemAccount: true, description: 'Commissions due to agents' },
-  ],
-  INCOME: [
-    { code: '3000', name: 'Interest Income', type: 'INCOME', isSystemAccount: true, description: 'Interest earned on loans - MAIN INCOME' },
-    { code: '3100', name: 'Processing Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Processing fees collected' },
-    { code: '3200', name: 'Late Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Late payment fees collected' },
-    { code: '3300', name: 'Foreclosure Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Foreclosure/prepayment charges' },
-    { code: '3400', name: 'Bounce Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Cheque/ECS bounce charges' },
-    { code: '3500', name: 'Other Income', type: 'INCOME', isSystemAccount: false, description: 'Other miscellaneous income' },
-  ],
-  EXPENSES: [
-    { code: '4000', name: 'Staff Salary', type: 'EXPENSE', isSystemAccount: true, description: 'Salaries paid to staff' },
-    { code: '4100', name: 'Office Rent', type: 'EXPENSE', isSystemAccount: true, description: 'Office rent expenses' },
-    { code: '4200', name: 'Marketing Expense', type: 'EXPENSE', isSystemAccount: true, description: 'Marketing and advertising costs' },
-    { code: '4300', name: 'Commission Paid', type: 'EXPENSE', isSystemAccount: true, description: 'Commissions paid to agents' },
-    { code: '4400', name: 'Software & Hosting', type: 'EXPENSE', isSystemAccount: true, description: 'Software and server hosting costs' },
-    { code: '4500', name: 'Bank Charges', type: 'EXPENSE', isSystemAccount: true, description: 'Bank transaction charges' },
-    { code: '4600', name: 'Electricity & Utilities', type: 'EXPENSE', isSystemAccount: true, description: 'Electricity, water, internet bills' },
-    { code: '4700', name: 'Travel Expense', type: 'EXPENSE', isSystemAccount: false, description: 'Travel and conveyance' },
-    { code: '4800', name: 'Miscellaneous Expense', type: 'EXPENSE', isSystemAccount: false, description: 'Other expenses' },
-    { code: '4900', name: 'Depreciation', type: 'EXPENSE', isSystemAccount: true, description: 'Asset depreciation' },
+    // Current Liabilities (2100-2199)
+    { code: '2100', name: 'Accounts Payable', type: 'LIABILITY', isSystemAccount: true, description: 'Amounts payable to vendors/suppliers' },
+    { code: '2101', name: 'Bank Loans', type: 'LIABILITY', isSystemAccount: true, description: 'Loans taken from banks' },
+    { code: '2110', name: 'Investor Capital', type: 'LIABILITY', isSystemAccount: true, description: 'Capital received from investors' },
+    { code: '2120', name: 'Borrowed Funds', type: 'LIABILITY', isSystemAccount: true, description: 'Funds borrowed from other sources' },
+    { code: '2130', name: 'Agent Commission Payable', type: 'LIABILITY', isSystemAccount: true, description: 'Commissions due to agents' },
+    // Statutory Liabilities (2200-2299)
+    { code: '2201', name: 'GST Payable', type: 'LIABILITY', isSystemAccount: true, description: 'GST collected to be paid to government' },
+    { code: '2202', name: 'TDS Payable', type: 'LIABILITY', isSystemAccount: true, description: 'TDS collected to be paid to government' },
   ],
   EQUITY: [
-    { code: '5000', name: 'Owner Capital', type: 'EQUITY', isSystemAccount: true, description: 'Owner\'s capital investment' },
-    { code: '5100', name: 'Retained Earnings', type: 'EQUITY', isSystemAccount: true, description: 'Accumulated profits' },
-    { code: '5200', name: 'Current Year Profit', type: 'EQUITY', isSystemAccount: true, description: 'Profit/loss for current year' },
+    // Equity Accounts (3000-3999)
+    { code: '3001', name: 'Opening Balance Equity', type: 'EQUITY', isSystemAccount: true, description: 'Initial capital when company started' },
+    { code: '3002', name: "Owner's Capital", type: 'EQUITY', isSystemAccount: true, description: "Owner's capital investment - Use this for adding equity" },
+    { code: '3003', name: 'Retained Earnings', type: 'EQUITY', isSystemAccount: true, description: 'Accumulated profits from previous years' },
+    { code: '3004', name: 'Current Year Profit/Loss', type: 'EQUITY', isSystemAccount: true, description: 'Profit/loss for current year (auto-calculated)' },
+  ],
+  INCOME: [
+    // Interest Income (4100-4199)
+    { code: '4100', name: 'Interest Income', type: 'INCOME', isSystemAccount: true, description: 'Total interest earned on loans' },
+    { code: '4110', name: 'Interest on Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest earned on loans - MAIN INCOME' },
+    { code: '4111', name: 'Interest Income - Online Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from online loan applications' },
+    { code: '4112', name: 'Interest Income - Offline Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from offline loans' },
+    { code: '4113', name: 'Interest Income - Mirror Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from mirror loan system' },
+    // Fee Income (4200-4299)
+    { code: '4120', name: 'Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Total fees collected' },
+    { code: '4121', name: 'Processing Fees', type: 'INCOME', isSystemAccount: true, description: 'Processing fees collected' },
+    { code: '4122', name: 'Late Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Late payment fees collected' },
+    { code: '4123', name: 'Bounce Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Cheque/ECS bounce charges' },
+    { code: '4124', name: 'Foreclosure Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Foreclosure/prepayment charges' },
+    // Other Income (4300-4399)
+    { code: '4300', name: 'Other Income', type: 'INCOME', isSystemAccount: false, description: 'Other miscellaneous income' },
+    { code: '4301', name: 'Commission Income', type: 'INCOME', isSystemAccount: false, description: 'Commission received' },
+  ],
+  EXPENSES: [
+    // Operating Expenses (5100-5199)
+    { code: '5100', name: 'Operating Expenses', type: 'EXPENSE', isSystemAccount: true, description: 'Day-to-day business expenses' },
+    { code: '5101', name: 'Salaries & Wages', type: 'EXPENSE', isSystemAccount: true, description: 'Salaries paid to staff' },
+    { code: '5102', name: 'Rent Expense', type: 'EXPENSE', isSystemAccount: true, description: 'Office rent expenses' },
+    { code: '5103', name: 'Electricity & Utilities', type: 'EXPENSE', isSystemAccount: true, description: 'Electricity, water, internet bills' },
+    { code: '5104', name: 'Office Supplies', type: 'EXPENSE', isSystemAccount: false, description: 'Stationery and supplies' },
+    { code: '5105', name: 'Communication Expenses', type: 'EXPENSE', isSystemAccount: false, description: 'Phone and internet' },
+    { code: '5106', name: 'Travel & Conveyance', type: 'EXPENSE', isSystemAccount: false, description: 'Travel and conveyance' },
+    { code: '5107', name: 'Marketing Expense', type: 'EXPENSE', isSystemAccount: true, description: 'Marketing and advertising costs' },
+    // Financial Expenses (5200-5299)
+    { code: '5200', name: 'Financial Expenses', type: 'EXPENSE', isSystemAccount: true, description: 'Interest and bank charges' },
+    { code: '5201', name: 'Interest Expense', type: 'EXPENSE', isSystemAccount: true, description: 'Interest paid on borrowed funds' },
+    { code: '5202', name: 'Commission Paid', type: 'EXPENSE', isSystemAccount: true, description: 'Commissions paid to agents' },
+    { code: '5203', name: 'Bank Charges', type: 'EXPENSE', isSystemAccount: true, description: 'Bank transaction charges' },
+    // Other Expenses (5300-5399)
+    { code: '5300', name: 'Depreciation', type: 'EXPENSE', isSystemAccount: true, description: 'Asset depreciation' },
+    { code: '5301', name: 'Depreciation - Furniture', type: 'EXPENSE', isSystemAccount: false, description: 'Furniture depreciation' },
+    { code: '5302', name: 'Depreciation - Equipment', type: 'EXPENSE', isSystemAccount: false, description: 'Equipment depreciation' },
+    { code: '5400', name: 'Miscellaneous Expense', type: 'EXPENSE', isSystemAccount: false, description: 'Other expenses' },
   ],
 };
 
@@ -67,25 +108,51 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
 // ============================================
 
 export const ACCOUNT_CODES = {
-  LOAN_PRINCIPAL: '1000',
-  INTEREST_RECEIVABLE: '1100',
-  PROCESSING_FEE_RECEIVABLE: '1200',
-  PENALTY_RECEIVABLE: '1300',
-  BANK_ACCOUNT: '1400',
-  CASH_ACCOUNT: '1500',
-  INVESTOR_CAPITAL: '2000',
-  BORROWED_FUNDS: '2100',
-  PAYABLES: '2200',
-  GST_PAYABLE: '2300',
-  AGENT_COMMISSION_PAYABLE: '2500',
-  INTEREST_INCOME: '3000',
-  PROCESSING_FEE_INCOME: '3100',
-  LATE_FEE_INCOME: '3200',
-  FORECLOSURE_INCOME: '3300',
-  BOUNCE_CHARGES_INCOME: '3400',
-  OTHER_INCOME: '3050',
-  STAFF_SALARY: '4000',
-  COMMISSION_PAID: '4300',
+  // Assets
+  CASH_IN_HAND: '1101',
+  CASH_AT_BANK: '1102',
+  BANK_ACCOUNT: '1103',          // Main operating bank account
+  LOANS_RECEIVABLE: '1200',
+  ONLINE_LOANS_RECEIVABLE: '1201',
+  OFFLINE_LOANS_RECEIVABLE: '1210',
+  INTEREST_RECEIVABLE: '1301',
+  PROCESSING_FEE_RECEIVABLE: '1302',
+  PENALTY_RECEIVABLE: '1303',
+  
+  // Liabilities
+  ACCOUNTS_PAYABLE: '2100',
+  BANK_LOANS: '2101',
+  INVESTOR_CAPITAL: '2110',
+  BORROWED_FUNDS: '2120',
+  AGENT_COMMISSION_PAYABLE: '2130',
+  GST_PAYABLE: '2201',
+  TDS_PAYABLE: '2202',
+  
+  // Equity
+  OPENING_BALANCE_EQUITY: '3001',
+  OWNERS_CAPITAL: '3002',        // Use this for adding owner's equity
+  RETAINED_EARNINGS: '3003',
+  CURRENT_YEAR_PROFIT: '3004',
+  
+  // Income
+  INTEREST_INCOME: '4110',
+  INTEREST_INCOME_ONLINE: '4111',
+  INTEREST_INCOME_OFFLINE: '4112',
+  INTEREST_INCOME_MIRROR: '4113',
+  PROCESSING_FEE_INCOME: '4121',
+  LATE_FEE_INCOME: '4122',
+  BOUNCE_CHARGES_INCOME: '4123',
+  FORECLOSURE_INCOME: '4124',
+  OTHER_INCOME: '4300',
+  
+  // Expenses
+  OPERATING_EXPENSES: '5100',
+  STAFF_SALARY: '5101',
+  RENT_EXPENSE: '5102',
+  COMMISSION_PAID: '5202',
+  INTEREST_EXPENSE: '5201',
+  BANK_CHARGES: '5203',
+  DEPRECIATION: '5300',
 };
 
 // ============================================
@@ -370,7 +437,7 @@ export class AccountingService {
 
   /**
    * LOAN DISBURSEMENT
-   * Debit: Loan Principal Outstanding (Asset)
+   * Debit: Loans Receivable (Asset)
    * Credit: Bank Account (Asset)
    */
   async recordLoanDisbursement(params: {
@@ -390,7 +457,7 @@ export class AccountingService {
       narration: `Loan disbursement - Principal: ₹${params.amount.toLocaleString()}`,
       lines: [
         {
-          accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
           debitAmount: params.amount,
           creditAmount: 0,
           loanId: params.loanId,
@@ -417,7 +484,7 @@ export class AccountingService {
    * Splits EMI into Principal and Interest components
    * 
    * Debit: Bank Account (Asset)
-   * Credit: Loan Principal Outstanding (Asset) - Principal part
+   * Credit: Loans Receivable (Asset) - Principal part
    * Credit: Interest Income (Income) - Interest part
    */
   async recordEMIPayment(params: {
@@ -451,10 +518,10 @@ export class AccountingService {
       narration: `EMI received - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`,
     });
 
-    // Credit Loan Principal Outstanding (reduces asset)
+    // Credit Loans Receivable (reduces asset)
     if (params.principalComponent > 0) {
       lines.push({
-        accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.principalComponent,
         loanId: params.loanId,
@@ -624,7 +691,7 @@ export class AccountingService {
     // Credit Bank or Payables
     if (params.isPayable) {
       lines.push({
-        accountCode: ACCOUNT_CODES.PAYABLES,
+        accountCode: ACCOUNT_CODES.ACCOUNTS_PAYABLE,
         debitAmount: 0,
         creditAmount: params.amount,
         narration: 'Expense payable',
@@ -655,7 +722,7 @@ export class AccountingService {
   /**
    * FORECLOSURE SETTLEMENT
    * Debit: Bank Account (total received)
-   * Credit: Loan Principal Outstanding (remaining principal)
+   * Credit: Loans Receivable (remaining principal)
    * Credit: Interest Income (pending interest)
    * Credit: Foreclosure Charges Income (foreclosure fee)
    */
@@ -690,10 +757,10 @@ export class AccountingService {
       narration: 'Foreclosure settlement received',
     });
 
-    // Credit Loan Principal (reduces outstanding)
+    // Credit Loans Receivable (reduces outstanding)
     if (params.outstandingPrincipal > 0) {
       lines.push({
-        accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.outstandingPrincipal,
         loanId: params.loanId,
@@ -894,8 +961,8 @@ export class AccountingService {
     overdueAmount: number;
   }> {
     // Get totals from chart of accounts
-    const loanPrincipalAccount = await db.chartOfAccount.findFirst({
-      where: { companyId: this.companyId, accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL },
+    const loansReceivableAccount = await db.chartOfAccount.findFirst({
+      where: { companyId: this.companyId, accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE },
     });
 
     const interestReceivableAccount = await db.chartOfAccount.findFirst({
@@ -917,7 +984,7 @@ export class AccountingService {
 
     return {
       totalDisbursed: disbursementEntries._sum.totalCredit || 0,
-      totalOutstanding: loanPrincipalAccount?.currentBalance || 0,
+      totalOutstanding: loansReceivableAccount?.currentBalance || 0,
       totalInterestAccrued: interestReceivableAccount?.currentBalance || 0,
       totalInterestCollected: interestIncomeAccount?.currentBalance || 0,
       npaAmount: 0, // Calculate from NPA tracking
@@ -1068,7 +1135,7 @@ export class AccountingService {
 
     for (const entry of entries) {
       for (const line of entry.lines) {
-        if (line.account?.accountCode === ACCOUNT_CODES.LOAN_PRINCIPAL) {
+        if (line.account?.accountCode === ACCOUNT_CODES.LOANS_RECEIVABLE) {
           if (line.debitAmount > 0) totalDisbursed += line.debitAmount;
           if (line.creditAmount > 0) totalRepaid += line.creditAmount;
         }
