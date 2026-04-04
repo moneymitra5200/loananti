@@ -9,7 +9,7 @@ import AgentDashboard from "@/components/agent/AgentDashboard";
 import StaffDashboard from "@/components/staff/StaffDashboard";
 import CashierDashboard from "@/components/cashier/CashierDashboard";
 import CustomerDashboard from "@/components/customer/CustomerDashboard";
-import AccountantDashboard from "@/components/accountant/FinancialAccountingDashboard";
+import AccountantDashboard from "@/components/accountant/GnuCashDashboard";
 import AIChatbot from "@/components/shared/AIChatbot";
 
 function AppContent() {
