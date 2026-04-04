@@ -346,7 +346,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           {
             accountCode: paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER' 
               ? ACCOUNT_CODES.BANK_ACCOUNT 
-              : ACCOUNT_CODES.CASH_ACCOUNT,
+              : ACCOUNT_CODES.CASH_IN_HAND,
             debitAmount: mirrorInterest,  // ONLY mirror interest
             creditAmount: 0,
             loanId,
@@ -408,7 +408,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Personal Credit)`,
         lines: [
           {
-            accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
             debitAmount: amount,
             creditAmount: 0,
             loanId,
@@ -416,7 +416,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             narration: 'Cash received for EMI'
           },
           {
-            accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
             debitAmount: 0,
             creditAmount: principalComponent,
             loanId,
@@ -478,7 +478,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             narration: 'Bank received for EMI'
           },
           {
-            accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
             debitAmount: 0,
             creditAmount: principalComponent,
             loanId,
@@ -529,7 +529,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
         lines: [
           {
-            accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
             debitAmount: amount,
             creditAmount: 0,
             loanId,
@@ -537,7 +537,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             narration: 'Cash received for EMI'
           },
           {
-            accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
             debitAmount: 0,
             creditAmount: principalComponent,
             loanId,
@@ -646,7 +646,7 @@ export async function recordMirrorInterestIncome(params: {
         {
           accountCode: paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER' 
             ? ACCOUNT_CODES.BANK_ACCOUNT 
-            : ACCOUNT_CODES.CASH_ACCOUNT,
+            : ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: mirrorInterest,
           creditAmount: 0,
           loanId,

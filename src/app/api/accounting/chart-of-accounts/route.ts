@@ -101,8 +101,8 @@ export async function POST(request: NextRequest) {
     // Check if this is a bulk initialization request
     if (body.accounts && Array.isArray(body.accounts)) {
       const { companyId, accounts } = body;
-      const createdAccounts = [];
-      const errors = [];
+      const createdAccounts: any[] = [];
+      const errors: Array<{ code: string; error: string }> = [];
       
       for (const acc of accounts) {
         try {

@@ -218,7 +218,7 @@ export async function processBankTransaction(params: BankTransactionParams): Pro
             { accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: amount, creditAmount: 0 },
             { accountCode: ACCOUNT_CODES.OTHER_INCOME, debitAmount: 0, creditAmount: amount }
           ] : [
-            { accountCode: ACCOUNT_CODES.PAYABLES, debitAmount: amount, creditAmount: 0 },
+            { accountCode: ACCOUNT_CODES.ACCOUNTS_PAYABLE, debitAmount: amount, creditAmount: 0 },
             { accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: 0, creditAmount: amount }
           ],
           createdById,

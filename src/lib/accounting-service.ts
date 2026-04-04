@@ -1472,7 +1472,7 @@ export async function createSettlementEntry(params: {
     narration: `Settlement transfer - ₹${params.amount.toLocaleString()}`,
     lines: [
       {
-        accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: params.amount,
         creditAmount: 0,
         narration: 'Cash received from settlement'
@@ -1667,7 +1667,7 @@ export async function recordPersonalCreditEMIPayment(params: {
     narration: `Extra EMI (Personal Credit) - ${params.loanNumber || params.loanId} by ${params.collectedByName}`,
     lines: [
       {
-        accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: params.totalAmount,
         creditAmount: 0,
         loanId: params.loanId,
@@ -1675,7 +1675,7 @@ export async function recordPersonalCreditEMIPayment(params: {
         narration: 'Cash received for EMI'
       },
       {
-        accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.principalComponent,
         loanId: params.loanId,
@@ -1876,7 +1876,7 @@ export async function recordCompanyCreditCashEMIPayment(params: {
     narration: `EMI Payment (Cash) - ${params.loanNumber || loan.applicationNo}`,
     lines: [
       {
-        accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: params.totalAmount,
         creditAmount: 0,
         loanId: params.loanId,
@@ -1884,7 +1884,7 @@ export async function recordCompanyCreditCashEMIPayment(params: {
         narration: 'Cash received for EMI'
       },
       {
-        accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.principalComponent,
         loanId: params.loanId,
@@ -2025,14 +2025,14 @@ export async function recordMirrorLoanEMIPayment(params: {
     narration: `Mirror EMI Payment - ${params.mirrorLoanNumber || params.mirrorLoanId} - Principal: ₹${params.mirrorPrincipal}, Interest: ₹${params.mirrorInterest}`,
     lines: [
       {
-        accountCode: params.paymentMode === 'ONLINE' ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_ACCOUNT,
+        accountCode: params.paymentMode === 'ONLINE' ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: totalAmount,
         creditAmount: 0,
         loanId: params.mirrorLoanId,
         narration: `${params.paymentMode === 'ONLINE' ? 'Bank' : 'Cash'} received for Mirror EMI`
       },
       {
-        accountCode: ACCOUNT_CODES.LOAN_PRINCIPAL,
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.mirrorPrincipal,
         loanId: params.mirrorLoanId,
@@ -2145,7 +2145,7 @@ export async function recordExtraEMIPayment(params: {
       narration: `Extra EMI Payment - ${params.loanNumber || params.loanId} - Full Profit`,
       lines: [
         {
-          accountCode: ACCOUNT_CODES.CASH_ACCOUNT,
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: params.totalAmount,
           creditAmount: 0,
           loanId: params.loanId,
