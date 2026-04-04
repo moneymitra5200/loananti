@@ -728,23 +728,25 @@ export default function OfflineLoanDetailPanel({
   };
   
   // Get the company name for cashbook entry based on EMI number, mirror status, and credit type
-  // PERSONAL Credit → ALWAYS Original Company (Company 3)
-  // COMPANY Credit → Mirror Company for mirror EMIs, Original Company for extra EMIs
+  // MIRROR LOAN RULES (matches backend in simple-accounting.ts):
+  // - Mirror EMIs (within mirror tenure): BOTH Personal & Company Credit → Mirror Company
+  // - Extra EMIs (beyond mirror tenure): BOTH Personal & Company Credit → Original Company (C3)
+  // NON-MIRROR LOANS: Both credit types → Loan's company
   const getCashbookCompanyName = (emiNumber: number = 1, forCreditType: 'PERSONAL' | 'COMPANY' = 'COMPANY'): string => {
-    // Personal Credit ALWAYS goes to Original Company (Company 3)
-    if (forCreditType === 'PERSONAL') {
-      return loan?.company?.name || 'Original Company';
-    }
-    
-    // Company Credit depends on mirror status
+    // For mirrored loans, BOTH credit types follow the same logic
     if (isMirroredLoan) {
-      // For mirrored loans, check if this is an extra EMI
+      // Check if this is an extra EMI (beyond mirror tenure)
       if (isExtraEmi(emiNumber)) {
+        // Extra EMIs → Original Company (C3) - This is PROFIT for Company 3
         return loan?.company?.name || 'Original Company';
       } else {
+        // Mirror EMIs (within mirror tenure) → Mirror Company
+        // Backend: recordEMIPaymentAccounting uses mirrorCompanyId when isMirrorPayment=true
         return mirrorCompanyName || 'Mirror Company';
       }
     }
+    
+    // Non-mirror loans: Both credit types go to loan's company
     return loan?.company?.name || 'Company';
   };
 
