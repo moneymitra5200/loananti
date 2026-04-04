@@ -9,27 +9,21 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { 
-  Calculator, FileText, TrendingUp, DollarSign, Loader2, RefreshCw, 
+  Calculator, FileText, TrendingUp, Loader2, RefreshCw, 
   FileSpreadsheet, BookOpen, Landmark, ArrowUpRight, ArrowDownRight,
-  Clock, LogOut, User, Wallet, ArrowUp, ArrowDown,
-  Building2, Plus, Receipt, BookCopy, PieChart, BarChart3,
-  LayoutDashboard, Settings, HelpCircle, AlertTriangle, CheckCircle,
-  Save, Trash2, Edit, ChevronRight, ChevronDown, Folder, FolderOpen,
-  Hash, CreditCard, Banknote, PiggyBank, Receipt as ReceiptIcon,
-  Users, Package, Briefcase, FileCheck, Percent, Building, Store
+  LogOut, Plus, Receipt, BookCopy, BarChart3,
+  AlertTriangle, CheckCircle, Building2,
+  ChevronRight, CreditCard, PiggyBank
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, startOfYear, endOfYear, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // ============================================
@@ -303,7 +297,7 @@ function ChartOfAccountsSection({
   );
 }
 
-// Journal Entry Section
+// Journal Entry Section - READ ONLY (No manual entries allowed)
 function JournalEntrySection({
   accounts,
   selectedCompanyId,
@@ -317,19 +311,9 @@ function JournalEntrySection({
   formatCurrency: (amount: number) => string;
   onRefresh: () => void;
 }) {
-  const [showDialog, setShowDialog] = useState(false);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // New entry form
-  const [entryDate, setEntryDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [narration, setNarration] = useState('');
-  const [paymentMode, setPaymentMode] = useState('CASH');
-  const [lines, setLines] = useState([
-    { accountId: '', debitAmount: 0, creditAmount: 0 },
-    { accountId: '', debitAmount: 0, creditAmount: 0 }
-  ]);
-
   useEffect(() => {
     if (selectedCompanyId) {
       loadEntries();
@@ -349,73 +333,6 @@ function JournalEntrySection({
     }
   };
 
-  const addLine = () => {
-    setLines([...lines, { accountId: '', debitAmount: 0, creditAmount: 0 }]);
-  };
-
-  const removeLine = (index: number) => {
-    if (lines.length > 2) {
-      setLines(lines.filter((_, i) => i !== index));
-    }
-  };
-
-  const updateLine = (index: number, field: string, value: any) => {
-    const newLines = [...lines];
-    newLines[index] = { ...newLines[index], [field]: value };
-    setLines(newLines);
-  };
-
-  const totalDebit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.debitAmount) || 0), 0), [lines]);
-  const totalCredit = useMemo(() => lines.reduce((sum, l) => sum + (Number(l.creditAmount) || 0), 0), [lines]);
-  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
-
-  const handleSubmit = async () => {
-    if (!isBalanced) {
-      toast.error('Entry is not balanced. Debits must equal credits.');
-      return;
-    }
-
-    if (lines.some(l => !l.accountId)) {
-      toast.error('Please select accounts for all lines.');
-      return;
-    }
-
-    try {
-      const res = await fetch('/api/accounting/journal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId: selectedCompanyId,
-          entryDate: new Date(entryDate),
-          narration,
-          paymentMode,
-          lines: lines.map(l => ({
-            accountId: l.accountId,
-            debitAmount: Number(l.debitAmount) || 0,
-            creditAmount: Number(l.creditAmount) || 0
-          }))
-        })
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        toast.success('Journal entry created successfully');
-        setShowDialog(false);
-        setLines([
-          { accountId: '', debitAmount: 0, creditAmount: 0 },
-          { accountId: '', debitAmount: 0, creditAmount: 0 }
-        ]);
-        setNarration('');
-        loadEntries();
-        onRefresh();
-      } else {
-        toast.error(data.error || 'Failed to create entry');
-      }
-    } catch (error) {
-      toast.error('Failed to create journal entry');
-    }
-  };
-
   return (
     <div className="space-y-4">
       <Card>
@@ -423,15 +340,11 @@ function JournalEntrySection({
           <div>
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-purple-600" />
-              Journal Entries
+              Journal Entries (Auto-Generated)
             </CardTitle>
-            <CardDescription>Double-entry bookkeeping transactions</CardDescription>
+            <CardDescription>All entries are auto-generated from loan transactions, EMI payments, expenses, etc.</CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => setShowDialog(true)} size="sm">
-              <Plus className="h-4 w-4 mr-1" />
-              New Entry
-            </Button>
             <Button onClick={loadEntries} variant="outline" size="sm">
               <RefreshCw className="h-4 w-4" />
             </Button>
@@ -487,148 +400,6 @@ function JournalEntrySection({
           )}
         </CardContent>
       </Card>
-
-      {/* New Journal Entry Dialog */}
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-purple-600" />
-              New Journal Entry
-            </DialogTitle>
-            <DialogDescription>
-              Create a double-entry journal transaction
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            {/* Entry Details */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input
-                  type="date"
-                  value={entryDate}
-                  onChange={(e) => setEntryDate(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Payment Mode</Label>
-                <Select value={paymentMode} onValueChange={setPaymentMode}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
-                    <SelectItem value="CHEQUE">Cheque</SelectItem>
-                    <SelectItem value="UPI">UPI</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Narration</Label>
-                <Input
-                  placeholder="Entry description..."
-                  value={narration}
-                  onChange={(e) => setNarration(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Entry Lines */}
-            <div className="border rounded-lg">
-              <div className="bg-gray-50 p-3 border-b flex items-center justify-between">
-                <span className="font-medium">Entry Lines</span>
-                <Button onClick={addLine} size="sm" variant="outline">
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Line
-                </Button>
-              </div>
-              <div className="p-3 space-y-3">
-                {lines.map((line, index) => (
-                  <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                    <div className="col-span-6">
-                      <Select
-                        value={line.accountId}
-                        onValueChange={(v) => updateLine(index, 'accountId', v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select Account" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {accounts.filter(a => a.isActive).map((acc) => (
-                            <SelectItem key={acc.id} value={acc.id}>
-                              {acc.accountCode} - {acc.accountName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        placeholder="Debit"
-                        value={line.debitAmount || ''}
-                        onChange={(e) => updateLine(index, 'debitAmount', e.target.value)}
-                        className="text-right"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input
-                        type="number"
-                        placeholder="Credit"
-                        value={line.creditAmount || ''}
-                        onChange={(e) => updateLine(index, 'creditAmount', e.target.value)}
-                        className="text-right"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      {lines.length > 2 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeLine(index)}
-                          className="text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {/* Totals */}
-              <div className="bg-gray-50 p-3 border-t grid grid-cols-12 gap-2">
-                <div className="col-span-6 font-medium text-right">Total</div>
-                <div className={`col-span-2 text-right font-bold ${totalDebit === totalCredit ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(totalDebit)}
-                </div>
-                <div className={`col-span-2 text-right font-bold ${totalDebit === totalCredit ? 'text-green-600' : 'text-red-600'}`}>
-                  {formatCurrency(totalCredit)}
-                </div>
-                <div className="col-span-2">
-                  {isBalanced ? (
-                    <Badge className="bg-green-600">Balanced</Badge>
-                  ) : (
-                    <Badge variant="destructive">Not Balanced</Badge>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSubmit} disabled={!isBalanced}>
-              <Save className="h-4 w-4 mr-2" />
-              Save Entry
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
