@@ -96,7 +96,15 @@ export async function GET(request: NextRequest) {
       
       // If no mapping found, check if there's a mirror loan directly via originalLoanId field
       // This handles the case where the mapping wasn't created but the mirror loan exists
-      let mirrorLoanDirect = null;
+      let mirrorLoanDirect: {
+        id: string;
+        loanNumber: string;
+        tenure: number;
+        interestRate: number;
+        companyId: string | null;
+        displayColor: string | null;
+        company: { id: string; name: string; code: string } | null;
+      } | null = null;
       if (!mirrorMappingAsOriginal) {
         mirrorLoanDirect = await db.offlineLoan.findFirst({
           where: { 
@@ -1995,7 +2003,14 @@ export async function PUT(request: NextRequest) {
       
       // If no mapping found, check if there's a mirror loan directly via originalLoanId field
       // This handles the case where the mapping wasn't created but the mirror loan exists
-      let mirrorLoan = null;
+      let mirrorLoan: {
+        id: string;
+        loanNumber: string;
+        tenure: number;
+        companyId: string | null;
+        interestRate: number;
+        interestType: string;
+      } | null = null;
       let mirrorTenureFromLoan = 0;
       
       if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
