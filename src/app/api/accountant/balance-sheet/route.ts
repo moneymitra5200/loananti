@@ -2,26 +2,65 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 /**
- * NEW BALANCE SHEET API
+ * GNUCASH-STYLE BALANCE SHEET API
  * 
- * IMPORTANT: Equity is automatically calculated as:
- *   Equity = Opening Balance of Bank Accounts + Opening Balance of Cash Book
+ * Uses Chart of Accounts as the SINGLE SOURCE OF TRUTH.
+ * No longer references old bankAccount/cashBook tables directly.
  * 
- * LEFT SIDE (Liabilities / Source of Funds):
- * - Equity (Opening balances of Bank + Cash Book - auto calculated)
- * - Borrowed Money (Loans taken from banks/investors)
- * - Profit/Loss (Current year's profit or loss)
+ * BALANCE SHEET STRUCTURE:
  * 
- * RIGHT SIDE (Assets / How Funds Are Used):
- * - Bank Balance (Current balance)
- * - Cashbook Balance (Current balance)
- * - Invest Money (Money invested out)
- * - Loan Principal (Outstanding principal from loans given)
- * - Interest Receivable (Pending interest from customers)
+ * LEFT SIDE (Liabilities + Equity - Source of Funds):
+ * - Owner's Capital (Account Code 3002)
+ * - Opening Balance Equity (Account Code 3001)
+ * - Retained Earnings (Account Code 3003)
+ * - Current Year Profit (Account Code 3004)
+ * - Bank Loans (Account Code 2101)
+ * - Borrowed Funds (Account Code 2120)
  * 
- * Company-wise: Separate for Company 1 and Company 2
+ * RIGHT SIDE (Assets - How Funds Are Used):
+ * - Cash in Hand (Account Code 1101)
+ * - Bank Accounts (Account Code 1102/1103)
+ * - Loans Receivable (Account Code 1200/1201/1210)
+ * - Interest Receivable (Account Code 1301)
+ * 
+ * Company-wise: Separate for each company
  * Year-wise: Filter by financial year
  */
+
+// Account code constants
+const ACCOUNT_CODES = {
+  // Assets
+  CASH_IN_HAND: '1101',
+  BANK_MAIN: '1103',
+  LOANS_RECEIVABLE: '1200',
+  ONLINE_LOANS_RECEIVABLE: '1201',
+  OFFLINE_LOANS_RECEIVABLE: '1210',
+  INTEREST_RECEIVABLE: '1301',
+  
+  // Liabilities
+  BANK_LOANS: '2101',
+  INVESTOR_CAPITAL: '2110',
+  BORROWED_FUNDS: '2120',
+  
+  // Equity
+  OPENING_BALANCE_EQUITY: '3001',
+  OWNERS_CAPITAL: '3002',
+  RETAINED_EARNINGS: '3003',
+  CURRENT_YEAR_PROFIT: '3004',
+  
+  // Income
+  INTEREST_INCOME: '4110',
+  INTEREST_INCOME_ONLINE: '4111',
+  INTEREST_INCOME_OFFLINE: '4112',
+  INTEREST_INCOME_MIRROR: '4113',
+  PROCESSING_FEE_INCOME: '4121',
+  LATE_FEE_INCOME: '4122',
+  
+  // Expenses
+  OPERATING_EXPENSES: '5100',
+  INTEREST_EXPENSE: '5201',
+  BANK_CHARGES: '5203',
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -67,192 +106,200 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================
+    // GET ALL ACCOUNTS FROM CHART OF ACCOUNTS
+    // This is the SINGLE SOURCE OF TRUTH
+    // ============================================
+    
+    const accounts = await db.chartOfAccount.findMany({
+      where: { companyId, isActive: true },
+      select: {
+        id: true,
+        accountCode: true,
+        accountName: true,
+        accountType: true,
+        currentBalance: true,
+        openingBalance: true
+      },
+      orderBy: { accountCode: 'asc' }
+    });
+
+    // Helper function to get account balance by code
+    const getAccountBalance = (code: string): number => {
+      const account = accounts.find(a => a.accountCode === code);
+      return account?.currentBalance || 0;
+    };
+
+    // Helper function to get multiple accounts by code prefix
+    const getAccountsByPrefix = (prefix: string) => {
+      return accounts.filter(a => a.accountCode.startsWith(prefix));
+    };
+
+    // ============================================
+    // LEFT SIDE - Liabilities & Equity (Source of Funds)
+    // ============================================
+
+    // Equity Accounts
+    const openingBalanceEquity = getAccountBalance(ACCOUNT_CODES.OPENING_BALANCE_EQUITY);
+    const ownersCapital = getAccountBalance(ACCOUNT_CODES.OWNERS_CAPITAL);
+    const retainedEarnings = getAccountBalance(ACCOUNT_CODES.RETAINED_EARNINGS);
+    const currentYearProfit = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
+
+    // Calculate total income and expenses for P&L
+    const incomeAccounts = accounts.filter(a => a.accountType === 'INCOME');
+    const expenseAccounts = accounts.filter(a => a.accountType === 'EXPENSE');
+    
+    const totalIncome = incomeAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+    const totalExpenses = expenseAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+    const profitLoss = totalIncome - totalExpenses;
+
+    // Liability Accounts
+    const bankLoans = Math.abs(getAccountBalance(ACCOUNT_CODES.BANK_LOANS));
+    const investorCapital = Math.abs(getAccountBalance(ACCOUNT_CODES.INVESTOR_CAPITAL));
+    const borrowedFunds = Math.abs(getAccountBalance(ACCOUNT_CODES.BORROWED_FUNDS));
+
+    // ============================================
     // RIGHT SIDE - Assets (How Funds Are Used)
     // ============================================
 
-    // 1. Bank Balance - Get both current balance AND opening balance
-    const bankAccounts = await db.bankAccount.findMany({
-      where: { companyId, isActive: true },
-      select: { 
-        id: true,
-        bankName: true, 
-        accountNumber: true, 
-        currentBalance: true,
-        openingBalance: true
-      }
-    });
-    const totalBankBalance = bankAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
-    const totalBankOpeningBalance = bankAccounts.reduce((sum, acc) => sum + (acc.openingBalance || 0), 0);
-
-    // 2. CashBook Balance - Get both current balance AND opening balance
-    const cashBook = await db.cashBook.findUnique({
-      where: { companyId },
-      select: { currentBalance: true, openingBalance: true }
-    });
-    const cashBookBalance = cashBook?.currentBalance || 0;
-    const cashBookOpeningBalance = cashBook?.openingBalance || 0;
-
-    // 3. Invest Money - Get from ChartOfAccount (account code 2201 - Investor Capital as investment out)
-    let investMoney = 0;
-    const investAccount = await db.chartOfAccount.findFirst({
-      where: { 
-        companyId, 
-        accountCode: '2201' // Investor Capital
-      },
-      select: { currentBalance: true }
-    });
-    if (investAccount) {
-      investMoney = Math.abs(investAccount.currentBalance);
-    }
-
-    // 4. Loan Principal Outstanding - from all active loans
-    const onlineLoans = await db.loanApplication.findMany({
-      where: { 
-        companyId, 
-        status: 'ACTIVE' 
-      },
-      select: {
-        id: true,
-        applicationNo: true,
-        disbursedAmount: true,
-        interestRate: true,
-        customer: {
-          select: { name: true, phone: true }
-        },
-        emiSchedules: {
-          select: {
-            principalAmount: true,
-            paidPrincipal: true,
-            interestAmount: true,
-            paidInterest: true,
-          }
-        }
-      }
-    });
-
-    const offlineLoans = await db.offlineLoan.findMany({
-      where: { 
-        companyId, 
-        status: 'ACTIVE' 
-      },
-      select: {
-        id: true,
-        loanNumber: true,
-        loanAmount: true,
-        interestRate: true,
-        customerName: true,
-        customerPhone: true,
-        emis: {
-          select: {
-            principalAmount: true,
-            paidPrincipal: true,
-            interestAmount: true,
-            paidInterest: true,
-          }
-        }
-      }
-    });
-
-    // Calculate totals
-    let onlinePrincipalOutstanding = 0;
-    let onlineInterestPending = 0;
+    // Asset Accounts from Chart of Accounts
+    const cashInHand = getAccountBalance(ACCOUNT_CODES.CASH_IN_HAND);
+    const bankMain = getAccountBalance(ACCOUNT_CODES.BANK_MAIN);
     
-    onlineLoans.forEach(loan => {
-      loan.emiSchedules.forEach(emi => {
-        onlinePrincipalOutstanding += (emi.principalAmount - emi.paidPrincipal);
-        onlineInterestPending += (emi.interestAmount - emi.paidInterest);
-      });
-    });
+    // Get all bank accounts (codes starting with 110)
+    const bankAccounts = getAccountsByPrefix('110').filter(a => 
+      a.accountCode !== '1101' && // Exclude Cash in Hand
+      a.accountCode.startsWith('1102') || a.accountCode.startsWith('1103') || a.accountCode.startsWith('1104')
+    );
+    const totalBankBalance = bankAccounts.reduce((sum, a) => sum + a.currentBalance, 0) + bankMain;
 
-    let offlinePrincipalOutstanding = 0;
-    let offlineInterestPending = 0;
-    
-    offlineLoans.forEach(loan => {
-      loan.emis.forEach(emi => {
-        offlinePrincipalOutstanding += (emi.principalAmount - emi.paidPrincipal);
-        offlineInterestPending += (emi.interestAmount - emi.paidInterest);
-      });
-    });
+    // Loans Receivable
+    const onlineLoansReceivable = getAccountBalance(ACCOUNT_CODES.ONLINE_LOANS_RECEIVABLE);
+    const offlineLoansReceivable = getAccountBalance(ACCOUNT_CODES.OFFLINE_LOANS_RECEIVABLE);
+    const totalLoansReceivable = getAccountBalance(ACCOUNT_CODES.LOANS_RECEIVABLE) || 
+      (onlineLoansReceivable + offlineLoansReceivable);
 
-    const totalLoanPrincipal = onlinePrincipalOutstanding + offlinePrincipalOutstanding;
-    const totalInterestReceivable = onlineInterestPending + offlineInterestPending;
+    // Other Receivables
+    const interestReceivable = getAccountBalance(ACCOUNT_CODES.INTEREST_RECEIVABLE);
 
     // ============================================
-    // LEFT SIDE - Liabilities (Source of Funds)
+    // BUILD BALANCE SHEET ITEMS
     // ============================================
 
-    // 1. Owner's Equity - Get from ChartOfAccount (account code 5000 - Owner Capital)
-    // This is equity the owner brings to the business
-    let ownerEquity = 0;
-    const equityAccount = await db.chartOfAccount.findFirst({
-      where: { 
-        companyId, 
-        accountCode: '5000' // Owner Capital
+    // Left Side Items (Liabilities & Equity)
+    const leftSideItems = [
+      {
+        name: "Owner's Capital",
+        amount: ownersCapital,
+        type: 'EQUITY',
+        accountCode: ACCOUNT_CODES.OWNERS_CAPITAL,
+        description: 'Money invested by owner - Add via Journal Entry (Debit Bank/Cash, Credit Owner Capital)'
       },
-      select: { currentBalance: true }
-    });
-    if (equityAccount) {
-      ownerEquity = equityAccount.currentBalance;
-    }
-
-    // 2. Opening Balance Equity = Opening Balance of Bank Accounts + Opening Balance of Cash Book
-    // This is AUTO-CALCULATED from opening balances
-    const openingBalanceEquity = totalBankOpeningBalance + cashBookOpeningBalance;
-
-    // Total Equity = Owner's Equity + Opening Balance Equity
-    const totalEquity = ownerEquity + openingBalanceEquity;
-
-    // 2. Borrowed Money - Get from ChartOfAccount (account code 2202 - Borrowed Funds)
-    let borrowedMoney = 0;
-    const borrowedAccount = await db.chartOfAccount.findFirst({
-      where: { 
-        companyId, 
-        accountCode: '2202' // Borrowed Funds
+      {
+        name: 'Opening Balance Equity',
+        amount: openingBalanceEquity,
+        type: 'OPENING_EQUITY',
+        accountCode: ACCOUNT_CODES.OPENING_BALANCE_EQUITY,
+        description: 'Initial capital when company started'
       },
-      select: { currentBalance: true }
-    });
-    if (borrowedAccount) {
-      borrowedMoney = Math.abs(borrowedAccount.currentBalance);
-    }
+      {
+        name: 'Retained Earnings',
+        amount: retainedEarnings,
+        type: 'EQUITY',
+        accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
+        description: 'Accumulated profits from previous years'
+      },
+      {
+        name: 'Current Year Profit/Loss',
+        amount: profitLoss,
+        type: 'PROFIT_LOSS',
+        isCalculated: true,
+        formula: 'Total Income - Total Expenses',
+        details: [
+          { name: 'Total Income', amount: totalIncome },
+          { name: 'Total Expenses', amount: totalExpenses }
+        ]
+      },
+      {
+        name: 'Bank Loans',
+        amount: bankLoans,
+        type: 'LIABILITY',
+        accountCode: ACCOUNT_CODES.BANK_LOANS,
+        description: 'Loans taken from banks'
+      },
+      {
+        name: 'Investor Capital',
+        amount: investorCapital,
+        type: 'LIABILITY',
+        accountCode: ACCOUNT_CODES.INVESTOR_CAPITAL,
+        description: 'Capital from investors'
+      },
+      {
+        name: 'Borrowed Funds',
+        amount: borrowedFunds,
+        type: 'LIABILITY',
+        accountCode: ACCOUNT_CODES.BORROWED_FUNDS,
+        description: 'Funds borrowed from other sources'
+      }
+    ].filter(item => item.amount !== 0 || ['Owner\'s Capital', 'Current Year Profit/Loss'].includes(item.name));
 
-    // 3. Profit/Loss from P&L
-    // Calculate income - expenses for the period
-    const incomeAccounts = await db.chartOfAccount.findMany({
-      where: { companyId, accountType: 'INCOME' },
-      select: { currentBalance: true }
-    });
-    const totalIncome = incomeAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
-
-    const expenseAccounts = await db.chartOfAccount.findMany({
-      where: { companyId, accountType: 'EXPENSE' },
-      select: { currentBalance: true }
-    });
-    const totalExpenses = expenseAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
-
-    const profitLoss = totalIncome - totalExpenses;
-
-    // 4. Final Equity = Owner's Equity + Opening Balance + Profit/Loss (Borrowed money is shown separately)
-    const finalEquity = totalEquity + profitLoss;
+    // Right Side Items (Assets)
+    const rightSideItems = [
+      {
+        name: 'Cash in Hand',
+        amount: cashInHand,
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+        description: 'Physical cash on hand'
+      },
+      {
+        name: 'Bank Balance',
+        amount: totalBankBalance,
+        type: 'ASSET',
+        details: bankAccounts.map(acc => ({
+          accountName: acc.accountName,
+          accountCode: acc.accountCode,
+          balance: acc.currentBalance
+        }))
+      },
+      {
+        name: 'Loans Receivable',
+        amount: Math.max(0, totalLoansReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+        details: [
+          { name: 'Online Loans', amount: onlineLoansReceivable },
+          { name: 'Offline Loans', amount: offlineLoansReceivable }
+        ]
+      },
+      {
+        name: 'Interest Receivable',
+        amount: Math.max(0, interestReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
+        description: 'Interest accrued but not received'
+      }
+    ].filter(item => item.amount !== 0 || ['Cash in Hand', 'Bank Balance'].includes(item.name));
 
     // ============================================
-    // TOTALS
+    // CALCULATE TOTALS
     // ============================================
-    
-    const rightTotal = totalBankBalance + cashBookBalance + investMoney + totalLoanPrincipal + totalInterestReceivable;
-    const leftTotal = totalEquity + borrowedMoney + profitLoss;
 
-    // Get financial years list for dropdown
+    const leftTotal = leftSideItems.reduce((sum, item) => sum + item.amount, 0);
+    const rightTotal = rightSideItems.reduce((sum, item) => sum + item.amount, 0);
+
+    // ============================================
+    // GET FINANCIAL YEARS LIST
+    // ============================================
+
     const financialYears = await db.financialYear.findMany({
       where: { companyId },
       select: { id: true, name: true, startDate: true, endDate: true, isClosed: true },
       orderBy: { startDate: 'desc' }
     });
 
-    // If no financial years exist, create default list
     const yearOptions = financialYears.length > 0 ? financialYears : [
       { name: 'FY 2024-25', startDate: new Date(2024, 3, 1), endDate: new Date(2025, 2, 31) },
-      { name: 'FY 2023-24', startDate: new Date(2023, 3, 1), endDate: new Date(2024, 2, 31) },
-      { name: 'FY 2022-23', startDate: new Date(2022, 3, 1), endDate: new Date(2023, 2, 31) }
+      { name: 'FY 2023-24', startDate: new Date(2023, 3, 1), endDate: new Date(2024, 2, 31) }
     ];
 
     return NextResponse.json({
@@ -264,105 +311,52 @@ export async function GET(request: NextRequest) {
       financialYear: year ? `FY ${year}-${parseInt(year) + 1}` : `FY ${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       yearOptions,
       
-      // LEFT SIDE - Liabilities (Source of Funds)
+      // LEFT SIDE - Liabilities & Equity (Source of Funds)
       leftSide: {
-        items: [
-          {
-            name: "Owner's Equity",
-            amount: ownerEquity,
-            type: 'EQUITY',
-            canAdd: false,
-            description: 'Money invested by owner - Add via Journal Entry (Debit Bank/Cash, Credit Equity)'
-          },
-          {
-            name: 'Opening Balance Equity',
-            amount: openingBalanceEquity,
-            type: 'OPENING_EQUITY',
-            isCalculated: true,
-            formula: 'Bank Opening Balance + Cash Book Opening Balance',
-            details: [
-              { name: 'Bank Opening Balance', amount: totalBankOpeningBalance },
-              { name: 'Cash Book Opening Balance', amount: cashBookOpeningBalance }
-            ]
-          },
-          {
-            name: 'Borrowed Money',
-            amount: borrowedMoney,
-            type: 'BORROWED_MONEY',
-            canAdd: false,
-            description: 'Add via Journal Entry (Debit Bank, Credit Borrowed Funds)'
-          },
-          {
-            name: 'Profit/Loss',
-            amount: profitLoss,
-            type: 'PROFIT_LOSS',
-            isCalculated: true,
-            formula: 'Total Income - Total Expenses'
-          }
-        ],
+        title: 'Liabilities & Equity',
+        items: leftSideItems,
         total: leftTotal
       },
       
       // RIGHT SIDE - Assets (How Funds Are Used)
       rightSide: {
-        items: [
-          {
-            name: 'Bank Balance',
-            amount: totalBankBalance,
-            type: 'BANK',
-            details: bankAccounts.map(acc => ({
-              bankName: acc.bankName,
-              accountNumber: acc.accountNumber,
-              balance: acc.currentBalance
-            }))
-          },
-          {
-            name: 'Cashbook Balance',
-            amount: cashBookBalance,
-            type: 'CASH'
-          },
-          {
-            name: 'Invest Money',
-            amount: investMoney,
-            type: 'INVEST_MONEY',
-            canAdd: false,
-            description: 'Add via Journal Entry (Debit Invest Account, Credit Bank/Cash)'
-          },
-          {
-            name: 'Loan Principal',
-            amount: totalLoanPrincipal,
-            type: 'LOAN_PRINCIPAL',
-            count: onlineLoans.length + offlineLoans.length,
-            onlineLoans: onlineLoans.length,
-            offlineLoans: offlineLoans.length
-          },
-          {
-            name: 'Interest Receivable',
-            amount: totalInterestReceivable,
-            type: 'INTEREST_RECEIVABLE'
-          }
-        ],
+        title: 'Assets',
+        items: rightSideItems,
         total: rightTotal
       },
       
       // Summary
       summary: {
-        cashBookBalance,
-        bankBalance: totalBankBalance,
-        investMoney,
-        ownerEquity,
-        openingBalanceEquity,
-        equity: totalEquity,
-        borrowedMoney,
+        totalEquity: ownersCapital + openingBalanceEquity + retainedEarnings + profitLoss,
+        totalLiabilities: bankLoans + investorCapital + borrowedFunds,
+        totalAssets: rightTotal,
         profitLoss,
-        finalEquity,
-        loanPrincipal: totalLoanPrincipal,
-        interestReceivable: totalInterestReceivable,
-        onlineLoansCount: onlineLoans.length,
-        offlineLoansCount: offlineLoans.length,
         totalIncome,
         totalExpenses,
-        isBalanced: Math.abs(leftTotal - rightTotal) < 0.01
+        isBalanced: Math.abs(leftTotal - rightTotal) < 0.01,
+        difference: Math.abs(leftTotal - rightTotal)
+      },
+
+      // Guidance for adding equity
+      guidance: {
+        title: 'How to Add Equity (GnuCash Style)',
+        steps: [
+          '1. Go to Journal Entry section',
+          '2. Create a new journal entry:',
+          '   - Debit: Cash in Hand (1101) OR Bank Account (1103)',
+          '   - Credit: Owner\'s Capital (3002)',
+          '3. Enter the amount (e.g., ₹1,00,000)',
+          '4. Add narration: "Owner\'s capital investment"',
+          '5. Save the entry - Equity will automatically update!'
+        ],
+        example: {
+          description: 'Owner invests ₹1,00,000 in cash',
+          entry: [
+            { account: 'Cash in Hand (1101)', debit: 100000, credit: 0 },
+            { account: 'Owner\'s Capital (3002)', debit: 0, credit: 100000 }
+          ],
+          result: 'Assets = ₹1,00,000 | Equity = ₹1,00,000 | Balanced ✓'
+        }
       }
     });
 
