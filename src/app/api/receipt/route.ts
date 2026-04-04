@@ -28,11 +28,116 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const emiScheduleId = searchParams.get('emiScheduleId');
     const paymentId = searchParams.get('paymentId');
+    const isOffline = searchParams.get('isOffline') === 'true';
+    const offlineLoanId = searchParams.get('offlineLoanId');
 
     if (!emiScheduleId && !paymentId) {
       return NextResponse.json({ error: 'EMI Schedule ID or Payment ID is required' }, { status: 400 });
     }
 
+    // ============ HANDLE OFFLINE LOAN RECEIPT ============
+    if (isOffline && emiScheduleId) {
+      console.log(`[Receipt API] Fetching offline loan EMI receipt for EMI ID: ${emiScheduleId}, Loan ID: ${offlineLoanId}`);
+      
+      // Get the offline loan EMI
+      const offlineEmi = await db.offlineLoanEMI.findUnique({
+        where: { id: emiScheduleId },
+        include: {
+          offlineLoan: {
+            include: {
+              company: true
+            }
+          }
+        }
+      });
+
+      if (!offlineEmi) {
+        console.log(`[Receipt API] Offline EMI not found: ${emiScheduleId}`);
+        return NextResponse.json({ error: 'EMI not found' }, { status: 404 });
+      }
+
+      // Check if EMI is paid
+      if (offlineEmi.paymentStatus !== 'PAID' && offlineEmi.paymentStatus !== 'PARTIALLY_PAID' && offlineEmi.paymentStatus !== 'INTEREST_ONLY_PAID') {
+        console.log(`[Receipt API] EMI not paid yet: ${offlineEmi.paymentStatus}`);
+        return NextResponse.json({ error: 'EMI not paid yet' }, { status: 400 });
+      }
+
+      const loan = offlineEmi.offlineLoan;
+      const company = loan.company;
+      const companyCode = company?.code || 'MM';
+
+      // Get all EMIs for this loan to calculate totals
+      const allEmis = await db.offlineLoanEMI.findMany({
+        where: { offlineLoanId: loan.id }
+      });
+      
+      const paidEmis = allEmis.filter(e => e.paymentStatus === 'PAID');
+      const totalLoanAmount = loan.loanAmount;
+      const totalPaidAmount = paidEmis.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
+      const balanceDue = totalLoanAmount - totalPaidAmount;
+      const totalEmis = allEmis.length;
+
+      // Check for mirror loan mapping
+      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        where: { 
+          OR: [
+            { originalLoanId: loan.id },
+            { mirrorLoanId: loan.id }
+          ]
+        }
+      });
+
+      // Determine if this is a mirror loan
+      const isMirrorLoan = loan.isMirrorLoan || mirrorMapping?.mirrorLoanId === loan.id;
+      const effectiveInterestRate = mirrorMapping?.mirrorInterestRate || loan.interestRate;
+
+      // Generate receipt number
+      const receiptNo = await generateReceiptNumber(companyCode);
+
+      const receiptData = {
+        receiptNo: receiptNo,
+        date: offlineEmi.paidDate?.toISOString() || new Date().toISOString(),
+        customerName: loan.customerName || '',
+        fatherName: '', // Offline loans don't have father name
+        phone: loan.customerPhone || '',
+        address: loan.customerAddress || '',
+        loanAccountNo: loan.loanNumber || '',
+        loanAmount: totalLoanAmount,
+        interestRate: loan.interestRate || 0,
+        mirrorInterestRate: effectiveInterestRate,
+        tenure: loan.tenure || 0,
+        emiNumber: offlineEmi.installmentNumber || 0,
+        totalEmis: totalEmis,
+        dueDate: offlineEmi.dueDate?.toISOString() || '',
+        paymentDate: offlineEmi.paidDate?.toISOString() || new Date().toISOString(),
+        principalAmount: offlineEmi.paidPrincipal || offlineEmi.principalAmount || 0,
+        interestAmount: offlineEmi.paidInterest || offlineEmi.interestAmount || 0,
+        totalAmount: offlineEmi.paidAmount || offlineEmi.totalAmount || 0,
+        paymentMode: offlineEmi.paymentMode || 'CASH',
+        referenceNo: loan.loanNumber || '',
+        balanceDue: balanceDue,
+        companyName: company?.name || 'Money Mitra',
+        companyCode: companyCode,
+        isInterestOnly: offlineEmi.paymentStatus === 'INTEREST_ONLY_PAID',
+        isMirrorLoan: isMirrorLoan,
+        isPartialPayment: offlineEmi.paymentStatus === 'PARTIALLY_PAID'
+      };
+
+      console.log(`[Receipt API] Generated offline receipt: ${receiptNo} for EMI #${offlineEmi.installmentNumber}`);
+
+      return NextResponse.json({
+        success: true,
+        receiptData,
+        payment: {
+          id: offlineEmi.id,
+          receiptNumber: receiptNo,
+          receiptGenerated: true,
+          createdAt: offlineEmi.paidDate || new Date()
+        }
+      });
+    }
+
+    // ============ HANDLE ONLINE LOAN RECEIPT ============
     let payment;
     
     if (paymentId) {
