@@ -1760,7 +1760,7 @@ export async function PUT(request: NextRequest) {
       console.log(`[EMI Payment] Transaction completed in ${Date.now() - startTime}ms total`);
 
       // Process bank transaction (non-blocking, outside transaction)
-      let bankTransactionResult = null;
+      let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
       if (paymentMode === 'CASH' && targetBankAccountId && emi.offlineLoan.companyId) {
         try {
           bankTransactionResult = await processBankTransaction({
