@@ -92,13 +92,14 @@ export async function GET(request: NextRequest) {
       });
 
       // Check if this loan is a mirror loan (is the mirror of another loan)
-      // For offline loans, this will be false since we don't create separate mirror loans
+      // For offline loans, check both the mapping AND the isMirrorLoan field on the loan
       const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
         where: { mirrorLoanId: loanId }
       });
 
+      // Determine if this is a mirror loan - check both the loan field and mapping
+      const isMirrorLoan = loan.isMirrorLoan || !!mirrorMappingAsMirror;
       const isMirrored = !!mirrorMappingAsOriginal; // This is original, has a mirror
-      const isMirrorLoan = !!mirrorMappingAsMirror; // This is a mirror loan, cannot pay directly
 
       // Get mirror info for display
       const mirrorInfo = mirrorMappingAsOriginal || mirrorMappingAsMirror;
@@ -829,7 +830,7 @@ export async function POST(request: NextRequest) {
         const colorIndex = Math.abs(loan.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % displayColors.length;
         const displayColor = displayColors[colorIndex];
 
-        // CREATE MIRROR LOAN - Separate OfflineLoan record
+        // CREATE MIRROR LOAN - Separate OfflineLoan record (READ-ONLY for EMI payments)
         const mirrorLoan = await db.offlineLoan.create({
           data: {
             loanNumber: mirrorLoanNumber,
@@ -870,6 +871,8 @@ export async function POST(request: NextRequest) {
             notes: `Mirror loan for ${loanNumber}`,
             internalNotes: `Mirror of ${loanNumber} from ${company?.name || 'Company 3'}`,
             displayColor, // Same color as original
+            isMirrorLoan: true, // READ-ONLY - EMI payments sync from original
+            originalLoanId: loan.id, // Reference to original loan
             allowInterestOnly: false,
             allowPartialPayment: true,
             isInterestOnlyLoan: false,
@@ -1427,6 +1430,18 @@ export async function PUT(request: NextRequest) {
 
       // ============ MIRROR LOAN CHECK ============
       // Mirror loans cannot be paid directly - they sync from original loan
+      
+      // Check 1: Check if the loan itself is marked as mirror loan
+      if (emi.offlineLoan.isMirrorLoan) {
+        return NextResponse.json({
+          error: 'Cannot pay mirror loan directly',
+          message: 'This is a MIRROR LOAN (READ-ONLY). Payments are automatically synced from the original loan. Please make payments on the original loan instead.',
+          originalLoanId: emi.offlineLoan.originalLoanId,
+          isMirrorLoan: true
+        }, { status: 400 });
+      }
+      
+      // Check 2: Check via mapping (fallback for older loans)
       const mirrorLoanCheck = await db.mirrorLoanMapping.findFirst({
         where: { mirrorLoanId: emi.offlineLoanId }
       });

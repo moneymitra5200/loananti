@@ -1881,6 +1881,9 @@ model OfflineLoan {
   bankAccountId         String?             // Bank account used for disbursement
   // Mirror Loan Display Color - Same color for original + mirror pair
   displayColor          String?             // Hex color code like "#FF5733" - unique per loan pair
+  // Mirror Loan Flag - READ-ONLY if true (EMI payments only on original loan)
+  isMirrorLoan          Boolean             @default(false)   // TRUE = This is a mirror loan (READ-ONLY, cannot pay EMI directly)
+  originalLoanId        String?             // If this is a mirror loan, reference to the original loan
   // Timestamps
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
