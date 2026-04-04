@@ -638,15 +638,14 @@ export async function POST(request: NextRequest) {
           
           console.log(`[Interest Only] Created NEW EMI #${newEMIMirror.installmentNumber} for Mirror Loan with Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]}`);
           
-          // ============ ACCOUNTING ENTRIES ============
-          // Mirror Company gets their interest portion
-          // Company 3 gets the difference as profit
+          // ============ ACCOUNTING ENTRIES FOR MIRROR LOAN ============
+          // CORRECT LOGIC: Record ONLY the MIRROR INTEREST as income
+          // NO deductions, NO profit calculations
+          // Just record mirror interest (e.g., ₹112) in mirror company's books
           
-          const originalInterest = remainingInterest; // e.g., Rs 200
           const mirrorInterestPaid = mirrorInterest;  // e.g., Rs 112
-          const profitForCompany3 = originalInterest - mirrorInterestPaid; // e.g., Rs 88
           
-          // Record interest income for Mirror Company (Company 1)
+          // Record ONLY mirror interest as income in Mirror Company
           const mirrorCompanyBank = await db.bankAccount.findFirst({
             where: { companyId: mirrorMapping.mirrorCompanyId, isActive: true }
           });
@@ -663,43 +662,14 @@ export async function POST(request: NextRequest) {
                 transactionType: 'CREDIT',
                 amount: mirrorInterestPaid,
                 balanceAfter: mirrorCompanyBank.currentBalance + mirrorInterestPaid,
-                description: `INTEREST INCOME (Mirror) - ${emi.loanApplication?.applicationNo} - EMI #${emi.installmentNumber}`,
+                description: `MIRROR INTEREST INCOME - ${emi.loanApplication?.applicationNo} - EMI #${emi.installmentNumber}`,
                 referenceType: 'MIRROR_INTEREST_INCOME',
                 referenceId: payment.id,
                 createdById: paidBy
               }
             });
             
-            console.log(`[Accounting] Mirror Company: ₹${mirrorInterestPaid} interest income recorded`);
-          }
-          
-          // Record profit for Company 3 (Original Company)
-          if (profitForCompany3 > 0 && mirrorMapping.originalCompanyId) {
-            const originalCompanyBank = await db.bankAccount.findFirst({
-              where: { companyId: mirrorMapping.originalCompanyId, isActive: true }
-            });
-            
-            if (originalCompanyBank) {
-              await db.bankAccount.update({
-                where: { id: originalCompanyBank.id },
-                data: { currentBalance: { increment: profitForCompany3 } }
-              });
-              
-              await db.bankTransaction.create({
-                data: {
-                  bankAccountId: originalCompanyBank.id,
-                  transactionType: 'CREDIT',
-                  amount: profitForCompany3,
-                  balanceAfter: originalCompanyBank.currentBalance + profitForCompany3,
-                  description: `MIRROR PROFIT - ${emi.loanApplication?.applicationNo} - EMI #${emi.installmentNumber} (Original: ₹${originalInterest}, Mirror: ₹${mirrorInterestPaid})`,
-                  referenceType: 'MIRROR_PROFIT',
-                  referenceId: payment.id,
-                  createdById: paidBy
-                }
-              });
-              
-              console.log(`[Accounting] Company 3: ₹${profitForCompany3} profit recorded (Original Interest: ₹${originalInterest} - Mirror Interest: ₹${mirrorInterestPaid})`);
-            }
+            console.log(`[Mirror Interest] Recorded ₹${mirrorInterestPaid} as Interest Income in Mirror Company`);
           }
         }
       }
@@ -884,36 +854,14 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        const interestPortion = paidInterest;
-
-        const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
-        const mirrorCompanyBank = await db.bankAccount.findFirst({
-          where: { companyId: mirrorCompanyId, isActive: true }
-        });
-
-        if (mirrorCompanyBank && interestPortion > 0) {
-          await db.bankAccount.update({
-            where: { id: mirrorCompanyBank.id },
-            data: { currentBalance: { increment: interestPortion } }
-          });
-
-          await db.bankTransaction.create({
-            data: {
-              bankAccountId: mirrorCompanyBank.id,
-              transactionType: 'CREDIT',
-              amount: interestPortion,
-              balanceAfter: mirrorCompanyBank.currentBalance + interestPortion,
-              description: `MIRROR INTEREST - ${emi.loanApplication?.applicationNo} - EMI #${installmentNumber}`,
-              referenceType: 'MIRROR_INTEREST',
-              referenceId: payment.id,
-              createdById: paidBy
-            }
-          });
-        }
-
-        console.log(`[Mirror Loan] Regular EMI #${installmentNumber} paid. Interest ₹${interestPortion} recorded for Mirror Company`);
+        // ============================================
+        // CORRECT LOGIC: Record ONLY MIRROR INTEREST as income
+        // Calculate mirror interest based on mirror rate
+        // ============================================
         
-        // Mark mirror EMI as paid
+        const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
+        
+        // Get mirror EMI to calculate correct mirror interest
         if (mirrorMapping.mirrorLoanId) {
           const mirrorEMI = await db.eMISchedule.findFirst({
             where: {
@@ -924,10 +872,39 @@ export async function POST(request: NextRequest) {
           });
           
           if (mirrorEMI) {
+            // Calculate MIRROR interest based on mirror rate
             const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
             const mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
             const mirrorPrincipal = Math.min(mirrorEMI.totalAmount - mirrorInterest, mirrorEMI.outstandingPrincipal);
             
+            // Record ONLY mirror interest as income in Mirror Company
+            const mirrorCompanyBank = await db.bankAccount.findFirst({
+              where: { companyId: mirrorCompanyId, isActive: true }
+            });
+
+            if (mirrorCompanyBank && mirrorInterest > 0) {
+              await db.bankAccount.update({
+                where: { id: mirrorCompanyBank.id },
+                data: { currentBalance: { increment: mirrorInterest } }
+              });
+
+              await db.bankTransaction.create({
+                data: {
+                  bankAccountId: mirrorCompanyBank.id,
+                  transactionType: 'CREDIT',
+                  amount: mirrorInterest,
+                  balanceAfter: mirrorCompanyBank.currentBalance + mirrorInterest,
+                  description: `MIRROR INTEREST INCOME - ${emi.loanApplication?.applicationNo} - EMI #${installmentNumber}`,
+                  referenceType: 'MIRROR_INTEREST_INCOME',
+                  referenceId: payment.id,
+                  createdById: paidBy
+                }
+              });
+              
+              console.log(`[Mirror Interest] Recorded ₹${mirrorInterest} as Interest Income in Mirror Company`);
+            }
+
+            // Mark mirror EMI as paid
             await db.eMISchedule.update({
               where: { id: mirrorEMI.id },
               data: {
@@ -1006,17 +983,32 @@ export async function POST(request: NextRequest) {
         const loanCompanyId = emi.loanApplication?.companyId || companyId;
         
         // Check for mirror loan
-        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: loanId }
         });
         
         // Check if this is an extra EMI (beyond mirror tenure)
-        const isExtraEMI = mirrorMapping && emi.installmentNumber > mirrorMapping.mirrorTenure;
+        const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
         
         // Record accounting entries based on credit type and payment mode
         // IMPORTANT: When loan has mirror AND it's NOT an extra EMI, payment goes to MIRROR COMPANY's books
         // For EXTRA EMIs, payment goes to ORIGINAL COMPANY's books (Company 3)
-        const isMirrorPayment = !!mirrorMapping && !isExtraEMI;
+        const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI;
+        
+        // Calculate mirror interest if this is a mirror payment
+        let calculatedMirrorInterest: number | undefined = undefined;
+        if (isMirrorPayment && mirrorMappingForAccounting?.mirrorLoanId) {
+          const mirrorEMIForCalc = await db.eMISchedule.findFirst({
+            where: {
+              loanApplicationId: mirrorMappingForAccounting.mirrorLoanId,
+              installmentNumber: emi.installmentNumber
+            }
+          });
+          if (mirrorEMIForCalc) {
+            const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
+            calculatedMirrorInterest = Math.round(mirrorEMIForCalc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          }
+        }
         
         await recordEMIPaymentAccounting({
           amount: paidAmount,
@@ -1037,8 +1029,9 @@ export async function POST(request: NextRequest) {
           userId: paidBy,
           customerId: emi.loanApplication?.customerId,
           // Mirror loan details if applicable
-          mirrorLoanId: mirrorMapping?.mirrorLoanId || undefined,
-          mirrorCompanyId: mirrorMapping?.mirrorCompanyId || undefined,
+          mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
+          mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
+          mirrorInterest: calculatedMirrorInterest,  // Pass the calculated mirror interest
           // Flag to indicate this payment should go to mirror company's books
           // FALSE for extra EMIs - they go to original company (C3)
           isMirrorPayment: isMirrorPayment
@@ -1046,8 +1039,9 @@ export async function POST(request: NextRequest) {
         
         console.log(`[Accounting] Recorded EMI payment accounting:`);
         console.log(`  - Credit: ${creditType}, Mode: ${paymentMode}`);
-        console.log(`  - HasMirror: ${!!mirrorMapping}, IsExtraEMI: ${!!isExtraEMI}`);
+        console.log(`  - HasMirror: ${!!mirrorMappingForAccounting}, IsExtraEMI: ${!!isExtraEMI}`);
         console.log(`  - IsMirrorPayment: ${isMirrorPayment}`);
+        console.log(`  - MirrorInterest: ${calculatedMirrorInterest || 'N/A'}`);
         console.log(`  - Target: ${isMirrorPayment ? 'MIRROR COMPANY' : (isExtraEMI ? 'ORIGINAL COMPANY (Extra EMI)' : 'LOAN COMPANY')}`);
       } else {
         console.warn('[Accounting] Company 3 not found - skipping personal credit accounting');
