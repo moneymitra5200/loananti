@@ -1785,30 +1785,136 @@ export async function PUT(request: NextRequest) {
       ]);
 
       // ============================================
-      // RECORD ACCOUNTING ENTRIES
+      // RECORD ACCOUNTING ENTRIES FOR MIRROR LOANS
+      // ============================================
+      // Rules:
+      // 1. EMIs within mirror tenure: Mirror EMI → Mirror company, Difference → Original company (C3)
+      // 2. EXTRA EMIs: Entire amount → Original company (C3)
       // ============================================
       try {
         // Get Company 3 ID for personal credit
         const company3Id = await getCompany3Id();
         
+        // Check if this is a mirror loan (has mirror mapping)
+        const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true }
+        });
+        
         if (company3Id && emi.offlineLoan.companyId) {
-          // Record accounting entries based on credit type and payment mode
-          await recordEMIPaymentAccounting({
-            amount: actualPaymentAmount,
-            principalComponent: paidPrincipal,
-            interestComponent: paidInterest,
-            paymentMode: paymentMode || 'CASH',
-            paymentType: paymentType || 'FULL',
-            creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-            loanCompanyId: emi.offlineLoan.companyId,
-            company3Id,
-            loanId: emi.offlineLoanId,
-            emiId: emi.id,
-            paymentId: updatedEmi.id,
-            loanNumber: emi.offlineLoan.loanNumber,
-            installmentNumber: emi.installmentNumber,
-            userId
-          });
+          const isMirrorLoan = !!mirrorMappingForAccounting;
+          const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
+          
+          if (isMirrorLoan && !isExtraEMI && mirrorMappingForAccounting?.mirrorLoanId) {
+            // ============ MIRROR EMI (within mirror tenure) ============
+            // Get the mirror EMI to know the mirror amount
+            const mirrorEmiForAccounting = await db.offlineLoanEMI.findFirst({
+              where: {
+                offlineLoanId: mirrorMappingForAccounting.mirrorLoanId,
+                installmentNumber: emi.installmentNumber
+              }
+            });
+            
+            if (mirrorEmiForAccounting) {
+              const mirrorEMIAmount = mirrorEmiForAccounting.totalAmount;
+              const originalEMIAmount = actualPaymentAmount;
+              const differenceAmount = Math.max(0, originalEMIAmount - mirrorEMIAmount);
+              
+              console.log(`[Accounting] MIRROR EMI #${emi.installmentNumber}`);
+              console.log(`[Accounting] Original EMI: ₹${originalEMIAmount}, Mirror EMI: ₹${mirrorEMIAmount}, Difference: ₹${differenceAmount}`);
+              
+              // Entry 1: Mirror EMI amount → Mirror company cashbook
+              await recordEMIPaymentAccounting({
+                amount: mirrorEMIAmount,
+                principalComponent: mirrorEmiForAccounting.principalAmount,
+                interestComponent: mirrorEmiForAccounting.interestAmount,
+                paymentMode: paymentMode || 'CASH',
+                paymentType: paymentType || 'FULL',
+                creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
+                loanCompanyId: emi.offlineLoan.companyId,
+                company3Id,
+                loanId: emi.offlineLoanId,
+                emiId: emi.id,
+                paymentId: updatedEmi.id,
+                loanNumber: emi.offlineLoan.loanNumber,
+                installmentNumber: emi.installmentNumber,
+                userId,
+                mirrorLoanId: mirrorMappingForAccounting.mirrorLoanId,
+                mirrorPrincipal: mirrorEmiForAccounting.principalAmount,
+                mirrorInterest: mirrorEmiForAccounting.interestAmount,
+                mirrorCompanyId: mirrorMappingForAccounting.mirrorCompanyId,
+                isMirrorPayment: true // This tells accounting to use MIRROR company's books
+              });
+              
+              console.log(`[Accounting] Entry 1: ₹${mirrorEMIAmount} → Mirror Company (${mirrorMappingForAccounting.mirrorCompanyId}) cashbook`);
+              
+              // Entry 2: Difference amount → Original company (C3) cashbook
+              if (differenceAmount > 0) {
+                await recordCashBookEntry({
+                  companyId: emi.offlineLoan.companyId, // Original company (C3)
+                  entryType: 'CREDIT',
+                  amount: differenceAmount,
+                  description: `EMI Difference #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} (Extra interest profit)`,
+                  referenceType: 'MIRROR_EMI_DIFFERENCE',
+                  referenceId: updatedEmi.id,
+                  createdById: userId
+                });
+                
+                console.log(`[Accounting] Entry 2: ₹${differenceAmount} → Original Company (${emi.offlineLoan.companyId}) cashbook as difference`);
+              }
+            } else {
+              console.warn('[Accounting] Mirror EMI not found - using original company');
+              await recordEMIPaymentAccounting({
+                amount: actualPaymentAmount,
+                principalComponent: paidPrincipal,
+                interestComponent: paidInterest,
+                paymentMode: paymentMode || 'CASH',
+                paymentType: paymentType || 'FULL',
+                creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
+                loanCompanyId: emi.offlineLoan.companyId,
+                company3Id,
+                loanId: emi.offlineLoanId,
+                emiId: emi.id,
+                paymentId: updatedEmi.id,
+                loanNumber: emi.offlineLoan.loanNumber,
+                installmentNumber: emi.installmentNumber,
+                userId
+              });
+            }
+          } else if (isExtraEMI) {
+            // ============ EXTRA EMI (beyond mirror tenure) ============
+            // Entire amount goes to Original company (C3)
+            console.log(`[Accounting] EXTRA EMI #${emi.installmentNumber} - Entire ₹${actualPaymentAmount} → Original Company cashbook`);
+            
+            await recordCashBookEntry({
+              companyId: emi.offlineLoan.companyId, // Original company (C3)
+              entryType: 'CREDIT',
+              amount: actualPaymentAmount,
+              description: `EXTRA EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} (Beyond mirror tenure - full profit)`,
+              referenceType: 'EXTRA_EMI_PAYMENT',
+              referenceId: updatedEmi.id,
+              createdById: userId
+            });
+          } else {
+            // ============ REGULAR EMI (no mirror loan) ============
+            await recordEMIPaymentAccounting({
+              amount: actualPaymentAmount,
+              principalComponent: paidPrincipal,
+              interestComponent: paidInterest,
+              paymentMode: paymentMode || 'CASH',
+              paymentType: paymentType || 'FULL',
+              creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
+              loanCompanyId: emi.offlineLoan.companyId,
+              company3Id,
+              loanId: emi.offlineLoanId,
+              emiId: emi.id,
+              paymentId: updatedEmi.id,
+              loanNumber: emi.offlineLoan.loanNumber,
+              installmentNumber: emi.installmentNumber,
+              userId
+            });
+            
+            console.log(`[Accounting] Regular EMI #${emi.installmentNumber} - ₹${actualPaymentAmount} → Company cashbook`);
+          }
           
           console.log(`[Accounting] Recorded EMI payment accounting - Credit: ${creditTypeUsed}, Mode: ${paymentMode}`);
         } else {
