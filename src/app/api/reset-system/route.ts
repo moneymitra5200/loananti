@@ -146,24 +146,27 @@ export async function POST(request: NextRequest) {
     console.log(`[RESET] Deleted ${stats.offlineLoans} offline loans`);
 
     // ========================================
-    // PHASE 8: Customers
+    // PHASE 8: Users - NEVER DELETE, ONLY RESET
     // ========================================
     
-    // Get customer IDs first
-    const customerIds = await db.user.findMany({
-      where: { role: 'CUSTOMER' },
-      select: { id: true }
-    }).then(users => users.map(u => u.id));
-
-    if (customerIds.length > 0) {
-      await db.deviceFingerprint.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
-      await db.blacklist.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
-      await db.userSession.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
-      await db.userPreference.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
-    }
+    // Users are NEVER deleted - only reset their loan-related fields
+    // Clear device fingerprints and sessions for all users
+    stats.deviceFingerprints = (await db.deviceFingerprint.deleteMany({})).count;
+    stats.blacklists = (await db.blacklist.deleteMany({})).count;
+    stats.userSessions = (await db.userSession.deleteMany({})).count;
     
-    stats.customers = (await db.user.deleteMany({ where: { role: 'CUSTOMER' } })).count;
-    console.log(`[RESET] Deleted ${stats.customers} customers`);
+    // Reset user fields but KEEP users
+    const resetUsers = await db.user.updateMany({
+      data: {
+        companyCredit: 0,
+        personalCredit: 0,
+        credit: 0,
+        companyId: null,
+        agentId: null,
+      }
+    });
+    stats.usersReset = resetUsers.count;
+    console.log(`[RESET] Reset ${stats.usersReset} users (NEVER deleted)`);
 
     // ========================================
     // PHASE 9: Accounting Portal - Full Reset
@@ -242,10 +245,9 @@ export async function POST(request: NextRequest) {
     stats.deletedUsers = (await db.deletedUser.deleteMany({})).count;
 
     // ========================================
-    // PHASE 13: User Sessions and Preferences
+    // PHASE 13: User Preferences
     // ========================================
     
-    stats.userSessions = (await db.userSession.deleteMany({})).count;
     stats.userPreferences = (await db.userPreference.deleteMany({})).count;
 
     // ========================================
@@ -253,23 +255,7 @@ export async function POST(request: NextRequest) {
     // ========================================
     
     stats.companies = (await db.company.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.companies} companies`);
-
-    // ========================================
-    // PHASE 15: Reset User Credits (but keep users!)
-    // ========================================
-    
-    const updatedUsers = await db.user.updateMany({
-      data: {
-        companyCredit: 0,
-        personalCredit: 0,
-        credit: 0,
-        companyId: null,
-        agentId: null,
-      }
-    });
-    stats.usersReset = updatedUsers.count;
-    console.log(`[RESET] Reset credits for ${stats.usersReset} users`);
+    console.log(`[RESET] Deleted ${stats.companies} companies (users preserved)`);
 
     console.log('[RESET] System reset completed successfully!');
 
