@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find Bank or Cash account based on payment mode
-    let assetAccount = null;
+    let assetAccount: { id: string; accountCode: string; accountName: string; accountType: string; currentBalance: number } | null = null;
     if (paymentMode === 'BANK' && bankAccountId) {
       // Get the bank account
       const bankAcc = await db.bankAccount.findUnique({
