@@ -570,3 +570,34 @@ Stage Summary:
   4. Company 3 CashBook: NO deduction
 - Build passes, lint passes
 - Ready for Git push
+
+---
+Task ID: 25
+Task: Fix Mirror Loan Issues - Cascade Delete, UI Labels, Correct Cashbook Display
+
+Work Log:
+- **Cascade Delete for Mirror Loans**:
+  - Updated `/api/offline-loan/route.ts` DELETE handler
+  - When deleting ORIGINAL loan → automatically delete MIRROR loan and mapping
+  - When deleting MIRROR loan → only delete mapping (preserve original)
+  - Deletes all EMIs, CashBook entries, Bank transactions for mirror loan
+  - Added success message indicating mirror loan was deleted
+- **Mirror Loan Color/Badge in List**:
+  - Verified `OfflineLoansList.tsx` already has color indicator and badge
+  - Shows "Original Loan" or "Mirror Loan" badge based on mapping
+  - Color indicator applied via displayColor field
+- **Fixed EMI Payment Dialog Cashbook Display**:
+  - Added `getCashbookCompanyName()` helper function to determine correct company
+  - For mirrored loans: Returns mirror company for normal EMIs, original company for extra EMIs
+  - Updated hardcoded "Company 3" text to use dynamic company name
+  - Fixed Personal Credit, Company Credit options to show correct company name
+  - Fixed Payment Mode section to show correct entry destination
+
+Stage Summary:
+- **Cascade Delete**: Deleting original loan now deletes mirror loan + mapping automatically
+- **UI Labels**: Loans in list show "Original Loan" or "Mirror Loan" badge with color indicator
+- **Correct Cashbook Display**:
+  - For Mirror EMIs (within tenure) → Shows mirror company name
+  - For Extra EMIs (beyond mirror tenure) → Shows original company name
+  - Dynamic company name based on EMI number and mirror status
+- Build passes, lint passes

@@ -2196,6 +2196,102 @@ export async function DELETE(request: NextRequest) {
       console.error('[DELETE OFFLINE LOAN] Error deleting Credit transactions:', e);
     }
 
+    // ==========================================
+    // DELETE MIRROR LOAN AND MAPPING IF EXISTS
+    // ==========================================
+    // Check if this loan is an original loan with a mirror
+    const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId, isOfflineLoan: true }
+    });
+
+    // Check if this loan is a mirror loan
+    const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
+      where: { mirrorLoanId: loanId }
+    });
+
+    let mirrorLoanDeleted = false;
+    let mappingDeleted = false;
+
+    // If this is the ORIGINAL loan, delete the mirror loan too
+    if (mirrorMappingAsOriginal?.mirrorLoanId) {
+      try {
+        const mirrorLoan = await db.offlineLoan.findUnique({
+          where: { id: mirrorMappingAsOriginal.mirrorLoanId },
+          include: { emis: true }
+        });
+
+        if (mirrorLoan) {
+          // Delete mirror loan's EMIs
+          await db.offlineLoanEMI.deleteMany({
+            where: { offlineLoanId: mirrorLoan.id }
+          });
+
+          // Delete mirror loan's accounting entries
+          const mirrorEmiIds = mirrorLoan.emis.map(e => e.id);
+          if (mirrorEmiIds.length > 0) {
+            await db.cashBookEntry.deleteMany({
+              where: {
+                referenceId: { in: mirrorEmiIds },
+                referenceType: { in: accountingReferenceTypes }
+              }
+            });
+            await db.bankTransaction.deleteMany({
+              where: {
+                referenceId: { in: mirrorEmiIds },
+                referenceType: { in: accountingReferenceTypes }
+              }
+            });
+          }
+
+          // Delete mirror loan's cashbook entries
+          await db.cashBookEntry.deleteMany({
+            where: {
+              referenceId: mirrorLoan.id,
+              referenceType: { in: accountingReferenceTypes }
+            }
+          });
+
+          // Delete mirror loan's bank transactions
+          await db.bankTransaction.deleteMany({
+            where: {
+              referenceId: mirrorLoan.id,
+              referenceType: { in: accountingReferenceTypes }
+            }
+          });
+
+          // Delete the mirror loan
+          await db.offlineLoan.delete({
+            where: { id: mirrorLoan.id }
+          });
+          mirrorLoanDeleted = true;
+          console.log(`[DELETE OFFLINE LOAN] Deleted mirror loan ${mirrorLoan.loanNumber}`);
+        }
+      } catch (e) {
+        console.error('[DELETE OFFLINE LOAN] Error deleting mirror loan:', e);
+      }
+    }
+
+    // If this is the MIRROR loan, we should NOT delete the original
+    // Just remove the mapping
+
+    // Delete the mirror loan mapping
+    if (mirrorMappingAsOriginal || mirrorMappingAsMirror) {
+      try {
+        await db.mirrorLoanMapping.deleteMany({
+          where: {
+            OR: [
+              { originalLoanId: loanId },
+              { mirrorLoanId: loanId }
+            ]
+          }
+        });
+        mappingDeleted = true;
+        console.log('[DELETE OFFLINE LOAN] Deleted mirror loan mapping');
+      } catch (e) {
+        console.error('[DELETE OFFLINE LOAN] Error deleting mirror mapping:', e);
+      }
+    }
+
     // Delete EMIs
     await db.offlineLoanEMI.deleteMany({
       where: { offlineLoanId: loanId }
@@ -2223,7 +2319,7 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Loan ${loan.loanNumber} deleted successfully${paidEmis > 0 ? ` (including ${paidEmis} paid EMIs)` : ''}`
+      message: `Loan ${loan.loanNumber} deleted successfully${paidEmis > 0 ? ` (including ${paidEmis} paid EMIs)` : ''}${mirrorLoanDeleted ? ' (mirror loan also deleted)' : ''}${mappingDeleted ? ' (mapping removed)' : ''}`
     });
   } catch (error) {
     console.error('Offline loan delete error:', error);

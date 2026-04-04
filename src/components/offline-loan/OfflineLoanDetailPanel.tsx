@@ -738,6 +738,19 @@ export default function OfflineLoanDetailPanel({
     if (!loan?.mirrorTenure) return false;
     return installmentNumber > loan.mirrorTenure;
   };
+  
+  // Get the company name for cashbook entry based on EMI number and mirror status
+  const getCashbookCompanyName = (emiNumber: number = 1): string => {
+    if (isMirroredLoan) {
+      // For mirrored loans, check if this is an extra EMI
+      if (isExtraEmi(emiNumber)) {
+        return loan?.company?.name || 'Original Company';
+      } else {
+        return mirrorCompanyName || 'Mirror Company';
+      }
+    }
+    return loan?.company?.name || 'Company';
+  };
 
   return (
     <>
@@ -824,7 +837,7 @@ export default function OfflineLoanDetailPanel({
                     <p className="text-sm font-medium text-amber-800">This is a Mirror Loan</p>
                     <p className="text-xs text-amber-700">
                       EMI payments are automatically synced from the original loan. 
-                      Pay EMIs on the original loan (Company 3) to update this mirror loan.
+                      Pay EMIs on the original loan ({loan?.company?.name || 'original company'}) to update this mirror loan.
                     </p>
                   </div>
                 </div>
@@ -1745,7 +1758,7 @@ export default function OfflineLoanDetailPanel({
                         <span>CASH only</span>
                       </div>
                       <div className="text-gray-500">
-                        Entry: Company 3 Cashbook
+                        Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)} Cashbook
                       </div>
                       <div className="font-medium text-amber-700">
                         Current: ₹{formatCurrency(personalCredit)}
@@ -1780,7 +1793,7 @@ export default function OfflineLoanDetailPanel({
                             <span>CASH only</span>
                           </div>
                           <div className="text-gray-500">
-                            Entry: Company 3 Cashbook
+                            Entry: {loan?.company?.name || 'Company'} Cashbook
                           </div>
                         </>
                       ) : (
@@ -1790,7 +1803,7 @@ export default function OfflineLoanDetailPanel({
                             <span>ONLINE or CASH</span>
                           </div>
                           <div className="text-gray-500">
-                            Entry: Loan Company's Books
+                            Entry: {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)}'s Books
                           </div>
                         </>
                       )}
@@ -1824,7 +1837,7 @@ export default function OfflineLoanDetailPanel({
                 </div>
                 <div className="mt-3 p-3 bg-amber-100 rounded-lg">
                   <p className="text-xs text-amber-700">
-                    <strong>Entry will be recorded in:</strong> Company 3 Cashbook
+                    <strong>Entry will be recorded in:</strong> {getCashbookCompanyName(selectedEmi?.installmentNumber || 1)} Cashbook
                   </p>
                   <p className="text-xs text-amber-600 mt-1">
                     +₹{formatCurrency(paymentAmount)} will be added to your Personal Credit
@@ -1959,10 +1972,10 @@ export default function OfflineLoanDetailPanel({
                     <p className="text-xs text-blue-700">
                       <strong>Entry will be recorded in:</strong> {' '}
                       {isCompany3NonMirroredLoan 
-                        ? "Company 3 Cashbook (no bank account)"
+                        ? `${loan?.company?.name || 'Company'} Cashbook (no bank account)`
                         : paymentMode === 'ONLINE' 
-                          ? "Loan Company's Bank Account" 
-                          : "Loan Company's Cashbook"}
+                          ? `${loan?.company?.name || 'Loan Company'}'s Bank Account` 
+                          : `${loan?.company?.name || 'Loan Company'}'s Cashbook`}
                     </p>
                     <p className="text-xs text-blue-600 mt-1">
                       +₹{formatCurrency(paymentAmount)} will be added to Company Credit
