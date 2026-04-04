@@ -388,47 +388,8 @@ export async function POST(request: NextRequest) {
       console.log(`[EMI Pay] Receipt Number: ${receiptNo}`);
     }
 
-    // Create Bank Transaction - MONEY IN (EMI Collection)
-    if (paymentMode === 'BANK_TRANSFER' || paymentMode === 'ONLINE' || paymentMode === 'UPI') {
-      let bankAccount = await db.bankAccount.findFirst({
-        where: { isDefault: true, isActive: true }
-      });
-
-      if (!bankAccount) {
-        bankAccount = await db.bankAccount.create({
-          data: {
-            bankName: 'SMFC Finance Bank',
-            accountNumber: 'SMFC-DEFAULT-001',
-            accountName: 'SMFC Finance - EMI Collections',
-            accountType: 'CURRENT',
-            openingBalance: 0,
-            currentBalance: 0,
-            isDefault: true,
-            isActive: true
-          }
-        });
-      }
-
-      await db.bankAccount.update({
-        where: { id: bankAccount.id },
-        data: {
-          currentBalance: { increment: paidAmount }
-        }
-      });
-
-      await db.bankTransaction.create({
-        data: {
-          bankAccountId: bankAccount.id,
-          transactionType: 'CREDIT',
-          amount: paidAmount,
-          balanceAfter: bankAccount.currentBalance + paidAmount,
-          description: `EMI Collection - ${emi.loanApplication?.applicationNo || loanId} - EMI #${emi.installmentNumber}`,
-          referenceType: 'EMI_PAYMENT',
-          referenceId: payment.id,
-          createdById: paidBy
-        }
-      });
-    }
+    // Bank transaction is handled by recordEMIPaymentAccounting below
+    // which properly routes to mirror company's bank for mirror loans
 
     // Handle partial payment - Only update current EMI's nextPaymentDate
     // Subsequent EMI dates remain UNCHANGED as per new requirement
@@ -1049,9 +1010,13 @@ export async function POST(request: NextRequest) {
           where: { originalLoanId: loanId }
         });
         
+        // Check if this is an extra EMI (beyond mirror tenure)
+        const isExtraEMI = mirrorMapping && emi.installmentNumber > mirrorMapping.mirrorTenure;
+        
         // Record accounting entries based on credit type and payment mode
-        // IMPORTANT: When loan has mirror, payment goes to MIRROR COMPANY's books
-        const hasMirrorLoan = !!mirrorMapping;
+        // IMPORTANT: When loan has mirror AND it's NOT an extra EMI, payment goes to MIRROR COMPANY's books
+        // For EXTRA EMIs, payment goes to ORIGINAL COMPANY's books (Company 3)
+        const isMirrorPayment = !!mirrorMapping && !isExtraEMI;
         
         await recordEMIPaymentAccounting({
           amount: paidAmount,
@@ -1070,14 +1035,20 @@ export async function POST(request: NextRequest) {
           loanNumber: emi.loanApplication?.applicationNo || loanId,
           installmentNumber: emi.installmentNumber,
           userId: paidBy,
+          customerId: emi.loanApplication?.customerId,
           // Mirror loan details if applicable
           mirrorLoanId: mirrorMapping?.mirrorLoanId || undefined,
           mirrorCompanyId: mirrorMapping?.mirrorCompanyId || undefined,
-          // NEW: Flag to indicate this payment should go to mirror company's books
-          isMirrorPayment: hasMirrorLoan
+          // Flag to indicate this payment should go to mirror company's books
+          // FALSE for extra EMIs - they go to original company (C3)
+          isMirrorPayment: isMirrorPayment
         });
         
-        console.log(`[Accounting] Recorded EMI payment accounting - Credit: ${creditType}, Mode: ${paymentMode}, HasMirror: ${hasMirrorLoan}`);
+        console.log(`[Accounting] Recorded EMI payment accounting:`);
+        console.log(`  - Credit: ${creditType}, Mode: ${paymentMode}`);
+        console.log(`  - HasMirror: ${!!mirrorMapping}, IsExtraEMI: ${!!isExtraEMI}`);
+        console.log(`  - IsMirrorPayment: ${isMirrorPayment}`);
+        console.log(`  - Target: ${isMirrorPayment ? 'MIRROR COMPANY' : (isExtraEMI ? 'ORIGINAL COMPANY (Extra EMI)' : 'LOAN COMPANY')}`);
       } else {
         console.warn('[Accounting] Company 3 not found - skipping personal credit accounting');
       }

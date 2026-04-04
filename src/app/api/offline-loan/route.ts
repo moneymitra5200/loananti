@@ -1596,8 +1596,6 @@ export async function PUT(request: NextRequest) {
         ? { companyCredit: (user.companyCredit || 0) + actualPaymentAmount }
         : { personalCredit: (user.personalCredit || 0) + actualPaymentAmount };
 
-      const targetBankAccountId = bankAccountId || defaultBank?.id || null;
-
       // ============ STEP 4: PROCESS PAYMENT IN TRANSACTION ============
       const updatedEmi = await db.$transaction(async (tx) => {
         // Update EMI
@@ -1759,46 +1757,69 @@ export async function PUT(request: NextRequest) {
 
       console.log(`[EMI Payment] Transaction completed in ${Date.now() - startTime}ms total`);
 
-      // Process bank transaction (non-blocking, outside transaction)
-      let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
-      if (paymentMode === 'CASH' && targetBankAccountId && emi.offlineLoan.companyId) {
-        try {
-          bankTransactionResult = await processBankTransaction({
-            bankAccountId: targetBankAccountId,
-            transactionType: 'EMI_PAYMENT',
+      // ============================================
+      // COMPREHENSIVE ACCOUNTING ENTRIES
+      // ============================================
+      // Rules:
+      // 1. NON-MIRROR LOANS:
+      //    - Company Credit + ONLINE → Bank Account + Journal Entry (Interest as Income)
+      //    - Company Credit + CASH → Cashbook + Journal Entry (Interest as Income)
+      //    - Personal Credit → Company 3 Cashbook (always CASH)
+      //
+      // 2. MIRROR LOANS (within mirror tenure):
+      //    - Company Credit + ONLINE → Mirror Company's Bank Account
+      //    - Company Credit + CASH → Mirror Company's Cashbook
+      //    - Payment recorded in MIRROR company's books
+      //
+      // 3. EXTRA EMIs (beyond mirror tenure):
+      //    - Goes to Original Company (C3) Cashbook
+      // ============================================
+      
+      try {
+        const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
+        const targetCompanyId = isMirrorLoan 
+          ? mirrorLoanMapping!.mirrorCompanyId 
+          : (creditTypeUsed === 'PERSONAL' ? company3Id : emi.offlineLoan.companyId);
+        
+        if (targetCompanyId) {
+          // Use the comprehensive accounting function
+          const accountingResult = await recordEMIPaymentAccounting({
             amount: actualPaymentAmount,
-            description: `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber}`,
-            referenceType: 'OFFLINE_EMI',
-            referenceId: emiId,
-            createdById: userId,
-            companyId: emi.offlineLoan.companyId,
-            loanId: emi.offlineLoanId,
-            customerId: emi.offlineLoan.customerId || undefined,
             principalComponent: paidPrincipal,
             interestComponent: paidInterest,
-            paymentMode: paymentMode || 'CASH',
-            bankRefNumber: paymentReference
+            paymentMode: paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+            paymentType: paymentType || 'FULL',
+            creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
+            loanCompanyId: emi.offlineLoan.companyId || company3Id || '',
+            company3Id: company3Id || '',
+            loanId: emi.offlineLoanId,
+            emiId: emi.id,
+            paymentId: updatedEmi.id,
+            loanNumber: emi.offlineLoan.loanNumber,
+            installmentNumber: emi.installmentNumber,
+            userId,
+            customerId: emi.offlineLoan.customerId || undefined,
+            mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || undefined,
+            mirrorPrincipal: isMirrorLoan ? paidPrincipal : undefined,
+            mirrorInterest: isMirrorLoan ? paidInterest : undefined,
+            mirrorCompanyId: mirrorLoanMapping?.mirrorCompanyId || undefined,
+            isMirrorPayment: isMirrorLoan
           });
-        } catch (bankError) {
-          console.error('Bank transaction failed:', bankError);
-        }
-      }
 
-      // Simple cashbook entry (non-blocking)
-      if (company3Id && emi.offlineLoan.companyId && actualPaymentAmount > 0) {
-        try {
-          await recordCashBookEntry({
-            companyId: isExtraEMI ? emi.offlineLoan.companyId : (mirrorLoanMapping?.mirrorCompanyId || emi.offlineLoan.companyId),
-            entryType: 'CREDIT',
-            amount: actualPaymentAmount,
-            description: `EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber}${isExtraEMI ? ' (EXTRA)' : ''}`,
-            referenceType: 'EMI_PAYMENT',
-            referenceId: updatedEmi.id,
-            createdById: userId
-          });
-        } catch (cashbookError) {
-          console.error('Cashbook entry failed:', cashbookError);
+          console.log(`[Accounting] EMI Payment recorded:`);
+          console.log(`  - Type: ${isMirrorLoan ? 'MIRROR' : (isExtraEMI ? 'EXTRA' : 'REGULAR')}`);
+          console.log(`  - Credit: ${creditTypeUsed}`);
+          console.log(`  - Mode: ${paymentMode}`);
+          console.log(`  - Target Company: ${targetCompanyId}`);
+          console.log(`  - Bank Entry: ${accountingResult.bankTransaction ? 'Yes' : 'No'}`);
+          console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
+          console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes' : 'No'}`);
+        } else {
+          console.warn('[Accounting] Target company not found - skipping accounting entries');
         }
+      } catch (accountingError) {
+        console.error('[Accounting] Failed to record EMI payment accounting:', accountingError);
+        // Don't fail the payment, just log the error
       }
 
       return NextResponse.json({
@@ -1808,10 +1829,6 @@ export async function PUT(request: NextRequest) {
         creditType: creditTypeUsed,
         newCompanyCredit: creditTypeUsed === 'COMPANY' ? (user.companyCredit || 0) + actualPaymentAmount : user.companyCredit,
         newPersonalCredit: creditTypeUsed === 'PERSONAL' ? (user.personalCredit || 0) + actualPaymentAmount : user.personalCredit,
-        bankTransaction: bankTransactionResult ? {
-          id: bankTransactionResult.bankTransactionId,
-          balanceAfter: bankTransactionResult.balanceAfter
-        } : null,
         mirrorSynced: !!mirrorLoanMapping,
         processingTime: Date.now() - startTime
       });
