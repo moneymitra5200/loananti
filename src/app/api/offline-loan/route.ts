@@ -322,7 +322,16 @@ export async function GET(request: NextRequest) {
       });
 
       // Calculate extra EMIs (for Company 3 profit)
-      const extraEMISchedule = [];
+      const extraEMISchedule: Array<{
+        installmentNumber: number;
+        dueDate: Date;
+        principal: number;
+        interest: number;
+        totalAmount: number;
+        paymentStatus: string;
+        paidDate: Date | null;
+        isExtraEMI: boolean;
+      }> = [];
       for (let i = mirrorSchedule.length; i < originalLoan.emis.length; i++) {
         const originalEMI = originalLoan.emis[i];
         extraEMISchedule.push({
