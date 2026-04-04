@@ -263,7 +263,16 @@ export default function OfflineLoanDetailPanel({
     setPaymentAmount(remainingAmount);
     setPaymentType('FULL');
     setPaymentMode('CASH');
-    setCreditType('COMPANY');
+
+    // For extra EMIs on mirror loans, only Personal Credit is allowed
+    // Extra EMI = EMI number > mirror tenure
+    const isExtraEmiPayment = loan?.isMirrored && loan?.mirrorCompanyId && loan?.mirrorTenure && emi.installmentNumber > loan.mirrorTenure;
+    if (isExtraEmiPayment) {
+      setCreditType('PERSONAL'); // Extra EMIs only allow Personal Credit (records in Company 3)
+    } else {
+      setCreditType('COMPANY');
+    }
+
     setPaymentReference('');
     setRemainingPaymentDate('');
     setPaymentRemarks('');
@@ -1498,86 +1507,89 @@ export default function OfflineLoanDetailPanel({
                   ? 'Pay Interest Only'
                   : `Pay EMI #${selectedEmi?.installmentNumber}`}
             </DialogTitle>
-            <DialogDescription>
-              {isMultiEmiPayment ? (
-                <div className="space-y-2">
-                  {/* Advance Payment Breakdown */}
-                  {(() => {
-                    const breakdown = getAdvancePaymentBreakdown();
-                    return (
-                      <>
-                        <div className="flex justify-between text-sm">
-                          <span>EMIs:</span>
-                          <span className="font-medium">#{multiEmiList.map(e => e.installmentNumber).join(', #')}</span>
-                        </div>
-                        
-                        {/* Show breakdown if there are advance EMIs */}
-                        {breakdown.advanceEmis.length > 0 && (
-                          <div className="p-2 bg-blue-50 rounded border border-blue-200 text-xs">
-                            <div className="flex items-center gap-1 text-blue-700 font-medium mb-1">
-                              <Info className="h-3 w-3" />
-                              Advance EMIs (Principal Only)
-                            </div>
-                            <div className="text-blue-600">
-                              {breakdown.advanceEmis.map(e => `#${e.installmentNumber}`).join(', ')}: ₹{formatCurrency(breakdown.totalAdvance)}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Show current EMIs */}
-                        {breakdown.currentEmis.length > 0 && (
-                          <div className="p-2 bg-green-50 rounded border border-green-200 text-xs">
-                            <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
-                              <CheckCircle className="h-3 w-3" />
-                              Current Month EMIs (Full Payment)
-                            </div>
-                            <div className="text-green-600">
-                              {breakdown.currentEmis.map(e => `#${e.installmentNumber}`).join(', ')}: ₹{formatCurrency(breakdown.totalCurrent)}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Total Summary */}
-                        <div className="pt-2 border-t flex justify-between font-semibold">
-                          <span>Total to Pay:</span>
-                          <span className="text-lg">₹{formatCurrency(breakdown.grandTotal)}</span>
-                        </div>
-                        {breakdown.totalInterest > 0 && (
-                          <div className="text-xs text-gray-500 flex justify-between">
-                            <span>Principal: ₹{formatCurrency(breakdown.totalPrincipal)}</span>
-                            <span>Interest: ₹{formatCurrency(breakdown.totalInterest)}</span>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
-                </div>
-              ) : isInterestOnlyPayment ? (
-                `Pay monthly interest of ${formatCurrency(loan?.interestOnlyMonthlyAmount || 0)}`
-              ) : selectedEmi && (
-                <>
-                  {/* Single EMI - Show if it's advance */}
-                  {isEmiAdvancePayment(selectedEmi) && (
-                    <div className="p-2 bg-blue-50 rounded border border-blue-200 text-xs mb-2">
-                      <div className="flex items-center gap-1 text-blue-700 font-medium">
-                        <Info className="h-3 w-3" />
-                        Advance Payment - Principal Only
+            {/* Description content - outside DialogDescription to avoid HTML nesting issues */}
+            {isMultiEmiPayment ? (
+              <div className="space-y-2 text-sm text-gray-600 mb-4">
+                {/* Advance Payment Breakdown */}
+                {(() => {
+                  const breakdown = getAdvancePaymentBreakdown();
+                  return (
+                    <>
+                      <div className="flex justify-between">
+                        <span>EMIs:</span>
+                        <span className="font-medium">#{multiEmiList.map(e => e.installmentNumber).join(', #')}</span>
                       </div>
-                      <div className="text-blue-600">
-                        Due date month not started. Only principal will be collected.
+
+                      {/* Show breakdown if there are advance EMIs */}
+                      {breakdown.advanceEmis.length > 0 && (
+                        <div className="p-2 bg-blue-50 rounded border border-blue-200 text-xs">
+                          <div className="flex items-center gap-1 text-blue-700 font-medium mb-1">
+                            <Info className="h-3 w-3" />
+                            Advance EMIs (Principal Only)
+                          </div>
+                          <div className="text-blue-600">
+                            {breakdown.advanceEmis.map(e => `#${e.installmentNumber}`).join(', ')}: ₹{formatCurrency(breakdown.totalAdvance)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Show current EMIs */}
+                      {breakdown.currentEmis.length > 0 && (
+                        <div className="p-2 bg-green-50 rounded border border-green-200 text-xs">
+                          <div className="flex items-center gap-1 text-green-700 font-medium mb-1">
+                            <CheckCircle className="h-3 w-3" />
+                            Current Month EMIs (Full Payment)
+                          </div>
+                          <div className="text-green-600">
+                            {breakdown.currentEmis.map(e => `#${e.installmentNumber}`).join(', ')}: ₹{formatCurrency(breakdown.totalCurrent)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Total Summary */}
+                      <div className="pt-2 border-t flex justify-between font-semibold">
+                        <span>Total to Pay:</span>
+                        <span className="text-lg">₹{formatCurrency(breakdown.grandTotal)}</span>
                       </div>
+                      {breakdown.totalInterest > 0 && (
+                        <div className="text-xs text-gray-500 flex justify-between">
+                          <span>Principal: ₹{formatCurrency(breakdown.totalPrincipal)}</span>
+                          <span>Interest: ₹{formatCurrency(breakdown.totalInterest)}</span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isInterestOnlyPayment ? (
+              <p className="text-sm text-gray-600 mb-4">
+                Pay monthly interest of {formatCurrency(loan?.interestOnlyMonthlyAmount || 0)}
+              </p>
+            ) : selectedEmi && (
+              <div className="mb-4">
+                {/* Single EMI - Show if it's advance */}
+                {isEmiAdvancePayment(selectedEmi) && (
+                  <div className="p-2 bg-blue-50 rounded border border-blue-200 text-xs mb-2">
+                    <div className="flex items-center gap-1 text-blue-700 font-medium">
+                      <Info className="h-3 w-3" />
+                      Advance Payment - Principal Only
                     </div>
-                  )}
+                    <div className="text-blue-600">
+                      Due date month not started. Only principal will be collected.
+                    </div>
+                  </div>
+                )}
+                <p className="text-sm text-gray-600">
                   Due Amount: {isEmiAdvancePayment(selectedEmi) ? formatCurrency(selectedEmi.principalAmount) : formatCurrency(selectedEmi.totalAmount)}
                   {selectedEmi.paidAmount && selectedEmi.paidAmount > 0 && (
                     <span className="text-green-600"> (Already Paid: {formatCurrency(selectedEmi.paidAmount)})</span>
                   )}
-                  <span className="block text-xs mt-1">
-                    Principal: {formatCurrency(selectedEmi.principalAmount)} | Interest: {formatCurrency(selectedEmi.interestAmount)}
-                  </span>
-                </>
-              )}
-            </DialogDescription>
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Principal: {formatCurrency(selectedEmi.principalAmount)} | Interest: {formatCurrency(selectedEmi.interestAmount)}
+                </p>
+              </div>
+            )}
           </DialogHeader>
 
           <div className="space-y-4">
@@ -1657,7 +1669,7 @@ export default function OfflineLoanDetailPanel({
             {/* CREDIT TYPE SELECTION - MAIN CHOICE */}
             {/* ========================================== */}
             
-            {/* For MIRROR loans - Only Company Credit available */}
+            {/* For MIRROR loans - Credit type depends on EMI type */}
             {isMirroredLoan ? (
               <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2 mb-3">
@@ -1666,7 +1678,7 @@ export default function OfflineLoanDetailPanel({
                     Mirror Loan Payment
                   </Label>
                 </div>
-                
+
                 {/* EMI Info for Mirror Loan */}
                 {selectedEmi && (
                   <div className={`p-3 rounded-lg mb-3 ${isExtraEmi(selectedEmi.installmentNumber) ? 'bg-amber-100 border border-amber-300' : 'bg-green-100 border border-green-300'}`}>
@@ -1693,35 +1705,68 @@ export default function OfflineLoanDetailPanel({
                     )}
                   </div>
                 )}
-                
-                {/* Company Credit - Only Option for Mirror Loans */}
-                <button
-                  type="button"
-                  className="w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-left"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Building className="h-5 w-5 text-blue-600" />
-                    <span className="font-semibold text-blue-800">
-                      Company Credit (Only Option)
-                    </span>
+
+                {/* Extra EMI - Only Personal Credit available (records in Company 3 cashbook) */}
+                {selectedEmi && isExtraEmi(selectedEmi.installmentNumber) ? (
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      className="w-full p-4 rounded-lg border-2 border-amber-500 bg-amber-50 text-left"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <User className="h-5 w-5 text-amber-600" />
+                        <span className="font-semibold text-amber-800">
+                          Personal Credit (Only Option for Extra EMI)
+                        </span>
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <div className="flex items-center gap-1 text-gray-600">
+                          <Banknote className="h-3 w-3" />
+                          <span>CASH only</span>
+                        </div>
+                        <div className="text-amber-600">
+                          Entry: {loan?.company?.name || 'Company 3'} Cashbook (Extra profit goes to original company)
+                        </div>
+                        <div className="font-medium text-amber-700">
+                          Current: ₹{formatCurrency(personalCredit)}
+                        </div>
+                      </div>
+                    </button>
+                    <p className="text-xs text-amber-600">
+                      Extra EMIs are profit for the original company. Entry will be recorded in Company 3's cashbook only.
+                    </p>
                   </div>
-                  <div className="text-xs space-y-1">
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <Landmark className="h-3 w-3" />
-                      <span>ONLINE or CASH</span>
-                    </div>
-                    <div className="text-blue-600">
-                      Entry: {mirrorCompanyName || 'Mirror Company'}'s Books
-                    </div>
-                    <div className="font-medium text-blue-700">
-                      Current: ₹{formatCurrency(companyCredit)}
-                    </div>
-                  </div>
-                </button>
-                
-                <p className="text-xs text-blue-600 mt-2">
-                  For mirror loans, only Company Credit is available. Entry will be recorded in Mirror Company's books.
-                </p>
+                ) : (
+                  /* Mirror EMIs (within mirror tenure) - Company Credit only */
+                  <>
+                    <button
+                      type="button"
+                      className="w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-left"
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Building className="h-5 w-5 text-blue-600" />
+                        <span className="font-semibold text-blue-800">
+                          Company Credit (Only Option)
+                        </span>
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <div className="flex items-center gap-1 text-gray-600">
+                          <Landmark className="h-3 w-3" />
+                          <span>ONLINE or CASH</span>
+                        </div>
+                        <div className="text-blue-600">
+                          Entry: {mirrorCompanyName || 'Mirror Company'}'s Books
+                        </div>
+                        <div className="font-medium text-blue-700">
+                          Current: ₹{formatCurrency(companyCredit)}
+                        </div>
+                      </div>
+                    </button>
+                    <p className="text-xs text-blue-600 mt-2">
+                      For mirror EMIs, only Company Credit is available. Entry will be recorded in Mirror Company's books.
+                    </p>
+                  </>
+                )}
               </div>
             ) : (
               /* Normal Credit Type Selection for Non-Mirror Loans */
