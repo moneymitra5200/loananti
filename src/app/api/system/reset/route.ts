@@ -8,7 +8,7 @@ interface ResetOptions {
   bankAccounts: boolean;
   transactions: boolean;
   credits: boolean;
-  // customers option removed - users are NEVER deleted
+  customers: boolean; // Only CUSTOMER role - STAFF roles are NEVER deleted
   auditLogs: boolean;
   notifications: boolean;
   documents: boolean;
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       bankAccounts: true,
       transactions: true,
       credits: true,
-      // customers removed - users are NEVER deleted
+      customers: true, // Only CUSTOMER role deleted - STAFF roles NEVER deleted
       auditLogs: true,
       notifications: true,
       documents: true,

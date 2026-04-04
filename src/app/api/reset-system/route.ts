@@ -146,17 +146,32 @@ export async function POST(request: NextRequest) {
     console.log(`[RESET] Deleted ${stats.offlineLoans} offline loans`);
 
     // ========================================
-    // PHASE 8: Users - NEVER DELETE, ONLY RESET
+    // PHASE 8: Delete CUSTOMER Users Only (STAFF roles NEVER deleted)
     // ========================================
     
-    // Users are NEVER deleted - only reset their loan-related fields
-    // Clear device fingerprints and sessions for all users
-    stats.deviceFingerprints = (await db.deviceFingerprint.deleteMany({})).count;
-    stats.blacklists = (await db.blacklist.deleteMany({})).count;
-    stats.userSessions = (await db.userSession.deleteMany({})).count;
+    // Get only CUSTOMER role user IDs - STAFF roles are preserved
+    const customerIds = await db.user.findMany({
+      where: { role: 'CUSTOMER' },
+      select: { id: true }
+    }).then(users => users.map(u => u.id));
+
+    if (customerIds.length > 0) {
+      // Delete customer-related data
+      await db.deviceFingerprint.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
+      await db.blacklist.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
+      await db.userSession.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
+      await db.userPreference.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
+      
+      // Delete CUSTOMER users only - STAFF roles are NEVER deleted
+      stats.customers = (await db.user.deleteMany({ where: { role: 'CUSTOMER' } })).count;
+      console.log(`[RESET] Deleted ${stats.customers} CUSTOMER users (STAFF roles preserved)`);
+    } else {
+      console.log(`[RESET] No CUSTOMER users to delete`);
+    }
     
-    // Reset user fields but KEEP users
-    const resetUsers = await db.user.updateMany({
+    // Reset STAFF user credits but NEVER delete them
+    const resetStaff = await db.user.updateMany({
+      where: { role: { not: 'CUSTOMER' } },
       data: {
         companyCredit: 0,
         personalCredit: 0,
@@ -165,8 +180,8 @@ export async function POST(request: NextRequest) {
         agentId: null,
       }
     });
-    stats.usersReset = resetUsers.count;
-    console.log(`[RESET] Reset ${stats.usersReset} users (NEVER deleted)`);
+    stats.staffReset = resetStaff.count;
+    console.log(`[RESET] Reset ${stats.staffReset} STAFF users (NEVER deleted)`);
 
     // ========================================
     // PHASE 9: Accounting Portal - Full Reset
