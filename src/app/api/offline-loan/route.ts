@@ -2053,29 +2053,65 @@ export async function PUT(request: NextRequest) {
           }
         });
 
-        if (mirrorEmi && mirrorEmi.paymentStatus === 'PENDING') {
+        if (mirrorEmi && (mirrorEmi.paymentStatus === 'PENDING' || mirrorEmi.paymentStatus === 'PARTIALLY_PAID')) {
           // Check if this is within the mirror tenure (not an extra EMI)
           if (emi.installmentNumber <= effectiveMirrorTenure) {
-            // Sync the payment to mirror loan EMI
-            await db.offlineLoanEMI.update({
-              where: { id: mirrorEmi.id },
-              data: {
-                paymentStatus: 'PAID',
-                paidAmount: mirrorEmi.totalAmount,
-                paidPrincipal: mirrorEmi.principalAmount,
-                paidInterest: mirrorEmi.interestAmount,
-                paidDate: now,
-                paymentMode: paymentMode,
-                paymentReference: `Synced from original loan EMI #${emi.installmentNumber}`,
-                collectedById: userId,
-                collectedByName: user.name,
-                collectedAt: now,
-                notes: `[MIRROR SYNC] Auto-paid from original loan EMI #${emi.installmentNumber}`
-              }
-            });
+            // Determine mirror EMI status based on original EMI's payment status
+            const isFullPayment = paymentStatus === 'PAID';
+            const isPartialPayment = paymentStatus === 'PARTIALLY_PAID';
 
-            // Update mirror EMIs paid count (if mapping exists)
-            if (mirrorMapping) {
+            if (isFullPayment) {
+              // FULL PAYMENT: Set mirror EMI to PAID with full amount
+              await db.offlineLoanEMI.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'PAID',
+                  paidAmount: mirrorEmi.totalAmount,
+                  paidPrincipal: mirrorEmi.principalAmount,
+                  paidInterest: mirrorEmi.interestAmount,
+                  paidDate: now,
+                  paymentMode: paymentMode,
+                  paymentReference: `Synced from original loan EMI #${emi.installmentNumber} (FULL)`,
+                  collectedById: userId,
+                  collectedByName: user.name,
+                  collectedAt: now,
+                  notes: `[MIRROR SYNC] Auto-paid from original loan EMI #${emi.installmentNumber} (FULL payment)`
+                }
+              });
+              console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId} as PAID (FULL payment)`);
+            } else if (isPartialPayment) {
+              // PARTIAL PAYMENT: Set mirror EMI to PARTIALLY_PAID with proportional amount
+              // Calculate the payment ratio from original EMI
+              const originalPaidAmount = paidAmount;
+              const originalTotalAmount = emi.totalAmount;
+              const paymentRatio = originalPaidAmount / originalTotalAmount;
+
+              // Apply same ratio to mirror EMI amounts
+              const mirrorPaidAmount = Math.round(mirrorEmi.totalAmount * paymentRatio * 100) / 100;
+              const mirrorPaidPrincipal = Math.round(mirrorEmi.principalAmount * paymentRatio * 100) / 100;
+              const mirrorPaidInterest = Math.round(mirrorEmi.interestAmount * paymentRatio * 100) / 100;
+
+              await db.offlineLoanEMI.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'PARTIALLY_PAID',
+                  paidAmount: mirrorPaidAmount,
+                  paidPrincipal: mirrorPaidPrincipal,
+                  paidInterest: mirrorPaidInterest,
+                  paidDate: now,
+                  paymentMode: paymentMode,
+                  paymentReference: `Synced from original loan EMI #${emi.installmentNumber} (PARTIAL)`,
+                  collectedById: userId,
+                  collectedByName: user.name,
+                  collectedAt: now,
+                  notes: `[MIRROR SYNC] Partial payment from original loan EMI #${emi.installmentNumber} (${Math.round(paymentRatio * 100)}%)`
+                }
+              });
+              console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId} as PARTIALLY_PAID (${Math.round(paymentRatio * 100)}%)`);
+            }
+
+            // Update mirror EMIs paid count (if mapping exists) - only for FULL payments
+            if (mirrorMapping && isFullPayment) {
               await db.mirrorLoanMapping.update({
                 where: { id: mirrorMapping.id },
                 data: {
@@ -2084,7 +2120,6 @@ export async function PUT(request: NextRequest) {
               });
             }
 
-            console.log(`[Mirror Sync] Synced EMI #${emi.installmentNumber} to mirror loan ${effectiveMirrorLoanId}`);
           } else {
             // This is an EXTRA EMI - goes to personal credit of Company 3 (already handled above)
             console.log(`[Mirror Sync] EMI #${emi.installmentNumber} is EXTRA EMI (beyond mirror tenure ${effectiveMirrorTenure})`);
