@@ -2,166 +2,194 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 /**
- * API to add Equity capital
- * Updates the Chart of Account for Equity (account code 5000 or 5100)
+ * GNUCASH-STYLE EQUITY API
  * 
- * IMPORTANT: Double-entry accounting requires:
- * - Debit: Bank Account or Cash Account (asset increases)
- * - Credit: Equity (source of funds)
+ * Proper double-entry accounting for adding owner's equity.
+ * 
+ * Account Codes (GnuCash Style):
+ * - 1101: Cash in Hand (Asset)
+ * - 1103: Bank - Main (Asset)
+ * - 3002: Owner's Capital (Equity)
+ * 
+ * Example: Owner invests ₹10,000 (₹5,000 Cash + ₹5,000 Bank)
+ * 
+ * | Account | Debit | Credit |
+ * |---------|-------|--------|
+ * | Cash in Hand (1101) | ₹5,000 | - |
+ * | Bank - Main (1103) | ₹5,000 | - |
+ * | Owner's Capital (3002) | - | ₹10,000 |
  */
+
+// Account code constants
+const ACCOUNT_CODES = {
+  CASH_IN_HAND: '1101',
+  BANK_MAIN: '1103',
+  OWNERS_CAPITAL: '3002',
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, amount, description, createdById, paymentMode, bankAccountId } = body;
+    const { 
+      companyId, 
+      cashAmount = 0,      // Amount in cash
+      bankAmount = 0,      // Amount in bank
+      description, 
+      createdById 
+    } = body;
 
-    if (!companyId || !amount || amount <= 0) {
-      return NextResponse.json({ error: 'Invalid request. Company ID and amount are required.' }, { status: 400 });
+    const totalAmount = cashAmount + bankAmount;
+
+    if (!companyId || totalAmount <= 0) {
+      return NextResponse.json({ 
+        error: 'Invalid request. Company ID and at least one amount (cash or bank) are required.' 
+      }, { status: 400 });
     }
 
-    // Find or create Equity account (account code 5000 or 5100)
+    // Find or create Owner's Capital account (3002)
     let equityAccount = await db.chartOfAccount.findFirst({
       where: { 
         companyId, 
-        accountCode: { in: ['5000', '5100'] }
-      },
-      orderBy: { accountCode: 'asc' }
+        accountCode: ACCOUNT_CODES.OWNERS_CAPITAL
+      }
     });
 
     if (!equityAccount) {
-      // Create equity account if not exists
       equityAccount = await db.chartOfAccount.create({
         data: {
           companyId,
-          accountCode: '5000',
-          accountName: 'Owner Equity',
+          accountCode: ACCOUNT_CODES.OWNERS_CAPITAL,
+          accountName: "Owner's Capital",
           accountType: 'EQUITY',
-          description: 'Owners Equity',
+          description: "Owner's capital investment",
           isSystemAccount: true,
-          currentBalance: 0
+          currentBalance: 0,
+          isActive: true
         }
       });
     }
 
-    // Find Bank or Cash account based on payment mode
-    let assetAccount: { id: string; accountCode: string; accountName: string; accountType: string; currentBalance: number } | null = null;
-    if (paymentMode === 'BANK' && bankAccountId) {
-      // Get the bank account
-      const bankAcc = await db.bankAccount.findUnique({
-        where: { id: bankAccountId }
+    // Build journal entry lines
+    const journalLines: Array<{
+      accountId: string;
+      debitAmount: number;
+      creditAmount: number;
+      narration: string;
+    }> = [];
+
+    // Find or create Cash in Hand account (1101)
+    if (cashAmount > 0) {
+      let cashAccount = await db.chartOfAccount.findFirst({
+        where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
       });
-      if (bankAcc) {
-        // Find or create Bank Account in chart of accounts
-        assetAccount = await db.chartOfAccount.findFirst({
-          where: { companyId, accountCode: '1400' }
-        });
-        if (!assetAccount) {
-          assetAccount = await db.chartOfAccount.create({
-            data: {
-              companyId,
-              accountCode: '1400',
-              accountName: 'Bank Account',
-              accountType: 'ASSET',
-              description: 'Bank accounts',
-              isSystemAccount: true,
-              currentBalance: 0
-            }
-          });
-        }
-        // Update bank account balance
-        await db.bankAccount.update({
-          where: { id: bankAccountId },
-          data: { currentBalance: { increment: amount } }
-        });
-      }
-    } else {
-      // Default to Cash Account
-      assetAccount = await db.chartOfAccount.findFirst({
-        where: { companyId, accountCode: '1500' }
-      });
-      if (!assetAccount) {
-        assetAccount = await db.chartOfAccount.create({
+
+      if (!cashAccount) {
+        cashAccount = await db.chartOfAccount.create({
           data: {
             companyId,
-            accountCode: '1500',
-            accountName: 'Cash Account',
+            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+            accountName: 'Cash in Hand',
             accountType: 'ASSET',
-            description: 'Cash in hand',
+            description: 'Physical cash on hand',
             isSystemAccount: true,
-            currentBalance: 0
+            currentBalance: 0,
+            isActive: true
           }
         });
       }
-      // Update cashbook balance
-      await db.cashBook.upsert({
-        where: { companyId },
-        create: {
-          companyId,
-          currentBalance: amount,
-          openingBalance: 0
-        },
-        update: {
-          currentBalance: { increment: amount }
-        }
+
+      // Debit: Cash in Hand
+      journalLines.push({
+        accountId: cashAccount.id,
+        debitAmount: cashAmount,
+        creditAmount: 0,
+        narration: 'Owner investment - Cash'
+      });
+
+      // Update cash account balance
+      await db.chartOfAccount.update({
+        where: { id: cashAccount.id },
+        data: { currentBalance: cashAccount.currentBalance + cashAmount }
       });
     }
 
-    if (!assetAccount) {
-      return NextResponse.json({ error: 'Could not find or create asset account' }, { status: 500 });
+    // Find or create Bank - Main account (1103)
+    if (bankAmount > 0) {
+      let bankAccount = await db.chartOfAccount.findFirst({
+        where: { companyId, accountCode: ACCOUNT_CODES.BANK_MAIN }
+      });
+
+      if (!bankAccount) {
+        bankAccount = await db.chartOfAccount.create({
+          data: {
+            companyId,
+            accountCode: ACCOUNT_CODES.BANK_MAIN,
+            accountName: 'Bank - Main Operating',
+            accountType: 'ASSET',
+            description: 'Primary operating bank account',
+            isSystemAccount: true,
+            currentBalance: 0,
+            isActive: true
+          }
+        });
+      }
+
+      // Debit: Bank - Main
+      journalLines.push({
+        accountId: bankAccount.id,
+        debitAmount: bankAmount,
+        creditAmount: 0,
+        narration: 'Owner investment - Bank'
+      });
+
+      // Update bank account balance
+      await db.chartOfAccount.update({
+        where: { id: bankAccount.id },
+        data: { currentBalance: bankAccount.currentBalance + bankAmount }
+      });
     }
+
+    // Credit: Owner's Capital (Equity)
+    journalLines.push({
+      accountId: equityAccount.id,
+      debitAmount: 0,
+      creditAmount: totalAmount,
+      narration: description || "Owner's capital investment"
+    });
+
+    // Update equity account balance
+    await db.chartOfAccount.update({
+      where: { id: equityAccount.id },
+      data: { currentBalance: equityAccount.currentBalance + totalAmount }
+    });
 
     // Generate entry number
     const count = await db.journalEntry.count({ where: { companyId } });
     const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
 
-    // Create a proper double-entry journal entry with TWO lines
+    // Create journal entry
     const journalEntry = await db.journalEntry.create({
       data: {
         companyId,
         entryNumber,
         entryDate: new Date(),
-        referenceType: 'MANUAL_ENTRY',
-        narration: description || 'Equity capital added',
-        totalDebit: amount,
-        totalCredit: amount,
+        referenceType: 'EQUITY_INVESTMENT',
+        narration: description || `Owner's capital investment - Cash: ₹${cashAmount}, Bank: ₹${bankAmount}`,
+        totalDebit: totalAmount,
+        totalCredit: totalAmount,
         isAutoEntry: false,
         isApproved: true,
         createdById: createdById || 'system',
-        paymentMode: paymentMode || 'CASH',
-        bankAccountId: bankAccountId || null,
         lines: {
-          create: [
-            {
-              // Debit: Bank/Cash Account (Asset increases)
-              accountId: assetAccount.id,
-              debitAmount: amount,
-              creditAmount: 0,
-              narration: description || 'Equity capital received'
-            },
-            {
-              // Credit: Equity Account (Source of funds)
-              accountId: equityAccount.id,
-              debitAmount: 0,
-              creditAmount: amount,
-              narration: description || 'Equity capital added'
-            }
-          ]
+          create: journalLines
         }
-      }
-    });
-
-    // Update equity account balance (Credit increases equity)
-    await db.chartOfAccount.update({
-      where: { id: equityAccount.id },
-      data: {
-        currentBalance: equityAccount.currentBalance + amount
-      }
-    });
-
-    // Update asset account balance (Debit increases asset)
-    await db.chartOfAccount.update({
-      where: { id: assetAccount.id },
-      data: {
-        currentBalance: assetAccount.currentBalance + amount
+      },
+      include: {
+        lines: {
+          include: {
+            account: true
+          }
+        }
       }
     });
 
@@ -169,7 +197,13 @@ export async function POST(request: NextRequest) {
       success: true, 
       message: 'Equity added successfully',
       entryNumber: journalEntry.entryNumber,
-      equityBalance: equityAccount.currentBalance + amount
+      journalEntry,
+      summary: {
+        cashAdded: cashAmount,
+        bankAdded: bankAmount,
+        totalEquity: totalAmount,
+        newEquityBalance: equityAccount.currentBalance + totalAmount
+      }
     });
 
   } catch (error) {
@@ -190,17 +224,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
+    // Get Owner's Capital account
     const equityAccount = await db.chartOfAccount.findFirst({
       where: { 
         companyId, 
-        accountCode: { in: ['5000', '5100'] }
-      },
-      orderBy: { accountCode: 'asc' }
+        accountCode: ACCOUNT_CODES.OWNERS_CAPITAL
+      }
+    });
+
+    // Get Cash in Hand account
+    const cashAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND
+      }
+    });
+
+    // Get Bank - Main account
+    const bankAccount = await db.chartOfAccount.findFirst({
+      where: { 
+        companyId, 
+        accountCode: ACCOUNT_CODES.BANK_MAIN
+      }
     });
 
     return NextResponse.json({ 
       equity: equityAccount?.currentBalance || 0,
-      account: equityAccount
+      cashInHand: cashAccount?.currentBalance || 0,
+      bankBalance: bankAccount?.currentBalance || 0,
+      accounts: {
+        equity: equityAccount,
+        cash: cashAccount,
+        bank: bankAccount
+      }
     });
 
   } catch (error) {

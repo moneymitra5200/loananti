@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -881,6 +881,13 @@ export default function GnuCashDashboard() {
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [financialYears, setFinancialYears] = useState<FinancialYear[]>([]);
   const [showAddAccountDialog, setShowAddAccountDialog] = useState(false);
+  
+  // Equity Dialog State
+  const [showEquityDialog, setShowEquityDialog] = useState(false);
+  const [equityCashAmount, setEquityCashAmount] = useState('');
+  const [equityBankAmount, setEquityBankAmount] = useState('');
+  const [equityDescription, setEquityDescription] = useState('');
+  const [addingEquity, setAddingEquity] = useState(false);
 
   // ============================================
   // HELPERS
@@ -964,6 +971,55 @@ export default function GnuCashDashboard() {
       }
     } catch (error) {
       toast.error('Failed to initialize Chart of Accounts');
+    }
+  };
+
+  // Handle Add Equity
+  const handleAddEquity = async () => {
+    const cash = parseFloat(equityCashAmount) || 0;
+    const bank = parseFloat(equityBankAmount) || 0;
+    const total = cash + bank;
+    
+    if (!selectedCompanyId) {
+      toast.error('Please select a company first');
+      return;
+    }
+    
+    if (total <= 0) {
+      toast.error('Please enter at least one amount (cash or bank)');
+      return;
+    }
+    
+    setAddingEquity(true);
+    try {
+      const res = await fetch('/api/accountant/equity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          cashAmount: cash,
+          bankAmount: bank,
+          description: equityDescription || "Owner's capital investment",
+          createdById: user?.id
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        toast.success(`Equity of ${formatCurrency(total)} added successfully!`);
+        setShowEquityDialog(false);
+        setEquityCashAmount('');
+        setEquityBankAmount('');
+        setEquityDescription('');
+        fetchAllData();
+      } else {
+        toast.error(data.error || 'Failed to add equity');
+      }
+    } catch (error) {
+      toast.error('Failed to add equity');
+    } finally {
+      setAddingEquity(false);
     }
   };
 
@@ -1120,6 +1176,16 @@ export default function GnuCashDashboard() {
               <Button 
                 variant="outline" 
                 size="sm"
+                className="h-8 px-3 bg-amber-500/80 border-amber-400/50 text-white hover:bg-amber-600"
+                onClick={() => setShowEquityDialog(true)}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                <span className="text-xs">Add Equity</span>
+              </Button>
+
+              <Button 
+                variant="outline" 
+                size="sm"
                 className="h-8 w-8 p-0 bg-white/10 border-white/20 text-white hover:bg-white/20"
                 onClick={() => fetchAllData()}
               >
@@ -1237,6 +1303,96 @@ export default function GnuCashDashboard() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Add Equity Dialog */}
+      <Dialog open={showEquityDialog} onOpenChange={setShowEquityDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PiggyBank className="h-5 w-5 text-amber-600" />
+              Add Owner's Equity
+            </DialogTitle>
+            <DialogDescription>
+              Add your starting capital. This creates a journal entry: Debit Cash/Bank, Credit Owner's Capital.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+              <p className="font-medium text-amber-800 mb-1">💡 GnuCash-Style Double Entry:</p>
+              <p className="text-amber-700">
+                Cash/Bank (Asset) → Debit (↑)<br/>
+                Owner's Capital (Equity) → Credit (↑)
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="cashAmount">Cash Amount (₹)</Label>
+                <Input
+                  id="cashAmount"
+                  type="number"
+                  placeholder="0"
+                  value={equityCashAmount}
+                  onChange={(e) => setEquityCashAmount(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="bankAmount">Bank Amount (₹)</Label>
+                <Input
+                  id="bankAmount"
+                  type="number"
+                  placeholder="0"
+                  value={equityBankAmount}
+                  onChange={(e) => setEquityBankAmount(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="description">Description (Optional)</Label>
+              <Input
+                id="description"
+                placeholder="Owner's capital investment"
+                value={equityDescription}
+                onChange={(e) => setEquityDescription(e.target.value)}
+              />
+            </div>
+            
+            <div className="bg-gray-50 rounded-lg p-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Equity:</span>
+                <span className="text-lg font-bold text-emerald-600">
+                  {formatCurrency((parseFloat(equityCashAmount) || 0) + (parseFloat(equityBankAmount) || 0))}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEquityDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleAddEquity} 
+              disabled={addingEquity || ((parseFloat(equityCashAmount) || 0) + (parseFloat(equityBankAmount) || 0)) <= 0}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              {addingEquity ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Equity
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
