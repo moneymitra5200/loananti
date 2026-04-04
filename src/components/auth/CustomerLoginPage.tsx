@@ -47,7 +47,17 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
           toast({ title: 'Success', description: 'Account created successfully!' });
           window.location.reload();
         } else {
-          toast({ title: 'Error', description: result.error || 'Sign up failed', variant: 'destructive' });
+          // Show specific error message
+          const errorMessage = result.error || 'Sign up failed';
+          if (errorMessage.toLowerCase().includes('password')) {
+            toast({ title: 'Invalid Password', description: 'Password must be at least 6 characters', variant: 'destructive' });
+          } else if (errorMessage.toLowerCase().includes('email')) {
+            toast({ title: 'Invalid Email', description: 'Please enter a valid email address', variant: 'destructive' });
+          } else if (errorMessage.toLowerCase().includes('exists')) {
+            toast({ title: 'Account Exists', description: 'An account with this email already exists. Please sign in.', variant: 'destructive' });
+          } else {
+            toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+          }
         }
       } else {
         const result = await customerLogin(email, password);
@@ -55,11 +65,24 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
           toast({ title: 'Success', description: 'Login successful!' });
           window.location.reload();
         } else {
-          toast({ title: 'Error', description: result.error || 'Login failed', variant: 'destructive' });
+          // Show specific error message
+          const errorMessage = result.error || 'Login failed';
+          if (errorMessage.toLowerCase().includes('password') || errorMessage.toLowerCase().includes('invalid') || errorMessage.toLowerCase().includes('wrong')) {
+            toast({ title: 'Wrong Password', description: 'The password you entered is incorrect. Please try again.', variant: 'destructive' });
+          } else if (errorMessage.toLowerCase().includes('user') || errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('email')) {
+            toast({ title: 'Account Not Found', description: 'No account found with this email. Please sign up first.', variant: 'destructive' });
+          } else {
+            toast({ title: 'Login Failed', description: errorMessage, variant: 'destructive' });
+          }
         }
       }
-    } catch {
-      toast({ title: 'Error', description: 'Something went wrong', variant: 'destructive' });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
+      if (errorMessage.toLowerCase().includes('password')) {
+        toast({ title: 'Wrong Password', description: 'The password you entered is incorrect.', variant: 'destructive' });
+      } else {
+        toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
+      }
     } finally {
       setLoading(false);
     }
@@ -70,7 +93,6 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
     try {
       const result = await signInWithGoogle();
       if (result.success && result.user) {
-        // Sync with backend immediately
         const syncResponse = await fetch('/api/auth/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -85,7 +107,6 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
 
         if (syncResponse.ok) {
           const syncData = await syncResponse.json();
-          // Store user in localStorage for immediate access
           localStorage.setItem('demoUser', JSON.stringify(syncData.user));
           toast({ title: 'Success', description: 'Login successful!' });
           window.location.reload();
@@ -103,20 +124,20 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50 flex items-center justify-center p-4">
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px]" />
       
       {/* Decorative Elements */}
-      <div className="absolute top-20 right-20 w-72 h-72 bg-amber-100 rounded-full blur-3xl opacity-30" />
-      <div className="absolute bottom-20 left-20 w-96 h-96 bg-orange-100 rounded-full blur-3xl opacity-30" />
+      <div className="absolute top-20 right-20 w-72 h-72 bg-emerald-100 rounded-full blur-3xl opacity-30" />
+      <div className="absolute bottom-20 left-20 w-96 h-96 bg-teal-100 rounded-full blur-3xl opacity-30" />
 
       {/* Back Button */}
       <motion.button
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={onBack}
-        className="absolute top-6 left-6 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-md border border-gray-100 text-gray-600 hover:text-amber-600 hover:shadow-lg transition-all"
+        className="absolute top-6 left-6 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-white shadow-md border border-gray-100 text-gray-600 hover:text-emerald-600 hover:shadow-lg transition-all"
       >
         <ArrowLeft className="h-4 w-4" />
         <span className="text-sm font-medium">Back</span>
@@ -132,9 +153,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
           {/* Header */}
           <div className="p-8 pb-4 text-center border-b border-gray-50">
-            <div
-              className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-amber-500 to-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-200 overflow-hidden"
-            >
+            <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-200 overflow-hidden">
               {settings.companyLogo ? (
                 <img src={settings.companyLogo} alt={settings.companyName || 'Company'} className="w-full h-full object-cover" />
               ) : (
@@ -142,7 +161,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
               )}
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Customer Portal</h1>
-            <p className="text-gray-500 text-sm mt-1">{settings.companyName || 'Money Mitra Financial Advisor'}</p>
+            <p className="text-gray-500 text-sm mt-1">{settings.companyName || 'MM Square'}</p>
           </div>
 
           {/* Tabs */}
@@ -195,7 +214,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                         placeholder="John Doe"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-amber-500 focus:ring-amber-500/20 rounded-xl text-sm"
+                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
                       />
                     </div>
                   </div>
@@ -210,7 +229,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                       placeholder="you@example.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-amber-500 focus:ring-amber-500/20 rounded-xl text-sm"
+                      className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
                     />
                   </div>
                 </div>
@@ -225,7 +244,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                         placeholder="+91 98765 43210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-amber-500 focus:ring-amber-500/20 rounded-xl text-sm"
+                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
                       />
                     </div>
                   </div>
@@ -240,7 +259,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="pl-12 pr-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-amber-500 focus:ring-amber-500/20 rounded-xl text-sm"
+                      className="pl-12 pr-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
                     />
                     <button
                       type="button"
@@ -255,7 +274,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-12 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-semibold rounded-xl shadow-lg shadow-amber-200 transition-all text-sm"
+                  className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-200 transition-all text-sm"
                 >
                   {loading ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
@@ -299,9 +318,9 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
             {isSignUp && (
               <p className="mt-4 text-xs text-center text-gray-400">
                 By creating an account, you agree to our{' '}
-                <span className="text-amber-600 hover:underline cursor-pointer">Terms</span>
+                <span className="text-emerald-600 hover:underline cursor-pointer">Terms</span>
                 {' '}and{' '}
-                <span className="text-amber-600 hover:underline cursor-pointer">Privacy Policy</span>
+                <span className="text-emerald-600 hover:underline cursor-pointer">Privacy Policy</span>
               </p>
             )}
           </div>
@@ -309,7 +328,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
           {/* Footer */}
           <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
             <p className="text-xs text-gray-400">
-              © 2024 {settings.companyName || 'Money Mitra Financial Advisor'}. All rights reserved.
+              © 2024 {settings.companyName || 'MM Square'}. All rights reserved.
             </p>
           </div>
         </div>

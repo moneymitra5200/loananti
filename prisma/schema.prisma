@@ -2854,3 +2854,23 @@ model UserPreference {
   
   @@index([userId])
 }
+
+// ==================== CONTACT ENQUIRY ====================
+
+// Contact Enquiry from Landing Page
+model ContactEnquiry {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String
+  message     String
+  status      String   @default("PENDING")  // PENDING, CONTACTED, RESOLVED, CLOSED
+  notes       String?  // Internal notes
+  contactedAt DateTime?
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([status])
+  @@index([createdAt])
+}

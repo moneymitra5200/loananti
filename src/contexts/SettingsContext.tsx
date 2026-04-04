@@ -48,12 +48,12 @@ export interface AppSettings {
 
 // Default settings with sensible defaults
 const defaultSettings: AppSettings = {
-  companyName: 'Money Mitra Financial Advisor',
-  companyLogo: '/logo-square.png',
-  companyTagline: 'Your Dreams, Our Support',
-  companyEmail: 'support@smfc.com',
+  companyName: 'MM Square',
+  companyLogo: '/logo.png',
+  companyTagline: 'Your Trusted Financial Partner',
+  companyEmail: 'support@mmsquare.com',
   companyPhone: '+91 1800-123-4567',
-  companyAddress: '123 Finance Street, Mumbai, MH 400001',
+  companyAddress: 'Bhavnagar, Gujarat, India',
   defaultCurrency: 'INR',
   currencySymbol: '₹',
   timezone: 'Asia/Kolkata',

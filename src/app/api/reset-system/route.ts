@@ -249,9 +249,63 @@ export async function POST(request: NextRequest) {
     stats.companyPaymentSettings = (await db.companyPaymentSettings.deleteMany({})).count;
     stats.companyPaymentPages = (await db.companyPaymentPage.deleteMany({})).count;
     
-    // Uploaded Files
+    // Uploaded Files (Documents, Photos, QR Codes, etc.)
     stats.uploadedFiles = (await db.uploadedFile.deleteMany({})).count;
     console.log(`[RESET] Deleted CMS and configuration data`);
+    
+    // ========================================
+    // PHASE 11.5: QR Codes and Documents Cleanup
+    // ========================================
+    
+    // Delete all QR codes from the QR code directory
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const qrDir = path.join(process.cwd(), 'public', 'qrcodes');
+      const docDir = path.join(process.cwd(), 'public', 'documents');
+      const uploadDir = path.join(process.cwd(), 'upload');
+      
+      // Delete QR codes
+      if (fs.existsSync(qrDir)) {
+        const qrFiles = fs.readdirSync(qrDir);
+        qrFiles.forEach((file: string) => {
+          if (file.endsWith('.png') || file.endsWith('.svg')) {
+            fs.unlinkSync(path.join(qrDir, file));
+          }
+        });
+        stats.qrCodes = qrFiles.length;
+        console.log(`[RESET] Deleted ${qrFiles.length} QR codes`);
+      }
+      
+      // Delete documents
+      if (fs.existsSync(docDir)) {
+        const docFiles = fs.readdirSync(docDir);
+        docFiles.forEach((file: string) => {
+          fs.unlinkSync(path.join(docDir, file));
+        });
+        stats.documents = docFiles.length;
+        console.log(`[RESET] Deleted ${docFiles.length} documents`);
+      }
+      
+      // Delete uploaded files
+      if (fs.existsSync(uploadDir)) {
+        const uploadFiles = fs.readdirSync(uploadDir);
+        uploadFiles.forEach((file: string) => {
+          if (file !== '.gitkeep') {
+            fs.unlinkSync(path.join(uploadDir, file));
+          }
+        });
+        stats.uploads = uploadFiles.length;
+        console.log(`[RESET] Deleted ${uploadFiles.length} uploaded files`);
+      }
+    } catch (fsError) {
+      console.error('[RESET] Error deleting files:', fsError);
+      stats.fileDeletionError = 'Some files could not be deleted';
+    }
+    
+    // Contact Enquiries
+    stats.contactEnquiries = (await db.contactEnquiry.deleteMany({})).count;
+    console.log(`[RESET] Deleted ${stats.contactEnquiries} contact enquiries`);
 
     // ========================================
     // PHASE 12: Deleted Users
