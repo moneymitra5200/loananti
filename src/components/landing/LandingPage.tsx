@@ -189,6 +189,7 @@ export default function LandingPage() {
     if (authView !== 'landing') return;
     
     const controller = new AbortController();
+    let isMounted = true;
     
     const fetchData = async () => {
       try {
@@ -196,6 +197,8 @@ export default function LandingPage() {
           fetch('/api/cms/product?isActive=true', { signal: controller.signal }),
           fetch('/api/cms/service?type=all', { signal: controller.signal })
         ]);
+        
+        if (!isMounted) return;
         
         const productsData = await productsRes.json();
         const statsData = await statsRes.json();
@@ -209,6 +212,8 @@ export default function LandingPage() {
           const agentRes = await fetch('/api/user?role=AGENT', { signal: controller.signal });
           const cashierRes = await fetch('/api/user?role=CASHIER', { signal: controller.signal });
           
+          if (!isMounted) return;
+          
           const staffData = await staffRes.json();
           const agentData = await agentRes.json();
           const cashierData = await cashierRes.json();
@@ -221,12 +226,16 @@ export default function LandingPage() {
           
           setStaffList(allStaff);
         } catch (staffError) {
-          console.error('Error fetching staff:', staffError);
+          // Ignore abort errors
+          const err = staffError as Error;
+          if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
+            console.error('Error fetching staff:', staffError);
+          }
         }
       } catch (error) {
-        const err = error as Error;
         // Ignore abort errors (component unmounted or request cancelled)
-        if (err.name !== 'AbortError' && err.message !== 'Component unmounted') {
+        const err = error as Error;
+        if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
           console.error('Error fetching CMS data:', error);
         }
       }
@@ -234,7 +243,10 @@ export default function LandingPage() {
     
     fetchData();
 
-    return () => controller.abort('Component unmounted');
+    return () => {
+      isMounted = false;
+      controller.abort('Component unmounted');
+    };
   }, [authView]);
 
   // Show login pages
