@@ -418,14 +418,24 @@ function CashBookSection({
   const [addAmount, setAddAmount] = useState('');
   const [addDescription, setAddDescription] = useState('');
   const [adding, setAdding] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
+      // First, try to sync cashbook with chart of accounts
+      try {
+        await fetch(`/api/accounting/sync-cashbook?companyId=${selectedCompanyId}`, {
+          method: 'POST'
+        });
+      } catch (syncError) {
+        console.log('Sync skipped:', syncError);
+      }
+
       const res = await fetch(`/api/accountant/cashbook?companyId=${selectedCompanyId}`);
       const data = await res.json();
-      setCashBook(data.cashBook);
+      setCashBook(data);
       setEntries(data.entries || []);
     } catch (error) {
       console.error('Error loading cashbook:', error);
@@ -437,6 +447,27 @@ function CashBookSection({
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleSync = async () => {
+    if (!selectedCompanyId) return;
+    setSyncing(true);
+    try {
+      const res = await fetch(`/api/accounting/sync-cashbook?companyId=${selectedCompanyId}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || 'CashBook synced successfully');
+        loadData();
+      } else {
+        toast.error('Failed to sync CashBook');
+      }
+    } catch (error) {
+      toast.error('Failed to sync CashBook');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleAddEntry = async (type: 'CREDIT' | 'DEBIT') => {
     const amount = parseFloat(addAmount);
@@ -487,10 +518,16 @@ function CashBookSection({
           <Wallet className="h-5 w-5" />
           Cash Book
         </h2>
-        <Button onClick={() => setShowAddDialog(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Entry
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleSync} disabled={syncing}>
+            {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+            Sync from Equity
+          </Button>
+          <Button onClick={() => setShowAddDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Entry
+          </Button>
+        </div>
       </div>
 
       {/* Cash Balance Card */}
