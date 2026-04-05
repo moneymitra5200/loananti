@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     if (!companyId) {
       // List all companies
       const companies = await db.company.findMany({
-        select: { id: true, name: true, code: true, isMirrorCompany: true }
+        select: { id: true, name: true, code: true }
       });
       return NextResponse.json({ companies });
     }
