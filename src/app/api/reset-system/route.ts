@@ -326,11 +326,67 @@ export async function POST(request: NextRequest) {
     stats.companies = (await db.company.deleteMany({})).count;
     console.log(`[RESET] Deleted ${stats.companies} companies (users preserved)`);
 
+    // ========================================
+    // PHASE 15: Re-create Default Companies & Initialize Chart of Accounts
+    // ========================================
+    
+    try {
+      const { AccountingService } = await import('@/lib/accounting-service');
+      
+      // Create default companies
+      const company1 = await db.company.create({
+        data: {
+          name: 'company 1',
+          code: 'C1',
+          isActive: true,
+          isMirrorCompany: true,
+          enableMirrorLoan: false,
+          defaultInterestType: 'REDUCING',
+        }
+      });
+      
+      const company2 = await db.company.create({
+        data: {
+          name: 'company 2',
+          code: 'C2',
+          isActive: true,
+          isMirrorCompany: true,
+          enableMirrorLoan: false,
+          defaultInterestType: 'REDUCING',
+        }
+      });
+      
+      const company3 = await db.company.create({
+        data: {
+          name: 'company 3',
+          code: 'C3',
+          isActive: true,
+          isMirrorCompany: false, // Original company - cash only
+          enableMirrorLoan: true,
+          defaultInterestType: 'FLAT',
+        }
+      });
+      
+      console.log('[RESET] Created default companies: C1, C2, C3');
+      
+      // Initialize Chart of Accounts for each company
+      for (const company of [company1, company2, company3]) {
+        const accountingService = new AccountingService(company.id);
+        await accountingService.initializeChartOfAccounts();
+        console.log(`[RESET] Initialized Chart of Accounts for ${company.name}`);
+      }
+      
+      stats.recreatedCompanies = 3;
+    } catch (initError) {
+      console.error('[RESET] Failed to re-create companies:', initError);
+      stats.companyRecreationError = 'Failed to re-create default companies';
+    }
+
     console.log('[RESET] System reset completed successfully!');
 
     return NextResponse.json({
       success: true,
-      message: 'System reset completed - ALL accounting portal sections cleared',
+      message: 'System reset completed - ALL accounting portal sections cleared and re-initialized',
       deleted: stats
     });
 

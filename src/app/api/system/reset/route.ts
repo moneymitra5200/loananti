@@ -516,6 +516,33 @@ export async function POST(request: NextRequest) {
       errors.push(`Phase 11 (sessions): ${e instanceof Error ? e.message : 'Unknown'}`);
     }
 
+    // ========================================
+    // PHASE 12: Re-initialize Chart of Accounts for Fresh Start
+    // ========================================
+    
+    if (resetOptions.allAccounting || resetOptions.chartOfAccounts) {
+      console.log('[System Reset] Re-initializing Chart of Accounts for fresh start...');
+      try {
+        const { AccountingService } = await import('@/lib/accounting-service');
+        
+        // Get all active companies
+        const activeCompanies = await db.company.findMany({
+          where: { isActive: true },
+          select: { id: true, name: true, code: true }
+        });
+
+        for (const company of activeCompanies) {
+          const accountingService = new AccountingService(company.id);
+          await accountingService.initializeChartOfAccounts();
+          console.log(`[System Reset] Initialized Chart of Accounts for ${company.name}`);
+        }
+        stats.reinitializedCompanies = activeCompanies.length;
+      } catch (initError) {
+        console.error('[System Reset] Failed to re-initialize Chart of Accounts:', initError);
+        errors.push(`Re-initialization: ${initError instanceof Error ? initError.message : 'Unknown'}`);
+      }
+    }
+
     const duration = (Date.now() - startTime) / 1000;
     console.log(`[System Reset] Completed in ${duration}s`, stats);
 

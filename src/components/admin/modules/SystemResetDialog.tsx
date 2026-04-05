@@ -284,6 +284,9 @@ function SystemResetDialog({
                 <BookOpen className="h-3 w-3 inline mr-1" />
                 Includes: Ledger Balances, Reports Cache, Loan Sequences, Mirror Loan Mappings
               </p>
+              <p className="text-xs text-green-600 mt-2 ml-4 font-medium">
+                ✓ After reset: Chart of Accounts will be re-initialized for all companies (fresh start)
+              </p>
             </div>
 
             {/* Loan Related */}
