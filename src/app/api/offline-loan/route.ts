@@ -547,7 +547,11 @@ export async function POST(request: NextRequest) {
       mirrorCompanyId,
       mirrorInterestRate,
       mirrorInterestType,
-      extraEmiPaymentPageId
+      extraEmiPaymentPageId,
+      // Split Payment
+      useSplitPayment = false,
+      bankAmount = 0,
+      cashAmount = 0
     } = body;
 
     // Validate required fields (COMPANY IS NOW REQUIRED)
@@ -1095,33 +1099,148 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Create bank transaction for loan disbursement
+    // ============================================
+    // DISBURSEMENT - Handle split payment or single payment
+    // ============================================
     let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
-    try {
-      // Get default bank account for the company
-      const defaultBank = await db.bankAccount.findFirst({
-        where: { companyId, isDefault: true }
-      });
+    let cashbookResult: { success: boolean; cashBookId: string; newBalance: number } | null = null;
 
-      if (defaultBank) {
-        bankTransactionResult = await processBankTransaction({
-          bankAccountId: defaultBank.id,
-          transactionType: 'LOAN_DISBURSEMENT',
-          amount: loanAmount,
-          description: `Offline Loan Disbursement - ${loanNumber} to ${customerName}`,
-          referenceType: 'OFFLINE_LOAN',
-          referenceId: loan.id,
-          createdById,
-          companyId,
-          loanId: loan.id,
-          customerId: customerId || undefined,
-          paymentMode: disbursementMode || 'BANK_TRANSFER',
-          bankRefNumber: disbursementRef
-        });
+    try {
+      // Determine target company for disbursement (mirror company if mirror loan)
+      const disbursementCompanyId = isMirrorLoan && mirrorCompanyId ? mirrorCompanyId : companyId;
+
+      if (useSplitPayment) {
+        // ============================================
+        // SPLIT PAYMENT - Deduct from both bank AND cash
+        // ============================================
+        console.log(`[Disbursement] Split Payment: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
+
+        // 1. Handle Bank Portion
+        if (bankAmount > 0) {
+          const targetBankId = bankAccountId || (await db.bankAccount.findFirst({
+            where: { companyId: disbursementCompanyId, isDefault: true }
+          }))?.id;
+
+          if (targetBankId) {
+            const targetBank = await db.bankAccount.findUnique({
+              where: { id: targetBankId },
+              select: { currentBalance: true }
+            });
+
+            if (targetBank && targetBank.currentBalance >= bankAmount) {
+              // Deduct from bank
+              await db.bankAccount.update({
+                where: { id: targetBankId },
+                data: { currentBalance: targetBank.currentBalance - bankAmount }
+              });
+
+              // Create bank transaction record
+              await db.bankTransaction.create({
+                data: {
+                  bankAccountId: targetBankId,
+                  transactionType: 'DEBIT',
+                  amount: bankAmount,
+                  balanceAfter: targetBank.currentBalance - bankAmount,
+                  description: `Offline Loan Disbursement (Bank Portion) - ${loanNumber} to ${customerName}`,
+                  referenceType: 'OFFLINE_LOAN',
+                  referenceId: loan.id,
+                  createdById
+                }
+              });
+
+              console.log(`[Disbursement] Bank deduction: ₹${bankAmount} from ${targetBankId}, New Balance: ₹${targetBank.currentBalance - bankAmount}`);
+            } else {
+              console.warn(`[Disbursement] WARNING: Insufficient bank balance for bank portion`);
+            }
+          } else {
+            console.warn(`[Disbursement] WARNING: No bank account found for bank portion`);
+          }
+        }
+
+        // 2. Handle Cash Portion
+        if (cashAmount > 0) {
+          // Import the recordCashBookEntry function
+          const { recordCashBookEntry } = await import('@/lib/simple-accounting');
+
+          cashbookResult = await recordCashBookEntry({
+            companyId: disbursementCompanyId,
+            entryType: 'DEBIT',
+            amount: cashAmount,
+            description: `Offline Loan Disbursement (Cash Portion) - ${loanNumber} to ${customerName}`,
+            referenceType: 'OFFLINE_LOAN',
+            referenceId: loan.id,
+            createdById
+          });
+
+          console.log(`[Disbursement] Cash deduction: ₹${cashAmount}, New Cash Balance: ₹${cashbookResult?.newBalance}`);
+        }
+
+      } else {
+        // ============================================
+        // SINGLE PAYMENT - Deduct from bank OR cash
+        // ============================================
+        console.log(`[Disbursement] Single Payment Mode: ${disbursementMode}, Amount: ₹${loanAmount}`);
+
+        if (disbursementMode === 'CASH') {
+          // Deduct from cashbook
+          const { recordCashBookEntry } = await import('@/lib/simple-accounting');
+
+          cashbookResult = await recordCashBookEntry({
+            companyId: disbursementCompanyId,
+            entryType: 'DEBIT',
+            amount: loanAmount,
+            description: `Offline Loan Disbursement - ${loanNumber} to ${customerName}`,
+            referenceType: 'OFFLINE_LOAN',
+            referenceId: loan.id,
+            createdById
+          });
+
+          console.log(`[Disbursement] Cash deduction: ₹${loanAmount}, New Cash Balance: ₹${cashbookResult?.newBalance}`);
+        } else {
+          // Deduct from bank
+          const targetBankId = bankAccountId || (await db.bankAccount.findFirst({
+            where: { companyId: disbursementCompanyId, isDefault: true }
+          }))?.id;
+
+          if (targetBankId) {
+            const targetBank = await db.bankAccount.findUnique({
+              where: { id: targetBankId },
+              select: { currentBalance: true }
+            });
+
+            if (targetBank && targetBank.currentBalance >= loanAmount) {
+              // Deduct from bank
+              await db.bankAccount.update({
+                where: { id: targetBankId },
+                data: { currentBalance: targetBank.currentBalance - loanAmount }
+              });
+
+              // Create bank transaction record
+              await db.bankTransaction.create({
+                data: {
+                  bankAccountId: targetBankId,
+                  transactionType: 'DEBIT',
+                  amount: loanAmount,
+                  balanceAfter: targetBank.currentBalance - loanAmount,
+                  description: `Offline Loan Disbursement - ${loanNumber} to ${customerName}`,
+                  referenceType: 'OFFLINE_LOAN',
+                  referenceId: loan.id,
+                  createdById
+                }
+              });
+
+              console.log(`[Disbursement] Bank deduction: ₹${loanAmount} from ${targetBankId}, New Balance: ₹${targetBank.currentBalance - loanAmount}`);
+            } else {
+              console.warn(`[Disbursement] WARNING: Insufficient bank balance. Available: ₹${targetBank?.currentBalance || 0}, Required: ₹${loanAmount}`);
+            }
+          } else {
+            console.warn(`[Disbursement] WARNING: No bank account found for disbursement`);
+          }
+        }
       }
-    } catch (bankError) {
-      console.error('Bank transaction for loan disbursement failed:', bankError);
-      // Don't fail the loan creation if bank transaction fails
+    } catch (disbursementError) {
+      console.error('Disbursement transaction failed:', disbursementError);
+      // Don't fail the loan creation if disbursement fails
     }
 
     // Log action for undo

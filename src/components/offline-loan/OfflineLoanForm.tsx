@@ -120,10 +120,15 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [mirrorInterestType] = useState('REDUCING'); // Always REDUCING for mirror loans
   const [showMirrorDialog, setShowMirrorDialog] = useState(false);
   
-  // Cashbook balance for Company 3
+  // Cashbook balance for ALL companies (not just Company 3)
   const [cashbookBalance, setCashbookBalance] = useState<number | null>(null);
   const [loadingCashbook, setLoadingCashbook] = useState(false);
-  
+
+  // Split payment states
+  const [useSplitPayment, setUseSplitPayment] = useState(false);
+  const [bankAmount, setBankAmount] = useState(0);
+  const [cashAmount, setCashAmount] = useState(0);
+
   // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
   // Form data - declared before useMemo hooks that depend on it
@@ -380,18 +385,17 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     }
   }, [open]);
 
-  // Fetch bank accounts or cashbook when company is selected
+  // Fetch bank accounts AND cashbook when company is selected (for ALL companies)
   useEffect(() => {
     if (formData.companyId) {
-      if (isSelectedCompany3()) {
-        // Company 3 uses cashbook, not bank accounts
-        fetchCashbookBalance(formData.companyId);
-        setBankAccounts([]);
-      } else {
-        // Company 1 and 2 use bank accounts
-        fetchBankAccounts(formData.companyId);
-        setCashbookBalance(null);
-      }
+      // Fetch BOTH bank accounts AND cashbook for all companies
+      // This allows split payments between bank and cash
+      fetchBankAccounts(formData.companyId);
+      fetchCashbookBalance(formData.companyId);
+      // Reset split payment states
+      setUseSplitPayment(false);
+      setBankAmount(0);
+      setCashAmount(0);
     } else {
       setBankAccounts([]);
       setCashbookBalance(null);
@@ -401,20 +405,19 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   // Fetch bank accounts when mirror company is selected (for mirror loan disbursement)
   useEffect(() => {
     if (isMirrorLoan && mirrorCompanyId) {
-      // For mirror loans, fetch the mirror company's bank accounts for disbursement
+      // For mirror loans, fetch the mirror company's bank accounts AND cashbook for disbursement
       setBankAccounts([]); // Clear existing accounts first
       setFormData(prev => ({ ...prev, bankAccountId: '' })); // Reset selection
       fetchBankAccounts(mirrorCompanyId);
-      setCashbookBalance(null);
+      fetchCashbookBalance(mirrorCompanyId);
+      // Reset split payment states
+      setUseSplitPayment(false);
+      setBankAmount(0);
+      setCashAmount(0);
     } else if (!isMirrorLoan && formData.companyId) {
-      // Normal flow - fetch based on selected company
-      if (isSelectedCompany3()) {
-        fetchCashbookBalance(formData.companyId);
-        setBankAccounts([]);
-      } else {
-        fetchBankAccounts(formData.companyId);
-        setCashbookBalance(null);
-      }
+      // Normal flow - fetch both for selected company
+      fetchBankAccounts(formData.companyId);
+      fetchCashbookBalance(formData.companyId);
     }
   }, [isMirrorLoan, mirrorCompanyId]);
 
@@ -704,7 +707,67 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
 
     try {
       setSubmitting(true);
-      
+
+      const loanAmountNum = parseFloat(formData.loanAmount);
+
+      // Calculate bank and cash amounts based on split payment
+      let finalBankAmount = 0;
+      let finalCashAmount = 0;
+
+      if (useSplitPayment) {
+        finalBankAmount = bankAmount;
+        finalCashAmount = cashAmount;
+        // Validate split amounts
+        if (finalBankAmount + finalCashAmount !== loanAmountNum) {
+          toast({
+            title: 'Split Amount Error',
+            description: `Bank amount (₹${finalBankAmount.toLocaleString()}) + Cash amount (₹${finalCashAmount.toLocaleString()}) must equal loan amount (₹${loanAmountNum.toLocaleString()})`,
+            variant: 'destructive'
+          });
+          setSubmitting(false);
+          return;
+        }
+        // Validate bank balance if bank amount > 0
+        if (finalBankAmount > 0) {
+          const selectedBank = bankAccounts.find(b => b.id === formData.bankAccountId);
+          if (!selectedBank) {
+            toast({
+              title: 'Bank Account Required',
+              description: 'Please select a bank account for the bank portion of disbursement',
+              variant: 'destructive'
+            });
+            setSubmitting(false);
+            return;
+          }
+          if (selectedBank.currentBalance < finalBankAmount) {
+            toast({
+              title: 'Insufficient Bank Balance',
+              description: `Bank account has ₹${selectedBank.currentBalance.toLocaleString()} but you're trying to disburse ₹${finalBankAmount.toLocaleString()}`,
+              variant: 'destructive'
+            });
+            setSubmitting(false);
+            return;
+          }
+        }
+        // Validate cash balance if cash amount > 0
+        if (finalCashAmount > 0 && cashbookBalance !== null && cashbookBalance < finalCashAmount) {
+          toast({
+            title: 'Insufficient Cash Balance',
+            description: `Cashbook has ₹${cashbookBalance.toLocaleString()} but you're trying to disburse ₹${finalCashAmount.toLocaleString()}`,
+            variant: 'destructive'
+          });
+          setSubmitting(false);
+          return;
+        }
+      } else {
+        // Non-split payment: determine based on disbursement mode
+        if (formData.disbursementMode === 'CASH') {
+          finalCashAmount = loanAmountNum;
+        } else {
+          finalBankAmount = loanAmountNum;
+        }
+      }
+
       const requestBody: Record<string, unknown> = {
         createdById,
         createdByRole,
@@ -727,7 +790,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         mirrorInterestRate: isMirrorLoan ? getMirrorInterestRate(mirrorCompanyId) : null,
         mirrorInterestType: isMirrorLoan ? 'REDUCING' : null,
         // Extra EMI goes to personal credit (not company credit)
-        extraEmiGoesToPersonalCredit: isMirrorLoan ? true : false
+        extraEmiGoesToPersonalCredit: isMirrorLoan ? true : false,
+        // Split payment info
+        useSplitPayment,
+        bankAmount: finalBankAmount,
+        cashAmount: finalCashAmount
       };
 
       // Add Gold Loan Receipt Data
@@ -807,6 +874,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     setMirrorCompanyId('');
 
     setCashbookBalance(null);
+    // Reset split payment states
+    setUseSplitPayment(false);
+    setBankAmount(0);
+    setCashAmount(0);
     // Reset Gold Loan Data
     setGoldLoanData({
       grossWeight: 0, netWeight: 0, goldRate: 0, valuationAmount: 0, loanAmount: 0,
@@ -1358,7 +1429,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 <h4 className="font-medium text-blue-800 mb-3 flex items-center gap-2">
                   <Building2 className="h-4 w-4" /> Disbursement Account
                 </h4>
-                
+
                 {!formData.companyId ? (
                   <Alert className="bg-amber-50 border-amber-200">
                     <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -1366,180 +1437,223 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       Please select a company first to see available accounts.
                     </AlertDescription>
                   </Alert>
-                ) : isMirrorLoan && mirrorCompanyId ? (
-                  // Mirror Loan - Show Mirror Company's Bank Accounts
-                  <div className="space-y-4">
-                    <Alert className="bg-purple-50 border-purple-200">
-                      <TrendingUp className="h-4 w-4 text-purple-600" />
-                      <AlertDescription className="text-purple-700 text-sm">
-                        <strong>Mirror Loan Selected</strong> - Disbursement will be from the mirror company's bank account.
-                      </AlertDescription>
-                    </Alert>
-                    
-                    {loadingBankAccounts ? (
-                      <div className="flex items-center gap-2 p-4 bg-white rounded-lg border">
-                        <Loader2 className="h-5 w-5 animate-spin text-purple-600" />
-                        <span className="text-sm text-gray-600">Loading bank accounts from {companies.find(c => c.id === mirrorCompanyId)?.name}...</span>
-                      </div>
-                    ) : bankAccounts.length === 0 ? (
-                      <Alert className="bg-red-50 border-red-200">
-                        <AlertCircle className="h-4 w-4 text-red-600" />
-                        <AlertDescription className="text-red-700 text-sm">
-                          No bank accounts found for <strong>{companies.find(c => c.id === mirrorCompanyId)?.name}</strong>. Please add bank accounts first.
-                        </AlertDescription>
-                      </Alert>
-                    ) : (
-                      <>
-                        <div className="p-4 bg-gradient-to-r from-purple-100 to-indigo-100 rounded-lg border border-purple-300">
-                          <p className="text-sm text-purple-700 mb-2">
-                            Mirror Company: <strong>{companies.find(c => c.id === mirrorCompanyId)?.name}</strong>
-                          </p>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Payment Mode</Label>
-                              <Select value={formData.disbursementMode} onValueChange={(v) => handleInputChange('disbursementMode', v)}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
-                                  <SelectItem value="CASH">Cash</SelectItem>
-                                  <SelectItem value="CHEQUE">Cheque</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Reference Number</Label>
-                              <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Cheque No. / Ref" />
-                            </div>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-2">
-                          <Label>Select Bank Account for Disbursement *</Label>
-                          <Select 
-                            value={formData.bankAccountId || ''} 
-                            onValueChange={(v) => handleInputChange('bankAccountId', v)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select bank account..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {bankAccounts.map(acc => (
-                                <SelectItem key={acc.id} value={acc.id}>
-                                  {acc.bankName} - {acc.accountNumber}
-                                  <span className="text-gray-500 ml-1">(Bal: ₹{acc.currentBalance?.toLocaleString()})</span>
-                                  {acc.isDefault && <span className="text-amber-600 ml-1">★ Default</span>}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-purple-600">
-                            The loan amount will be deducted from the mirror company's bank account
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ) : isSelectedCompany3() ? (
-                  // Company 3 - Show Cashbook instead of Bank Accounts
-                  <div className="space-y-4">
-                    <Alert className="bg-emerald-50 border-emerald-200">
-                      <Wallet className="h-4 w-4 text-emerald-600" />
-                      <AlertDescription className="text-emerald-700 text-sm">
-                        <strong>Company 3 uses Cashbook</strong> - No bank accounts available for this company.
-                      </AlertDescription>
-                    </Alert>
-                    
-                    {loadingCashbook ? (
-                      <div className="flex items-center gap-2 p-3 bg-white rounded-lg border">
-                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
-                        <span className="text-sm text-gray-600">Loading cashbook...</span>
-                      </div>
-                    ) : (
-                      <div className="p-4 bg-gradient-to-r from-emerald-100 to-teal-100 rounded-lg border border-emerald-300">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm text-emerald-700">Cashbook Balance</p>
-                            <p className="text-2xl font-bold text-emerald-800">
-                              {cashbookBalance !== null ? formatCurrency(cashbookBalance) : '₹0'}
-                            </p>
-                          </div>
-                          <div className="p-3 bg-white rounded-full">
-                            <Wallet className="h-8 w-8 text-emerald-600" />
-                          </div>
-                        </div>
-                        <p className="text-xs text-emerald-600 mt-2">
-                          Loan disbursement will be recorded in the cashbook
-                        </p>
-                      </div>
-                    )}
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Payment Mode</Label>
-                        <Select value={formData.disbursementMode} onValueChange={(v) => handleInputChange('disbursementMode', v)}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="CASH">Cash</SelectItem>
-                            <SelectItem value="CHEQUE">Cheque</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Reference Number</Label>
-                        <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Ref No. (optional)" />
-                      </div>
-                    </div>
-                  </div>
-                ) : bankAccounts.length === 0 ? (
-                  <Alert className="bg-gray-50 border-gray-200">
-                    <Info className="h-4 w-4 text-gray-600" />
-                    <AlertDescription className="text-gray-700 text-sm">
-                      No bank accounts found for this company. Please add bank accounts in the accounting section.
-                    </AlertDescription>
-                  </Alert>
                 ) : (
                   <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Payment Mode</Label>
-                        <Select value={formData.disbursementMode} onValueChange={(v) => handleInputChange('disbursementMode', v)}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="CASH">Cash</SelectItem>
-                            <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
-                            <SelectItem value="CHEQUE">Cheque</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    {/* Show Available Funds Summary */}
+                    <div className="mb-4 p-4 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-lg border border-blue-300">
+                      <p className="text-sm text-blue-700 font-medium mb-2">Available Funds for {isMirrorLoan && mirrorCompanyId ? companies.find(c => c.id === mirrorCompanyId)?.name : companies.find(c => c.id === formData.companyId)?.name}</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-2">
+                            <Wallet className="h-5 w-5 text-emerald-600" />
+                            <div>
+                              <p className="text-xs text-gray-500">Cash in Hand</p>
+                              <p className="text-lg font-bold text-emerald-700">
+                                {loadingCashbook ? 'Loading...' : cashbookBalance !== null ? formatCurrency(cashbookBalance) : '₹0'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg border">
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-5 w-5 text-blue-600" />
+                            <div>
+                              <p className="text-xs text-gray-500">Bank Balance</p>
+                              <p className="text-lg font-bold text-blue-700">
+                                {loadingBankAccounts ? 'Loading...' : bankAccounts.length > 0
+                                  ? formatCurrency(bankAccounts.reduce((sum, acc) => sum + (acc.currentBalance || 0), 0))
+                                  : '₹0'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Reference Number</Label>
-                        <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Cheque No. / Ref" />
-                      </div>
+                      {formData.loanAmount && (
+                        <div className="mt-3 p-2 bg-white rounded border text-sm">
+                          <p className="text-gray-600">
+                            Loan Amount: <span className="font-bold text-blue-800">{formatCurrency(parseFloat(formData.loanAmount) || 0)}</span>
+                          </p>
+                        </div>
+                      )}
                     </div>
-                    
-                    <div className="mt-4 space-y-2">
-                      <Label>Select Bank Account for Disbursement</Label>
-                      <Select 
-                        value={formData.bankAccountId || ''} 
-                        onValueChange={(v) => handleInputChange('bankAccountId', v)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select bank account..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {bankAccounts.map(acc => (
-                            <SelectItem key={acc.id} value={acc.id}>
-                              {acc.bankName} - {acc.accountNumber}
-                              <span className="text-gray-500 ml-1">(Bal: ₹{acc.currentBalance?.toLocaleString()})</span>
-                              {acc.isDefault && <span className="text-amber-600 ml-1">★ Default</span>}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-blue-600">
-                        The loan amount will be deducted from the selected bank account
+
+                    {/* Split Payment Toggle */}
+                    <div className="mb-4 p-3 bg-white rounded-lg border border-blue-200">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useSplitPayment}
+                          onChange={(e) => {
+                            setUseSplitPayment(e.target.checked);
+                            if (e.target.checked && formData.loanAmount) {
+                              // Initialize with 50-50 split
+                              const amount = parseFloat(formData.loanAmount);
+                              setBankAmount(Math.round(amount / 2));
+                              setCashAmount(Math.round(amount / 2));
+                            } else {
+                              setBankAmount(0);
+                              setCashAmount(0);
+                            }
+                          }}
+                          className="h-4 w-4 text-blue-600 rounded border-blue-300"
+                        />
+                        <span className="font-medium text-blue-800">Split Payment Between Bank & Cash</span>
+                      </label>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {useSplitPayment
+                          ? 'Divide disbursement between bank account and cash'
+                          : 'Use a single payment method (bank OR cash)'}
                       </p>
                     </div>
+
+                    {useSplitPayment ? (
+                      /* Split Payment UI */
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Bank Amount */}
+                          <div className="p-3 bg-white rounded-lg border border-blue-200">
+                            <Label className="text-blue-700">Bank Amount</Label>
+                            <Input
+                              type="number"
+                              value={bankAmount}
+                              onChange={(e) => {
+                                const newBank = parseFloat(e.target.value) || 0;
+                                const loanAmountNum = parseFloat(formData.loanAmount) || 0;
+                                setBankAmount(newBank);
+                                setCashAmount(loanAmountNum - newBank);
+                              }}
+                              className="mt-1"
+                              placeholder="Amount from bank"
+                            />
+                            {bankAccounts.length > 0 && (
+                              <Select
+                                value={formData.bankAccountId || ''}
+                                onValueChange={(v) => handleInputChange('bankAccountId', v)}
+                              >
+                                <SelectTrigger className="mt-2">
+                                  <SelectValue placeholder="Select bank..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {bankAccounts.map(acc => (
+                                    <SelectItem key={acc.id} value={acc.id}>
+                                      {acc.bankName} (₹{acc.currentBalance?.toLocaleString()})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+
+                          {/* Cash Amount */}
+                          <div className="p-3 bg-white rounded-lg border border-emerald-200">
+                            <Label className="text-emerald-700">Cash Amount</Label>
+                            <Input
+                              type="number"
+                              value={cashAmount}
+                              onChange={(e) => {
+                                const newCash = parseFloat(e.target.value) || 0;
+                                const loanAmountNum = parseFloat(formData.loanAmount) || 0;
+                                setCashAmount(newCash);
+                                setBankAmount(loanAmountNum - newCash);
+                              }}
+                              className="mt-1"
+                              placeholder="Amount from cash"
+                            />
+                            <p className="text-xs text-emerald-600 mt-2">
+                              Available: {cashbookBalance !== null ? formatCurrency(cashbookBalance) : '₹0'}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Split Summary */}
+                        {formData.loanAmount && (
+                          <div className="p-3 bg-gray-50 rounded-lg border">
+                            <div className="flex justify-between items-center text-sm">
+                              <span>Total Split:</span>
+                              <span className={bankAmount + cashAmount === parseFloat(formData.loanAmount) ? 'text-emerald-600 font-bold' : 'text-red-600 font-bold'}>
+                                {formatCurrency(bankAmount + cashAmount)}
+                                {bankAmount + cashAmount !== parseFloat(formData.loanAmount) && ' ⚠️ Does not match loan amount'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm mt-1">
+                              <span>Loan Amount:</span>
+                              <span className="font-bold">{formatCurrency(parseFloat(formData.loanAmount) || 0)}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Reference Number */}
+                        <div className="space-y-2">
+                          <Label>Reference Number (Optional)</Label>
+                          <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Reference / Cheque No." />
+                        </div>
+                      </div>
+                    ) : (
+                      /* Single Payment Mode */
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Payment Mode</Label>
+                            <Select value={formData.disbursementMode} onValueChange={(v) => handleInputChange('disbursementMode', v)}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {bankAccounts.length > 0 && <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>}
+                                <SelectItem value="CASH">Cash</SelectItem>
+                                {bankAccounts.length > 0 && <SelectItem value="CHEQUE">Cheque</SelectItem>}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Reference Number</Label>
+                            <Input value={formData.disbursementRef} onChange={(e) => handleInputChange('disbursementRef', e.target.value)} placeholder="Cheque No. / Ref" />
+                          </div>
+                        </div>
+
+                        {/* Bank Account Selection (if bank mode) */}
+                        {formData.disbursementMode !== 'CASH' && bankAccounts.length > 0 && (
+                          <div className="space-y-2">
+                            <Label>Select Bank Account for Disbursement</Label>
+                            <Select
+                              value={formData.bankAccountId || ''}
+                              onValueChange={(v) => handleInputChange('bankAccountId', v)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select bank account..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {bankAccounts.map(acc => (
+                                  <SelectItem key={acc.id} value={acc.id}>
+                                    {acc.bankName} - {acc.accountNumber}
+                                    <span className="text-gray-500 ml-1">(Bal: ₹{acc.currentBalance?.toLocaleString()})</span>
+                                    {acc.isDefault && <span className="text-amber-600 ml-1">★ Default</span>}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        )}
+
+                        {/* No bank account warning */}
+                        {formData.disbursementMode !== 'CASH' && bankAccounts.length === 0 && (
+                          <Alert className="bg-amber-50 border-amber-200">
+                            <AlertCircle className="h-4 w-4 text-amber-600" />
+                            <AlertDescription className="text-amber-700 text-sm">
+                              No bank accounts found. Add bank accounts in accounting or use Cash mode.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {/* Balance Check Warning */}
+                        {formData.loanAmount && formData.disbursementMode === 'CASH' && cashbookBalance !== null && cashbookBalance < parseFloat(formData.loanAmount) && (
+                          <Alert className="bg-red-50 border-red-200">
+                            <AlertCircle className="h-4 w-4 text-red-600" />
+                            <AlertDescription className="text-red-700 text-sm">
+                              Insufficient cash balance. Available: {formatCurrency(cashbookBalance)}, Required: {formatCurrency(parseFloat(formData.loanAmount))}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
