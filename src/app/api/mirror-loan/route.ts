@@ -58,6 +58,68 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action');
+    const loanId = searchParams.get('loanId');
+
+    // Handle direct loanId query (fetch mirror mappings for a loan)
+    if (loanId && !action) {
+      const mappings = await db.mirrorLoanMapping.findMany({
+        where: { originalLoanId: loanId },
+        include: {
+          mirrorCompany: { select: { id: true, name: true, code: true } },
+          originalCompany: { select: { id: true, name: true, code: true } },
+          mirrorLoan: {
+            include: {
+              company: { select: { id: true, name: true, code: true } }
+            }
+          }
+        }
+      });
+
+      if (mappings.length === 0) {
+        return NextResponse.json({ 
+          success: true, 
+          mirrorLoans: [],
+          message: 'No mirror loans configured for this loan'
+        });
+      }
+
+      // Format the response to match frontend expectations
+      const mirrorLoans = mappings.map(m => ({
+        id: m.id,
+        mirrorType: m.mirrorType,
+        extraEMICount: m.extraEMICount || 0,
+        leftoverAmount: m.leftoverAmount || 0,
+        mirrorInterestRate: m.mirrorInterestRate,
+        mirrorTenure: m.mirrorTenure,
+        originalTenure: m.originalTenure,
+        originalEMIAmount: m.originalEMIAmount,
+        mirrorEMIAmount: m.originalEMIAmount, // Same EMI amount
+        loanApplication: m.mirrorLoan ? {
+          id: m.mirrorLoan.id,
+          applicationNo: m.mirrorLoan.applicationNo,
+          companyId: m.mirrorLoan.companyId,
+          company: m.mirrorLoan.company
+        } : null,
+        mirrorCompany: m.mirrorCompany,
+        originalCompany: m.originalCompany,
+        mirrorEMIsPaid: m.mirrorEMIsPaid,
+        extraEMIsPaid: m.extraEMIsPaid
+      }));
+
+      return NextResponse.json({ 
+        success: true, 
+        mirrorLoans,
+        mappings: mappings.map(m => ({
+          id: m.id,
+          mirrorType: m.mirrorType,
+          extraEMICount: m.extraEMICount,
+          mirrorInterestRate: m.mirrorInterestRate,
+          mirrorTenure: m.mirrorTenure,
+          originalTenure: m.originalTenure,
+          originalEMIAmount: m.originalEMIAmount
+        }))
+      });
+    }
 
     if (action === 'mirror-companies') {
       // Get all active companies
