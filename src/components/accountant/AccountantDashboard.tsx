@@ -1151,13 +1151,23 @@ function ChartOfAccountsSection({
     }
   };
 
-  // Group accounts by type
+  // Group accounts by type - ensure all types are initialized
   const groupedAccounts = accounts.reduce((groups, account) => {
     const type = account.accountType;
     if (!groups[type]) groups[type] = [];
     groups[type].push(account);
     return groups;
   }, {} as Record<string, ChartOfAccount[]>);
+
+  // Debug: Log grouped accounts to see what's happening
+  useEffect(() => {
+    if (accounts.length > 0) {
+      console.log('[ChartOfAccounts] Total accounts:', accounts.length);
+      console.log('[ChartOfAccounts] Grouped:', Object.keys(groupedAccounts).map(type => 
+        `${type}: ${groupedAccounts[type]?.length || 0}`
+      ).join(', '));
+    }
+  }, [accounts, groupedAccounts]);
 
   const accountTypeOrder = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
   const accountTypeLabels: Record<string, string> = {
@@ -1183,6 +1193,27 @@ function ChartOfAccountsSection({
     return (groupedAccounts[type] || []).reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
   };
 
+  // Recalculate all account balances
+  const handleRecalculateBalances = async () => {
+    if (!selectedCompanyId) return;
+    try {
+      const res = await fetch('/api/accounting/recalculate-balances', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompanyId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(data.message || 'Balances recalculated');
+        loadAccounts();
+      } else {
+        toast.error('Failed to recalculate balances');
+      }
+    } catch (error) {
+      toast.error('Failed to recalculate balances');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1191,6 +1222,10 @@ function ChartOfAccountsSection({
           Chart of Accounts
         </h2>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={handleRecalculateBalances}>
+            <Zap className="h-4 w-4 mr-2" />
+            Recalculate
+          </Button>
           <Button variant="outline" size="sm" onClick={loadAccounts}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
