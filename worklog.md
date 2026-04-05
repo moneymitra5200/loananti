@@ -423,3 +423,123 @@ Stage Summary:
   - No banks: Shows warning, disables bank amount input
   - Single bank: Auto-selects the only bank, shows info message
   - Multiple banks: Shows dropdown selector for user to choose
+
+---
+Task ID: 8
+Agent: Main Agent
+Task: Complete Accounting System Check and Push to Git
+
+Work Log:
+- Fixed build error in `/api/accounting/add-equity/route.ts`: Added `createdById` field to bank transaction creation
+- Verified dashboard section filtering works correctly:
+  - Company 3 (isMirrorCompany=false): Shows ONLY Day Book and Cash Book
+  - Company 1/2 (isMirrorCompany=true): Shows all 7 sections
+- Verified offline loan creation flow:
+  - Mirror loans can only be created from Company 3
+  - Money is disbursed from mirror company's bank account
+  - Both original and mirror loans are created with proper EMI schedules
+- Verified EMI payment accounting:
+  - Regular EMI (within mirror tenure): Mirror interest recorded in mirror company's cashbook
+  - Extra EMI (after mirror tenure): Full amount recorded as profit in Company 3's cashbook
+  - Journal entries created for double-entry bookkeeping
+- Verified equity flow:
+  - Cash equity: Added to Cash in Hand account
+  - Bank equity: Added to selected bank account with bank transaction record
+  - Double-entry maintained: Debit Cash/Bank, Credit Owner's Capital
+- Build passed successfully
+- Committed and pushed to main branch
+
+Stage Summary:
+- All accounting flows verified and working correctly
+- Dashboard sections properly filtered by company type
+- Equity dialog handles bank account selection for all scenarios
+- Mirror loan logic correct: Company 3 creates, Company 1/2 disburses
+- EMI payment accounting: Real EMI → Mirror company interest, Extra EMI → Company 3 profit
+- Build passes without errors
+- All changes saved to git and pushed to main
+
+## COMPLETE BUSINESS FLOW EXAMPLE
+
+### Step 1: Initial Setup (One-time)
+1. **Create Companies**
+   - Company 1 (C1): Mirror Company - 15% Reducing Rate
+   - Company 2 (C2): Mirror Company - 24% Reducing Rate  
+   - Company 3 (C3): Original Company - Uses Cash Book only
+   - Set `isMirrorCompany = true` for C1 and C2, `isMirrorCompany = false` for C3
+
+2. **Add Equity (Starting Capital)**
+   - Login as ACCOUNTANT for Company 1
+   - Go to Bank section → Click "Add Equity"
+   - Enter: Cash ₹5,000 + Bank ₹5,000 = Total ₹10,000
+   - This records:
+     - Debit: Cash in Hand ₹5,000
+     - Debit: Bank Account ₹5,000
+     - Credit: Owner's Capital ₹10,000
+   - Repeat for Company 2 and Company 3 (only cash for C3)
+
+### Step 2: Create Mirror Loan (C3 → C1)
+1. **Login as STAFF in Company 3**
+2. **Create Offline Loan:**
+   - Customer: John Doe
+   - Loan Amount: ₹1,00,000
+   - Interest Rate: 24% FLAT (C3 rate)
+   - Tenure: 12 months
+   - EMI: ~₹10,000/month
+   - Enable Mirror Loan: YES
+   - Select Mirror Company: Company 1 (15% Reducing)
+
+3. **What Happens Automatically:**
+   - Original Loan created in Company 3 (12 EMIs)
+   - Mirror Loan created in Company 1 (fewer EMIs due to lower rate)
+   - Money (₹1,00,000) deducted from Company 1's bank account
+   - Bank transaction recorded: DEBIT ₹1,00,000 for "Mirror Loan Disbursement"
+   - MirrorLoanMapping created linking original and mirror loans
+
+### Step 3: Customer Pays EMI (Regular)
+1. **EMI #1 Due:**
+   - Original EMI: ₹10,000 (Principal + Interest at 24%)
+   - Mirror EMI: Same ₹10,000 but calculated at 15%
+
+2. **Customer Pays ₹10,000 via CASH:**
+   - Original EMI marked as PAID in Company 3
+   - Mirror EMI automatically synced as PAID in Company 1
+   - Company 1 CashBook: +Mirror Interest (e.g., ₹1,125)
+   - Journal Entry created:
+     - Debit: Cash in Hand ₹1,125
+     - Credit: Interest Income ₹1,125
+
+3. **Continue for EMIs within Mirror Tenure:**
+   - Each EMI syncs to mirror loan
+   - Mirror interest recorded in Company 1's cashbook
+
+### Step 4: Extra EMI (After Mirror Tenure)
+1. **When Mirror Loan Completes (say at EMI #10):**
+   - Mirror loan marked as COMPLETED
+   - Original loan still has 2 EMIs remaining
+
+2. **Customer Pays EMI #11 (Extra EMI):**
+   - Full ₹10,000 is PURE PROFIT for Company 3
+   - Recorded in Company 3's CashBook:
+     - Entry: EXTRA EMI PROFIT - ₹10,000
+   - No mirror entry needed
+
+### Step 5: View Accounting Reports
+1. **Company 1 Dashboard (Mirror Company):**
+   - Day Book: Shows all journal entries
+   - Bank Section: Shows bank balance and transactions
+   - Cash Book: Shows mirror interest income
+   
+2. **Company 3 Dashboard (Original Company):**
+   - Day Book: Shows loan disbursement and EMI entries
+   - Cash Book: Shows EMI collections and extra EMI profit
+   - NO Bank Section (cash only)
+
+### Key Accounting Rules Summary:
+
+| Transaction | Company 1/2 (Mirror) | Company 3 (Original) |
+|-------------|---------------------|---------------------|
+| Equity Added | Debit Bank/Cash, Credit Capital | Debit Cash, Credit Capital |
+| Loan Created | No entry (money source) | No entry (virtual) |
+| Disbursement | Credit Bank (money out) | No entry |
+| Regular EMI | Debit Cash (interest), Credit Interest Income | Debit Cash (full), Credit Loan+Interest |
+| Extra EMI | No entry | Debit Cash (full), Credit Profit |
