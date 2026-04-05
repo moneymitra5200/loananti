@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Building2, Percent, Calculator, RefreshCw, Save, Loader2 } from 'lucide-react';
+import { Building2, Percent, Calculator, RefreshCw, Save, Loader2, Landmark, Wallet } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
 interface Company {
@@ -25,6 +25,7 @@ interface Company {
   maxLoanAmount?: number;
   minLoanAmount?: number;
   maxTenureMonths?: number;
+  isMirrorCompany?: boolean; // true = Company 1/2 (has bank), false = Company 3 (cash only)
 }
 
 interface CompanyEditDialogProps {
@@ -50,7 +51,8 @@ export default function CompanyEditDialog({
     mirrorInterestType: 'REDUCING',
     maxLoanAmount: 10000000,
     minLoanAmount: 10000,
-    maxTenureMonths: 60
+    maxTenureMonths: 60,
+    isMirrorCompany: true, // Default to mirror company (Company 1/2)
   });
 
   useEffect(() => {
@@ -64,7 +66,8 @@ export default function CompanyEditDialog({
         mirrorInterestType: company.mirrorInterestType ?? 'REDUCING',
         maxLoanAmount: company.maxLoanAmount ?? 10000000,
         minLoanAmount: company.minLoanAmount ?? 10000,
-        maxTenureMonths: company.maxTenureMonths ?? 60
+        maxTenureMonths: company.maxTenureMonths ?? 60,
+        isMirrorCompany: company.isMirrorCompany ?? true,
       });
     }
   }, [company]);
@@ -116,6 +119,55 @@ export default function CompanyEditDialog({
         </DialogHeader>
 
         <div className="space-y-6">
+          {/* Company Type Settings */}
+          <Card className="border-teal-200 bg-teal-50/50">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="font-semibold text-teal-800 flex items-center gap-2">
+                  <Landmark className="h-4 w-4" />
+                  Company Type
+                </h4>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-teal-200">
+                <div className="flex items-center gap-3">
+                  {formData.isMirrorCompany ? (
+                    <Landmark className="h-5 w-5 text-blue-600" />
+                  ) : (
+                    <Wallet className="h-5 w-5 text-green-600" />
+                  )}
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {formData.isMirrorCompany ? 'Mirror Company (Company 1/2)' : 'Original Company (Company 3)'}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {formData.isMirrorCompany 
+                        ? 'Has bank accounts - shows Bank section, Day Book, Cash Book, and all accounting sections'
+                        : 'Cash only - shows ONLY Day Book and Cash Book (no Bank section)'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="isMirrorCompany"
+                    checked={formData.isMirrorCompany}
+                    onCheckedChange={(checked) => setFormData({ ...formData, isMirrorCompany: checked })}
+                  />
+                  <Label htmlFor="isMirrorCompany" className="text-sm font-medium text-teal-700">
+                    {formData.isMirrorCompany ? 'Mirror' : 'Original'}
+                  </Label>
+                </div>
+              </div>
+              <div className="mt-3 p-3 bg-white rounded-lg border border-teal-200">
+                <p className="text-sm text-teal-700">
+                  <strong>Mirror Company (Company 1 & 2):</strong> Operational companies with bank accounts. Shows full accounting dashboard including Bank, Chart of Accounts, Trial Balance, etc.
+                </p>
+                <p className="text-sm text-green-700 mt-1">
+                  <strong>Original Company (Company 3):</strong> Profit center with cash book only. Shows ONLY Day Book and Cash Book - no bank section.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Interest Settings */}
           <Card className="border-blue-200 bg-blue-50/50">
             <CardContent className="p-4">

@@ -165,6 +165,9 @@ model Company {
   enableMirrorLoan    Boolean           @default(false)
   mirrorInterestRate  Float?            // Custom rate for mirror loan (null = use default)
   mirrorInterestType  String            @default("REDUCING") // FLAT or REDUCING for mirror
+  // Company Type - Mirror Company (Company 1 & 2) vs Original Company (Company 3)
+  // Mirror companies have bank accounts, Original company only has cash book
+  isMirrorCompany     Boolean           @default(true) // true = Company 1/2, false = Company 3
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
   deletedAt           DateTime?

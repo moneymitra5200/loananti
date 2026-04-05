@@ -19,6 +19,7 @@ interface Company {
   name: string;
   code: string;
   isActive: boolean;
+  isMirrorCompany?: boolean; // true = Company 1/2, false = Company 3
   bankAccounts?: BankAccount[];
 }
 

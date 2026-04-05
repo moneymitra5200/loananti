@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
         createdAt: true,
         contactEmail: true,
         contactPhone: true,
+        isMirrorCompany: true,
       }
     });
 

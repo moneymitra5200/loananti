@@ -354,3 +354,42 @@ Stage Summary:
 2. **AuthContext** → Stores user object with credit
 3. **DashboardLayout** → Displays credit from user object OR fetches via `/api/credit?userId=X&action=summary`
 4. **After Payment** → Credit updated in database, refreshUser() fetches fresh data
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Fix Company Dashboard Section Visibility - Add isMirrorCompany Field
+
+Work Log:
+- Identified issue: Dashboard sections not properly filtered by company type
+- Company 1 & 2 should show: Bank, Day Book, Cash Book, Chart of Accounts, Trial Balance, Profit & Loss, Balance Sheet
+- Company 3 should show: ONLY Day Book and Cash Book (no Bank section)
+- Added `isMirrorCompany` field to Company model in Prisma schema:
+  - `isMirrorCompany: Boolean @default(true)` - true = Company 1/2 (has bank), false = Company 3 (cash only)
+- Pushed schema changes to MySQL database
+- Updated Company API (`/api/company/route.ts`) to include `isMirrorCompany` field
+- Updated AccountantDashboard.tsx:
+  - Added `isMirrorCompany` to Company interface
+  - Updated `getCompanyType` function to use `isMirrorCompany` field
+  - Falls back to code-based detection if `isMirrorCompany` not available
+- Updated CompanySelector.tsx to include `isMirrorCompany` in interface
+- Added Company Type toggle to CompanyEditDialog.tsx:
+  - Added Switch to toggle between Mirror Company and Original Company
+  - Shows description: "Mirror Company - Has bank accounts" vs "Original Company - Cash only"
+  - Updated form state to include `isMirrorCompany`
+- Regenerated Prisma client
+- Verified lint passes without errors
+
+Stage Summary:
+- Company 1 & 2 (isMirrorCompany = true): Shows full accounting dashboard with Bank section
+- Company 3 (isMirrorCompany = false): Shows ONLY Day Book and Cash Book
+- Super Admin can now set company type via Company Edit Dialog
+- All company dashboard sections properly filtered based on company type
+- Database schema updated with new `isMirrorCompany` field
+
+### Files Modified:
+1. `prisma/schema.prisma` - Added `isMirrorCompany` field to Company model
+2. `src/app/api/company/route.ts` - Include `isMirrorCompany` in select
+3. `src/components/accountant/AccountantDashboard.tsx` - Updated company type detection
+4. `src/components/accountant/CompanySelector.tsx` - Added `isMirrorCompany` to interface
+5. `src/components/admin/dialogs/CompanyEditDialog.tsx` - Added Company Type toggle

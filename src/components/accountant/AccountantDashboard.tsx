@@ -35,6 +35,7 @@ interface Company {
   id: string;
   name: string;
   code: string;
+  isMirrorCompany?: boolean; // true = Company 1/2 (has bank), false = Company 3 (cash only)
 }
 
 interface ChartOfAccount {
@@ -120,14 +121,20 @@ const formatDateShort = (date: Date | string) => {
   return format(new Date(date), 'dd/MM/yyyy');
 };
 
-// Company type detection
-const getCompanyType = (code: string): 'COMPANY_1_2' | 'COMPANY_3' => {
-  const upperCode = code?.toUpperCase() || '';
-  // Company 3 is the original/profit center
+// Company type detection - uses isMirrorCompany field from database
+// Mirror companies (Company 1 & 2) have bank accounts
+// Original company (Company 3) has only cash book
+const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_3' => {
+  if (!company) return 'COMPANY_1_2';
+  // Use isMirrorCompany field if available
+  if (company.isMirrorCompany !== undefined) {
+    return company.isMirrorCompany ? 'COMPANY_1_2' : 'COMPANY_3';
+  }
+  // Fallback to code-based detection
+  const upperCode = company.code?.toUpperCase() || '';
   if (upperCode.includes('3') || upperCode === 'C3' || upperCode === 'COMPANY3' || upperCode === 'COMPANY_3') {
     return 'COMPANY_3';
   }
-  // Company 1 and 2 are mirror companies (operational)
   return 'COMPANY_1_2';
 };
 
@@ -982,7 +989,7 @@ export default function UnifiedAccountantDashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const selectedCompany = companies.find(c => c.id === selectedCompanyId);
-  const companyType = selectedCompany ? getCompanyType(selectedCompany.code) : 'COMPANY_1_2';
+  const companyType = getCompanyType(selectedCompany);
 
   // Fetch Companies
   useEffect(() => {
