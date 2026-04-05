@@ -20,7 +20,7 @@ interface UserForm {
   role: string;
   companyId: string;
   agentId: string;
-  // Extended company fields
+  // Extended company fields - all optional for flexibility
   code?: string;
   address?: string;
   city?: string;
@@ -36,7 +36,7 @@ interface UserForm {
   ownerAadhaar?: string;
   logoUrl?: string;
   isMirrorCompany?: boolean;
-  mirrorInterestRate?: number;
+  mirrorInterestRate?: number | undefined;
   mirrorInterestType?: string;
   accountingType?: string;
   defaultInterestRate?: number;
@@ -53,7 +53,7 @@ interface UserDialogsProps {
   showUserDialog: boolean;
   setShowUserDialog: (show: boolean) => void;
   userForm: UserForm;
-  setUserForm: (form: UserForm) => void;
+  setUserForm: React.Dispatch<React.SetStateAction<UserForm>>;
   savingUser: boolean;
   handleCreateUser: () => void;
   agents: Agent[];

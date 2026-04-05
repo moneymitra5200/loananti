@@ -114,12 +114,20 @@ export default function SuperAdminDashboard() {
   const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
-  const [userForm, setUserForm] = useState({
+  
+  // User form state with proper typing for optional fields
+  interface UserFormState {
+    name: string; email: string; phone: string; password: string; role: string; companyId: string; agentId: string;
+    code?: string; address?: string; city?: string; state?: string; pincode?: string; gstNumber?: string; panNumber?: string; website?: string;
+    ownerName?: string; ownerPhone?: string; ownerEmail?: string; ownerPan?: string; ownerAadhaar?: string; logoUrl?: string;
+    isMirrorCompany?: boolean; mirrorInterestRate?: number; mirrorInterestType?: string;
+    accountingType?: string; defaultInterestRate?: number; defaultInterestType?: string;
+  }
+  const [userForm, setUserForm] = useState<UserFormState>({
     name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '',
-    // Extended company fields
     code: '', address: '', city: '', state: '', pincode: '', gstNumber: '', panNumber: '', website: '',
     ownerName: '', ownerPhone: '', ownerEmail: '', ownerPan: '', ownerAadhaar: '', logoUrl: '',
-    isMirrorCompany: true, mirrorInterestRate: undefined as number | undefined, mirrorInterestType: 'REDUCING',
+    isMirrorCompany: true, mirrorInterestRate: undefined, mirrorInterestType: 'REDUCING',
     accountingType: 'FULL', defaultInterestRate: 12, defaultInterestType: 'FLAT'
   });
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | 'send_back'>('approve');
