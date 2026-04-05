@@ -1102,7 +1102,6 @@ export async function POST(request: NextRequest) {
     // ============================================
     // DISBURSEMENT - Handle split payment or single payment
     // ============================================
-    let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
     let cashbookResult: { success: boolean; cashBookId: string; newBalance: number } | null = null;
 
     try {
@@ -1278,10 +1277,12 @@ export async function POST(request: NextRequest) {
       success: true,
       loan,
       emiCount: isInterestOnlyLoan ? 1 : tenure, // Interest Only loans have 1 EMI initially
-      bankTransaction: bankTransactionResult ? {
-        id: bankTransactionResult.bankTransactionId,
-        balanceAfter: bankTransactionResult.balanceAfter
-      } : null,
+      disbursement: {
+        useSplitPayment,
+        bankAmount: useSplitPayment ? bankAmount : (disbursementMode !== 'CASH' ? loanAmount : 0),
+        cashAmount: useSplitPayment ? cashAmount : (disbursementMode === 'CASH' ? loanAmount : 0),
+        cashbookBalance: cashbookResult?.newBalance,
+      },
       mirrorLoan: mirrorLoanResult
     });
   } catch (error) {
