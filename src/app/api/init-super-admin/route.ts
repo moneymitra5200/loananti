@@ -2,35 +2,64 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import * as bcrypt from 'bcryptjs';
 
-// PERMANENT SUPER ADMIN CREDENTIALS
-const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@test.com';
-const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
+// PERMANENT SUPER ADMIN CREDENTIALS - DO NOT CHANGE THESE
+const PERMANENT_SUPER_ADMIN = {
+  email: 'moneymitra@gmail.com',
+  password: '1122334455',
+  name: 'Money Mitra Admin',
+  firebaseUid: 'super-admin-permanent-moneymitra'
+};
 
 export async function GET() {
   try {
-    const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 10);
+    console.log('[Init Super Admin] Starting initialization...');
     
-    const admin = await db.user.upsert({
-      where: { email: PERMANENT_SUPER_ADMIN_EMAIL },
-      update: {
-        password: hashedPassword,
-        plainPassword: PERMANENT_SUPER_ADMIN_PASSWORD,
-        isActive: true,
-        isLocked: false,
-        role: 'SUPER_ADMIN',
-        name: 'Money Mitra Admin'
-      },
-      create: {
-        email: PERMANENT_SUPER_ADMIN_EMAIL,
-        password: hashedPassword,
-        plainPassword: PERMANENT_SUPER_ADMIN_PASSWORD,
-        name: 'Money Mitra Admin',
-        firebaseUid: `super-admin-${Date.now()}`,
-        role: 'SUPER_ADMIN',
-        isActive: true,
-        isLocked: false
-      }
+    const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN.password, 10);
+    
+    // Check if super admin exists
+    const existingAdmin = await db.user.findUnique({
+      where: { email: PERMANENT_SUPER_ADMIN.email }
     });
+
+    let admin;
+    
+    if (existingAdmin) {
+      // Update existing admin
+      console.log('[Init Super Admin] Updating existing admin...');
+      admin = await db.user.update({
+        where: { email: PERMANENT_SUPER_ADMIN.email },
+        data: {
+          password: hashedPassword,
+          plainPassword: PERMANENT_SUPER_ADMIN.password,
+          isActive: true,
+          isLocked: false,
+          role: 'SUPER_ADMIN',
+          name: PERMANENT_SUPER_ADMIN.name,
+          firebaseUid: PERMANENT_SUPER_ADMIN.firebaseUid,
+          failedLoginAttempts: 0,
+          lastLoginAt: new Date()
+        }
+      });
+    } else {
+      // Create new admin
+      console.log('[Init Super Admin] Creating new admin...');
+      admin = await db.user.create({
+        data: {
+          email: PERMANENT_SUPER_ADMIN.email,
+          password: hashedPassword,
+          plainPassword: PERMANENT_SUPER_ADMIN.password,
+          name: PERMANENT_SUPER_ADMIN.name,
+          firebaseUid: PERMANENT_SUPER_ADMIN.firebaseUid,
+          role: 'SUPER_ADMIN',
+          isActive: true,
+          isLocked: false,
+          failedLoginAttempts: 0,
+          lastLoginAt: new Date()
+        }
+      });
+    }
+
+    console.log('[Init Super Admin] Success:', admin.email);
 
     return NextResponse.json({
       success: true,
@@ -44,7 +73,7 @@ export async function GET() {
       }
     });
   } catch (error) {
-    console.error('Error initializing super admin:', error);
+    console.error('[Init Super Admin] Error:', error);
     return NextResponse.json({
       success: false,
       error: 'Failed to initialize super admin',
