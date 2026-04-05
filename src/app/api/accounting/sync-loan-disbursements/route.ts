@@ -62,8 +62,6 @@ export async function GET(request: NextRequest) {
         const accountingService = new AccountingService(loan.companyId);
         await accountingService.initializeChartOfAccounts();
 
-        // Determine if this is a mirror loan
-        const isMirrorLoan = loan.isMirrorLoan;
         const targetCompanyId = loan.companyId;
 
         if (!dryRun) {
@@ -72,7 +70,6 @@ export async function GET(request: NextRequest) {
           // Credit: Cash in Hand (Asset)
           
           const entryNumber = await accountingService.generateEntryNumber();
-          const financialYearId = await accountingService.getCurrentFinancialYear();
 
           // Get account IDs
           const loansReceivableAccount = await db.chartOfAccount.findFirst({
@@ -87,100 +84,52 @@ export async function GET(request: NextRequest) {
             continue;
           }
 
-          await db.$transaction(async (tx) => {
-            // Create journal entry
-            const journalEntry = await tx.journalEntry.create({
-              data: {
-                companyId: targetCompanyId,
-                entryNumber,
-                entryDate: loan.disbursementDate || loan.startDate,
-                referenceType: 'LOAN_DISBURSEMENT',
-                referenceId: loan.id,
-                narration: `Loan Disbursement - ${loan.loanNumber} - ${loan.customerName}`,
-                totalDebit: loan.loanAmount,
-                totalCredit: loan.loanAmount,
-                isAutoEntry: true,
-                isApproved: true,
-                createdById: loan.createdById || 'system-sync'
-              }
-            });
-
-            // Create journal entry lines
-            // Debit: Loans Receivable
-            await tx.journalEntryLine.create({
-              data: {
-                journalEntryId: journalEntry.id,
-                accountId: loansReceivableAccount.id,
-                debitAmount: loan.loanAmount,
-                creditAmount: 0,
-                loanId: loan.id,
-                narration: 'Loan principal disbursed'
-              }
-            });
-
-            // Credit: Cash in Hand
-            await tx.journalEntryLine.create({
-              data: {
-                journalEntryId: journalEntry.id,
-                accountId: cashInHandAccount.id,
-                debitAmount: 0,
-                creditAmount: loan.loanAmount,
-                narration: 'Cash paid out for loan'
-              }
-            });
-
-            // Update account balances
-            // Loans Receivable: Debit increases balance (it's an asset)
-            await tx.chartOfAccount.update({
-              where: { id: loansReceivableAccount.id },
-              data: {
-                currentBalance: loansReceivableAccount.currentBalance + loan.loanAmount
-              }
-            });
-
-            // Cash in Hand: Credit decreases balance (it's an asset)
-            await tx.chartOfAccount.update({
-              where: { id: cashInHandAccount.id },
-              data: {
-                currentBalance: cashInHandAccount.currentBalance - loan.loanAmount
-              }
-            });
-
-            // Update ledger balances
-            for (const { accountId, debit, credit, balanceChange } of [
-              { accountId: loansReceivableAccount.id, debit: loan.loanAmount, credit: 0, balanceChange: loan.loanAmount },
-              { accountId: cashInHandAccount.id, debit: 0, credit: loan.loanAmount, balanceChange: -loan.loanAmount }
-            ]) {
-              const ledgerBalance = await tx.ledgerBalance.findUnique({
-                where: {
-                  accountId_financialYearId: {
-                    accountId,
-                    financialYearId
+          // Create journal entry without ledger balance updates (simpler approach)
+          const journalEntry = await db.journalEntry.create({
+            data: {
+              companyId: targetCompanyId,
+              entryNumber,
+              entryDate: loan.disbursementDate || loan.startDate,
+              referenceType: 'LOAN_DISBURSEMENT',
+              referenceId: loan.id,
+              narration: `Loan Disbursement - ${loan.loanNumber} - ${loan.customerName}`,
+              totalDebit: loan.loanAmount,
+              totalCredit: loan.loanAmount,
+              isAutoEntry: true,
+              isApproved: true,
+              createdById: loan.createdById || 'system-sync',
+              lines: {
+                create: [
+                  {
+                    accountId: loansReceivableAccount.id,
+                    debitAmount: loan.loanAmount,
+                    creditAmount: 0,
+                    loanId: loan.id,
+                    narration: 'Loan principal disbursed'
+                  },
+                  {
+                    accountId: cashInHandAccount.id,
+                    debitAmount: 0,
+                    creditAmount: loan.loanAmount,
+                    narration: 'Cash paid out for loan'
                   }
-                }
-              });
-
-              if (ledgerBalance) {
-                await tx.ledgerBalance.update({
-                  where: { id: ledgerBalance.id },
-                  data: {
-                    totalDebits: ledgerBalance.totalDebits + debit,
-                    totalCredits: ledgerBalance.totalCredits + credit,
-                    closingBalance: ledgerBalance.closingBalance + balanceChange
-                  }
-                });
-              } else {
-                await tx.ledgerBalance.create({
-                  data: {
-                    accountId,
-                    financialYearId,
-                    openingBalance: 0,
-                    totalDebits: debit,
-                    totalCredits: credit,
-                    closingBalance: balanceChange
-                  }
-                });
+                ]
               }
+            }
+          });
+
+          // Update account balances separately
+          await db.chartOfAccount.update({
+            where: { id: loansReceivableAccount.id },
+            data: {
+              currentBalance: loansReceivableAccount.currentBalance + loan.loanAmount
+            }
+          });
+
+          await db.chartOfAccount.update({
+            where: { id: cashInHandAccount.id },
+            data: {
+              currentBalance: cashInHandAccount.currentBalance - loan.loanAmount
             }
           });
 
@@ -192,6 +141,8 @@ export async function GET(request: NextRequest) {
             company: loan.company?.name,
             status: 'FIXED'
           });
+
+          console.log(`[Sync] Fixed loan ${loan.loanNumber} - Loans Receivable: +${loan.loanAmount}`);
         } else {
           results.details.push({
             loanId: loan.id,
@@ -244,7 +195,6 @@ export async function GET(request: NextRequest) {
           await accountingService.initializeChartOfAccounts();
 
           const entryNumber = await accountingService.generateEntryNumber();
-          const financialYearId = await accountingService.getCurrentFinancialYear();
 
           const loansReceivableAccount = await db.chartOfAccount.findFirst({
             where: { companyId: mapping.mirrorCompanyId, accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE }
@@ -258,53 +208,49 @@ export async function GET(request: NextRequest) {
             continue;
           }
 
-          await db.$transaction(async (tx) => {
-            const journalEntry = await tx.journalEntry.create({
-              data: {
-                companyId: mapping.mirrorCompanyId,
-                entryNumber,
-                entryDate: mirrorLoan.disbursementDate || mirrorLoan.startDate,
-                referenceType: 'LOAN_DISBURSEMENT',
-                referenceId: mirrorLoan.id,
-                narration: `Mirror Loan Disbursement - ${mirrorLoan.loanNumber}`,
-                totalDebit: mirrorLoan.loanAmount,
-                totalCredit: mirrorLoan.loanAmount,
-                isAutoEntry: true,
-                isApproved: true,
-                createdById: mirrorLoan.createdById || 'system-sync'
+          // Create journal entry
+          const journalEntry = await db.journalEntry.create({
+            data: {
+              companyId: mapping.mirrorCompanyId,
+              entryNumber,
+              entryDate: mirrorLoan.disbursementDate || mirrorLoan.startDate,
+              referenceType: 'LOAN_DISBURSEMENT',
+              referenceId: mirrorLoan.id,
+              narration: `Mirror Loan Disbursement - ${mirrorLoan.loanNumber}`,
+              totalDebit: mirrorLoan.loanAmount,
+              totalCredit: mirrorLoan.loanAmount,
+              isAutoEntry: true,
+              isApproved: true,
+              createdById: mirrorLoan.createdById || 'system-sync',
+              lines: {
+                create: [
+                  {
+                    accountId: loansReceivableAccount.id,
+                    debitAmount: mirrorLoan.loanAmount,
+                    creditAmount: 0,
+                    loanId: mirrorLoan.id,
+                    narration: 'Mirror loan principal disbursed'
+                  },
+                  {
+                    accountId: cashInHandAccount.id,
+                    debitAmount: 0,
+                    creditAmount: mirrorLoan.loanAmount,
+                    narration: 'Cash paid for mirror loan'
+                  }
+                ]
               }
-            });
+            }
+          });
 
-            await tx.journalEntryLine.create({
-              data: {
-                journalEntryId: journalEntry.id,
-                accountId: loansReceivableAccount.id,
-                debitAmount: mirrorLoan.loanAmount,
-                creditAmount: 0,
-                loanId: mirrorLoan.id,
-                narration: 'Mirror loan principal disbursed'
-              }
-            });
+          // Update account balances
+          await db.chartOfAccount.update({
+            where: { id: loansReceivableAccount.id },
+            data: { currentBalance: loansReceivableAccount.currentBalance + mirrorLoan.loanAmount }
+          });
 
-            await tx.journalEntryLine.create({
-              data: {
-                journalEntryId: journalEntry.id,
-                accountId: cashInHandAccount.id,
-                debitAmount: 0,
-                creditAmount: mirrorLoan.loanAmount,
-                narration: 'Cash paid for mirror loan'
-              }
-            });
-
-            await tx.chartOfAccount.update({
-              where: { id: loansReceivableAccount.id },
-              data: { currentBalance: loansReceivableAccount.currentBalance + mirrorLoan.loanAmount }
-            });
-
-            await tx.chartOfAccount.update({
-              where: { id: cashInHandAccount.id },
-              data: { currentBalance: cashInHandAccount.currentBalance - mirrorLoan.loanAmount }
-            });
+          await db.chartOfAccount.update({
+            where: { id: cashInHandAccount.id },
+            data: { currentBalance: cashInHandAccount.currentBalance - mirrorLoan.loanAmount }
           });
 
           results.fixed++;
@@ -315,10 +261,13 @@ export async function GET(request: NextRequest) {
             company: mapping.mirrorCompany?.name,
             status: 'FIXED (mirror loan)'
           });
+
+          console.log(`[Sync] Fixed MIRROR loan ${mirrorLoan.loanNumber} - Loans Receivable: +${mirrorLoan.loanAmount}`);
         }
       } catch (error) {
         const errorMsg = `Failed to sync mirror loan: ${error instanceof Error ? error.message : 'Unknown error'}`;
         results.errors.push(errorMsg);
+        console.error(errorMsg);
       }
     }
 

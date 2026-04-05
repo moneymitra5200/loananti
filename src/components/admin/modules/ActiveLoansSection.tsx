@@ -3,7 +3,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,8 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { format, addDays } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
+import MirrorLoanPairView from '@/components/loan/MirrorLoanPairView';
 
 interface ActiveLoan {
   id: string;
@@ -148,6 +150,40 @@ export function ActiveLoansSection({
   // Mirror Loan State
   const [mirrorLoanData, setMirrorLoanData] = useState<any>(null);
   const [loadingMirror, setLoadingMirror] = useState(false);
+
+  // Mirror Mappings State for parallel view
+  const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+  const [mirrorLoans, setMirrorLoans] = useState<Record<string, ActiveLoan>>({});
+  const [expandedPairLoans, setExpandedPairLoans] = useState<Set<string>>(new Set());
+
+  // Fetch all mirror mappings on mount
+  useEffect(() => {
+    const fetchMirrorMappings = async () => {
+      try {
+        const res = await fetch('/api/mirror-loan?action=all-mappings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.mappings) {
+            const mappingMap: Record<string, any> = {};
+            const mirrorLoanIds: string[] = [];
+
+            for (const mapping of data.mappings) {
+              mappingMap[mapping.originalLoanId] = mapping;
+              if (mapping.mirrorLoanId) {
+                mappingMap[mapping.mirrorLoanId] = mapping;
+                mirrorLoanIds.push(mapping.mirrorLoanId);
+              }
+            }
+            setMirrorMappings(mappingMap);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch mirror mappings:', error);
+      }
+    };
+
+    fetchMirrorMappings();
+  }, [onRefresh]);
 
   // EMI Settings State
   const [emiSettings, setEmiSettings] = useState<{[key: string]: {
@@ -301,8 +337,42 @@ export function ActiveLoansSection({
   };
 
   const filteredLoans = loans.filter(loan => {
-    if (filter === 'all') return true;
-    return loan.loanType === filter.toUpperCase();
+    if (filter !== 'all' && loan.loanType !== filter.toUpperCase()) return false;
+    // If this loan is a mirror loan, don't show it separately (will be shown with original)
+    const mapping = mirrorMappings[loan.id];
+    const isMirror = mapping?.mirrorLoanId === loan.id;
+    return !isMirror;
+  });
+
+  // Toggle expanded state for pair loans
+  const togglePairExpanded = (loanId: string) => {
+    setExpandedPairLoans(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(loanId)) {
+        newSet.delete(loanId);
+      } else {
+        newSet.add(loanId);
+      }
+      return newSet;
+    });
+  };
+
+  // Convert ActiveLoan to format expected by MirrorLoanPairView
+  const convertToLoanData = (loan: ActiveLoan) => ({
+    id: loan.id,
+    identifier: loan.identifier,
+    customer: loan.customer,
+    approvedAmount: loan.approvedAmount,
+    interestRate: loan.interestRate,
+    tenure: loan.tenure,
+    emiAmount: loan.emiAmount,
+    status: loan.status,
+    loanType: loan.loanType,
+    disbursementDate: loan.disbursementDate,
+    createdAt: loan.createdAt,
+    company: loan.company,
+    nextEmi: loan.nextEmi,
+    emiSchedules: loan.emiSchedules
   });
 
   const handlePayEmi = (loan: ActiveLoan, emi?: any) => {
@@ -582,6 +652,37 @@ export function ActiveLoansSection({
                 const bgColor = isOnline ? 'bg-blue-50 border-blue-100' : 'bg-purple-50 border-purple-100';
                 const gradientColors = isOnline ? 'from-blue-400 to-cyan-500' : 'from-purple-400 to-pink-500';
                 const isExpanded = expandedLoan === loan.id;
+
+                // Check if this loan has a mirror mapping
+                const mapping = mirrorMappings[loan.id];
+                const isMirrorPair = !!mapping;
+
+                // If this is a mirror pair, render with parallel view
+                if (isMirrorPair) {
+                  return (
+                    <MirrorLoanPairView
+                      key={`${loan.loanType}-${loan.id}`}
+                      originalLoan={convertToLoanData(loan)}
+                      mirrorLoan={null} // Mirror loan data would need to be fetched separately
+                      mirrorMapping={{
+                        displayColor: mapping.displayColor,
+                        extraEMICount: mapping.extraEMICount,
+                        mirrorInterestRate: mapping.mirrorInterestRate,
+                        mirrorTenure: mapping.mirrorTenure,
+                        mirrorEMIsPaid: mapping.mirrorEMIsPaid,
+                        extraEMIsPaid: mapping.extraEMIsPaid
+                      }}
+                      onViewOriginal={() => onView(loan)}
+                      onViewMirror={() => onView(loan)}
+                      onPayEmi={(l) => handlePayEmi(loan)}
+                      userRole={userRole}
+                      isExpanded={expandedPairLoans.has(loan.id)}
+                      onToggleExpand={() => togglePairExpanded(loan.id)}
+                    />
+                  );
+                }
+
+                // Regular loan card for non-mirrored loans
 
                 return (
                   <motion.div
