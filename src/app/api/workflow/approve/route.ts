@@ -4,6 +4,7 @@ import { LoanStatus, LoanType } from '@prisma/client';
 import { identifyCompanyType } from '@/lib/mirror-company-utils';
 import { invalidateLoanCache } from '@/lib/cache';
 import NotificationService from '@/lib/notification-service';
+import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 
 // Generate loan number with company code prefix
 // Format: {CompanyCode}{ProductCode}{Sequence}
@@ -584,6 +585,100 @@ async function processSingleApproval({
               createdById: userId || 'SYSTEM'
             }
           });
+        }
+      }
+      
+      // ============ CHART OF ACCOUNTS JOURNAL ENTRY ============
+      // Create journal entry for loan disbursement in Chart of Accounts
+      // Debit: Loans Receivable (Asset increases)
+      // Credit: Cash/Bank (Asset decreases)
+      const targetCompanyId = loan.companyId || companyId;
+      if (targetCompanyId && disbursementData.amount > 0) {
+        try {
+          const accountingService = new AccountingService(targetCompanyId);
+          await accountingService.initializeChartOfAccounts();
+          
+          // Get Loans Receivable account
+          const loansReceivableAccount = await tx.chartOfAccount.findFirst({
+            where: { companyId: targetCompanyId, accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE }
+          });
+          
+          // Get Cash/Bank account
+          let cashAccount = await tx.chartOfAccount.findFirst({
+            where: { companyId: targetCompanyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
+          });
+          
+          // If bank transfer, find bank account
+          if (disbursementData.bankAccountId) {
+            const bankChartAccount = await tx.chartOfAccount.findFirst({
+              where: { 
+                companyId: targetCompanyId, 
+                accountCode: { startsWith: '14' } 
+              }
+            });
+            if (bankChartAccount) {
+              cashAccount = bankChartAccount;
+            }
+          }
+          
+          if (loansReceivableAccount && cashAccount) {
+            const entryNumber = await accountingService.generateEntryNumber();
+            
+            // Create journal entry
+            await tx.journalEntry.create({
+              data: {
+                companyId: targetCompanyId,
+                entryNumber,
+                entryDate: new Date(),
+                referenceType: 'LOAN_DISBURSEMENT',
+                referenceId: loanId,
+                narration: `Loan Disbursement - ${loan.applicationNo}`,
+                totalDebit: disbursementData.amount,
+                totalCredit: disbursementData.amount,
+                isAutoEntry: true,
+                isApproved: true,
+                createdById: userId || 'SYSTEM',
+                lines: {
+                  create: [
+                    {
+                      accountId: loansReceivableAccount.id,
+                      debitAmount: disbursementData.amount,
+                      creditAmount: 0,
+                      loanId: loanId,
+                      customerId: loan.customerId,
+                      narration: 'Loan principal disbursed'
+                    },
+                    {
+                      accountId: cashAccount.id,
+                      debitAmount: 0,
+                      creditAmount: disbursementData.amount,
+                      narration: disbursementData.mode === 'BANK_TRANSFER' 
+                        ? 'Bank transfer for loan disbursement' 
+                        : 'Cash paid out for loan'
+                    }
+                  ]
+                }
+              }
+            });
+            
+            // Update account balances
+            await tx.chartOfAccount.update({
+              where: { id: loansReceivableAccount.id },
+              data: { currentBalance: { increment: disbursementData.amount } }
+            });
+            
+            await tx.chartOfAccount.update({
+              where: { id: cashAccount.id },
+              data: { currentBalance: { decrement: disbursementData.amount } }
+            });
+            
+            console.log(`[Disbursement] Journal Entry created: Loans Receivable +${disbursementData.amount}, Cash/Bank -${disbursementData.amount}`);
+          } else {
+            console.log(`[Disbursement] WARNING: Chart of Accounts not found for company ${targetCompanyId}`);
+          }
+        } catch (accError) {
+          console.error(`[Disbursement] Error creating journal entry:`, accError);
+          // Don't fail the disbursement if accounting fails
         }
       }
       } // End of else block (no pending mirror loan)
