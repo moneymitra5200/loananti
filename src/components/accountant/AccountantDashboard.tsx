@@ -22,7 +22,8 @@ import {
   FileSpreadsheet, BookOpen, Landmark, ArrowUpRight, ArrowDownRight,
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
-  ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon
+  ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
+  Wrench, Zap
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -2063,6 +2064,76 @@ export default function UnifiedAccountantDashboard() {
     }
   }, [selectedCompany, companyType, menuItems.length]);
 
+  // AUTO-FIX SCANNER: Run automatically when company is selected
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+
+    const runAutoFixScanner = async () => {
+      try {
+        // First check if auto-fix is needed
+        const checkRes = await fetch(`/api/accounting/auto-fix?companyId=${selectedCompanyId}`);
+        const checkData = await checkRes.json();
+
+        if (checkData.needsAutoFix) {
+          console.log('[Auto-Fix] Issues detected, running scanner...');
+          
+          // Run the auto-fix
+          const fixRes = await fetch(`/api/accounting/auto-fix?companyId=${selectedCompanyId}`, {
+            method: 'POST'
+          });
+          const fixData = await fixRes.json();
+
+          if (fixData.success && fixData.totalIssuesFixed > 0) {
+            // Show toast notification
+            toast.success(`Auto-Fix: Fixed ${fixData.totalIssuesFixed} data issue(s)`, {
+              description: 'Data inconsistencies have been automatically corrected',
+              duration: 5000
+            });
+            console.log('[Auto-Fix] Fixed:', fixData);
+          }
+        } else {
+          console.log('[Auto-Fix] No issues detected');
+        }
+      } catch (error) {
+        console.error('[Auto-Fix] Scanner error:', error);
+        // Don't show error to user - this is a background process
+      }
+    };
+
+    // Run scanner after a short delay to not block initial load
+    const timer = setTimeout(runAutoFixScanner, 2000);
+    return () => clearTimeout(timer);
+  }, [selectedCompanyId]);
+
+  // Manual auto-fix function
+  const runManualAutoFix = async () => {
+    if (!selectedCompanyId) return;
+    
+    toast.info('Running Auto-Fix Scanner...');
+    
+    try {
+      const res = await fetch(`/api/accounting/auto-fix?companyId=${selectedCompanyId}`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        if (data.totalIssuesFixed > 0) {
+          toast.success(`Fixed ${data.totalIssuesFixed} issue(s)!`, {
+            description: data.message,
+            duration: 5000
+          });
+        } else {
+          toast.success('No issues found - all data is consistent');
+        }
+      } else {
+        toast.error('Auto-fix failed: ' + data.message);
+      }
+    } catch (error) {
+      toast.error('Failed to run auto-fix scanner');
+    }
+  };
+
   // Render Section
   const renderSection = () => {
     switch (activeSection) {
@@ -2186,6 +2257,18 @@ export default function UnifiedAccountantDashboard() {
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Auto-Fix Button */}
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={runManualAutoFix}
+                className="h-8 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                title="Run Auto-Fix Scanner"
+              >
+                <Zap className="h-4 w-4 mr-1" />
+                Auto-Fix
+              </Button>
 
               {/* User Menu */}
               <DropdownMenu>
