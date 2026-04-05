@@ -9,7 +9,8 @@
  */
 
 import { db } from './db';
-import { ACCOUNT_CODES } from './accounting-service';
+import { ACCOUNT_CODES, DEFAULT_CHART_OF_ACCOUNTS } from './accounting-service';
+import { AccountType } from '@prisma/client';
 
 export interface ScanResult {
   scanName: string;
@@ -38,6 +39,18 @@ export async function runAllAutoFixScanners(companyId: string): Promise<FullScan
   let totalIssuesFixed = 0;
 
   try {
+    // CRITICAL: First initialize Chart of Accounts
+    const chartInit = await scanAndInitializeChartOfAccounts(companyId);
+    scans.push(chartInit);
+    totalIssuesFound += chartInit.issuesFound;
+    totalIssuesFixed += chartInit.issuesFixed;
+
+    // CRITICAL: Recalculate all account balances from journal entries
+    const balanceRecalc = await scanAndRecalculateAccountBalances(companyId);
+    scans.push(balanceRecalc);
+    totalIssuesFound += balanceRecalc.issuesFound;
+    totalIssuesFixed += balanceRecalc.issuesFixed;
+
     // Run each scanner
     const cashBookSync = await scanAndFixCashBookSync(companyId);
     scans.push(cashBookSync);
@@ -86,6 +99,172 @@ export async function runAllAutoFixScanners(companyId: string): Promise<FullScan
       message: `Error during scan: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
+}
+
+/**
+ * SCANNER 0: Initialize Chart of Accounts
+ * Detects: Missing Chart of Accounts for company
+ * Fixes: Creates default chart of accounts
+ */
+async function scanAndInitializeChartOfAccounts(companyId: string): Promise<ScanResult> {
+  const result: ScanResult = {
+    scanName: 'Chart of Accounts Init',
+    description: 'Initializes default Chart of Accounts if missing',
+    issuesFound: 0,
+    issuesFixed: 0,
+    details: [],
+    timestamp: new Date()
+  };
+
+  try {
+    const existingAccounts = await db.chartOfAccount.count({
+      where: { companyId }
+    });
+
+    if (existingAccounts === 0) {
+      result.issuesFound = 1;
+      result.details.push('No Chart of Accounts found - initializing defaults');
+
+      // Create all default accounts
+      const allAccounts = [
+        ...DEFAULT_CHART_OF_ACCOUNTS.ASSETS,
+        ...DEFAULT_CHART_OF_ACCOUNTS.LIABILITIES,
+        ...DEFAULT_CHART_OF_ACCOUNTS.INCOME,
+        ...DEFAULT_CHART_OF_ACCOUNTS.EXPENSES,
+        ...DEFAULT_CHART_OF_ACCOUNTS.EQUITY,
+      ];
+
+      for (const account of allAccounts) {
+        await db.chartOfAccount.create({
+          data: {
+            companyId,
+            accountCode: account.code,
+            accountName: account.name,
+            accountType: account.type as AccountType,
+            isSystemAccount: account.isSystemAccount,
+            description: account.description,
+            openingBalance: 0,
+            currentBalance: 0,
+            isActive: true
+          }
+        });
+      }
+
+      result.issuesFixed = 1;
+      result.details.push(`Created ${allAccounts.length} default accounts`);
+    } else {
+      result.details.push(`Chart of Accounts exists with ${existingAccounts} accounts`);
+    }
+
+  } catch (error) {
+    result.details.push(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  return result;
+}
+
+/**
+ * SCANNER: Recalculate Account Balances from Journal Entries
+ * This is CRITICAL - it recalculates all account balances from journal entries
+ */
+async function scanAndRecalculateAccountBalances(companyId: string): Promise<ScanResult> {
+  const result: ScanResult = {
+    scanName: 'Account Balances Recalc',
+    description: 'Recalculates all account balances from journal entries',
+    issuesFound: 0,
+    issuesFixed: 0,
+    details: [],
+    timestamp: new Date()
+  };
+
+  try {
+    // Get all accounts for this company
+    const accounts = await db.chartOfAccount.findMany({
+      where: { companyId, isActive: true }
+    });
+
+    if (accounts.length === 0) {
+      result.details.push('No accounts found to recalculate');
+      return result;
+    }
+
+    // Get all journal entries for this company
+    const journalEntries = await db.journalEntry.findMany({
+      where: {
+        companyId,
+        isApproved: true,
+        isReversed: false
+      },
+      include: {
+        lines: true
+      }
+    });
+
+    if (journalEntries.length === 0) {
+      result.details.push('No journal entries found');
+      return result;
+    }
+
+    result.details.push(`Found ${journalEntries.length} journal entries to process`);
+
+    // Calculate balances for each account
+    const accountMap = new Map(accounts.map(a => [a.id, a]));
+    const balances = new Map<string, { debit: number; credit: number }>();
+
+    for (const account of accounts) {
+      balances.set(account.id, { debit: 0, credit: 0 });
+    }
+
+    // Sum up all journal entry lines
+    for (const entry of journalEntries) {
+      for (const line of entry.lines) {
+        const current = balances.get(line.accountId);
+        if (current) {
+          current.debit += line.debitAmount;
+          current.credit += line.creditAmount;
+        }
+      }
+    }
+
+    // Update each account's balance
+    for (const [accountId, totals] of balances) {
+      const account = accountMap.get(accountId);
+      if (!account) continue;
+
+      // Calculate balance based on account type
+      let newBalance = 0;
+      if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
+        // Debit accounts: Debit increases, Credit decreases
+        newBalance = totals.debit - totals.credit;
+      } else {
+        // Credit accounts: Credit increases, Debit decreases
+        newBalance = totals.credit - totals.debit;
+      }
+
+      const currentBalance = account.currentBalance || 0;
+
+      if (Math.abs(newBalance - currentBalance) > 0.01) {
+        result.issuesFound++;
+
+        await db.chartOfAccount.update({
+          where: { id: accountId },
+          data: { currentBalance: newBalance }
+        });
+
+        result.details.push(`${account.accountCode} ${account.accountName}: ₹${currentBalance} → ₹${newBalance}`);
+        result.issuesFixed++;
+      }
+    }
+
+    if (result.issuesFound === 0) {
+      result.details.push('All account balances are correct');
+    }
+
+  } catch (error) {
+    result.details.push(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  return result;
 }
 
 /**
