@@ -26,6 +26,10 @@ export async function GET(request: NextRequest) {
         const subAccountCode = searchParams.get('subAccountCode');
         return await getSubLedger(subAccountCode, startDate, endDate);
       default:
+        // If accountId is provided, return account ledger
+        if (accountId) {
+          return await getAccountLedger(accountId, startDate, endDate);
+        }
         // Default: return ledgers for the company
         return await getCompanyLedgers(companyId, startDate, endDate);
     }

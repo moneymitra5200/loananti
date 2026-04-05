@@ -431,7 +431,9 @@ function LedgerSection({
     try {
       const res = await fetch(`/api/accounting/ledger?companyId=${selectedCompanyId}&accountId=${selectedAccountId}`);
       const data = await res.json();
-      setLedgerEntries(data.entries || []);
+      // API returns data.lines for account-ledger, convert to entries format
+      const entries = data.data?.lines || data.lines || data.entries || [];
+      setLedgerEntries(entries);
     } catch (error) {
       console.error('Error loading ledger:', error);
     } finally {
@@ -496,8 +498,8 @@ function LedgerSection({
                 {ledgerEntries.map((entry, idx) => (
                   <TableRow key={idx}>
                     <TableCell>{formatDate(entry.date)}</TableCell>
-                    <TableCell>{entry.particulars}</TableCell>
-                    <TableCell className="font-mono">{entry.voucherNo}</TableCell>
+                    <TableCell>{entry.particulars || entry.narration || '-'}</TableCell>
+                    <TableCell className="font-mono">{entry.voucherNo || entry.entryNumber}</TableCell>
                     <TableCell className="text-right text-red-600">
                       {entry.debit ? formatCurrency(entry.debit) : '-'}
                     </TableCell>
@@ -505,7 +507,7 @@ function LedgerSection({
                       {entry.credit ? formatCurrency(entry.credit) : '-'}
                     </TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(entry.balance)}
+                      {formatCurrency(entry.balance || 0)}
                     </TableCell>
                   </TableRow>
                 ))}

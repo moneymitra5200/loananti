@@ -46,163 +46,180 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Find or create Owner's Capital account (3002)
-    let equityAccount = await db.chartOfAccount.findFirst({
-      where: { 
-        companyId, 
-        accountCode: ACCOUNT_CODES.OWNERS_CAPITAL
-      }
-    });
+    // Use transaction for atomicity
+    const result = await db.$transaction(async (tx) => {
+      // Get or create Owner's Capital account (3002)
+      let equityAccount = await tx.chartOfAccount.findFirst({
+        where: { 
+          companyId, 
+          accountCode: ACCOUNT_CODES.OWNERS_CAPITAL
+        }
+      });
 
-    if (!equityAccount) {
-      equityAccount = await db.chartOfAccount.create({
+      if (!equityAccount) {
+        equityAccount = await tx.chartOfAccount.create({
+          data: {
+            companyId,
+            accountCode: ACCOUNT_CODES.OWNERS_CAPITAL,
+            accountName: "Owner's Capital",
+            accountType: 'EQUITY',
+            description: "Owner's capital investment",
+            isSystemAccount: true,
+            openingBalance: 0,
+            currentBalance: 0,
+            isActive: true
+          }
+        });
+      }
+
+      // Build journal entry lines
+      const journalLines: Array<{
+        accountId: string;
+        debitAmount: number;
+        creditAmount: number;
+        narration: string;
+      }> = [];
+
+      // Get or create Cash in Hand account (1101)
+      let cashAccount = null;
+      if (cashAmount > 0) {
+        cashAccount = await tx.chartOfAccount.findFirst({
+          where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
+        });
+
+        if (!cashAccount) {
+          cashAccount = await tx.chartOfAccount.create({
+            data: {
+              companyId,
+              accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+              accountName: 'Cash in Hand',
+              accountType: 'ASSET',
+              description: 'Physical cash on hand',
+              isSystemAccount: true,
+              openingBalance: 0,
+              currentBalance: 0,
+              isActive: true
+            }
+          });
+        }
+
+        // Debit: Cash in Hand (Asset increases with debit)
+        journalLines.push({
+          accountId: cashAccount.id,
+          debitAmount: cashAmount,
+          creditAmount: 0,
+          narration: 'Owner investment - Cash'
+        });
+
+        // Update cash account balance (Asset: Debit increases balance)
+        await tx.chartOfAccount.update({
+          where: { id: cashAccount.id },
+          data: { currentBalance: cashAccount.currentBalance + cashAmount }
+        });
+      }
+
+      // Get or create Bank - Main account (1103)
+      let bankAccount = null;
+      if (bankAmount > 0) {
+        bankAccount = await tx.chartOfAccount.findFirst({
+          where: { companyId, accountCode: ACCOUNT_CODES.BANK_MAIN }
+        });
+
+        if (!bankAccount) {
+          bankAccount = await tx.chartOfAccount.create({
+            data: {
+              companyId,
+              accountCode: ACCOUNT_CODES.BANK_MAIN,
+              accountName: 'Bank - Main Operating',
+              accountType: 'ASSET',
+              description: 'Primary operating bank account',
+              isSystemAccount: true,
+              openingBalance: 0,
+              currentBalance: 0,
+              isActive: true
+            }
+          });
+        }
+
+        // Debit: Bank - Main (Asset increases with debit)
+        journalLines.push({
+          accountId: bankAccount.id,
+          debitAmount: bankAmount,
+          creditAmount: 0,
+          narration: 'Owner investment - Bank'
+        });
+
+        // Update bank account balance (Asset: Debit increases balance)
+        await tx.chartOfAccount.update({
+          where: { id: bankAccount.id },
+          data: { currentBalance: bankAccount.currentBalance + bankAmount }
+        });
+      }
+
+      // Credit: Owner's Capital (Equity increases with credit)
+      journalLines.push({
+        accountId: equityAccount.id,
+        debitAmount: 0,
+        creditAmount: totalAmount,
+        narration: description || "Owner's capital investment"
+      });
+
+      // Update equity account balance (Equity: Credit increases balance)
+      const updatedEquityAccount = await tx.chartOfAccount.update({
+        where: { id: equityAccount.id },
+        data: { currentBalance: equityAccount.currentBalance + totalAmount }
+      });
+
+      // Generate entry number
+      const count = await tx.journalEntry.count({ where: { companyId } });
+      const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
+
+      // Create journal entry with lines
+      const journalEntry = await tx.journalEntry.create({
         data: {
           companyId,
-          accountCode: ACCOUNT_CODES.OWNERS_CAPITAL,
-          accountName: "Owner's Capital",
-          accountType: 'EQUITY',
-          description: "Owner's capital investment",
-          isSystemAccount: true,
-          currentBalance: 0,
-          isActive: true
-        }
-      });
-    }
-
-    // Build journal entry lines
-    const journalLines: Array<{
-      accountId: string;
-      debitAmount: number;
-      creditAmount: number;
-      narration: string;
-    }> = [];
-
-    // Find or create Cash in Hand account (1101)
-    if (cashAmount > 0) {
-      let cashAccount = await db.chartOfAccount.findFirst({
-        where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
-      });
-
-      if (!cashAccount) {
-        cashAccount = await db.chartOfAccount.create({
-          data: {
-            companyId,
-            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
-            accountName: 'Cash in Hand',
-            accountType: 'ASSET',
-            description: 'Physical cash on hand',
-            isSystemAccount: true,
-            currentBalance: 0,
-            isActive: true
+          entryNumber,
+          entryDate: new Date(),
+          referenceType: 'EQUITY_INVESTMENT',
+          narration: description || `Owner's capital investment - Cash: ₹${cashAmount}, Bank: ₹${bankAmount}`,
+          totalDebit: totalAmount,
+          totalCredit: totalAmount,
+          isAutoEntry: false,
+          isApproved: true,
+          createdById: createdById || 'system',
+          lines: {
+            create: journalLines
           }
-        });
-      }
-
-      // Debit: Cash in Hand
-      journalLines.push({
-        accountId: cashAccount.id,
-        debitAmount: cashAmount,
-        creditAmount: 0,
-        narration: 'Owner investment - Cash'
-      });
-
-      // Update cash account balance
-      await db.chartOfAccount.update({
-        where: { id: cashAccount.id },
-        data: { currentBalance: cashAccount.currentBalance + cashAmount }
-      });
-    }
-
-    // Find or create Bank - Main account (1103)
-    if (bankAmount > 0) {
-      let bankAccount = await db.chartOfAccount.findFirst({
-        where: { companyId, accountCode: ACCOUNT_CODES.BANK_MAIN }
-      });
-
-      if (!bankAccount) {
-        bankAccount = await db.chartOfAccount.create({
-          data: {
-            companyId,
-            accountCode: ACCOUNT_CODES.BANK_MAIN,
-            accountName: 'Bank - Main Operating',
-            accountType: 'ASSET',
-            description: 'Primary operating bank account',
-            isSystemAccount: true,
-            currentBalance: 0,
-            isActive: true
-          }
-        });
-      }
-
-      // Debit: Bank - Main
-      journalLines.push({
-        accountId: bankAccount.id,
-        debitAmount: bankAmount,
-        creditAmount: 0,
-        narration: 'Owner investment - Bank'
-      });
-
-      // Update bank account balance
-      await db.chartOfAccount.update({
-        where: { id: bankAccount.id },
-        data: { currentBalance: bankAccount.currentBalance + bankAmount }
-      });
-    }
-
-    // Credit: Owner's Capital (Equity)
-    journalLines.push({
-      accountId: equityAccount.id,
-      debitAmount: 0,
-      creditAmount: totalAmount,
-      narration: description || "Owner's capital investment"
-    });
-
-    // Update equity account balance
-    await db.chartOfAccount.update({
-      where: { id: equityAccount.id },
-      data: { currentBalance: equityAccount.currentBalance + totalAmount }
-    });
-
-    // Generate entry number
-    const count = await db.journalEntry.count({ where: { companyId } });
-    const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
-
-    // Create journal entry
-    const journalEntry = await db.journalEntry.create({
-      data: {
-        companyId,
-        entryNumber,
-        entryDate: new Date(),
-        referenceType: 'EQUITY_INVESTMENT',
-        narration: description || `Owner's capital investment - Cash: ₹${cashAmount}, Bank: ₹${bankAmount}`,
-        totalDebit: totalAmount,
-        totalCredit: totalAmount,
-        isAutoEntry: false,
-        isApproved: true,
-        createdById: createdById || 'system',
-        lines: {
-          create: journalLines
-        }
-      },
-      include: {
-        lines: {
-          include: {
-            account: true
+        },
+        include: {
+          lines: {
+            include: {
+              account: true
+            }
           }
         }
-      }
-    });
+      });
+
+      return {
+        journalEntry,
+        equityBalance: updatedEquityAccount.currentBalance,
+        cashBalance: cashAccount?.currentBalance || 0,
+        bankBalance: bankAccount?.currentBalance || 0
+      };
+    }, { maxWait: 30000, timeout: 60000 });
 
     return NextResponse.json({ 
       success: true, 
       message: 'Equity added successfully',
-      entryNumber: journalEntry.entryNumber,
-      journalEntry,
+      entryNumber: result.journalEntry.entryNumber,
+      journalEntry: result.journalEntry,
       summary: {
         cashAdded: cashAmount,
         bankAdded: bankAmount,
         totalEquity: totalAmount,
-        newEquityBalance: equityAccount.currentBalance + totalAmount
+        newEquityBalance: result.equityBalance,
+        cashBalance: result.cashBalance,
+        bankBalance: result.bankBalance
       }
     });
 
@@ -248,6 +265,22 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // Get all equity journal entries
+    const equityEntries = await db.journalEntry.findMany({
+      where: {
+        companyId,
+        referenceType: 'EQUITY_INVESTMENT'
+      },
+      include: {
+        lines: {
+          include: {
+            account: true
+          }
+        }
+      },
+      orderBy: { entryDate: 'desc' }
+    });
+
     return NextResponse.json({ 
       equity: equityAccount?.currentBalance || 0,
       cashInHand: cashAccount?.currentBalance || 0,
@@ -256,7 +289,8 @@ export async function GET(request: NextRequest) {
         equity: equityAccount,
         cash: cashAccount,
         bank: bankAccount
-      }
+      },
+      entries: equityEntries
     });
 
   } catch (error) {
