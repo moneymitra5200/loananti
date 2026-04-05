@@ -393,3 +393,33 @@ Stage Summary:
 3. `src/components/accountant/AccountantDashboard.tsx` - Updated company type detection
 4. `src/components/accountant/CompanySelector.tsx` - Added `isMirrorCompany` to interface
 5. `src/components/admin/dialogs/CompanyEditDialog.tsx` - Added Company Type toggle
+
+---
+Task ID: 7
+Agent: Dashboard Fix Agent
+Task: Fix dashboard section rendering and verify equity flow
+
+Work Log:
+- Fixed renderSection() function in AccountantDashboard.tsx to handle all 7 menu sections:
+  - Added placeholder section for 'chart-of-accounts' with Coming Soon message
+  - Added placeholder section for 'trial-balance' with Coming Soon message
+  - Added placeholder section for 'profit-loss' with Coming Soon message
+  - Added placeholder section for 'balance-sheet' with Coming Soon message
+- Fixed Equity Dialog bank account selection in BankSection component:
+  - Added `bankAccountId` field to equityForm state
+  - Added validation: blocks submission if bank equity > 0 but no bank accounts exist
+  - Added validation: requires bank account selection if multiple banks exist
+  - Added bank account dropdown selector when multiple banks exist and bank amount > 0
+  - Shows info message when single bank exists: "Bank equity will be added to: [Bank Name]"
+  - Shows warning when no banks exist: "No bank accounts found. Please add a bank account first."
+  - Disabled bank amount input when no bank accounts exist
+  - Auto-selects default bank account (or first bank) if user doesn't manually select
+  - Passes selected `bankAccountId` to the `/api/accounting/add-equity` API
+
+Stage Summary:
+- All 7 menu sections now render correctly for Company 1/2
+- Company 3 still shows only Day Book and Cash Book (correct behavior)
+- Equity dialog properly handles bank account selection for all scenarios:
+  - No banks: Shows warning, disables bank amount input
+  - Single bank: Auto-selects the only bank, shows info message
+  - Multiple banks: Shows dropdown selector for user to choose

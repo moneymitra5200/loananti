@@ -615,7 +615,8 @@ function BankSection({
   const [equityForm, setEquityForm] = useState({
     cashAmount: '',
     bankAmount: '',
-    description: 'Initial Capital Investment'
+    description: 'Initial Capital Investment',
+    bankAccountId: ''
   });
   const [saving, setSaving] = useState(false);
 
@@ -686,6 +687,20 @@ function BankSection({
 
     setSaving(true);
     try {
+      // Check if bank amount is provided but no bank account exists
+      if (bank > 0 && bankAccounts.length === 0) {
+        toast.error('Please add a bank account first before adding bank equity');
+        setSaving(false);
+        return;
+      }
+
+      // Check if bank amount is provided but no bank account selected
+      if (bank > 0 && bankAccounts.length > 1 && !equityForm.bankAccountId) {
+        toast.error('Please select a bank account for the bank equity');
+        setSaving(false);
+        return;
+      }
+
       const res = await fetch('/api/accounting/add-equity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -693,6 +708,7 @@ function BankSection({
           companyId: selectedCompanyId,
           cashAmount: cash,
           bankAmount: bank,
+          bankAccountId: equityForm.bankAccountId || (bankAccounts.length > 0 ? bankAccounts.find(b => b.isDefault)?.id || bankAccounts[0].id : undefined),
           description: equityForm.description,
           createdById: 'system'
         })
@@ -701,7 +717,7 @@ function BankSection({
       if (res.ok) {
         toast.success(`Equity of ${formatCurrency(total)} added successfully!`);
         setShowEquityDialog(false);
-        setEquityForm({ cashAmount: '', bankAmount: '', description: 'Initial Capital Investment' });
+        setEquityForm({ cashAmount: '', bankAmount: '', description: 'Initial Capital Investment', bankAccountId: '' });
         loadData();
       } else {
         const error = await res.json();
@@ -939,8 +955,39 @@ function BankSection({
                 value={equityForm.bankAmount}
                 onChange={(e) => setEquityForm({ ...equityForm, bankAmount: e.target.value })}
                 placeholder="0"
+                disabled={bankAccounts.length === 0}
               />
+              {bankAccounts.length === 0 && (
+                <p className="text-sm text-amber-600">No bank accounts found. Please add a bank account first.</p>
+              )}
             </div>
+            {bankAccounts.length > 1 && parseFloat(equityForm.bankAmount) > 0 && (
+              <div className="space-y-2">
+                <Label>Select Bank Account</Label>
+                <Select
+                  value={equityForm.bankAccountId}
+                  onValueChange={(value) => setEquityForm({ ...equityForm, bankAccountId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a bank account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bankAccounts.map((bank) => (
+                      <SelectItem key={bank.id} value={bank.id}>
+                        {bank.bankName} - ****{bank.accountNumber.slice(-4)} ({formatCurrency(bank.currentBalance)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {bankAccounts.length === 1 && parseFloat(equityForm.bankAmount) > 0 && (
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  Bank equity will be added to: <strong>{bankAccounts[0].bankName}</strong> (****{bankAccounts[0].accountNumber.slice(-4)})
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Description</Label>
               <Input
@@ -1062,6 +1109,74 @@ export default function UnifiedAccountantDashboard() {
             formatCurrency={formatCurrency}
             formatDateShort={formatDateShort}
           />
+        );
+      case 'chart-of-accounts':
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BookCopy className="h-5 w-5" />
+                Chart of Accounts
+              </CardTitle>
+              <CardDescription>Manage your company's chart of accounts</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center py-12">
+              <BookCopy className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
+              <p className="text-sm text-gray-400 mt-2">Chart of Accounts management is under development</p>
+            </CardContent>
+          </Card>
+        );
+      case 'trial-balance':
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Trial Balance
+              </CardTitle>
+              <CardDescription>View trial balance for the selected period</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center py-12">
+              <BarChart3 className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
+              <p className="text-sm text-gray-400 mt-2">Trial Balance report is under development</p>
+            </CardContent>
+          </Card>
+        );
+      case 'profit-loss':
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Profit & Loss Statement
+              </CardTitle>
+              <CardDescription>View income and expenses for the selected period</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center py-12">
+              <TrendingUp className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
+              <p className="text-sm text-gray-400 mt-2">Profit & Loss statement is under development</p>
+            </CardContent>
+          </Card>
+        );
+      case 'balance-sheet':
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5" />
+                Balance Sheet
+              </CardTitle>
+              <CardDescription>View assets, liabilities, and equity</CardDescription>
+            </CardHeader>
+            <CardContent className="text-center py-12">
+              <FileSpreadsheet className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
+              <p className="text-sm text-gray-400 mt-2">Balance Sheet report is under development</p>
+            </CardContent>
+          </Card>
         );
       default:
         return (

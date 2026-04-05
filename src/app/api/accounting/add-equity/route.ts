@@ -157,7 +157,8 @@ export async function POST(request: NextRequest) {
           referenceType: 'OPENING_BALANCE',
           referenceId: journalEntryId,
           transactionDate: entryDate,
-          balanceAfter: 0 // Will be updated
+          balanceAfter: 0, // Will be updated
+          createdById: createdById || 'system'
         }
       });
 
