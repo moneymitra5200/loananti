@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     if (!companyId) {
       // List all companies
       const companies = await db.company.findMany({
-        select: { id: true, name: true, code: true, type: true }
+        select: { id: true, name: true, code: true, isMirrorCompany: true }
       });
       return NextResponse.json({ companies });
     }
@@ -66,11 +66,6 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Get Daybook entries count
-    const daybookCount = await db.dayBookEntry.count({
-      where: { companyId }
-    });
-
     return NextResponse.json({
       companyId,
       accounts,
@@ -79,7 +74,6 @@ export async function GET(request: NextRequest) {
       journalEntriesCount: journalEntries.length,
       totalJELines: jeLinesCount,
       cashBook,
-      daybookCount,
     });
 
   } catch (error) {
