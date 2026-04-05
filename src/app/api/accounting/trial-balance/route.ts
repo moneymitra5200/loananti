@@ -8,6 +8,9 @@ import { db } from '@/lib/db';
  * Verifies: Total Debits = Total Credits
  * 
  * GnuCash-Style: All accounts grouped by type with running totals
+ * 
+ * IMPORTANT: Uses currentBalance from ChartOfAccount as primary source of truth
+ * This ensures balances reflect all transactions including those without journal entries
  */
 export async function GET(request: NextRequest) {
   try {
@@ -33,7 +36,35 @@ export async function GET(request: NextRequest) {
       ],
     });
 
-    // Get all journal entries up to the as-of date
+    // If no accounts exist, return empty trial balance
+    if (accounts.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          trialBalance: [],
+          groupedByType: {
+            ASSET: [],
+            LIABILITY: [],
+            EQUITY: [],
+            INCOME: [],
+            EXPENSE: [],
+          },
+          summary: {
+            totalAccounts: 0,
+            totalDebitBalance: 0,
+            totalCreditBalance: 0,
+            isBalanced: true,
+            difference: 0,
+            totalOpeningDebit: 0,
+            totalOpeningCredit: 0,
+            totalTransactions: 0,
+            asOfDate: dateFilter,
+          },
+        },
+      });
+    }
+
+    // Get all journal entries up to the as-of date for transaction counts
     const journalEntries = await db.journalEntry.findMany({
       where: {
         companyId,
@@ -50,32 +81,7 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // Calculate balances from journal entries
-    const accountBalances: Record<string, {
-      totalDebit: number;
-      totalCredit: number;
-      openingBalance: number;
-    }> = {};
-
-    for (const account of accounts) {
-      accountBalances[account.id] = {
-        totalDebit: 0,
-        totalCredit: 0,
-        openingBalance: account.openingBalance || 0,
-      };
-    }
-
-    // Sum up all journal entry lines
-    for (const entry of journalEntries) {
-      for (const line of entry.lines) {
-        if (accountBalances[line.accountId]) {
-          accountBalances[line.accountId].totalDebit += line.debitAmount;
-          accountBalances[line.accountId].totalCredit += line.creditAmount;
-        }
-      }
-    }
-
-    // Build trial balance
+    // Build trial balance using currentBalance as primary source
     const trialBalance: Array<{
       accountId: string;
       accountCode: string;
@@ -94,25 +100,35 @@ export async function GET(request: NextRequest) {
     let totalOpeningDebit = 0;
     let totalOpeningCredit = 0;
 
+    // Calculate transaction totals from journal entries
+    const accountTransactions: Record<string, { totalDebit: number; totalCredit: number }> = {};
     for (const account of accounts) {
-      const balances = accountBalances[account.id];
-      const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
+      accountTransactions[account.id] = { totalDebit: 0, totalCredit: 0 };
+    }
 
-      // Calculate closing balance based on account type
-      let closingBalance = balances.openingBalance;
-      if (isDebitAccount) {
-        // Debit accounts: Debit increases, Credit decreases
-        closingBalance += balances.totalDebit - balances.totalCredit;
-      } else {
-        // Credit accounts: Credit increases, Debit decreases
-        closingBalance += balances.totalCredit - balances.totalDebit;
+    for (const entry of journalEntries) {
+      for (const line of entry.lines) {
+        if (accountTransactions[line.accountId]) {
+          accountTransactions[line.accountId].totalDebit += line.debitAmount;
+          accountTransactions[line.accountId].totalCredit += line.creditAmount;
+        }
       }
+    }
+
+    for (const account of accounts) {
+      const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
+      
+      // Use currentBalance as the closing balance (this is the source of truth)
+      const closingBalance = account.currentBalance || 0;
+      const openingBalance = account.openingBalance || 0;
+      const txnTotals = accountTransactions[account.id] || { totalDebit: 0, totalCredit: 0 };
 
       // Determine debit/credit balance for trial balance
       let debitBalance = 0;
       let creditBalance = 0;
 
       if (isDebitAccount) {
+        // Debit accounts: positive balance = debit
         if (closingBalance >= 0) {
           debitBalance = closingBalance;
           totalDebitBalance += closingBalance;
@@ -121,6 +137,7 @@ export async function GET(request: NextRequest) {
           totalCreditBalance += Math.abs(closingBalance);
         }
       } else {
+        // Credit accounts: positive balance = credit
         if (closingBalance >= 0) {
           creditBalance = closingBalance;
           totalCreditBalance += closingBalance;
@@ -131,11 +148,11 @@ export async function GET(request: NextRequest) {
       }
 
       // Opening balance summary
-      if (balances.openingBalance > 0) {
+      if (openingBalance > 0) {
         if (isDebitAccount) {
-          totalOpeningDebit += balances.openingBalance;
+          totalOpeningDebit += openingBalance;
         } else {
-          totalOpeningCredit += balances.openingBalance;
+          totalOpeningCredit += openingBalance;
         }
       }
 
@@ -144,9 +161,9 @@ export async function GET(request: NextRequest) {
         accountCode: account.accountCode,
         accountName: account.accountName,
         accountType: account.accountType,
-        openingBalance: balances.openingBalance,
-        totalDebit: balances.totalDebit,
-        totalCredit: balances.totalCredit,
+        openingBalance,
+        totalDebit: txnTotals.totalDebit,
+        totalCredit: txnTotals.totalCredit,
         closingBalance,
         debitBalance,
         creditBalance,
