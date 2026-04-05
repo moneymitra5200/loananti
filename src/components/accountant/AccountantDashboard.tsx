@@ -1020,6 +1020,915 @@ function BankSection({
 }
 
 // ============================================
+// CHART OF ACCOUNTS SECTION - GnuCash Style
+// ============================================
+function ChartOfAccountsSection({
+  selectedCompanyId,
+  formatCurrency
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+}) {
+  const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [newAccount, setNewAccount] = useState({
+    accountCode: '',
+    accountName: '',
+    accountType: 'ASSET',
+    description: '',
+    openingBalance: 0
+  });
+  const [saving, setSaving] = useState(false);
+
+  const loadAccounts = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/accounting/chart-of-accounts?companyId=${selectedCompanyId}`);
+      const data = await res.json();
+      setAccounts(data.accounts || []);
+    } catch (error) {
+      console.error('Error loading accounts:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
+
+  const handleAddAccount = async () => {
+    if (!newAccount.accountCode || !newAccount.accountName) {
+      toast.error('Please fill account code and name');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/accounting/chart-of-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newAccount,
+          companyId: selectedCompanyId
+        })
+      });
+
+      if (res.ok) {
+        toast.success('Account created successfully');
+        setShowAddDialog(false);
+        setNewAccount({ accountCode: '', accountName: '', accountType: 'ASSET', description: '', openingBalance: 0 });
+        loadAccounts();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to create account');
+      }
+    } catch (error) {
+      toast.error('Failed to create account');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Group accounts by type
+  const groupedAccounts = accounts.reduce((groups, account) => {
+    const type = account.accountType;
+    if (!groups[type]) groups[type] = [];
+    groups[type].push(account);
+    return groups;
+  }, {} as Record<string, ChartOfAccount[]>);
+
+  const accountTypeOrder = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'];
+  const accountTypeLabels: Record<string, string> = {
+    'ASSET': 'Assets',
+    'LIABILITY': 'Liabilities',
+    'EQUITY': 'Equity',
+    'INCOME': 'Income',
+    'EXPENSE': 'Expenses'
+  };
+
+  const getAccountTypeColor = (type: string) => {
+    const colors: Record<string, string> = {
+      'ASSET': 'bg-blue-50 border-blue-200',
+      'LIABILITY': 'bg-red-50 border-red-200',
+      'EQUITY': 'bg-purple-50 border-purple-200',
+      'INCOME': 'bg-green-50 border-green-200',
+      'EXPENSE': 'bg-orange-50 border-orange-200'
+    };
+    return colors[type] || 'bg-gray-50 border-gray-200';
+  };
+
+  const calculateTypeTotal = (type: string) => {
+    return (groupedAccounts[type] || []).reduce((sum, acc) => sum + (acc.currentBalance || 0), 0);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <BookCopy className="h-5 w-5" />
+          Chart of Accounts
+        </h2>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={loadAccounts}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button size="sm" onClick={() => setShowAddDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Account
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+        </div>
+      ) : accounts.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-gray-500">
+            <BookCopy className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+            <p>No accounts found. Click "Add Account" to create your first account.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {accountTypeOrder.map((type) => {
+            const typeAccounts = groupedAccounts[type] || [];
+            if (typeAccounts.length === 0) return null;
+
+            return (
+              <Card key={type} className={getAccountTypeColor(type)}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{accountTypeLabels[type]}</CardTitle>
+                    <Badge variant="outline">{typeAccounts.length} accounts</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-24">Code</TableHead>
+                        <TableHead>Account Name</TableHead>
+                        <TableHead className="text-right">Balance</TableHead>
+                        <TableHead className="w-20">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {typeAccounts.map((account) => (
+                        <TableRow key={account.id}>
+                          <TableCell className="font-mono text-sm">{account.accountCode}</TableCell>
+                          <TableCell className="font-medium">{account.accountName}</TableCell>
+                          <TableCell className={`text-right font-medium ${
+                            type === 'ASSET' || type === 'EXPENSE' 
+                              ? 'text-blue-600' 
+                              : 'text-green-600'
+                          }`}>
+                            {formatCurrency(account.currentBalance || 0)}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={account.isActive ? 'default' : 'secondary'} className="text-xs">
+                              {account.isActive ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-white/50 font-bold">
+                        <TableCell colSpan={2}>Total {accountTypeLabels[type]}</TableCell>
+                        <TableCell className={`text-right ${
+                          type === 'ASSET' || type === 'EXPENSE' 
+                            ? 'text-blue-700' 
+                            : 'text-green-700'
+                        }`}>
+                          {formatCurrency(calculateTypeTotal(type))}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add Account Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Account</DialogTitle>
+            <DialogDescription>Create a new account in the chart of accounts</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Account Code *</Label>
+                <Input
+                  value={newAccount.accountCode}
+                  onChange={(e) => setNewAccount({ ...newAccount, accountCode: e.target.value })}
+                  placeholder="e.g., 1101"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Type *</Label>
+                <Select
+                  value={newAccount.accountType}
+                  onValueChange={(value) => setNewAccount({ ...newAccount, accountType: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ASSET">Asset</SelectItem>
+                    <SelectItem value="LIABILITY">Liability</SelectItem>
+                    <SelectItem value="EQUITY">Equity</SelectItem>
+                    <SelectItem value="INCOME">Income</SelectItem>
+                    <SelectItem value="EXPENSE">Expense</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Account Name *</Label>
+              <Input
+                value={newAccount.accountName}
+                onChange={(e) => setNewAccount({ ...newAccount, accountName: e.target.value })}
+                placeholder="e.g., Cash in Hand"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={newAccount.description}
+                onChange={(e) => setNewAccount({ ...newAccount, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Opening Balance</Label>
+              <Input
+                type="number"
+                value={newAccount.openingBalance}
+                onChange={(e) => setNewAccount({ ...newAccount, openingBalance: parseFloat(e.target.value) || 0 })}
+                placeholder="0"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddAccount} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Create Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================
+// TRIAL BALANCE SECTION - GnuCash Style
+// ============================================
+function TrialBalanceSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDate
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDate: (date: Date | string) => string;
+}) {
+  const [trialBalance, setTrialBalance] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const loadTrialBalance = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/accounting/trial-balance?companyId=${selectedCompanyId}&asOfDate=${asOfDate}`);
+      const data = await res.json();
+      setTrialBalance(data.data || data);
+    } catch (error) {
+      console.error('Error loading trial balance:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompanyId, asOfDate]);
+
+  useEffect(() => {
+    loadTrialBalance();
+  }, [loadTrialBalance]);
+
+  const exportToCSV = () => {
+    if (!trialBalance?.trialBalance) return;
+    
+    let csv = 'Account Code,Account Name,Account Type,Debit Balance,Credit Balance\n';
+    trialBalance.trialBalance.forEach((acc: any) => {
+      csv += `${acc.accountCode},${acc.accountName},${acc.accountType},${acc.debitBalance},${acc.creditBalance}\n`;
+    });
+    csv += `\nTotal,,,${trialBalance.summary?.totalDebitBalance || 0},${trialBalance.summary?.totalCreditBalance || 0}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trial_balance_${asOfDate}.csv`;
+    a.click();
+    toast.success('Trial Balance exported');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <BarChart3 className="h-5 w-5" />
+          Trial Balance
+        </h2>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">As of:</span>
+            <Input
+              type="date"
+              value={asOfDate}
+              onChange={(e) => setAsOfDate(e.target.value)}
+              className="w-40"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={loadTrialBalance}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToCSV}>
+            <FileText className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      {trialBalance?.summary && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="bg-blue-50 border-blue-200">
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Total Debit</p>
+              <p className="text-xl font-bold text-blue-700">
+                {formatCurrency(trialBalance.summary.totalDebitBalance || 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-green-50 border-green-200">
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Total Credit</p>
+              <p className="text-xl font-bold text-green-700">
+                {formatCurrency(trialBalance.summary.totalCreditBalance || 0)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-purple-50 border-purple-200">
+            <CardContent className="p-4">
+              <p className="text-sm text-gray-600">Total Accounts</p>
+              <p className="text-xl font-bold text-purple-700">
+                {trialBalance.summary.totalAccounts || 0}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className={`${trialBalance.summary.isBalanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                {trialBalance.summary.isBalanced ? (
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                )}
+                <div>
+                  <p className="text-sm text-gray-600">Status</p>
+                  <p className={`text-lg font-bold ${trialBalance.summary.isBalanced ? 'text-emerald-700' : 'text-red-700'}`}>
+                    {trialBalance.summary.isBalanced ? 'Balanced' : 'Not Balanced'}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+        </div>
+      ) : !trialBalance?.trialBalance || trialBalance.trialBalance.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-gray-500">
+            <BarChart3 className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+            <p>No trial balance data found. Please ensure Chart of Accounts is set up.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Trial Balance as of {formatDate(asOfDate)}</CardTitle>
+            <CardDescription>
+              All accounts with their debit and credit balances - Total must balance
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[500px]">
+              <Table>
+                <TableHeader className="sticky top-0 bg-white z-10">
+                  <TableRow>
+                    <TableHead className="w-24">Code</TableHead>
+                    <TableHead>Account Name</TableHead>
+                    <TableHead className="w-28">Type</TableHead>
+                    <TableHead className="text-right w-36">Debit (₹)</TableHead>
+                    <TableHead className="text-right w-36">Credit (₹)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {trialBalance.groupedByType && Object.entries(trialBalance.groupedByType).map(([type, accounts]: [string, any]) => (
+                    <React.Fragment key={type}>
+                      <TableRow className="bg-gray-100">
+                        <TableCell colSpan={5} className="font-bold text-gray-700">
+                          {type}
+                        </TableCell>
+                      </TableRow>
+                      {(accounts as any[]).map((acc: any) => (
+                        <TableRow key={acc.accountId} className="hover:bg-gray-50">
+                          <TableCell className="font-mono text-sm">{acc.accountCode}</TableCell>
+                          <TableCell>{acc.accountName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs">{acc.accountType}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right text-blue-600 font-medium">
+                            {acc.debitBalance > 0 ? formatCurrency(acc.debitBalance) : '-'}
+                          </TableCell>
+                          <TableCell className="text-right text-green-600 font-medium">
+                            {acc.creditBalance > 0 ? formatCurrency(acc.creditBalance) : '-'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                  {/* Grand Total */}
+                  <TableRow className="bg-emerald-50 font-bold">
+                    <TableCell colSpan={3} className="text-lg">GRAND TOTAL</TableCell>
+                    <TableCell className="text-right text-blue-700 text-lg">
+                      {formatCurrency(trialBalance.summary?.totalDebitBalance || 0)}
+                    </TableCell>
+                    <TableCell className="text-right text-green-700 text-lg">
+                      {formatCurrency(trialBalance.summary?.totalCreditBalance || 0)}
+                    </TableCell>
+                  </TableRow>
+                  {!trialBalance.summary?.isBalanced && (
+                    <TableRow className="bg-red-100">
+                      <TableCell colSpan={3} className="text-red-700">Difference (Unbalanced)</TableCell>
+                      <TableCell colSpan={2} className="text-right text-red-700 font-bold">
+                        {formatCurrency(trialBalance.summary?.difference || 0)}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// PROFIT & LOSS SECTION - GnuCash Style
+// ============================================
+function ProfitLossSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDate
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDate: (date: Date | string) => string;
+}) {
+  const [profitLoss, setProfitLoss] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const loadProfitLoss = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/accounting/reports?type=profit-loss&companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}`);
+      const data = await res.json();
+      setProfitLoss(data);
+    } catch (error) {
+      console.error('Error loading P&L:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompanyId, startDate, endDate]);
+
+  useEffect(() => {
+    loadProfitLoss();
+  }, [loadProfitLoss]);
+
+  const exportToCSV = () => {
+    if (!profitLoss) return;
+    
+    let csv = 'Profit & Loss Statement\n';
+    csv += `Period: ${startDate} to ${endDate}\n\n`;
+    csv += 'INCOME\n';
+    (profitLoss.income || []).forEach((inc: any) => {
+      csv += `${inc.accountName},${inc.amount}\n`;
+    });
+    csv += `Total Income,${profitLoss.totalIncome || 0}\n\n`;
+    csv += 'EXPENSES\n';
+    (profitLoss.expenses || []).forEach((exp: any) => {
+      csv += `${exp.accountName},${exp.amount}\n`;
+    });
+    csv += `Total Expenses,${profitLoss.totalExpenses || 0}\n\n`;
+    csv += `Net Profit/Loss,${profitLoss.netProfit || 0}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `profit_loss_${startDate}_to_${endDate}.csv`;
+    a.click();
+    toast.success('P&L exported');
+  };
+
+  const netProfit = profitLoss?.netProfit || 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <TrendingUp className="h-5 w-5" />
+          Profit & Loss Statement
+        </h2>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">From:</span>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">To:</span>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={loadProfitLoss}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToCSV}>
+            <FileText className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Income */}
+            <Card>
+              <CardHeader className="bg-green-50">
+                <CardTitle className="text-green-700 flex items-center gap-2">
+                  <ArrowUpRight className="h-5 w-5" />
+                  INCOME
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {(profitLoss?.income || []).length > 0 ? (
+                      profitLoss.income.map((inc: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell className="font-medium">{inc.accountName}</TableCell>
+                          <TableCell className="text-right text-green-600">{formatCurrency(inc.amount)}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell className="text-gray-500">No income recorded</TableCell>
+                        <TableCell className="text-right">₹0.00</TableCell>
+                      </TableRow>
+                    )}
+                    <TableRow className="bg-green-50 font-bold">
+                      <TableCell>Total Income</TableCell>
+                      <TableCell className="text-right text-green-700 text-lg">
+                        {formatCurrency(profitLoss?.totalIncome || 0)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            {/* Expenses */}
+            <Card>
+              <CardHeader className="bg-red-50">
+                <CardTitle className="text-red-700 flex items-center gap-2">
+                  <ArrowDownRight className="h-5 w-5" />
+                  EXPENSES
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableBody>
+                    {(profitLoss?.expenses || []).length > 0 ? (
+                      profitLoss.expenses.map((exp: any, idx: number) => (
+                        <TableRow key={idx}>
+                          <TableCell className="font-medium">{exp.accountName}</TableCell>
+                          <TableCell className="text-right text-red-600">{formatCurrency(exp.amount)}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell className="text-gray-500">No expenses recorded</TableCell>
+                        <TableCell className="text-right">₹0.00</TableCell>
+                      </TableRow>
+                    )}
+                    <TableRow className="bg-red-50 font-bold">
+                      <TableCell>Total Expenses</TableCell>
+                      <TableCell className="text-right text-red-700 text-lg">
+                        {formatCurrency(profitLoss?.totalExpenses || 0)}
+                      </TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Net Profit/Loss */}
+          <Card className={`border-2 ${netProfit >= 0 ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50'}`}>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {netProfit >= 0 ? (
+                    <TrendingUp className="h-10 w-10 text-green-600" />
+                  ) : (
+                    <ArrowDownRight className="h-10 w-10 text-red-600" />
+                  )}
+                  <div>
+                    <p className="text-sm text-gray-600">Net {netProfit >= 0 ? 'Profit' : 'Loss'}</p>
+                    <p className={`text-3xl font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(Math.abs(netProfit))}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant={netProfit >= 0 ? 'default' : 'destructive'} className="text-lg px-4 py-2">
+                  {netProfit >= 0 ? 'PROFIT' : 'LOSS'}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// BALANCE SHEET SECTION - GnuCash Style
+// ============================================
+function BalanceSheetSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDate
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDate: (date: Date | string) => string;
+}) {
+  const [balanceSheet, setBalanceSheet] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const loadBalanceSheet = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}`);
+      const data = await res.json();
+      setBalanceSheet(data);
+    } catch (error) {
+      console.error('Error loading balance sheet:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    loadBalanceSheet();
+  }, [loadBalanceSheet]);
+
+  const exportToCSV = () => {
+    if (!balanceSheet) return;
+    
+    let csv = 'Balance Sheet\n';
+    csv += `As of: ${asOfDate}\n\n`;
+    csv += 'ASSETS\n';
+    csv += 'Account Name,Amount\n';
+    (balanceSheet.assets || []).forEach((asset: any) => {
+      csv += `${asset.accountName},${asset.amount}\n`;
+    });
+    csv += `Total Assets,${balanceSheet.totalAssets || 0}\n\n`;
+    csv += 'LIABILITIES\n';
+    (balanceSheet.liabilities || []).forEach((liab: any) => {
+      csv += `${liab.accountName},${liab.amount}\n`;
+    });
+    csv += `Total Liabilities,${balanceSheet.totalLiabilities || 0}\n\n`;
+    csv += 'EQUITY\n';
+    (balanceSheet.equity || []).forEach((eq: any) => {
+      csv += `${eq.accountName},${eq.amount}\n`;
+    });
+    csv += `Total Equity,${balanceSheet.totalEquity || 0}\n`;
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `balance_sheet_${asOfDate}.csv`;
+    a.click();
+    toast.success('Balance Sheet exported');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <FileSpreadsheet className="h-5 w-5" />
+          Balance Sheet
+        </h2>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">As of:</span>
+            <Input
+              type="date"
+              value={asOfDate}
+              onChange={(e) => setAsOfDate(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={loadBalanceSheet}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportToCSV}>
+            <FileText className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* Balance Check */}
+      {balanceSheet?.balanceCheck && (
+        <Card className={`${balanceSheet.balanceCheck.isBalanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {balanceSheet.balanceCheck.isBalanced ? (
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5 text-red-600" />
+                )}
+                <span className={balanceSheet.balanceCheck.isBalanced ? 'text-emerald-700' : 'text-red-700'}>
+                  {balanceSheet.balanceCheck.isBalanced 
+                    ? 'Balance Sheet is Balanced' 
+                    : `Difference: ${formatCurrency(Math.abs(balanceSheet.balanceCheck.assets - balanceSheet.balanceCheck.liabilitiesAndEquity))}`}
+                </span>
+              </div>
+              <Badge variant={balanceSheet.balanceCheck.isBalanced ? 'default' : 'destructive'}>
+                Assets = {formatCurrency(balanceSheet.balanceCheck.assets)} | L+E = {formatCurrency(balanceSheet.balanceCheck.liabilitiesAndEquity)}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading ? (
+        <div className="py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Assets */}
+          <Card>
+            <CardHeader className="bg-blue-50">
+              <CardTitle className="text-blue-700 flex items-center gap-2">
+                <Building2 className="h-5 w-5" />
+                ASSETS
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableBody>
+                  {(balanceSheet?.assets || []).length > 0 ? (
+                    balanceSheet.assets.map((asset: any, idx: number) => (
+                      <TableRow key={idx}>
+                        <TableCell className="font-medium">{asset.accountName}</TableCell>
+                        <TableCell className="text-right text-blue-600">{formatCurrency(asset.amount)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell className="text-gray-500">No assets recorded</TableCell>
+                      <TableCell className="text-right">₹0.00</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow className="bg-blue-50 font-bold">
+                    <TableCell>Total Assets</TableCell>
+                    <TableCell className="text-right text-blue-700 text-lg">
+                      {formatCurrency(balanceSheet?.totalAssets || 0)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Liabilities & Equity */}
+          <Card>
+            <CardHeader className="bg-red-50">
+              <CardTitle className="text-red-700">LIABILITIES & EQUITY</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableBody>
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">LIABILITIES</TableCell>
+                  </TableRow>
+                  {(balanceSheet?.liabilities || []).length > 0 ? (
+                    balanceSheet.liabilities.map((liab: any, idx: number) => (
+                      <TableRow key={idx}>
+                        <TableCell className="font-medium">{liab.accountName}</TableCell>
+                        <TableCell className="text-right text-red-600">{formatCurrency(liab.amount)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell className="text-gray-500">No liabilities</TableCell>
+                      <TableCell className="text-right">₹0.00</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow className="bg-red-50">
+                    <TableCell className="font-medium">Total Liabilities</TableCell>
+                    <TableCell className="text-right text-red-700">{formatCurrency(balanceSheet?.totalLiabilities || 0)}</TableCell>
+                  </TableRow>
+                  
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">EQUITY</TableCell>
+                  </TableRow>
+                  {(balanceSheet?.equity || []).map((eq: any, idx: number) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-medium">{eq.accountName}</TableCell>
+                      <TableCell className="text-right text-purple-600">{formatCurrency(eq.amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-purple-50">
+                    <TableCell className="font-medium">Total Equity</TableCell>
+                    <TableCell className="text-right text-purple-700">{formatCurrency(balanceSheet?.totalEquity || 0)}</TableCell>
+                  </TableRow>
+                  
+                  <TableRow className="bg-gray-100 font-bold">
+                    <TableCell>Total Liabilities & Equity</TableCell>
+                    <TableCell className="text-right text-lg">
+                      {formatCurrency((balanceSheet?.totalLiabilities || 0) + (balanceSheet?.totalEquity || 0))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // MAIN COMPONENT
 // ============================================
 
@@ -1112,71 +2021,34 @@ export default function UnifiedAccountantDashboard() {
         );
       case 'chart-of-accounts':
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BookCopy className="h-5 w-5" />
-                Chart of Accounts
-              </CardTitle>
-              <CardDescription>Manage your company's chart of accounts</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center py-12">
-              <BookCopy className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
-              <p className="text-sm text-gray-400 mt-2">Chart of Accounts management is under development</p>
-            </CardContent>
-          </Card>
+          <ChartOfAccountsSection
+            selectedCompanyId={selectedCompanyId}
+            formatCurrency={formatCurrency}
+          />
         );
       case 'trial-balance':
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Trial Balance
-              </CardTitle>
-              <CardDescription>View trial balance for the selected period</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center py-12">
-              <BarChart3 className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
-              <p className="text-sm text-gray-400 mt-2">Trial Balance report is under development</p>
-            </CardContent>
-          </Card>
+          <TrialBalanceSection
+            selectedCompanyId={selectedCompanyId}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+          />
         );
       case 'profit-loss':
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Profit & Loss Statement
-              </CardTitle>
-              <CardDescription>View income and expenses for the selected period</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center py-12">
-              <TrendingUp className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
-              <p className="text-sm text-gray-400 mt-2">Profit & Loss statement is under development</p>
-            </CardContent>
-          </Card>
+          <ProfitLossSection
+            selectedCompanyId={selectedCompanyId}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+          />
         );
       case 'balance-sheet':
         return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5" />
-                Balance Sheet
-              </CardTitle>
-              <CardDescription>View assets, liabilities, and equity</CardDescription>
-            </CardHeader>
-            <CardContent className="text-center py-12">
-              <FileSpreadsheet className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium text-gray-500">Coming Soon</p>
-              <p className="text-sm text-gray-400 mt-2">Balance Sheet report is under development</p>
-            </CardContent>
-          </Card>
+          <BalanceSheetSection
+            selectedCompanyId={selectedCompanyId}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+          />
         );
       default:
         return (
