@@ -88,6 +88,7 @@ export async function POST(request: NextRequest) {
       bankName, 
       accountNumber, 
       accountName, 
+      ownerName,
       branchName, 
       ifscCode, 
       accountType,
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
         bankName,
         accountNumber,
         accountName: accountName || bankName,
+        ownerName,
         branchName,
         ifscCode,
         accountType: accountType || 'CURRENT',
@@ -195,7 +197,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, bankName, accountName, branchName, ifscCode, isDefault, isActive, upiId, qrCodeUrl } = body;
+    const { id, bankName, accountName, ownerName, branchName, ifscCode, isDefault, isActive, upiId, qrCodeUrl } = body;
 
     const bankAccount = await db.bankAccount.findUnique({ where: { id } });
     if (!bankAccount) {
@@ -215,6 +217,7 @@ export async function PUT(request: NextRequest) {
       data: {
         bankName,
         accountName,
+        ownerName,
         branchName,
         ifscCode,
         isDefault,

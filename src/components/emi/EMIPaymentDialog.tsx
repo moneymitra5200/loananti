@@ -133,6 +133,11 @@ export default function EMIPaymentDialog({
     }
   }, [showPersonalCredit]);
 
+  // Get companyId early - needed for bank details fetch
+  const companyId = emi ? (type === 'offline'
+    ? emi.offlineLoan?.company?.id
+    : emi.loanApplication?.company?.id) : undefined;
+
   // Fetch bank details when payment mode is ONLINE and companyId is available
   useEffect(() => {
     const fetchBankDetails = async () => {
@@ -176,10 +181,6 @@ export default function EMIPaymentDialog({
   const loanNumber = type === 'offline'
     ? emi.offlineLoan?.loanNumber
     : emi.loanApplication?.applicationNo;
-
-  const companyId = type === 'offline'
-    ? emi.offlineLoan?.company?.id
-    : emi.loanApplication?.company?.id;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {

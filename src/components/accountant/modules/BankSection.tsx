@@ -177,10 +177,25 @@ export default function BankSection({
                     <span className="text-gray-500">Current Balance</span>
                     <span className="font-bold text-lg">{formatCurrency(bank.currentBalance)}</span>
                   </div>
+                  {bank.ownerName && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Owner Name</span>
+                      <span>{bank.ownerName}</span>
+                    </div>
+                  )}
                   {bank.upiId && (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">UPI ID</span>
-                      <span>{bank.upiId}</span>
+                      <span className="font-mono">{bank.upiId}</span>
+                    </div>
+                  )}
+                  {bank.qrCodeUrl && (
+                    <div className="mt-3 text-center">
+                      <img 
+                        src={bank.qrCodeUrl} 
+                        alt="QR Code" 
+                        className="w-20 h-20 mx-auto rounded border"
+                      />
                     </div>
                   )}
                 </div>

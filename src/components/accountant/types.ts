@@ -13,11 +13,14 @@ export interface BankAccount {
   bankName: string;
   accountNumber: string;
   accountName: string;
+  ownerName?: string | null;
   ifscCode: string | null;
   currentBalance: number;
   isDefault: boolean;
   upiId: string | null;
+  qrCodeUrl?: string | null;
   isActive: boolean;
+  companyId?: string;
 }
 
 export interface BankTransaction {
@@ -136,11 +139,13 @@ export interface BankForm {
   bankName: string;
   accountNumber: string;
   accountName: string;
+  ownerName: string;
   ifscCode: string;
   branchName: string;
   accountType: string;
   openingBalance: number;
   upiId: string;
+  qrCodeUrl: string;
   isDefault: boolean;
 }
 

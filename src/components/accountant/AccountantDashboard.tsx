@@ -155,11 +155,13 @@ export default function AccountantDashboard() {
     bankName: '',
     accountNumber: '',
     accountName: '',
+    ownerName: '',
     ifscCode: '',
     branchName: '',
     accountType: 'CURRENT',
     openingBalance: 0,
     upiId: '',
+    qrCodeUrl: '',
     isDefault: false
   });
   
@@ -411,8 +413,8 @@ export default function AccountantDashboard() {
         const data = await res.json();
         toast.success('Bank account added successfully');
         setBankForm({
-          bankName: '', accountNumber: '', accountName: '', ifscCode: '',
-          branchName: '', accountType: 'CURRENT', openingBalance: 0, upiId: '', isDefault: false
+          bankName: '', accountNumber: '', accountName: '', ownerName: '', ifscCode: '',
+          branchName: '', accountType: 'CURRENT', openingBalance: 0, upiId: '', qrCodeUrl: '', isDefault: false
         });
         // Replace temp with real data
         fetchAllData(true);

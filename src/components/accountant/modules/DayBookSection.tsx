@@ -9,8 +9,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
-import { BookOpen, Calendar, Eye, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  BookOpen, Calendar, Eye, ArrowUpRight, ArrowDownRight, RefreshCw, 
+  List, FileText, Search, ChevronLeft, ChevronRight
+} from 'lucide-react';
+import { format, startOfDay, endOfDay, startOfMonth, endOfMonth, parseISO } from 'date-fns';
 import { BankAccount, BankTransaction, JournalEntry } from '../types';
 
 interface DayBookSectionProps {
@@ -23,6 +27,7 @@ interface DayBookSectionProps {
 
 interface DayBookEntry {
   id: string;
+  date: Date;
   time: Date;
   description: string;
   referenceType: string;
@@ -60,80 +65,96 @@ export default function DayBookSection({
   selectedCompanyId,
   formatCurrency 
 }: DayBookSectionProps) {
+  const [viewMode, setViewMode] = useState<'day' | 'all'>('all');
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>([]);
+  const [filteredEntries, setFilteredEntries] = useState<DayBookEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<TransactionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  
-  // Running balance
-  const [runningBalance, setRunningBalance] = useState(0);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const entriesPerPage = 50;
 
   // Fetch combined day book data
   useEffect(() => {
     fetchDayBookData();
-  }, [selectedDate, selectedCompanyId, bankTransactions, journalEntries]);
+  }, [selectedCompanyId, bankTransactions, journalEntries]);
+
+  // Filter entries based on view mode and search
+  useEffect(() => {
+    let filtered = [...dayBookEntries];
+    
+    // Apply date filter based on view mode
+    if (viewMode === 'day') {
+      const dateStart = startOfDay(new Date(selectedDate));
+      const dateEnd = endOfDay(new Date(selectedDate));
+      filtered = filtered.filter(entry => {
+        const entryDate = new Date(entry.date);
+        return entryDate >= dateStart && entryDate <= dateEnd;
+      });
+    } else {
+      const dateStart = startOfDay(new Date(startDate));
+      const dateEnd = endOfDay(new Date(endDate));
+      filtered = filtered.filter(entry => {
+        const entryDate = new Date(entry.date);
+        return entryDate >= dateStart && entryDate <= dateEnd;
+      });
+    }
+    
+    // Apply search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(entry => 
+        entry.description.toLowerCase().includes(term) ||
+        entry.entryNumber.toLowerCase().includes(term) ||
+        entry.referenceType.toLowerCase().includes(term)
+      );
+    }
+    
+    setFilteredEntries(filtered);
+    setCurrentPage(1); // Reset to first page on filter change
+  }, [viewMode, selectedDate, startDate, endDate, searchTerm, dayBookEntries]);
 
   const fetchDayBookData = async () => {
     setLoading(true);
     try {
-      const dateStart = startOfDay(new Date(selectedDate));
-      const dateEnd = endOfDay(new Date(selectedDate));
-
       // Combine bank transactions and journal entries
       const combinedEntries: DayBookEntry[] = [];
-      let currentBalance = bankAccounts.reduce((s, b) => s + b.currentBalance, 0);
-
-      // Add bank transactions for the day
-      const dayBankTxns = bankTransactions.filter(t => {
-        const txnDate = new Date(t.transactionDate);
-        return txnDate >= dateStart && txnDate <= dateEnd;
-      });
-
-      // Add journal entries for the day
-      const dayJournalEntries = journalEntries.filter(e => {
-        const entryDate = new Date(e.entryDate);
-        return entryDate >= dateStart && entryDate <= dateEnd;
-      });
 
       // Process journal entries
-      for (const entry of dayJournalEntries) {
-        const isReceipt = entry.totalDebit > 0 && entry.lines.some(l => l.account?.accountCode === '1400' && l.debitAmount > 0);
-        const bankLine = entry.lines.find(l => l.account?.accountCode === '1400');
+      for (const entry of journalEntries) {
+        const bankLine = entry.lines.find(l => 
+          l.account?.accountCode?.startsWith('14') // Bank accounts start with 14
+        );
+        const isReceipt = (bankLine?.debitAmount || 0) > 0;
         const amount = bankLine?.debitAmount || bankLine?.creditAmount || 0;
-        
-        if (isReceipt) {
-          currentBalance += amount;
-        } else {
-          currentBalance -= amount;
-        }
 
         combinedEntries.push({
           id: entry.id,
+          date: new Date(entry.entryDate),
           time: new Date(entry.entryDate),
           description: entry.narration || 'Journal Entry',
           referenceType: entry.referenceType || 'MANUAL_ENTRY',
           entryNumber: entry.entryNumber,
           receipt: isReceipt ? amount : 0,
           payment: !isReceipt ? amount : 0,
-          balance: currentBalance,
+          balance: 0,
           type: 'journal',
           originalData: entry
         });
       }
 
       // Process bank transactions
-      for (const txn of dayBankTxns) {
+      for (const txn of bankTransactions) {
         const isCredit = txn.transactionType === 'CREDIT';
-        if (isCredit) {
-          currentBalance += txn.amount;
-        } else {
-          currentBalance -= txn.amount;
-        }
 
         combinedEntries.push({
           id: txn.id,
+          date: new Date(txn.transactionDate),
           time: new Date(txn.transactionDate),
           description: txn.description,
           referenceType: txn.referenceType,
@@ -146,18 +167,18 @@ export default function DayBookSection({
         });
       }
 
-      // Sort by time
-      combinedEntries.sort((a, b) => a.time.getTime() - b.time.getTime());
+      // Sort by date descending (newest first)
+      combinedEntries.sort((a, b) => b.date.getTime() - a.date.getTime());
 
-      // Recalculate running balance
+      // Calculate running balance (from oldest to newest)
+      const sortedAsc = [...combinedEntries].sort((a, b) => a.date.getTime() - b.date.getTime());
       let runningBal = 0;
-      for (const entry of combinedEntries) {
+      for (const entry of sortedAsc) {
         runningBal += entry.receipt - entry.payment;
         entry.balance = runningBal;
       }
 
       setDayBookEntries(combinedEntries);
-      setRunningBalance(runningBal);
     } catch (error) {
       console.error('Error fetching day book data:', error);
     } finally {
@@ -253,20 +274,82 @@ export default function DayBookSection({
     return labels[type] || type;
   };
 
-  // Calculate totals
-  const totalReceipts = dayBookEntries.reduce((s, e) => s + e.receipt, 0);
-  const totalPayments = dayBookEntries.reduce((s, e) => s + e.payment, 0);
-  const openingBalance = bankAccounts.reduce((s, b) => s + b.currentBalance, 0) - totalReceipts + totalPayments;
+  // Calculate totals from filtered entries
+  const totalReceipts = filteredEntries.reduce((s, e) => s + e.receipt, 0);
+  const totalPayments = filteredEntries.reduce((s, e) => s + e.payment, 0);
+  const totalBankBalance = bankAccounts.reduce((s, b) => s + b.currentBalance, 0);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage);
+  const paginatedEntries = filteredEntries.slice(
+    (currentPage - 1) * entriesPerPage,
+    currentPage * entriesPerPage
+  );
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <h2 className="text-xl font-semibold flex items-center gap-2">
           <BookOpen className="h-5 w-5" />
           Day Book / Cash Book
         </h2>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4 flex-wrap">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search transactions..."
+              className="w-48 pl-9"
+            />
+          </div>
+          
+          <Button variant="outline" size="sm" onClick={fetchDayBookData}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* View Mode Tabs */}
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'day' | 'all')}>
+        <TabsList>
+          <TabsTrigger value="all" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            All Transactions
+          </TabsTrigger>
+          <TabsTrigger value="day" className="flex items-center gap-2">
+            <Calendar className="h-4 w-4" />
+            Single Day
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="all" className="mt-4">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">From:</span>
+              <Input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-36"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">To:</span>
+              <Input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-36"
+              />
+            </div>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="day" className="mt-4">
+          <div className="flex items-center gap-2 mb-4">
             <Calendar className="h-4 w-4 text-gray-500" />
             <Input
               type="date"
@@ -275,19 +358,15 @@ export default function DayBookSection({
               className="w-40"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={fetchDayBookData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-gray-50">
           <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Opening Balance</p>
-            <p className="text-xl font-bold">{formatCurrency(openingBalance)}</p>
+            <p className="text-sm text-gray-500">Total Bank Balance</p>
+            <p className="text-xl font-bold">{formatCurrency(totalBankBalance)}</p>
           </CardContent>
         </Card>
         <Card className="bg-green-50 border-green-100">
@@ -310,8 +389,10 @@ export default function DayBookSection({
         </Card>
         <Card className="bg-blue-50 border-blue-100">
           <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Closing Balance</p>
-            <p className="text-xl font-bold text-blue-600">{formatCurrency(openingBalance + totalReceipts - totalPayments)}</p>
+            <p className="text-sm text-gray-500">Net Movement</p>
+            <p className={`text-xl font-bold ${totalReceipts - totalPayments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {totalReceipts - totalPayments >= 0 ? '+' : ''}{formatCurrency(totalReceipts - totalPayments)}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -319,37 +400,52 @@ export default function DayBookSection({
       {/* Transactions Table */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">
-            {format(new Date(selectedDate), 'EEEE, dd MMMM yyyy')}
-          </CardTitle>
-          <p className="text-sm text-gray-500">{dayBookEntries.length} entries</p>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">
+              All Transactions
+            </CardTitle>
+            <Badge variant="outline">
+              {filteredEntries.length} entries
+            </Badge>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-96">
+          <ScrollArea className="h-[500px]">
             <Table>
-              <TableHeader className="sticky top-0 bg-white">
+              <TableHeader className="sticky top-0 bg-white z-10">
                 <TableRow>
-                  <TableHead className="w-[80px]">Time</TableHead>
-                  <TableHead className="w-[100px]">Entry No.</TableHead>
+                  <TableHead className="w-[100px]">Date</TableHead>
+                  <TableHead className="w-[70px]">Time</TableHead>
+                  <TableHead className="w-[110px]">Entry No.</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead className="w-[120px]">Type</TableHead>
                   <TableHead className="text-right w-[120px]">Receipt</TableHead>
                   <TableHead className="text-right w-[120px]">Payment</TableHead>
-                  <TableHead className="text-right w-[120px]">Balance</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {dayBookEntries.length === 0 ? (
+                {loading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-gray-500 py-8">
-                      No entries for this date
+                      <div className="flex items-center justify-center">
+                        <RefreshCw className="h-6 w-6 animate-spin text-emerald-500" />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : paginatedEntries.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-gray-500 py-8">
+                      No transactions found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  dayBookEntries.map((entry) => (
-                    <TableRow key={entry.id} className="hover:bg-gray-50">
+                  paginatedEntries.map((entry) => (
+                    <TableRow key={entry.id + entry.entryNumber} className="hover:bg-gray-50">
                       <TableCell className="font-mono text-sm">
+                        {format(entry.date, 'dd MMM yy')}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm text-gray-500">
                         {format(entry.time, 'HH:mm')}
                       </TableCell>
                       <TableCell className="font-mono text-xs text-gray-500">
@@ -369,7 +465,6 @@ export default function DayBookSection({
                       <TableCell className="text-right text-red-600 font-medium">
                         {entry.payment > 0 ? `-${formatCurrency(entry.payment)}` : '-'}
                       </TableCell>
-                      <TableCell className="text-right font-medium">{formatCurrency(entry.balance)}</TableCell>
                       <TableCell>
                         <Button
                           variant="ghost"
@@ -386,6 +481,38 @@ export default function DayBookSection({
               </TableBody>
             </Table>
           </ScrollArea>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <div className="text-sm text-gray-500">
+                Showing {(currentPage - 1) * entriesPerPage + 1} to {Math.min(currentPage * entriesPerPage, filteredEntries.length)} of {filteredEntries.length} entries
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => p - 1)}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <span className="text-sm text-gray-500">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => p + 1)}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -393,7 +520,10 @@ export default function DayBookSection({
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Entry Details</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Entry Details
+            </DialogTitle>
           </DialogHeader>
           
           {loadingDetail ? (
