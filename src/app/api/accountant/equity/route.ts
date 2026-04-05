@@ -81,13 +81,15 @@ export async function POST(request: NextRequest) {
       }> = [];
 
       // Get or create Cash in Hand account (1101)
-      let cashAccount = null;
+      let cashAccount: { id: string; currentBalance: number } | null = null;
       if (cashAmount > 0) {
-        cashAccount = await tx.chartOfAccount.findFirst({
+        const existingCashAccount = await tx.chartOfAccount.findFirst({
           where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
         });
 
-        if (!cashAccount) {
+        if (existingCashAccount) {
+          cashAccount = existingCashAccount;
+        } else {
           cashAccount = await tx.chartOfAccount.create({
             data: {
               companyId,
@@ -119,13 +121,15 @@ export async function POST(request: NextRequest) {
       }
 
       // Get or create Bank - Main account (1103)
-      let bankAccount = null;
+      let bankAccount: { id: string; currentBalance: number } | null = null;
       if (bankAmount > 0) {
-        bankAccount = await tx.chartOfAccount.findFirst({
+        const existingBankAccount = await tx.chartOfAccount.findFirst({
           where: { companyId, accountCode: ACCOUNT_CODES.BANK_MAIN }
         });
 
-        if (!bankAccount) {
+        if (existingBankAccount) {
+          bankAccount = existingBankAccount;
+        } else {
           bankAccount = await tx.chartOfAccount.create({
             data: {
               companyId,
