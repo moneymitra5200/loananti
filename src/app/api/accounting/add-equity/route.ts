@@ -174,6 +174,48 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Update CashBook if cash amount provided
+    if (cash > 0) {
+      // Get or create cashbook for the company
+      let cashBook = await db.cashBook.findUnique({
+        where: { companyId }
+      });
+
+      if (!cashBook) {
+        cashBook = await db.cashBook.create({
+          data: {
+            companyId,
+            openingBalance: 0,
+            currentBalance: 0
+          }
+        });
+      }
+
+      // Calculate new balance
+      const newBalance = (cashBook.currentBalance || 0) + cash;
+
+      // Create cashbook entry
+      await db.cashBookEntry.create({
+        data: {
+          cashBookId: cashBook.id,
+          entryType: 'CREDIT',
+          amount: cash,
+          balanceAfter: newBalance,
+          description: description || 'Owner\'s Capital Investment (Cash)',
+          referenceType: 'OPENING_BALANCE',
+          referenceId: journalEntryId,
+          entryDate: entryDate,
+          createdById: createdById || 'system'
+        }
+      });
+
+      // Update cashbook balance
+      await db.cashBook.update({
+        where: { id: cashBook.id },
+        data: { currentBalance: newBalance }
+      });
+    }
+
     // Get updated account balances
     const cashAccount = await db.chartOfAccount.findFirst({
       where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
