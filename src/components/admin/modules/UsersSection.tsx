@@ -253,9 +253,18 @@ function UsersSection({
                               <Shield className="h-4 w-4" />
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onDeleteUser(u)} title="Delete">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {/* Hide delete button for permanent super admin accounts */}
+                          {!['moneymitra@test.com', 'moneymitra@gmail.com'].includes(u.email) && (
+                            <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onDeleteUser(u)} title="Delete">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {['moneymitra@test.com', 'moneymitra@gmail.com'].includes(u.email) && (
+                            <Badge className="bg-purple-100 text-purple-700 text-xs ml-1">
+                              <Shield className="h-3 w-3 mr-1" />
+                              Protected
+                            </Badge>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

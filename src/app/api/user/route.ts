@@ -258,6 +258,18 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
+    // Protect permanent super admin from being deactivated
+    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+    if (isActive === false) {
+      const user = await db.user.findUnique({ where: { id } });
+      if (user && PERMANENT_SUPER_ADMIN_EMAILS.includes(user.email)) {
+        return NextResponse.json({ 
+          error: 'Cannot deactivate the permanent Super Admin account. This account is protected.',
+          isProtected: true 
+        }, { status: 403 });
+      }
+    }
+
     const updateData: Record<string, unknown> = {};
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
@@ -295,10 +307,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Protect permanent super admin from deletion
-    const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
-    if (user.email === PERMANENT_SUPER_ADMIN_EMAIL) {
+    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+    if (PERMANENT_SUPER_ADMIN_EMAILS.includes(user.email)) {
       return NextResponse.json({ 
-        error: 'Cannot delete the permanent Super Admin account',
+        error: 'Cannot delete the permanent Super Admin account. This account is protected.',
         isProtected: true 
       }, { status: 403 });
     }
