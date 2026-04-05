@@ -10,10 +10,8 @@ const prisma = new PrismaClient();
 const COMPLETE_CHART_OF_ACCOUNTS = [
   // ASSETS
   { accountCode: '1000', accountName: 'Current Assets', accountType: 'ASSET', isSystemAccount: true, description: 'Assets that can be converted to cash within 1 year' },
-  { accountCode: '1100', accountName: 'Cash and Cash Equivalents', accountType: 'ASSET', isSystemAccount: true, description: 'Cash and bank balances' },
+  { accountCode: '1100', accountName: 'Cash and Cash Equivalents', accountType: 'ASSET', isSystemAccount: true, description: 'Cash on hand' },
   { accountCode: '1101', accountName: 'Cash in Hand', accountType: 'ASSET', isSystemAccount: true, description: 'Physical cash on hand' },
-  { accountCode: '1102', accountName: 'Bank Accounts', accountType: 'ASSET', isSystemAccount: true, description: 'All bank accounts' },
-  { accountCode: '1103', accountName: 'Bank - Main Operating', accountType: 'ASSET', isSystemAccount: true, description: 'Primary operating bank account' },
   { accountCode: '1200', accountName: 'Loans Receivable', accountType: 'ASSET', isSystemAccount: true, description: 'Money given as loans to customers' },
   { accountCode: '1201', accountName: 'Online Loans Receivable', accountType: 'ASSET', isSystemAccount: true, description: 'Online loans principal outstanding' },
   { accountCode: '1210', accountName: 'Offline Loans Receivable', accountType: 'ASSET', isSystemAccount: true, description: 'Offline loans principal outstanding' },

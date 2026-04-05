@@ -1,11 +1,14 @@
 /**
  * Simple Accounting Helper
- * Direct database operations for cashbook and bank transactions
+ * Direct database operations for cashbook transactions
  * Also creates journal entries for double-entry bookkeeping
  * 
  * MIRROR LOAN LOGIC:
  * - Mirror Loan EMI → Only record MIRROR INTEREST as income (no deductions)
  * - Company 3 loans → Separate from main accounting portal
+ * 
+ * IMPORTANT: ALL payments go to CASH BOOK only (no bank account)
+ * Extra EMI and secondary payments are PURE PROFIT for Company 3
  */
 
 import { db } from '@/lib/db';
@@ -299,43 +302,27 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   // ============================================
   // For mirror loans, record ONLY the mirror interest as income
   // NO deductions, NO profit calculations
+  // ALL payments go to CASH BOOK only (no bank account)
   // ============================================
   
   if (isMirrorPayment && mirrorCompanyId && mirrorInterest !== undefined) {
-    console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording ONLY mirror interest: ₹${mirrorInterest}`);
+    console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording ONLY mirror interest: ₹${mirrorInterest} in CASH BOOK`);
     
-    // Determine payment destination based on payment mode
-    if (paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER') {
-      // Record in Mirror Company's Bank
-      result.bankTransaction = await recordBankTransaction({
-        companyId: mirrorCompanyId,
-        transactionType: 'CREDIT',
-        amount: mirrorInterest,  // ONLY mirror interest
-        description: `MIRROR INTEREST INCOME - ${loanNumber} - EMI #${installmentNumber}`,
-        referenceType: 'MIRROR_INTEREST_INCOME',
-        referenceId: paymentId,
-        createdById: userId
-      });
-    } else {
-      // Record in Mirror Company's Cashbook
-      result.cashBookEntry = await recordCashBookEntry({
-        companyId: mirrorCompanyId,
-        entryType: 'CREDIT',
-        amount: mirrorInterest,  // ONLY mirror interest
-        description: `MIRROR INTEREST INCOME - ${loanNumber} - EMI #${installmentNumber}`,
-        referenceType: 'MIRROR_INTEREST_INCOME',
-        referenceId: paymentId,
-        createdById: userId
-      });
-    }
+    // ALWAYS record in Mirror Company's Cashbook (no bank account used)
+    result.cashBookEntry = await recordCashBookEntry({
+      companyId: mirrorCompanyId,
+      entryType: 'CREDIT',
+      amount: mirrorInterest,  // ONLY mirror interest
+      description: `MIRROR INTEREST INCOME - ${loanNumber} - EMI #${installmentNumber}`,
+      referenceType: 'MIRROR_INTEREST_INCOME',
+      referenceId: paymentId,
+      createdById: userId
+    });
     
     // Create journal entry for Mirror Company - ONLY mirror interest
     try {
       const accountingService = new AccountingService(mirrorCompanyId);
       await accountingService.initializeChartOfAccounts();
-      
-      // Journal entry: Debit Cash/Bank, Credit Interest Income
-      const bankAccountId = await getDefaultBankAccount(mirrorCompanyId);
       
       result.journalEntryId = await accountingService.createJournalEntry({
         entryDate: new Date(),
@@ -344,14 +331,12 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - Interest Income: ₹${mirrorInterest}`,
         lines: [
           {
-            accountCode: paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER' 
-              ? ACCOUNT_CODES.BANK_ACCOUNT 
-              : ACCOUNT_CODES.CASH_IN_HAND,
+            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
             debitAmount: mirrorInterest,  // ONLY mirror interest
             creditAmount: 0,
             loanId,
             customerId,
-            narration: 'Cash/Bank received for mirror interest'
+            narration: 'Cash received for mirror interest'
           },
           {
             accountCode: ACCOUNT_CODES.INTEREST_INCOME,
@@ -366,7 +351,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         paymentMode
       });
       
-      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorInterest} as Interest Income in Mirror Company ${mirrorCompanyId}`);
+      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorInterest} as Interest Income in Mirror Company ${mirrorCompanyId} CASH BOOK`);
     } catch (journalError) {
       console.error('Failed to create journal entry for mirror EMI:', journalError);
     }
@@ -443,122 +428,63 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   }
 
   // ============================================
-  // COMPANY CREDIT - ONLINE payment
+  // COMPANY CREDIT - ALL payments go to CASH BOOK
   // ============================================
-  if (paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER') {
-    result.bankTransaction = await recordBankTransaction({
-      companyId: targetCompanyId,
-      transactionType: 'CREDIT',
-      amount,
-      description: `${description} [Company Credit - ${paymentMode}]`,
-      referenceType: 'EMI_PAYMENT_ONLINE',
-      referenceId: paymentId,
-      createdById: userId
-    });
-    
-    // Create journal entry
-    try {
-      const accountingService = new AccountingService(targetCompanyId);
-      await accountingService.initializeChartOfAccounts();
-      
-      const bankAccountId = await getDefaultBankAccount(targetCompanyId);
-      
-      result.journalEntryId = await accountingService.createJournalEntry({
-        entryDate: new Date(),
-        referenceType: 'EMI_PAYMENT',
-        referenceId: paymentId,
-        narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
-        lines: [
-          {
-            accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
-            debitAmount: amount,
-            creditAmount: 0,
-            loanId,
-            customerId,
-            narration: 'Bank received for EMI'
-          },
-          {
-            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-            debitAmount: 0,
-            creditAmount: principalComponent,
-            loanId,
-            customerId,
-            narration: 'Principal repayment'
-          },
-          {
-            accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-            debitAmount: 0,
-            creditAmount: interestComponent,
-            loanId,
-            customerId,
-            narration: 'Interest income'
-          }
-        ],
-        createdById: userId,
-        paymentMode,
-        bankAccountId: bankAccountId || undefined
-      });
-    } catch (journalError) {
-      console.error('Failed to create journal entry for company credit EMI:', journalError);
-    }
-  }
+  // ALL payments are recorded in CASH BOOK (no bank account)
+  // Extra EMI and secondary payments are PURE PROFIT for Company 3
+  // ============================================
   
-  // ============================================
-  // COMPANY CREDIT - CASH payment
-  // ============================================
-  if (paymentMode === 'CASH' || paymentMode === 'CHEQUE') {
-    result.cashBookEntry = await recordCashBookEntry({
-      companyId: targetCompanyId,
-      entryType: 'CREDIT',
-      amount,
-      description: `${description} [Company Credit - ${paymentMode}]`,
-      referenceType: 'EMI_PAYMENT_CASH',
-      referenceId: paymentId,
-      createdById: userId
-    });
+  result.cashBookEntry = await recordCashBookEntry({
+    companyId: targetCompanyId,
+    entryType: 'CREDIT',
+    amount,
+    description: `${description} [Company Credit - ${paymentMode}]`,
+    referenceType: 'EMI_PAYMENT',
+    referenceId: paymentId,
+    createdById: userId
+  });
+  
+  // Create journal entry
+  try {
+    const accountingService = new AccountingService(targetCompanyId);
+    await accountingService.initializeChartOfAccounts();
     
-    // Create journal entry
-    try {
-      const accountingService = new AccountingService(targetCompanyId);
-      await accountingService.initializeChartOfAccounts();
-      
-      result.journalEntryId = await accountingService.createJournalEntry({
-        entryDate: new Date(),
-        referenceType: 'EMI_PAYMENT',
-        referenceId: paymentId,
-        narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
-        lines: [
-          {
-            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
-            debitAmount: amount,
-            creditAmount: 0,
-            loanId,
-            customerId,
-            narration: 'Cash received for EMI'
-          },
-          {
-            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-            debitAmount: 0,
-            creditAmount: principalComponent,
-            loanId,
-            customerId,
-            narration: 'Principal repayment'
-          },
-          {
-            accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-            debitAmount: 0,
-            creditAmount: interestComponent,
-            loanId,
-            customerId,
-            narration: 'Interest income'
-          }
-        ],
-        createdById: userId,
-        paymentMode
-      });
-    } catch (journalError) {
-      console.error('Failed to create journal entry for company credit EMI:', journalError);
-    }
+    result.journalEntryId = await accountingService.createJournalEntry({
+      entryDate: new Date(),
+      referenceType: 'EMI_PAYMENT',
+      referenceId: paymentId,
+      narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
+      lines: [
+        {
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+          debitAmount: amount,
+          creditAmount: 0,
+          loanId,
+          customerId,
+          narration: 'Cash received for EMI'
+        },
+        {
+          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+          debitAmount: 0,
+          creditAmount: principalComponent,
+          loanId,
+          customerId,
+          narration: 'Principal repayment'
+        },
+        {
+          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+          debitAmount: 0,
+          creditAmount: interestComponent,
+          loanId,
+          customerId,
+          narration: 'Interest income'
+        }
+      ],
+      createdById: userId,
+      paymentMode
+    });
+  } catch (journalError) {
+    console.error('Failed to create journal entry for company credit EMI:', journalError);
   }
 
   return result;
@@ -644,14 +570,12 @@ export async function recordMirrorInterestIncome(params: {
       narration: `Mirror Interest - ${loanNumber} EMI #${installmentNumber} - ₹${mirrorInterest}`,
       lines: [
         {
-          accountCode: paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER' 
-            ? ACCOUNT_CODES.BANK_ACCOUNT 
-            : ACCOUNT_CODES.CASH_IN_HAND,
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: mirrorInterest,
           creditAmount: 0,
           loanId,
           customerId,
-          narration: 'Cash/Bank received'
+          narration: 'Cash received'
         },
         {
           accountCode: ACCOUNT_CODES.INTEREST_INCOME,

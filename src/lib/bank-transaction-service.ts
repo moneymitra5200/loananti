@@ -182,7 +182,7 @@ export async function processBankTransaction(params: BankTransactionParams): Pro
           referenceType: 'OPENING_BALANCE',
           narration: description,
           lines: [
-            { accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: amount, creditAmount: 0 },
+            { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0 },
             { accountCode: ACCOUNT_CODES.INVESTOR_CAPITAL, debitAmount: 0, creditAmount: amount }
           ],
           createdById,
@@ -215,11 +215,11 @@ export async function processBankTransaction(params: BankTransactionParams): Pro
           referenceId,
           narration: description,
           lines: isCredit ? [
-            { accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: amount, creditAmount: 0 },
+            { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0 },
             { accountCode: ACCOUNT_CODES.OTHER_INCOME, debitAmount: 0, creditAmount: amount }
           ] : [
             { accountCode: ACCOUNT_CODES.ACCOUNTS_PAYABLE, debitAmount: amount, creditAmount: 0 },
-            { accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: 0, creditAmount: amount }
+            { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: 0, creditAmount: amount }
           ],
           createdById,
           paymentMode,

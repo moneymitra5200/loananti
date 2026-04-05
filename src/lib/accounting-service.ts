@@ -28,9 +28,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
   ASSETS: [
     // Current Assets (1100-1199)
     { code: '1101', name: 'Cash in Hand', type: 'ASSET', isSystemAccount: true, description: 'Physical cash on hand' },
-    { code: '1102', name: 'Cash at Bank', type: 'ASSET', isSystemAccount: true, description: 'Bank accounts' },
-    { code: '1103', name: 'Bank - Main Operating', type: 'ASSET', isSystemAccount: true, description: 'Primary operating bank account' },
-    { code: '1104', name: 'Bank - Secondary', type: 'ASSET', isSystemAccount: false, description: 'Secondary bank account' },
     // Loans Receivable (1200-1299)
     { code: '1200', name: 'Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Total loans given to borrowers' },
     { code: '1201', name: 'Online Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Loans from online applications' },
@@ -110,8 +107,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
 export const ACCOUNT_CODES = {
   // Assets
   CASH_IN_HAND: '1101',
-  CASH_AT_BANK: '1102',
-  BANK_ACCOUNT: '1103',          // Main operating bank account
   LOANS_RECEIVABLE: '1200',
   ONLINE_LOANS_RECEIVABLE: '1201',
   OFFLINE_LOANS_RECEIVABLE: '1210',
@@ -465,7 +460,7 @@ export class AccountingService {
           narration: 'Loan principal disbursed',
         },
         {
-          accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: 0,
           creditAmount: params.amount,
           narration: 'Payment from bank',
@@ -512,7 +507,7 @@ export class AccountingService {
 
     // Debit Bank Account (total received)
     lines.push({
-      accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+      accountCode: ACCOUNT_CODES.CASH_IN_HAND,
       debitAmount: params.totalAmount,
       creditAmount: 0,
       narration: `EMI received - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`,
@@ -590,7 +585,7 @@ export class AccountingService {
       narration: `Processing fee collected: ₹${params.amount.toLocaleString()}`,
       lines: [
         {
-          accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: params.amount,
           creditAmount: 0,
           narration: 'Processing fee received',
@@ -641,7 +636,7 @@ export class AccountingService {
           narration: 'Commission expense',
         },
         {
-          accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: 0,
           creditAmount: params.amount,
           narration: 'Commission payment',
@@ -698,7 +693,7 @@ export class AccountingService {
       });
     } else {
       lines.push({
-        accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: 0,
         creditAmount: params.amount,
         narration: 'Expense paid',
@@ -751,7 +746,7 @@ export class AccountingService {
 
     // Debit Bank (total received)
     lines.push({
-      accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+      accountCode: ACCOUNT_CODES.CASH_IN_HAND,
       debitAmount: params.totalSettlement,
       creditAmount: 0,
       narration: 'Foreclosure settlement received',
@@ -1478,7 +1473,7 @@ export async function createSettlementEntry(params: {
         narration: 'Cash received from settlement'
       },
       {
-        accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: 0,
         creditAmount: params.amount,
         narration: 'Settlement transfer'
@@ -1515,7 +1510,7 @@ export async function createCreditDepositEntry(params: {
     narration: params.description || `Credit deposit by user - ₹${params.amount.toLocaleString()}`,
     lines: [
       {
-        accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: params.amount,
         creditAmount: 0,
         narration: 'Cash/Bank deposit received'
@@ -2025,7 +2020,7 @@ export async function recordMirrorLoanEMIPayment(params: {
     narration: `Mirror EMI Payment - ${params.mirrorLoanNumber || params.mirrorLoanId} - Principal: ₹${params.mirrorPrincipal}, Interest: ₹${params.mirrorInterest}`,
     lines: [
       {
-        accountCode: params.paymentMode === 'ONLINE' ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
+        accountCode: params.paymentMode === 'ONLINE' ? ACCOUNT_CODES.CASH_IN_HAND : ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: totalAmount,
         creditAmount: 0,
         loanId: params.mirrorLoanId,
