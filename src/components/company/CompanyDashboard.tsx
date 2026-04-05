@@ -27,6 +27,8 @@ import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
+import BankHeadSection from '@/components/company/BankHeadSection';
+import DaybookSection from '@/components/company/DaybookSection';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
@@ -990,6 +992,24 @@ export default function CompanyDashboard() {
               </CardContent>
             </Card>
           </div>
+        );
+
+      case 'bank-head':
+        return (
+          <BankHeadSection 
+            companyId={user?.companyId || ''} 
+            companyName={user?.company?.name || 'Company'} 
+            companyCode={user?.company?.code || 'C1'} 
+          />
+        );
+      
+      case 'daybook':
+        return (
+          <DaybookSection 
+            companyId={user?.companyId || ''} 
+            companyName={user?.company?.name || 'Company'} 
+            companyCode={user?.company?.code || 'C1'} 
+          />
         );
 
       case 'emi-collection':

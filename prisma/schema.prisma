@@ -1117,6 +1117,7 @@ model BankAccount {
   bankName        String
   accountNumber   String
   accountName     String
+  ownerName       String?   // Bank account owner's name
   branchName      String?
   ifscCode        String?
   accountType     String   // SAVINGS, CURRENT, etc.

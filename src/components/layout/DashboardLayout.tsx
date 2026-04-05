@@ -450,6 +450,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
   ],
   COMPANY: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'bank-head', label: 'Bank Head', icon: Landmark },
+    { id: 'daybook', label: 'Daybook', icon: BookOpen },
     { id: 'emi-collection', label: 'EMI Collection', icon: Wallet },
     { id: 'emi-calendar', label: 'EMI Calendar', icon: Calendar },
     { id: 'offline-loans', label: 'Offline Loans', icon: FileText },

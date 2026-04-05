@@ -19,7 +19,7 @@ import {
 import {
   IndianRupee, Banknote, CreditCard, Receipt, AlertCircle,
   Calculator, TrendingUp, Clock, CalendarIcon, Info, AlertTriangle,
-  CheckCircle2, User, Building2, Wallet
+  CheckCircle2, User, Building2, Wallet, Landmark, QrCode, Copy
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { format, addDays } from 'date-fns';
@@ -106,6 +106,18 @@ export default function EMIPaymentDialog({
   const [processing, setProcessing] = useState(false);
   const [interestOnlyConfirmed, setInterestOnlyConfirmed] = useState(false);
 
+  // Bank details state
+  const [bankDetails, setBankDetails] = useState<{
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+    ownerName?: string;
+    ifscCode?: string;
+    upiId?: string;
+    qrCodeUrl?: string;
+  } | null>(null);
+  const [loadingBankDetails, setLoadingBankDetails] = useState(false);
+
   // Determine if this is an Extra EMI
   const isActuallyExtraEMI = isExtraEMI || (mirrorLoanInfo && emi && emi.installmentNumber > (mirrorLoanInfo.mirrorTenure || 0));
   
@@ -120,6 +132,40 @@ export default function EMIPaymentDialog({
       setPaymentMode('CASH'); // Personal Credit is always CASH
     }
   }, [showPersonalCredit]);
+
+  // Fetch bank details when payment mode is ONLINE and companyId is available
+  useEffect(() => {
+    const fetchBankDetails = async () => {
+      if (paymentMode === 'ONLINE' && companyId) {
+        setLoadingBankDetails(true);
+        try {
+          const res = await fetch(`/api/accountant/bank-accounts?companyId=${companyId}`);
+          if (res.ok) {
+            const data = await res.json();
+            // Get default bank account
+            const defaultBank = data.bankAccounts?.find((b: any) => b.isDefault) || data.bankAccounts?.[0];
+            if (defaultBank) {
+              setBankDetails({
+                bankName: defaultBank.bankName,
+                accountNumber: defaultBank.accountNumber,
+                accountName: defaultBank.accountName,
+                ownerName: defaultBank.ownerName,
+                ifscCode: defaultBank.ifscCode,
+                upiId: defaultBank.upiId,
+                qrCodeUrl: defaultBank.qrCodeUrl
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch bank details:', error);
+        } finally {
+          setLoadingBankDetails(false);
+        }
+      }
+    };
+    
+    fetchBankDetails();
+  }, [paymentMode, companyId]);
 
   if (!emi) return null;
 
@@ -584,6 +630,91 @@ export default function EMIPaymentDialog({
                   <p className="text-xs text-gray-400 mt-2">
                     Entry in: {paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} of Loan Company | Company credit increases
                   </p>
+                  
+                  {/* Bank Details Display for ONLINE payment */}
+                  {paymentMode === 'ONLINE' && creditType === 'COMPANY' && (
+                    <div className="mt-4 p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Landmark className="h-5 w-5 text-blue-600" />
+                        <span className="font-semibold text-blue-800">Bank Payment Details</span>
+                      </div>
+                      
+                      {loadingBankDetails ? (
+                        <div className="flex items-center gap-2 text-gray-500">
+                          <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
+                          Loading bank details...
+                        </div>
+                      ) : bankDetails ? (
+                        <div className="space-y-3">
+                          {/* Bank Name & Account */}
+                          <div className="bg-white p-3 rounded-lg border border-blue-100">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-500">Bank</span>
+                              <span className="font-medium text-blue-700">{bankDetails.bankName}</span>
+                            </div>
+                            <div className="flex justify-between items-center mt-1">
+                              <span className="text-sm text-gray-500">Account Number</span>
+                              <span className="font-mono font-medium">{bankDetails.accountNumber}</span>
+                            </div>
+                            {bankDetails.ownerName && (
+                              <div className="flex justify-between items-center mt-1">
+                                <span className="text-sm text-gray-500">Account Owner</span>
+                                <span className="font-medium">{bankDetails.ownerName}</span>
+                              </div>
+                            )}
+                            {bankDetails.ifscCode && (
+                              <div className="flex justify-between items-center mt-1">
+                                <span className="text-sm text-gray-500">IFSC Code</span>
+                                <span className="font-mono font-medium">{bankDetails.ifscCode}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* UPI ID */}
+                          {bankDetails.upiId && (
+                            <div className="bg-white p-3 rounded-lg border border-green-100">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-xs text-gray-500">UPI ID</p>
+                                  <p className="font-mono font-medium text-green-600">{bankDetails.upiId}</p>
+                                </div>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(bankDetails.upiId!);
+                                    toast({ title: 'Copied!', description: 'UPI ID copied to clipboard' });
+                                  }}
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* QR Code */}
+                          {bankDetails.qrCodeUrl && (
+                            <div className="bg-white p-3 rounded-lg border border-purple-100 text-center">
+                              <p className="text-xs text-gray-500 mb-2">Scan to Pay</p>
+                              <img 
+                                src={bankDetails.qrCodeUrl} 
+                                alt="Payment QR Code" 
+                                className="w-32 h-32 mx-auto rounded border"
+                              />
+                            </div>
+                          )}
+
+                          <p className="text-xs text-blue-600 text-center">
+                            Transfer the EMI amount to the above bank account
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-amber-600">
+                          No bank account configured for this company. Please contact administrator.
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
