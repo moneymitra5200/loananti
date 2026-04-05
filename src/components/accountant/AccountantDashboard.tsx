@@ -1,408 +1,643 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
-import { useRealtime } from '@/hooks/useRealtime';
-import { useLoansStore } from '@/stores/loansStore';
-import { useCompaniesStore } from '@/stores/companiesStore';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import ProfileSection from '@/components/shared/ProfileSection';
 import { 
-  Calculator, FileText, TrendingUp, DollarSign, Loader2, RefreshCw, 
-  FileSpreadsheet, BookOpen, Landmark, QrCode, ArrowUpRight, ArrowDownRight,
-  CreditCard, BookMarked, Clock, LogOut, User
+  Calculator, FileText, TrendingUp, Loader2, RefreshCw, 
+  FileSpreadsheet, BookOpen, Landmark, ArrowUpRight, ArrowDownRight,
+  LogOut, Plus, Receipt, BookCopy, BarChart3,
+  AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
+  ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// Types
-import {
-  Company,
-  BankAccount,
-  BankTransaction,
-  Expense,
-  Income,
-  ActiveLoan,
-  AuditLog,
-  ChartOfAccountItem,
-  JournalEntry,
-  TrialBalanceItem,
-  LedgerEntry,
-  TrialBalanceSummary,
-  BankForm,
-  ExpenseForm,
-  IncomeForm,
-  MenuItem
-} from './types';
-
-// Section Components
-import {
-  OverviewSection,
-  BankSection,
-  PaymentPagesSection,
-  LoanPortfolioSection,
-  AuditTrailSection,
-  DayBookSection,
-  BalanceSheetSection,
-  ProfitLossSection,
-  CashFlowSection,
-  IncomeSection,
-  ExpenseSection,
-  ChartOfAccountsSection,
-  LedgerViewSection,
-  TrialBalanceSection,
-  JournalEntriesSection,
-  LedgerSection,
-  BankDialog,
-  ExpenseDialog,
-  ScanDialog,
-  DeleteBankDialog,
-  EquityDialog
-} from './modules';
-
 // ============================================
-// MAIN COMPONENT
+// TYPES
 // ============================================
 
-export default function AccountantDashboard() {
-  const { user, signOut, refreshUser } = useAuth();
-  const { settings } = useSettings();
-  
-  // Real-time updates hook
-  const { requestRefresh } = useRealtime({
-    userId: user?.id,
-    role: user?.role,
-    onLoanStatusChanged: (data) => {
-      const { loan, newStatus } = data;
-      // Update loans store directly for instant UI update
-      useLoansStore.getState().updateLoan(loan.id, { status: newStatus });
-      toast.success(`Loan ${loan.applicationNo || loan.id} status changed to ${newStatus}`);
-    },
-    onPaymentReceived: (data) => {
-      // Refresh data when payment is received
-      fetchAllData(true);
-      toast.success(`Payment of ${formatCurrency(data.amount)} received`);
-    },
-    onDashboardRefresh: () => {
-      fetchAllData(true);
-    }
-  });
-  
-  // State
-  const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState('overview');
-  
-  // Company Filter - SINGLE SELECT
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  
-  // Date Filter
-  const [dateRange, setDateRange] = useState({
-    startDate: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
-    endDate: format(endOfMonth(new Date()), 'yyyy-MM-dd')
-  });
-  
-  // Data States
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [bankTransactions, setBankTransactions] = useState<BankTransaction[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [incomes, setIncomes] = useState<Income[]>([]);
-  const [activeLoans, setActiveLoans] = useState<ActiveLoan[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+interface Company {
+  id: string;
+  name: string;
+  code: string;
+}
 
-  // Double-Entry Accounting States
-  const [chartOfAccounts, setChartOfAccounts] = useState<ChartOfAccountItem[]>([]);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
-  const [trialBalance, setTrialBalance] = useState<TrialBalanceItem[]>([]);
-  const [trialBalanceSummary, setTrialBalanceSummary] = useState<TrialBalanceSummary>({ totalDebits: 0, totalCredits: 0, isBalanced: true });
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('');
-  const [accountLedger, setAccountLedger] = useState<LedgerEntry[]>([]);
-  const [selectedLoanId, setSelectedLoanId] = useState<string>('');
-  const [loanLedger, setLoanLedger] = useState<LedgerEntry[]>([]);
-  
-  // Extra EMI Profit (Company 3 only)
-  const [extraEMIProfit, setExtraEMIProfit] = useState<any>(null);
-  
-  // Payment Pages
-  const [paymentPages, setPaymentPages] = useState<any[]>([]);
-  const [loadingPaymentPages, setLoadingPaymentPages] = useState(false);
-  
-  // Report States
-  const [balanceSheet, setBalanceSheet] = useState<any>(null);
-  const [profitLoss, setProfitLoss] = useState<any>(null);
-  const [cashFlow, setCashFlow] = useState<any>(null);
-  
-  // Dialog States
-  const [showBankDialog, setShowBankDialog] = useState(false);
-  const [showExpenseDialog, setShowExpenseDialog] = useState(false);
-  const [showIncomeDialog, setShowIncomeDialog] = useState(false);
-  const [showScanDialog, setShowScanDialog] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  
-  // Delete Confirmation Dialog
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [bankToDelete, setBankToDelete] = useState<BankAccount | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  
-  // Equity Dialog
-  const [showEquityDialog, setShowEquityDialog] = useState(false);
-  
-  // Form States
-  const [bankForm, setBankForm] = useState<BankForm>({
-    bankName: '',
-    accountNumber: '',
-    accountName: '',
-    ownerName: '',
-    ifscCode: '',
-    branchName: '',
-    accountType: 'CURRENT',
-    openingBalance: 0,
-    upiId: '',
-    qrCodeUrl: '',
-    isDefault: false
-  });
-  
-  const [expenseForm, setExpenseForm] = useState<ExpenseForm>({
-    expenseType: 'MISCELLANEOUS',
-    description: '',
-    amount: 0,
-    paymentMode: 'BANK_TRANSFER',
-    paymentDate: format(new Date(), 'yyyy-MM-dd')
-  });
-  
-  const [incomeForm, setIncomeForm] = useState<IncomeForm>({
-    type: 'EMI_COLLECTION',
-    description: '',
-    amount: 0,
-    source: '',
-    date: format(new Date(), 'yyyy-MM-dd')
-  });
+interface ChartOfAccount {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
+  currentBalance: number;
+  isActive: boolean;
+}
 
-  // ============================================
-  // HELPERS
-  // ============================================
+interface BankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  accountName?: string;
+  ownerName?: string;
+  currentBalance: number;
+  ifscCode?: string;
+  upiId?: string;
+  qrCodeUrl?: string;
+  isDefault: boolean;
+  isActive: boolean;
+}
 
-  const formatCurrency = useCallback((amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(amount || 0);
-  }, []);
+interface BankTransaction {
+  id: string;
+  bankAccountId: string;
+  transactionType: 'CREDIT' | 'DEBIT';
+  amount: number;
+  balanceAfter: number;
+  description: string;
+  referenceType: string;
+  transactionDate: Date | string;
+}
 
-  const formatDate = useCallback((date: Date | string) => {
-    if (!date) return '-';
-    return format(new Date(date), 'dd MMM yyyy');
-  }, []);
+interface CashBookEntry {
+  id: string;
+  entryType: 'CREDIT' | 'DEBIT';
+  amount: number;
+  balanceAfter: number;
+  description: string;
+  referenceType: string;
+  createdAt: Date | string;
+}
 
-  const formatDateShort = useCallback((date: Date | string) => {
-    if (!date) return '-';
-    return format(new Date(date), 'dd/MM/yyyy');
-  }, []);
+interface JournalEntry {
+  id: string;
+  entryNumber: string;
+  entryDate: Date | string;
+  referenceType?: string;
+  narration?: string;
+  totalDebit: number;
+  totalCredit: number;
+  lines: Array<{
+    accountId: string;
+    account?: ChartOfAccount;
+    debitAmount: number;
+    creditAmount: number;
+  }>;
+}
 
-  // ============================================
-  // DATA FETCHING
-  // ============================================
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-  const fetchCompanies = useCallback(async (forceRefresh = false) => {
-    const store = useCompaniesStore.getState();
-    
-    // Use cached data if available and not expired
-    if (!forceRefresh && !store.needsRefresh() && store.companies.length > 0) {
-      setCompanies(store.companies);
-      if (store.companies.length > 0 && !selectedCompanyId) {
-        setSelectedCompanyId(store.companies[0].id);
-      }
-      return;
-    }
-    
-    try {
-      const res = await fetch('/api/company');
-      if (res.ok) {
-        const data = await res.json();
-        const companiesList = data.companies || [];
-        store.setCompanies(companiesList);
-        setCompanies(companiesList);
-        if (companiesList.length > 0 && !selectedCompanyId) {
-          setSelectedCompanyId(companiesList[0].id);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching companies:', error);
-    }
-  }, [selectedCompanyId]);
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount || 0);
+};
 
-  const fetchAllData = useCallback(async (forceRefresh = false) => {
+const formatDate = (date: Date | string) => {
+  if (!date) return '-';
+  return format(new Date(date), 'dd MMM yyyy');
+};
+
+const formatDateShort = (date: Date | string) => {
+  if (!date) return '-';
+  return format(new Date(date), 'dd/MM/yyyy');
+};
+
+// Company type detection
+const getCompanyType = (code: string): 'COMPANY_1_2' | 'COMPANY_3' => {
+  const upperCode = code?.toUpperCase() || '';
+  // Company 3 is the original/profit center
+  if (upperCode.includes('3') || upperCode === 'C3' || upperCode === 'COMPANY3' || upperCode === 'COMPANY_3') {
+    return 'COMPANY_3';
+  }
+  // Company 1 and 2 are mirror companies (operational)
+  return 'COMPANY_1_2';
+};
+
+// ============================================
+// SECTION COMPONENTS
+// ============================================
+
+// Day Book Section - Shows ALL transactions A-Z
+function DayBookSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDateShort
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDateShort: (date: Date | string) => string;
+}) {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [currentPage, setCurrentPage] = useState(1);
+  const entriesPerPage = 50;
+
+  const loadEntries = useCallback(async () => {
     if (!selectedCompanyId) return;
-    
-    // Check if we can use cached data
-    const loansStore = useLoansStore.getState();
-    if (!forceRefresh && !loansStore.needsRefresh() && loansStore.activeLoans.length > 0) {
-      // Use cached loan data - but still fetch accountant-specific data
-      setActiveLoans(loansStore.activeLoans.map((l: any) => ({
-        ...l,
-        emiSchedules: l.emiSchedules || []
-      })) as ActiveLoan[]);
-    }
-    
     setLoading(true);
     try {
-      // PARALLEL FETCH - All requests at once
-      const [
-        bankRes, 
-        expenseRes, 
-        loansRes, 
-        auditRes,
-        balanceSheetRes,
-        profitLossRes,
-        cashFlowRes,
-        chartOfAccountsRes,
-        journalEntriesRes,
-        trialBalanceRes,
-        mirrorProfitRes
-      ] = await Promise.all([
-        fetch(`/api/accountant/bank-accounts?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/expenses?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/portfolio?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/audit-log?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/balance-sheet?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/profit-loss?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/cash-flow?companyId=${selectedCompanyId}`),
-        fetch(`/api/accounting/chart-of-accounts?companyId=${selectedCompanyId}`),
-        fetch(`/api/accounting/journal-entries?companyId=${selectedCompanyId}&limit=50`),
-        fetch(`/api/accountant/trial-balance?companyId=${selectedCompanyId}`),
-        fetch(`/api/accountant/mirror-profit?companyId=${selectedCompanyId}`)
-      ]);
-
-      // Process all responses in parallel for faster loading
-      const [
-        bankData, 
-        expenseData, 
-        loansData, 
-        auditData,
-        balanceSheetData,
-        profitLossData,
-        cashFlowData,
-        chartOfAccountsData,
-        journalEntriesData,
-        trialBalanceData,
-        mirrorProfitData
-      ] = await Promise.all([
-        bankRes.json(),
-        expenseRes.json(),
-        loansRes.json(),
-        auditRes.json(),
-        balanceSheetRes.json(),
-        profitLossRes.json(),
-        cashFlowRes.json(),
-        chartOfAccountsRes.json(),
-        journalEntriesRes.json(),
-        trialBalanceRes.json(),
-        mirrorProfitRes.json()
-      ]);
-
-      // Update all state at once
-      setBankAccounts(bankData.bankAccounts || []);
-      setBankTransactions(bankData.transactions || []);
-      setExpenses(expenseData.expenses || []);
-      
-      const loansList = loansData.loans || [];
-      setActiveLoans(loansList);
-      // Update store for caching
-      useLoansStore.getState().setActiveLoans(loansList);
-      
-      setAuditLogs(auditData.logs || []);
-      setBalanceSheet(balanceSheetData);
-      setProfitLoss(profitLossData);
-      setCashFlow(cashFlowData);
-      setChartOfAccounts(chartOfAccountsData.accounts || []);
-      setJournalEntries(journalEntriesData.entries || []);
-      setTrialBalance(trialBalanceData.trialBalance || []);
-      setTrialBalanceSummary({
-        totalDebits: trialBalanceData.totalDebits || 0,
-        totalCredits: trialBalanceData.totalCredits || 0,
-        isBalanced: trialBalanceData.isBalanced || false
-      });
-      setExtraEMIProfit(mirrorProfitData);
-
+      const res = await fetch(`/api/accounting/journal-entries?companyId=${selectedCompanyId}&limit=500`);
+      const data = await res.json();
+      setEntries(data.entries || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      toast.error('Failed to load data');
+      console.error('Error loading entries:', error);
     } finally {
       setLoading(false);
     }
   }, [selectedCompanyId]);
 
-  const fetchPaymentPages = async () => {
+  useEffect(() => {
+    loadEntries();
+  }, [loadEntries]);
+
+  // Filter entries
+  const filteredEntries = entries.filter(entry => {
+    const entryDate = new Date(entry.entryDate);
+    const start = startOfDay(new Date(startDate));
+    const end = endOfDay(new Date(endDate));
+    
+    if (entryDate < start || entryDate > end) return false;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      return (
+        entry.entryNumber?.toLowerCase().includes(term) ||
+        entry.narration?.toLowerCase().includes(term) ||
+        entry.referenceType?.toLowerCase().includes(term)
+      );
+    }
+    return true;
+  });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage);
+  const paginatedEntries = filteredEntries.slice(
+    (currentPage - 1) * entriesPerPage,
+    currentPage * entriesPerPage
+  );
+
+  const totalReceipts = filteredEntries.reduce((s, e) => s + e.totalCredit, 0);
+  const totalPayments = filteredEntries.reduce((s, e) => s + e.totalDebit, 0);
+
+  const getReferenceLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      'LOAN_DISBURSEMENT': 'Loan Disbursement',
+      'EMI_PAYMENT': 'EMI Payment',
+      'MIRROR_EMI_PAYMENT': 'Mirror EMI',
+      'EXTRA_EMI_PAYMENT': 'Extra EMI',
+      'PROCESSING_FEE_COLLECTION': 'Processing Fee',
+      'EXPENSE_ENTRY': 'Expense',
+      'OPENING_BALANCE': 'Opening Balance',
+      'MANUAL_ENTRY': 'Manual Entry'
+    };
+    return labels[type] || type || 'Entry';
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <BookOpen className="h-5 w-5" />
+          Day Book - All Transactions
+        </h2>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search..."
+              className="w-48 pl-9"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">From:</span>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">To:</span>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-36"
+            />
+          </div>
+          <Button variant="outline" size="sm" onClick={loadEntries}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-green-50 border-green-100">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">Total Receipts</p>
+              <ArrowUpRight className="h-4 w-4 text-green-600" />
+            </div>
+            <p className="text-xl font-bold text-green-600">+{formatCurrency(totalReceipts)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-red-50 border-red-100">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">Total Payments</p>
+              <ArrowDownRight className="h-4 w-4 text-red-600" />
+            </div>
+            <p className="text-xl font-bold text-red-600">-{formatCurrency(totalPayments)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50 border-blue-100">
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-500">Net Movement</p>
+            <p className={`text-xl font-bold ${totalReceipts - totalPayments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {totalReceipts - totalPayments >= 0 ? '+' : ''}{formatCurrency(totalReceipts - totalPayments)}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Transactions Table */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">All Transactions</CardTitle>
+            <Badge variant="outline">{filteredEntries.length} entries</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-[500px]">
+            <Table>
+              <TableHeader className="sticky top-0 bg-white z-10">
+                <TableRow>
+                  <TableHead className="w-[100px]">Date</TableHead>
+                  <TableHead className="w-[110px]">Entry No.</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-[120px]">Type</TableHead>
+                  <TableHead className="text-right w-[120px]">Receipt</TableHead>
+                  <TableHead className="text-right w-[120px]">Payment</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-emerald-500" />
+                    </TableCell>
+                  </TableRow>
+                ) : paginatedEntries.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-gray-500 py-8">
+                      No transactions found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  paginatedEntries.map((entry) => (
+                    <TableRow key={entry.id} className="hover:bg-gray-50">
+                      <TableCell className="font-mono text-sm">
+                        {formatDateShort(entry.entryDate)}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-gray-500">
+                        {entry.entryNumber}
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate">
+                        {entry.narration || '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {getReferenceLabel(entry.referenceType)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right text-green-600 font-medium">
+                        {entry.totalCredit > 0 ? `+${formatCurrency(entry.totalCredit)}` : '-'}
+                      </TableCell>
+                      <TableCell className="text-right text-red-600 font-medium">
+                        {entry.totalDebit > 0 ? `-${formatCurrency(entry.totalDebit)}` : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+          
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <div className="text-sm text-gray-500">
+                Showing {(currentPage - 1) * entriesPerPage + 1} to {Math.min(currentPage * entriesPerPage, filteredEntries.length)} of {filteredEntries.length}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm">Page {currentPage} of {totalPages}</span>
+                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Cash Book Section - For Company 3 (Cash Only)
+function CashBookSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDateShort
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDateShort: (date: Date | string) => string;
+}) {
+  const [cashBook, setCashBook] = useState<any>(null);
+  const [entries, setEntries] = useState<CashBookEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addAmount, setAddAmount] = useState('');
+  const [addDescription, setAddDescription] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  const loadData = useCallback(async () => {
     if (!selectedCompanyId) return;
-    setLoadingPaymentPages(true);
+    setLoading(true);
     try {
-      const res = await fetch(`/api/company-payment-pages?companyId=${selectedCompanyId}`);
+      const res = await fetch(`/api/accountant/cashbook?companyId=${selectedCompanyId}`);
+      const data = await res.json();
+      setCashBook(data.cashBook);
+      setEntries(data.entries || []);
+    } catch (error) {
+      console.error('Error loading cashbook:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleAddEntry = async (type: 'CREDIT' | 'DEBIT') => {
+    const amount = parseFloat(addAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (!addDescription.trim()) {
+      toast.error('Please enter a description');
+      return;
+    }
+
+    setAdding(true);
+    try {
+      const res = await fetch('/api/accountant/cashbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          entryType: type,
+          amount,
+          description: addDescription,
+          referenceType: 'MANUAL_ENTRY'
+        })
+      });
+
       if (res.ok) {
-        const data = await res.json();
-        setPaymentPages(data.paymentPages || []);
+        toast.success(`Cash ${type === 'CREDIT' ? 'added' : 'deducted'} successfully`);
+        setShowAddDialog(false);
+        setAddAmount('');
+        setAddDescription('');
+        loadData();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to add entry');
       }
     } catch (error) {
-      console.error('Error fetching payment pages:', error);
+      toast.error('Failed to add entry');
     } finally {
-      setLoadingPaymentPages(false);
+      setAdding(false);
     }
   };
 
-  // Initial load - fetch companies first
-  useEffect(() => {
-    fetchCompanies();
-  }, [fetchCompanies]);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Wallet className="h-5 w-5" />
+          Cash Book
+        </h2>
+        <Button onClick={() => setShowAddDialog(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add Entry
+        </Button>
+      </div>
 
-  // Fetch all data when company changes
-  useEffect(() => {
-    if (selectedCompanyId) {
-      fetchAllData();
+      {/* Cash Balance Card */}
+      <Card className="bg-teal-50 border-teal-200">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Current Cash Balance</p>
+              <p className="text-3xl font-bold text-teal-700">
+                {formatCurrency(cashBook?.currentBalance || 0)}
+              </p>
+            </div>
+            <Wallet className="h-12 w-12 text-teal-500" />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Entries Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Cash Transactions</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-12 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-teal-500" />
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="py-12 text-center text-gray-500">
+              <Wallet className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>No cash transactions found</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-96">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Balance</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {entries.map((entry) => (
+                    <TableRow key={entry.id}>
+                      <TableCell>{formatDateShort(entry.createdAt)}</TableCell>
+                      <TableCell className="max-w-xs truncate">{entry.description}</TableCell>
+                      <TableCell>
+                        <Badge variant={entry.entryType === 'CREDIT' ? 'default' : 'destructive'}>
+                          {entry.entryType === 'CREDIT' ? 'IN' : 'OUT'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className={`text-right font-medium ${entry.entryType === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
+                        {entry.entryType === 'CREDIT' ? '+' : '-'}{formatCurrency(entry.amount)}
+                      </TableCell>
+                      <TableCell className="text-right">{formatCurrency(entry.balanceAfter)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Add Entry Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Cash Entry</DialogTitle>
+            <DialogDescription>Record a cash transaction</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                value={addAmount}
+                onChange={(e) => setAddAmount(e.target.value)}
+                placeholder="Enter amount"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={addDescription}
+                onChange={(e) => setAddDescription(e.target.value)}
+                placeholder="Enter description"
+              />
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => handleAddEntry('DEBIT')}
+              disabled={adding}
+            >
+              Cash Out
+            </Button>
+            <Button 
+              onClick={() => handleAddEntry('CREDIT')}
+              disabled={adding}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {adding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Cash In
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Bank Section - For Company 1 & 2 Only
+function BankSection({
+  selectedCompanyId,
+  formatCurrency,
+  formatDateShort
+}: {
+  selectedCompanyId: string;
+  formatCurrency: (amount: number) => string;
+  formatDateShort: (date: Date | string) => string;
+}) {
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [transactions, setTransactions] = useState<BankTransaction[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showEquityDialog, setShowEquityDialog] = useState(false);
+  const [bankForm, setBankForm] = useState({
+    bankName: '',
+    accountNumber: '',
+    accountName: '',
+    ownerName: '',
+    ifscCode: '',
+    upiId: '',
+    openingBalance: 0,
+    isDefault: false
+  });
+  const [equityForm, setEquityForm] = useState({
+    cashAmount: '',
+    bankAmount: '',
+    description: 'Initial Capital Investment'
+  });
+  const [saving, setSaving] = useState(false);
+
+  const loadData = useCallback(async () => {
+    if (!selectedCompanyId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/accountant/bank-accounts?companyId=${selectedCompanyId}`);
+      const data = await res.json();
+      setBankAccounts(data.bankAccounts || []);
+      setTransactions(data.transactions || []);
+    } catch (error) {
+      console.error('Error loading bank data:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [selectedCompanyId, dateRange, fetchAllData]);
+  }, [selectedCompanyId]);
 
   useEffect(() => {
-    if (activeSection === 'payment-pages' && selectedCompanyId) {
-      fetchPaymentPages();
-    }
-  }, [activeSection, selectedCompanyId]);
+    loadData();
+  }, [loadData]);
 
-  // ============================================
-  // ACTION HANDLERS
-  // ============================================
-
-  const handleAddBankAccount = async () => {
+  const handleAddBank = async () => {
     if (!bankForm.bankName || !bankForm.accountNumber) {
       toast.error('Please fill bank name and account number');
       return;
     }
-    
-    // Optimistic update - add to UI immediately
-    const tempId = 'temp-' + Date.now();
-    const optimisticBank: BankAccount = {
-      id: tempId,
-      bankName: bankForm.bankName,
-      accountNumber: bankForm.accountNumber,
-      accountName: bankForm.accountName,
-      currentBalance: bankForm.openingBalance,
-      isDefault: bankForm.isDefault,
-      ifscCode: bankForm.ifscCode,
-      upiId: bankForm.upiId || null,
-      isActive: true,
-      companyId: selectedCompanyId
-    } as BankAccount;
-    
-    setBankAccounts(prev => [...prev, optimisticBank]);
-    setShowBankDialog(false);
-    
+
+    setSaving(true);
     try {
       const res = await fetch('/api/accounting/bank-accounts', {
         method: 'POST',
@@ -412,407 +647,438 @@ export default function AccountantDashboard() {
           companyId: selectedCompanyId
         })
       });
-      
+
       if (res.ok) {
-        const data = await res.json();
         toast.success('Bank account added successfully');
+        setShowAddDialog(false);
         setBankForm({
-          bankName: '', accountNumber: '', accountName: '', ownerName: '', ifscCode: '',
-          branchName: '', accountType: 'CURRENT', openingBalance: 0, upiId: '', qrCodeUrl: '', isDefault: false
+          bankName: '', accountNumber: '', accountName: '', ownerName: '',
+          ifscCode: '', upiId: '', openingBalance: 0, isDefault: false
         });
-        // Replace temp with real data
-        fetchAllData(true);
+        loadData();
       } else {
-        // Revert optimistic update
-        setBankAccounts(prev => prev.filter(b => b.id !== tempId));
         const error = await res.json();
         toast.error(error.error || 'Failed to add bank account');
       }
     } catch (error) {
-      // Revert optimistic update
-      setBankAccounts(prev => prev.filter(b => b.id !== tempId));
       toast.error('Failed to add bank account');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleAddExpense = async () => {
-    if (!expenseForm.description || expenseForm.amount <= 0) {
-      toast.error('Please fill description and amount');
+  const handleAddEquity = async () => {
+    const cash = parseFloat(equityForm.cashAmount) || 0;
+    const bank = parseFloat(equityForm.bankAmount) || 0;
+    const total = cash + bank;
+
+    if (total <= 0) {
+      toast.error('Please enter at least one amount');
       return;
     }
-    
-    // Optimistic update
-    const tempId = 'temp-' + Date.now();
-    const optimisticExpense: Expense = {
-      id: tempId,
-      expenseNumber: 'EXP-' + Date.now(),
-      expenseType: expenseForm.expenseType,
-      description: expenseForm.description,
-      amount: Number(expenseForm.amount),
-      paymentMode: expenseForm.paymentMode,
-      paymentDate: new Date(expenseForm.paymentDate)
-    } as Expense;
-    
-    setExpenses(prev => [optimisticExpense, ...prev]);
-    setShowExpenseDialog(false);
-    
-    try {
-      const res = await fetch('/api/accounting/expenses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...expenseForm,
-          amount: Number(expenseForm.amount),
-          paymentDate: new Date(expenseForm.paymentDate),
-          companyId: selectedCompanyId,
-          createdById: user?.id || 'system'
-        })
-      });
-      
-      if (res.ok) {
-        toast.success('Expense recorded successfully');
-        setExpenseForm({
-          expenseType: 'MISCELLANEOUS', description: '', amount: 0,
-          paymentMode: 'BANK_TRANSFER', paymentDate: format(new Date(), 'yyyy-MM-dd')
-        });
-        fetchAllData(true);
-      } else {
-        // Revert optimistic update
-        setExpenses(prev => prev.filter(e => e.id !== tempId));
-        const error = await res.json();
-        toast.error(error.error || 'Failed to record expense');
-      }
-    } catch (error) {
-      // Revert optimistic update
-      setExpenses(prev => prev.filter(e => e.id !== tempId));
-      toast.error('Failed to record expense');
-    }
-  };
 
-  const handleScanTransactions = async () => {
-    setScanning(true);
-    try {
-      const res = await fetch('/api/accounting/scan-loan-transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: selectedCompanyId })
-      });
-      
-      const data = await res.json();
-      if (data.success) {
-        toast.success(`Scanned ${data.transactionsFound || 0} transactions`);
-        fetchAllData();
-      } else {
-        toast.error(data.error || 'Scan failed');
-      }
-    } catch (error) {
-      toast.error('Failed to scan transactions');
-    } finally {
-      setScanning(false);
-      setShowScanDialog(false);
-    }
-  };
-
-  const handleExportCSV = (type: string, data: any[], headers: string[]) => {
-    const csvContent = [
-      headers.join(','),
-      ...data.map(row => row.join(','))
-    ].join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${type}_${format(new Date(), 'yyyy-MM-dd')}.csv`;
-    link.click();
-    toast.success('Report downloaded');
-  };
-
-  const handleDeleteBankAccount = async () => {
-    if (!bankToDelete) return;
-    
-    // Optimistic update - remove from UI immediately
-    const bankIdToDelete = bankToDelete.id;
-    const previousBankAccounts = [...bankAccounts];
-    setBankAccounts(prev => prev.filter(b => b.id !== bankIdToDelete));
-    setShowDeleteDialog(false);
-    setBankToDelete(null);
-    
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/accounting/bank-accounts?id=${bankIdToDelete}&permanent=true`, {
-        method: 'DELETE'
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(`Bank account permanently deleted. ${data.deletedTransactions || 0} transactions removed.`);
-      } else {
-        // Revert optimistic update
-        setBankAccounts(previousBankAccounts);
-        toast.error(data.error || 'Failed to delete bank account');
-      }
-    } catch (error) {
-      // Revert optimistic update
-      setBankAccounts(previousBankAccounts);
-      toast.error('Failed to delete bank account');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const confirmDeleteBank = (bank: BankAccount) => {
-    setBankToDelete(bank);
-    setShowDeleteDialog(true);
-  };
-
-  const handleAddEquity = async (data: { cashAmount: number; bankAmount: number; bankAccountId?: string; date: Date; description: string }) => {
+    setSaving(true);
     try {
       const res = await fetch('/api/accounting/add-equity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: selectedCompanyId,
-          cashAmount: data.cashAmount,
-          bankAmount: data.bankAmount,
-          bankAccountId: data.bankAccountId,
-          date: data.date,
-          description: data.description,
-          createdById: user?.id || 'system'
+          cashAmount: cash,
+          bankAmount: bank,
+          description: equityForm.description,
+          createdById: 'system'
         })
       });
 
-      const result = await res.json();
       if (res.ok) {
-        toast.success(result.message || 'Equity added successfully');
-        fetchAllData(true);
+        toast.success(`Equity of ${formatCurrency(total)} added successfully!`);
+        setShowEquityDialog(false);
+        setEquityForm({ cashAmount: '', bankAmount: '', description: 'Initial Capital Investment' });
+        loadData();
       } else {
-        toast.error(result.error || 'Failed to add equity');
+        const error = await res.json();
+        toast.error(error.error || 'Failed to add equity');
       }
     } catch (error) {
-      console.error('Error adding equity:', error);
       toast.error('Failed to add equity');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleSelectAccount = (accountId: string) => {
-    setSelectedAccountId(accountId);
-    setActiveSection('ledger-view');
-  };
+  const totalBankBalance = bankAccounts.reduce((s, b) => s + b.currentBalance, 0);
 
-  // ============================================
-  // COMPUTED VALUES
-  // ============================================
+  // Group transactions by date
+  const groupedTransactions = transactions.reduce((groups, txn) => {
+    const date = format(new Date(txn.transactionDate), 'yyyy-MM-dd');
+    if (!groups[date]) groups[date] = [];
+    groups[date].push(txn);
+    return groups;
+  }, {} as Record<string, BankTransaction[]>);
 
-  const stats = {
-    totalBankBalance: bankAccounts.reduce((sum, b) => sum + b.currentBalance, 0),
-    totalExpenses: expenses.reduce((sum, e) => sum + e.amount, 0),
-    totalLoans: activeLoans.length,
-    totalOutstanding: activeLoans.reduce((sum, loan) => {
-      return sum + loan.emiSchedules.reduce((s, e) => s + (e.totalAmount - e.paidAmount), 0);
-    }, 0)
-  };
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold flex items-center gap-2">
+          <Landmark className="h-5 w-5" />
+          Bank Accounts
+        </h2>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowEquityDialog(true)} className="border-purple-500 text-purple-600">
+            <PiggyBank className="h-4 w-4 mr-2" />
+            Add Equity
+          </Button>
+          <Button onClick={() => setShowAddDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Bank
+          </Button>
+        </div>
+      </div>
 
+      {/* Bank Accounts */}
+      {loading ? (
+        <div className="py-12 text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-emerald-500" />
+        </div>
+      ) : bankAccounts.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center text-gray-500">
+            <Landmark className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+            <p>No bank accounts added yet</p>
+            <div className="flex gap-2 justify-center mt-4">
+              <Button onClick={() => setShowEquityDialog(true)} variant="outline">
+                <PiggyBank className="h-4 w-4 mr-2" />
+                Add Equity First
+              </Button>
+              <Button onClick={() => setShowAddDialog(true)}>Add Bank Account</Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Total Balance */}
+          <Card className="bg-emerald-50 border-emerald-200">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Bank Balance</p>
+                  <p className="text-3xl font-bold text-emerald-700">{formatCurrency(totalBankBalance)}</p>
+                </div>
+                <Landmark className="h-12 w-12 text-emerald-500" />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bank Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {bankAccounts.map((bank) => (
+              <Card key={bank.id} className={bank.isDefault ? 'border-2 border-emerald-500' : ''}>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <Landmark className="h-5 w-5 text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-semibold">{bank.bankName}</p>
+                        <p className="text-sm text-gray-500">****{bank.accountNumber.slice(-4)}</p>
+                      </div>
+                    </div>
+                    {bank.isDefault && <Badge className="bg-emerald-500">Default</Badge>}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Balance</span>
+                      <span className="font-bold text-lg">{formatCurrency(bank.currentBalance)}</span>
+                    </div>
+                    {bank.upiId && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">UPI ID</span>
+                        <span className="font-mono">{bank.upiId}</span>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Transactions */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Bank Transactions</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ScrollArea className="h-96">
+                {Object.keys(groupedTransactions).length === 0 ? (
+                  <div className="text-center text-gray-500 py-8">No transactions found</div>
+                ) : (
+                  Object.entries(groupedTransactions)
+                    .sort((a, b) => b[0].localeCompare(a[0]))
+                    .map(([date, txns]) => (
+                      <div key={date} className="mb-4">
+                        <div className="sticky top-0 bg-gray-50 px-2 py-1 text-sm font-medium text-gray-600 border-b">
+                          {format(new Date(date), 'EEEE, dd MMMM yyyy')}
+                        </div>
+                        <Table>
+                          <TableBody>
+                            {txns.map((txn) => (
+                              <TableRow key={txn.id}>
+                                <TableCell>{format(new Date(txn.transactionDate), 'HH:mm')}</TableCell>
+                                <TableCell className="max-w-[200px] truncate">{txn.description}</TableCell>
+                                <TableCell>
+                                  <Badge variant={txn.transactionType === 'CREDIT' ? 'default' : 'destructive'}>
+                                    {txn.transactionType === 'CREDIT' ? 'IN' : 'OUT'}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className={`text-right font-medium ${txn.transactionType === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
+                                  {txn.transactionType === 'CREDIT' ? '+' : '-'}{formatCurrency(txn.amount)}
+                                </TableCell>
+                                <TableCell className="text-right">{formatCurrency(txn.balanceAfter)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    ))
+                )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        </>
+      )}
+
+      {/* Add Bank Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Bank Account</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bank Name *</Label>
+                <Input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Account Number *</Label>
+                <Input value={bankForm.accountNumber} onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Account Name</Label>
+                <Input value={bankForm.accountName} onChange={(e) => setBankForm({ ...bankForm, accountName: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Owner Name</Label>
+                <Input value={bankForm.ownerName} onChange={(e) => setBankForm({ ...bankForm, ownerName: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>IFSC Code</Label>
+                <Input value={bankForm.ifscCode} onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>UPI ID</Label>
+                <Input value={bankForm.upiId} onChange={(e) => setBankForm({ ...bankForm, upiId: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddBank} disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Add Bank
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Equity Dialog */}
+      <Dialog open={showEquityDialog} onOpenChange={setShowEquityDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PiggyBank className="h-5 w-5 text-purple-600" />
+              Add Owner's Equity / Capital
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
+              <p className="font-medium mb-1">Double-Entry Accounting</p>
+              <p>This will record your capital investment properly:</p>
+              <ul className="mt-2 list-disc list-inside text-blue-700">
+                <li>Debit: Cash in Hand (increases cash)</li>
+                <li>Debit: Bank Account (increases bank)</li>
+                <li>Credit: Owner's Capital (records equity)</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <Label>Cash Amount</Label>
+              <Input
+                type="number"
+                value={equityForm.cashAmount}
+                onChange={(e) => setEquityForm({ ...equityForm, cashAmount: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Bank Amount</Label>
+              <Input
+                type="number"
+                value={equityForm.bankAmount}
+                onChange={(e) => setEquityForm({ ...equityForm, bankAmount: e.target.value })}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={equityForm.description}
+                onChange={(e) => setEquityForm({ ...equityForm, description: e.target.value })}
+              />
+            </div>
+            <Card className="bg-emerald-50">
+              <CardContent className="p-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold">Total Equity:</span>
+                  <span className="text-xl font-bold text-emerald-700">
+                    {formatCurrency((parseFloat(equityForm.cashAmount) || 0) + (parseFloat(equityForm.bankAmount) || 0))}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEquityDialog(false)}>Cancel</Button>
+            <Button onClick={handleAddEquity} disabled={saving} className="bg-purple-600 hover:bg-purple-700">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PiggyBank className="h-4 w-4 mr-2" />}
+              Add Equity
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ============================================
+// MAIN COMPONENT
+// ============================================
+
+export default function UnifiedAccountantDashboard() {
+  const { user, signOut } = useAuth();
+  const { settings } = useSettings();
+  
+  // State
+  const [loading, setLoading] = useState(true);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
+  const [activeSection, setActiveSection] = useState('day-book');
+  
+  // Company
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+  const companyType = selectedCompany ? getCompanyType(selectedCompany.code) : 'COMPANY_1_2';
 
-  // ============================================
-  // RENDER SECTION CONTENT
-  // ============================================
+  // Fetch Companies
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      setCompaniesLoading(true);
+      try {
+        const res = await fetch('/api/company');
+        if (res.ok) {
+          const data = await res.json();
+          const companiesList = data.companies || [];
+          setCompanies(companiesList);
+          if (companiesList.length > 0) {
+            setSelectedCompanyId(companiesList[0].id);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching companies:', error);
+      } finally {
+        setCompaniesLoading(false);
+        setLoading(false);
+      }
+    };
+    fetchCompanies();
+  }, []);
 
+  // Reset to day-book when company changes
+  useEffect(() => {
+    setActiveSection('day-book');
+  }, [selectedCompanyId]);
+
+  // Menu Items based on company type
+  const menuItems = companyType === 'COMPANY_3' 
+    ? [
+        { id: 'day-book', label: 'Day Book', icon: BookOpen },
+        { id: 'cash-book', label: 'Cash Book', icon: Wallet },
+      ]
+    : [
+        { id: 'day-book', label: 'Day Book', icon: BookOpen },
+        { id: 'bank', label: 'Bank', icon: Landmark },
+        { id: 'cash-book', label: 'Cash Book', icon: Wallet },
+        { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookCopy },
+        { id: 'trial-balance', label: 'Trial Balance', icon: BarChart3 },
+        { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
+        { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
+      ];
+
+  // Render Section
   const renderSection = () => {
     switch (activeSection) {
-      case 'ledger':
+      case 'day-book':
         return (
-          <LedgerSection 
+          <DayBookSection
             selectedCompanyId={selectedCompanyId}
-            activeLoans={activeLoans}
-            bankAccounts={bankAccounts}
-            bankTransactions={bankTransactions}
-            journalEntries={journalEntries}
             formatCurrency={formatCurrency}
-            formatDate={formatDate}
+            formatDateShort={formatDateShort}
           />
         );
-      case 'balance-sheet':
+      case 'cash-book':
         return (
-          <BalanceSheetSection 
-            balanceSheet={balanceSheet}
-            onExportCSV={handleExportCSV}
+          <CashBookSection
+            selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
-          />
-        );
-      case 'profit-loss':
-        return (
-          <ProfitLossSection 
-            profitLoss={profitLoss}
-            expenses={expenses}
-            activeLoans={activeLoans}
-            totalExpenses={stats.totalExpenses}
-            onExportCSV={handleExportCSV}
-            formatCurrency={formatCurrency}
-          />
-        );
-      case 'cash-flow':
-        return (
-          <CashFlowSection 
-            cashFlow={cashFlow}
-            extraEMIProfit={extraEMIProfit}
-            bankTransactions={bankTransactions}
-            totalExpenses={stats.totalExpenses}
-            totalBankBalance={stats.totalBankBalance}
-            onExportCSV={handleExportCSV}
-            formatCurrency={formatCurrency}
+            formatDateShort={formatDateShort}
           />
         );
       case 'bank':
         return (
-          <BankSection 
-            bankAccounts={bankAccounts}
-            bankTransactions={bankTransactions}
-            onAddBank={() => setShowBankDialog(true)}
-            onDeleteBank={confirmDeleteBank}
-            formatCurrency={formatCurrency}
-            formatDateShort={formatDateShort}
-          />
-        );
-      case 'payment-pages':
-        return (
-          <PaymentPagesSection 
-            paymentPages={paymentPages}
-            loading={loadingPaymentPages}
-            onAddBank={() => setShowBankDialog(true)}
-          />
-        );
-      case 'income':
-        return (
-          <IncomeSection 
-            incomes={incomes}
-            onAddIncome={() => setShowIncomeDialog(true)}
-            formatCurrency={formatCurrency}
-            formatDateShort={formatDateShort}
-          />
-        );
-      case 'expense':
-        return (
-          <ExpenseSection 
-            expenses={expenses}
-            onAddExpense={() => setShowExpenseDialog(true)}
-            formatCurrency={formatCurrency}
-            formatDateShort={formatDateShort}
-          />
-        );
-      case 'loan-portfolio':
-        return (
-          <LoanPortfolioSection 
-            activeLoans={activeLoans}
-            totalOutstanding={stats.totalOutstanding}
-            formatCurrency={formatCurrency}
-          />
-        );
-      case 'audit-trail':
-        return <AuditTrailSection auditLogs={auditLogs} />;
-      case 'day-book':
-        return (
-          <DayBookSection 
-            bankAccounts={bankAccounts}
-            bankTransactions={bankTransactions}
-            journalEntries={journalEntries}
+          <BankSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            formatDateShort={formatDateShort}
           />
         );
-      case 'chart-of-accounts':
-        return (
-          <ChartOfAccountsSection 
-            chartOfAccounts={chartOfAccounts}
-            onRefresh={fetchAllData}
-            onSelectAccount={handleSelectAccount}
-            formatCurrency={formatCurrency}
-          />
-        );
-      case 'ledger-view':
-        return (
-          <LedgerViewSection 
-            chartOfAccounts={chartOfAccounts}
-            activeLoans={activeLoans}
-            selectedAccountId={selectedAccountId}
-            selectedLoanId={selectedLoanId}
-            accountLedger={accountLedger}
-            loanLedger={loanLedger}
-            onSelectAccount={setSelectedAccountId}
-            onSelectLoan={setSelectedLoanId}
-            formatCurrency={formatCurrency}
-            formatDate={formatDate}
-          />
-        );
-      case 'trial-balance':
-        return (
-          <TrialBalanceSection 
-            trialBalance={trialBalance}
-            trialBalanceSummary={trialBalanceSummary}
-            formatCurrency={formatCurrency}
-          />
-        );
-      case 'journal-entries':
-        return (
-          <JournalEntriesSection 
-            journalEntries={journalEntries}
-            onRefresh={fetchAllData}
-            formatCurrency={formatCurrency}
-            formatDate={formatDate}
-          />
-        );
-      case 'profile':
-        return <ProfileSection />;
       default:
         return (
-          <OverviewSection 
-            stats={stats}
-            bankTransactions={bankTransactions}
-            chartOfAccounts={chartOfAccounts}
-            onOpenScanDialog={() => setShowScanDialog(true)}
-            onOpenBankDialog={() => setShowBankDialog(true)}
-            onOpenExpenseDialog={() => setShowExpenseDialog(true)}
-            onOpenIncomeDialog={() => setShowIncomeDialog(true)}
-            onOpenEquityDialog={() => setShowEquityDialog(true)}
+          <DayBookSection
+            selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
             formatDateShort={formatDateShort}
           />
         );
     }
   };
-
-  // ============================================
-  // MENU ITEMS
-  // ============================================
-
-  const menuItems: MenuItem[] = [
-    { id: 'overview', label: 'Overview', icon: Calculator },
-    { id: 'ledger', label: 'Ledger', icon: BookOpen },
-    { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookOpen },
-    { id: 'journal-entries', label: 'Journal Entries', icon: FileText },
-    { id: 'ledger-view', label: 'Ledger View', icon: FileSpreadsheet },
-    { id: 'trial-balance', label: 'Trial Balance', icon: DollarSign },
-    { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
-    { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
-    { id: 'cash-flow', label: 'Cash Flow', icon: DollarSign },
-    { id: 'bank', label: 'Bank', icon: Landmark },
-    { id: 'payment-pages', label: 'Payment Pages', icon: QrCode },
-    { id: 'income', label: 'Income', icon: ArrowUpRight },
-    { id: 'expense', label: 'Expense', icon: ArrowDownRight },
-    { id: 'loan-portfolio', label: 'Loan Portfolio', icon: CreditCard },
-    { id: 'day-book', label: 'Day Book', icon: BookOpen },
-    { id: 'audit-trail', label: 'Audit Trail', icon: Clock },
-    { id: 'profile', label: 'Profile', icon: User },
-  ];
 
   const getInitials = (name?: string) => {
     if (!name) return 'U';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // ============================================
-  // MAIN RENDER
-  // ============================================
+  if (companiesLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -820,22 +1086,20 @@ export default function AccountantDashboard() {
       <header className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 py-2.5">
           <div className="flex items-center justify-between">
-            {/* Left Section - Logo & Title */}
             <div className="flex items-center gap-3">
-              {settings.companyLogo ? (
-                <img src={settings.companyLogo} alt={settings.companyName || 'Company'} className="h-9 w-auto object-contain" />
-              ) : (
-                <div className="w-9 h-9 bg-white/20 rounded-lg flex items-center justify-center">
-                  <Calculator className="h-5 w-5" />
-                </div>
-              )}
+              <div className="w-9 h-9 bg-white/20 rounded-lg flex items-center justify-center">
+                <Calculator className="h-5 w-5" />
+              </div>
               <div>
-                <h1 className="text-base font-bold leading-tight">{settings.companyName || 'Accountant Portal'}</h1>
-                <p className="text-[10px] text-emerald-100">Gov of India Compliance</p>
+                <h1 className="text-base font-bold leading-tight">
+                  {companyType === 'COMPANY_3' ? 'Company 3 - Cash Book' : 'Accountant Dashboard'}
+                </h1>
+                <p className="text-[10px] text-emerald-100">
+                  {selectedCompany?.name || 'Select Company'}
+                </p>
               </div>
             </div>
             
-            {/* Right Section */}
             <div className="flex items-center gap-2">
               {/* Company Selector */}
               <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
@@ -851,58 +1115,21 @@ export default function AccountantDashboard() {
                 </SelectContent>
               </Select>
 
-              {/* Scan Button */}
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="h-8 bg-white/10 border-white/20 text-white hover:bg-white/20"
-                onClick={() => setShowScanDialog(true)}
-              >
-                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                Scan
-              </Button>
-
-              {/* Refresh Button */}
-              <Button 
-                variant="outline" 
-                size="sm"
-                className="h-8 w-8 p-0 bg-white/10 border-white/20 text-white hover:bg-white/20"
-                onClick={() => fetchAllData(true)}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </Button>
-
-              {/* User Profile Dropdown */}
+              {/* User Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="h-8 w-8 rounded-full bg-white/20 hover:bg-white/30 p-0">
                     <Avatar className="h-7 w-7">
-                      <AvatarImage src={user?.profilePicture} alt={user?.name || 'User'} />
                       <AvatarFallback className="text-xs bg-emerald-500 text-white">
                         {getInitials(user?.name)}
                       </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium">{user?.name || 'User'}</p>
-                      <p className="text-xs text-muted-foreground">{user?.email}</p>
-                    </div>
-                  </DropdownMenuLabel>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>{user?.name || 'User'}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setActiveSection('profile')}>
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem 
-                    onClick={async () => {
-                      await signOut();
-                    }}
-                    className="text-red-600 focus:text-red-600"
-                  >
+                  <DropdownMenuItem onClick={signOut} className="text-red-600">
                     <LogOut className="mr-2 h-4 w-4" />
                     Log out
                   </DropdownMenuItem>
@@ -915,8 +1142,8 @@ export default function AccountantDashboard() {
 
       <div className="flex">
         {/* Sidebar */}
-        <aside className="w-56 bg-white border-r min-h-[calc(100vh-64px)] sticky top-16 flex flex-col">
-          <nav className="p-2 space-y-1 flex-1">
+        <aside className="w-56 bg-white border-r min-h-[calc(100vh-64px)] sticky top-16">
+          <nav className="p-2 space-y-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeSection === item.id;
@@ -936,12 +1163,11 @@ export default function AccountantDashboard() {
               );
             })}
           </nav>
-          {/* Logout Button */}
-          <div className="p-2 border-t">
+          
+          {/* Logout at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 p-2 border-t">
             <button
-              onClick={async () => {
-                await signOut();
-              }}
+              onClick={signOut}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-red-600 hover:bg-red-50 transition-colors"
             >
               <LogOut className="h-5 w-5" />
@@ -957,7 +1183,6 @@ export default function AccountantDashboard() {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
                 className="flex items-center justify-center h-64"
               >
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
@@ -967,7 +1192,6 @@ export default function AccountantDashboard() {
                 key={activeSection}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
               >
                 {renderSection()}
@@ -976,50 +1200,6 @@ export default function AccountantDashboard() {
           </AnimatePresence>
         </main>
       </div>
-
-      {/* Dialogs */}
-      <BankDialog 
-        open={showBankDialog}
-        onOpenChange={setShowBankDialog}
-        bankForm={bankForm}
-        setBankForm={setBankForm}
-        selectedCompany={selectedCompany}
-        onSubmit={handleAddBankAccount}
-      />
-
-      <ExpenseDialog 
-        open={showExpenseDialog}
-        onOpenChange={setShowExpenseDialog}
-        expenseForm={expenseForm}
-        setExpenseForm={setExpenseForm}
-        selectedCompany={selectedCompany}
-        onSubmit={handleAddExpense}
-      />
-
-      <ScanDialog 
-        open={showScanDialog}
-        onOpenChange={setShowScanDialog}
-        selectedCompany={selectedCompany}
-        scanning={scanning}
-        onSubmit={handleScanTransactions}
-      />
-
-      <DeleteBankDialog 
-        open={showDeleteDialog}
-        onOpenChange={setShowDeleteDialog}
-        bankToDelete={bankToDelete}
-        deleting={deleting}
-        onSubmit={handleDeleteBankAccount}
-        formatCurrency={formatCurrency}
-      />
-
-      <EquityDialog 
-        open={showEquityDialog}
-        onOpenChange={setShowEquityDialog}
-        selectedCompany={selectedCompany}
-        bankAccounts={bankAccounts}
-        onSubmit={handleAddEquity}
-      />
     </div>
   );
 }
