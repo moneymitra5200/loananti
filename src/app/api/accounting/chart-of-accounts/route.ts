@@ -196,8 +196,77 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, accountName, description, isActive } = body;
+    const { id, accountName, description, isActive, openingBalance } = body;
 
+    // If updating opening balance
+    if (openingBalance !== undefined) {
+      const account = await db.chartOfAccount.findUnique({ where: { id } });
+      if (!account) {
+        return NextResponse.json({ error: 'Account not found' }, { status: 404 });
+      }
+
+      // Update the account with new opening balance
+      const updated = await db.chartOfAccount.update({
+        where: { id },
+        data: {
+          openingBalance,
+          currentBalance: openingBalance,
+        },
+      });
+
+      // Create a journal entry for the opening balance
+      const today = new Date();
+      const entryNumber = `OB-${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${Date.now().toString(36).toUpperCase()}`;
+
+      // Get Equity account for this company
+      const equityAccount = await db.chartOfAccount.findFirst({
+        where: { 
+          companyId: account.companyId, 
+          accountType: 'EQUITY' 
+        }
+      });
+
+      if (equityAccount && openingBalance !== 0) {
+        // For Asset accounts: Debit the asset, Credit Equity
+        // For Liability accounts: Credit the liability, Debit Equity
+        const isAsset = account.accountType === 'ASSET';
+        
+        await db.journalEntry.create({
+          data: {
+            companyId: account.companyId,
+            entryNumber,
+            entryDate: today,
+            referenceType: 'OPENING_BALANCE',
+            narration: `Opening Balance - ${account.accountName}`,
+            totalDebit: isAsset ? openingBalance : 0,
+            totalCredit: isAsset ? 0 : openingBalance,
+            isAutoEntry: true,
+            isApproved: true,
+            createdById: 'system',
+            lines: {
+              create: [
+                {
+                  accountId: account.id,
+                  debitAmount: isAsset ? openingBalance : 0,
+                  creditAmount: isAsset ? 0 : openingBalance,
+                  narration: 'Opening Balance Entry'
+                },
+                {
+                  accountId: equityAccount.id,
+                  debitAmount: isAsset ? 0 : openingBalance,
+                  creditAmount: isAsset ? openingBalance : 0,
+                  narration: 'Owner\'s Capital / Equity'
+                }
+              ]
+            }
+          }
+        });
+      }
+
+      return NextResponse.json({ account: updated, journalEntryCreated: true });
+    }
+
+    // Regular update
     const account = await db.chartOfAccount.update({
       where: { id },
       data: {

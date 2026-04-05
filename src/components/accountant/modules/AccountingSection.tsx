@@ -1,14 +1,17 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, BookMarked, Scale, CheckCircle2, XCircle, FileSpreadsheet, BookOpen, CreditCard } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { RefreshCw, BookMarked, Scale, CheckCircle2, XCircle, FileSpreadsheet, BookOpen, CreditCard, Edit2, Plus } from 'lucide-react';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import { ChartOfAccountItem, JournalEntry, TrialBalanceItem, LedgerEntry, ActiveLoan, TrialBalanceSummary } from '../types';
 
 // ============================================
@@ -28,6 +31,46 @@ export function ChartOfAccountsSection({
   onSelectAccount, 
   formatCurrency 
 }: ChartOfAccountsSectionProps) {
+  const [showBalanceDialog, setShowBalanceDialog] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<ChartOfAccountItem | null>(null);
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const handleSetOpeningBalance = (account: ChartOfAccountItem) => {
+    setSelectedAccount(account);
+    setOpeningBalance(String(account.openingBalance || 0));
+    setShowBalanceDialog(true);
+  };
+
+  const handleSaveOpeningBalance = async () => {
+    if (!selectedAccount) return;
+    
+    setSaving(true);
+    try {
+      const res = await fetch('/api/accounting/chart-of-accounts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: selectedAccount.id,
+          openingBalance: parseFloat(openingBalance) || 0
+        })
+      });
+
+      if (res.ok) {
+        toast.success('Opening balance set successfully');
+        setShowBalanceDialog(false);
+        onRefresh();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to set opening balance');
+      }
+    } catch (error) {
+      toast.error('Failed to set opening balance');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const groupedAccounts = chartOfAccounts.reduce((acc, account) => {
     const type = account.accountType;
     if (!acc[type]) acc[type] = [];
@@ -48,7 +91,7 @@ export function ChartOfAccountsSection({
     LIABILITY: 'Liabilities',
     INCOME: 'Income',
     EXPENSE: 'Expenses',
-    EQUITY: 'Equity',
+    EQUITY: 'Equity (Capital)',
   };
 
   return (
@@ -56,7 +99,7 @@ export function ChartOfAccountsSection({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">Chart of Accounts</h2>
-          <p className="text-sm text-gray-500">Double-Entry Accounting - All ledger accounts</p>
+          <p className="text-sm text-gray-500">Double-Entry Accounting - Set opening balances for your capital</p>
         </div>
         <Button onClick={onRefresh} variant="outline">
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -97,18 +140,25 @@ export function ChartOfAccountsSection({
                   <TableHead>Code</TableHead>
                   <TableHead>Account Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
+                  <TableHead className="text-right">Opening Balance</TableHead>
+                  <TableHead className="text-right">Current Balance</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="w-[100px]">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {accounts.map((account) => (
-                  <TableRow key={account.id} className="cursor-pointer hover:bg-gray-50"
-                    onClick={() => onSelectAccount(account.id)}>
+                  <TableRow key={account.id} className="cursor-pointer hover:bg-gray-50">
                     <TableCell className="font-mono font-medium">{account.accountCode}</TableCell>
                     <TableCell className="font-medium">{account.accountName}</TableCell>
                     <TableCell className="text-gray-500">{account.description || '-'}</TableCell>
-                    <TableCell className={`text-right font-bold ${account.currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <TableCell className="text-right font-medium">
+                      {formatCurrency(account.openingBalance || 0)}
+                    </TableCell>
+                    <TableCell 
+                      className="text-right font-bold cursor-pointer hover:text-blue-600"
+                      onClick={() => onSelectAccount(account.id)}
+                    >
                       {formatCurrency(Math.abs(account.currentBalance))}
                     </TableCell>
                     <TableCell>
@@ -119,6 +169,20 @@ export function ChartOfAccountsSection({
                         <Badge variant="outline" className="ml-1">System</Badge>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSetOpeningBalance(account);
+                        }}
+                        title="Set Opening Balance"
+                      >
+                        <Edit2 className="h-3 w-3 mr-1" />
+                        Balance
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -126,6 +190,65 @@ export function ChartOfAccountsSection({
           </CardContent>
         </Card>
       ))}
+
+      {/* Opening Balance Dialog */}
+      <Dialog open={showBalanceDialog} onOpenChange={setShowBalanceDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-emerald-500" />
+              Set Opening Balance
+            </DialogTitle>
+            <DialogDescription>
+              Set the opening balance for this account. This represents your initial capital investment.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedAccount && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-500">Account</p>
+                <p className="font-medium">{selectedAccount.accountCode} - {selectedAccount.accountName}</p>
+                <p className="text-xs text-gray-400 mt-1">Type: {selectedAccount.accountType}</p>
+              </div>
+              
+              <div>
+                <Label>Opening Balance Amount</Label>
+                <div className="relative mt-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                  <Input
+                    type="number"
+                    value={openingBalance}
+                    onChange={(e) => setOpeningBalance(e.target.value)}
+                    placeholder="0"
+                    className="pl-8"
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {selectedAccount.accountType === 'ASSET' 
+                    ? '💰 For assets like Cash, Bank - enter the amount you have'
+                    : selectedAccount.accountType === 'LIABILITY'
+                    ? '📊 For liabilities - enter the amount you owe'
+                    : '📈 This will be recorded as your capital/equity'}
+                </p>
+              </div>
+
+              <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                <p className="text-sm text-emerald-700">
+                  <strong>Example:</strong> If you have ₹5,000 in cash, set "1101 - Cash in Hand" opening balance to 5000.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>Cancel</Button>
+            <Button onClick={handleSaveOpeningBalance} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Opening Balance'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

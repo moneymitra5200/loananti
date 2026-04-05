@@ -80,6 +80,7 @@ export interface ChartOfAccountItem {
   accountName: string;
   accountType: string;
   description: string | null;
+  openingBalance: number;
   currentBalance: number;
   isActive: boolean;
   isSystemAccount: boolean;
