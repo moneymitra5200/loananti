@@ -64,7 +64,12 @@ function UsersSection({
   onUnlockUser,
   onDeleteUser
 }: Props) {
-  const nonCustomerUsers = users.filter(u => u.role !== 'CUSTOMER');
+  // Permanent super admin emails - these accounts are hidden from user management
+  const PERMANENT_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+  
+  // Filter out permanent super admins from all displays
+  const visibleUsers = users.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email));
+  const nonCustomerUsers = visibleUsers.filter(u => u.role !== 'CUSTOMER');
   const filteredByRole = userRoleFilter === 'all' ? nonCustomerUsers : nonCustomerUsers.filter(u => u.role === userRoleFilter);
   const filteredBySearch = filteredByRole.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -73,14 +78,14 @@ function UsersSection({
 
   return (
     <div className="space-y-6">
-      {/* Stats Row */}
+      {/* Stats Row - using visibleUsers to hide permanent admin from counts */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="border-0 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900">{users.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{visibleUsers.length}</p>
               </div>
               <div className="p-2 bg-gray-100 rounded-lg">
                 <Users className="h-5 w-5 text-gray-600" />
@@ -93,7 +98,7 @@ function UsersSection({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Companies</p>
-                <p className="text-2xl font-bold text-blue-600">{companyUsers.length}</p>
+                <p className="text-2xl font-bold text-blue-600">{companyUsers.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
               </div>
               <div className="p-2 bg-blue-50 rounded-lg">
                 <Building2 className="h-5 w-5 text-blue-600" />
@@ -106,7 +111,7 @@ function UsersSection({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Agents</p>
-                <p className="text-2xl font-bold text-cyan-600">{agents.length}</p>
+                <p className="text-2xl font-bold text-cyan-600">{agents.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
               </div>
               <div className="p-2 bg-cyan-50 rounded-lg">
                 <User className="h-5 w-5 text-cyan-600" />
@@ -119,7 +124,7 @@ function UsersSection({
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-500">Staff & Others</p>
-                <p className="text-2xl font-bold text-violet-600">{staff.length + cashiers.length + accountants.length}</p>
+                <p className="text-2xl font-bold text-violet-600">{staff.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length + cashiers.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length + accountants.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
               </div>
               <div className="p-2 bg-violet-50 rounded-lg">
                 <ClipboardCheck className="h-5 w-5 text-violet-600" />
@@ -253,18 +258,9 @@ function UsersSection({
                               <Shield className="h-4 w-4" />
                             </Button>
                           )}
-                          {/* Hide delete button for permanent super admin accounts */}
-                          {!['moneymitra@test.com', 'moneymitra@gmail.com'].includes(u.email) && (
-                            <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onDeleteUser(u)} title="Delete">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                          {['moneymitra@test.com', 'moneymitra@gmail.com'].includes(u.email) && (
-                            <Badge className="bg-purple-100 text-purple-700 text-xs ml-1">
-                              <Shield className="h-3 w-3 mr-1" />
-                              Protected
-                            </Badge>
-                          )}
+                          <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onDeleteUser(u)} title="Delete">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
