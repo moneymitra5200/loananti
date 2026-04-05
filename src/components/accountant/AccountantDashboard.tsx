@@ -63,7 +63,8 @@ import {
   BankDialog,
   ExpenseDialog,
   ScanDialog,
-  DeleteBankDialog
+  DeleteBankDialog,
+  EquityDialog
 } from './modules';
 
 // ============================================
@@ -149,6 +150,9 @@ export default function AccountantDashboard() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [bankToDelete, setBankToDelete] = useState<BankAccount | null>(null);
   const [deleting, setDeleting] = useState(false);
+  
+  // Equity Dialog
+  const [showEquityDialog, setShowEquityDialog] = useState(false);
   
   // Form States
   const [bankForm, setBankForm] = useState<BankForm>({
@@ -561,6 +565,35 @@ export default function AccountantDashboard() {
     setShowDeleteDialog(true);
   };
 
+  const handleAddEquity = async (data: { cashAmount: number; bankAmount: number; bankAccountId?: string; date: Date; description: string }) => {
+    try {
+      const res = await fetch('/api/accounting/add-equity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          cashAmount: data.cashAmount,
+          bankAmount: data.bankAmount,
+          bankAccountId: data.bankAccountId,
+          date: data.date,
+          description: data.description,
+          createdById: user?.id || 'system'
+        })
+      });
+
+      const result = await res.json();
+      if (res.ok) {
+        toast.success(result.message || 'Equity added successfully');
+        fetchAllData(true);
+      } else {
+        toast.error(result.error || 'Failed to add equity');
+      }
+    } catch (error) {
+      console.error('Error adding equity:', error);
+      toast.error('Failed to add equity');
+    }
+  };
+
   const handleSelectAccount = (accountId: string) => {
     setSelectedAccountId(accountId);
     setActiveSection('ledger-view');
@@ -735,10 +768,12 @@ export default function AccountantDashboard() {
           <OverviewSection 
             stats={stats}
             bankTransactions={bankTransactions}
+            chartOfAccounts={chartOfAccounts}
             onOpenScanDialog={() => setShowScanDialog(true)}
             onOpenBankDialog={() => setShowBankDialog(true)}
             onOpenExpenseDialog={() => setShowExpenseDialog(true)}
             onOpenIncomeDialog={() => setShowIncomeDialog(true)}
+            onOpenEquityDialog={() => setShowEquityDialog(true)}
             formatCurrency={formatCurrency}
             formatDateShort={formatDateShort}
           />
@@ -976,6 +1011,14 @@ export default function AccountantDashboard() {
         deleting={deleting}
         onSubmit={handleDeleteBankAccount}
         formatCurrency={formatCurrency}
+      />
+
+      <EquityDialog 
+        open={showEquityDialog}
+        onOpenChange={setShowEquityDialog}
+        selectedCompany={selectedCompany}
+        bankAccounts={bankAccounts}
+        onSubmit={handleAddEquity}
       />
     </div>
   );

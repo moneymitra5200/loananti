@@ -33,5 +33,6 @@ export {
   BankDialog, 
   ExpenseDialog, 
   ScanDialog, 
-  DeleteBankDialog 
+  DeleteBankDialog,
+  EquityDialog
 } from './dialogs';
