@@ -1035,6 +1035,49 @@ export async function POST(request: NextRequest) {
           console.warn(`[Mirror Loan] WARNING: No default bank found for mirror company ${mirrorCompanyId}`);
         }
 
+        // ============================================
+        // CREATE ACCOUNTING ENTRY FOR MIRROR COMPANY
+        // This ensures Loans Receivable shows in Chart of Accounts
+        // ============================================
+        try {
+          const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+          const accountingService = new AccountingService(mirrorCompanyId);
+          await accountingService.initializeChartOfAccounts();
+
+          // Create journal entry for mirror loan disbursement
+          // Debit: Loans Receivable (Asset increases)
+          // Credit: Cash in Hand (Asset decreases - money given out)
+          await accountingService.createJournalEntry({
+            entryDate: new Date(disbursementDate),
+            referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+            referenceId: mirrorLoan.id,
+            narration: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber}) - Principal: ₹${loanAmount.toLocaleString()}`,
+            lines: [
+              {
+                accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+                debitAmount: loanAmount,
+                creditAmount: 0,
+                loanId: mirrorLoan.id,
+                narration: 'Mirror loan principal disbursed',
+              },
+              {
+                accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+                debitAmount: 0,
+                creditAmount: loanAmount,
+                narration: 'Cash paid out for mirror loan',
+              },
+            ],
+            createdById: createdById,
+            paymentMode: 'BANK_TRANSFER',
+            isAutoEntry: true,
+          });
+
+          console.log(`[Mirror Loan Accounting] Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount}`);
+        } catch (accountingError) {
+          console.error('[Mirror Loan Accounting] Failed to create accounting entry:', accountingError);
+          // Don't fail the loan creation
+        }
+
         mirrorLoanResult = {
           mirrorLoanId: mirrorLoan.id,
           mirrorLoanNumber: mirrorLoan.loanNumber,
@@ -1240,6 +1283,82 @@ export async function POST(request: NextRequest) {
     } catch (disbursementError) {
       console.error('Disbursement transaction failed:', disbursementError);
       // Don't fail the loan creation if disbursement fails
+    }
+
+    // ============================================
+    // CREATE ACCOUNTING ENTRIES FOR LOAN DISBURSEMENT
+    // This updates the Chart of Accounts properly
+    // ============================================
+    try {
+      const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+      
+      // Create accounting entry for ORIGINAL loan (Company 3)
+      const originalAccountingService = new AccountingService(companyId);
+      await originalAccountingService.initializeChartOfAccounts();
+      
+      // Create journal entry: Debit Loans Receivable, Credit Cash
+      await originalAccountingService.createJournalEntry({
+        entryDate: new Date(disbursementDate),
+        referenceType: 'LOAN_DISBURSEMENT',
+        referenceId: loan.id,
+        narration: `Loan Disbursement - ${loanNumber} - ${customerName}`,
+        lines: [
+          {
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+            debitAmount: loanAmount,
+            creditAmount: 0,
+            loanId: loan.id,
+            narration: 'Loan principal disbursed'
+          },
+          {
+            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+            debitAmount: 0,
+            creditAmount: loanAmount,
+            narration: 'Cash paid out for loan'
+          }
+        ],
+        createdById,
+        paymentMode: disbursementMode || 'CASH',
+        isAutoEntry: true
+      });
+      
+      console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}, Amount: ₹${loanAmount}`);
+      
+      // If mirror loan was created, create accounting entry for MIRROR company too
+      if (isMirrorLoan && mirrorCompanyId && mirrorLoanResult) {
+        const mirrorAccountingService = new AccountingService(mirrorCompanyId);
+        await mirrorAccountingService.initializeChartOfAccounts();
+        
+        await mirrorAccountingService.createJournalEntry({
+          entryDate: new Date(disbursementDate),
+          referenceType: 'LOAN_DISBURSEMENT',
+          referenceId: mirrorLoanResult.mirrorLoanId,
+          narration: `Mirror Loan Disbursement - ${mirrorLoanResult.mirrorLoanNumber}`,
+          lines: [
+            {
+              accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+              debitAmount: loanAmount,
+              creditAmount: 0,
+              loanId: mirrorLoanResult.mirrorLoanId,
+              narration: 'Mirror loan principal'
+            },
+            {
+              accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+              debitAmount: 0,
+              creditAmount: loanAmount,
+              narration: 'Cash paid for mirror loan'
+            }
+          ],
+          createdById,
+          paymentMode: 'BANK_TRANSFER',
+          isAutoEntry: true
+        });
+        
+        console.log(`[Accounting] Created journal entry for MIRROR loan disbursement: ${mirrorLoanResult.mirrorLoanNumber}`);
+      }
+    } catch (accountingError) {
+      console.error('Accounting entry creation failed:', accountingError);
+      // Don't fail the loan creation if accounting fails
     }
 
     // Log action for undo
