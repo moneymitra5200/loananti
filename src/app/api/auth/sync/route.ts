@@ -108,7 +108,11 @@ export async function POST(request: NextRequest) {
           agent: admin.agent,
           agentCode: admin.agentCode,
           staffCode: admin.staffCode,
-          cashierCode: admin.cashierCode
+          cashierCode: admin.cashierCode,
+          // Credit fields
+          personalCredit: admin.personalCredit || 0,
+          companyCredit: admin.companyCredit || 0,
+          credit: admin.credit || 0
         }
       });
     }
@@ -227,7 +231,11 @@ export async function POST(request: NextRequest) {
         agent: user.agent ? { id: user.agent.id, name: user.agent.name, agentCode: user.agent.agentCode } : null,
         agentCode: user.agentCode,
         staffCode: user.staffCode,
-        cashierCode: user.cashierCode
+        cashierCode: user.cashierCode,
+        // Credit fields
+        personalCredit: user.personalCredit || 0,
+        companyCredit: user.companyCredit || 0,
+        credit: user.credit || 0
       }
     });
   } catch (error) {
@@ -273,7 +281,11 @@ export async function GET(request: NextRequest) {
         agent: user.agent ? { id: user.agent.id, name: user.agent.name, agentCode: user.agent.agentCode } : null,
         agentCode: user.agentCode,
         staffCode: user.staffCode,
-        cashierCode: user.cashierCode
+        cashierCode: user.cashierCode,
+        // Credit fields
+        personalCredit: user.personalCredit || 0,
+        companyCredit: user.companyCredit || 0,
+        credit: user.credit || 0
       }
     });
   } catch (error) {

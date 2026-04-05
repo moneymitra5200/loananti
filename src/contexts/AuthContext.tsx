@@ -29,6 +29,10 @@ export interface User {
   agentCode?: string;
   staffCode?: string;
   cashierCode?: string;
+  // Credit fields
+  personalCredit?: number;
+  companyCredit?: number;
+  credit?: number;
 }
 
 interface AuthContextType {

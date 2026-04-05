@@ -324,3 +324,33 @@ For Mirror Loan (Company 1):
 3. **Extra EMIs are PURE PROFIT** for Company 3
 4. **Principal is NEVER income** - only interest and fees
 5. **Double-entry maintained** - every entry is balanced
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix Data Fetching Issues - Credit and Mirror Loan Sync
+
+Work Log:
+- Found and fixed credit fetching issue:
+  - Added `personalCredit`, `companyCredit`, `credit` fields to `/api/auth/sync` response
+  - Added credit fields to AuthContext User interface
+  - Now credit data is properly available in user object after login
+- Fixed mirror loan payment recording:
+  - Updated Interest Only payment to use CashBook instead of bankAccount
+  - Updated Extra EMI profit to use CashBook instead of bankAccount
+  - Updated Full EMI mirror interest to use CashBook instead of bankAccount
+  - Mirror loan status is now properly synced when original loan is paid
+- Updated `/api/user/details` already returns credit fields (verified)
+- Verified lint passes without errors
+
+Stage Summary:
+- Credit now properly fetched on login via auth sync API
+- Mirror loan payments recorded in CashBook (not bank accounts)
+- Mirror EMI status synced to PAID when original EMI is paid
+- All bank account references removed from EMI payment flow
+
+### Data Fetching Flow:
+1. **Login** → `/api/auth/sync` returns user with credit fields
+2. **AuthContext** → Stores user object with credit
+3. **DashboardLayout** → Displays credit from user object OR fetches via `/api/credit?userId=X&action=summary`
+4. **After Payment** → Credit updated in database, refreshUser() fetches fresh data
