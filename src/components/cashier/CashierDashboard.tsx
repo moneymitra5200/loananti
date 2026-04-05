@@ -354,12 +354,34 @@ export default function CashierDashboard() {
     }
     
     // Check bank balance for non-Company 3
-    if (!isCompany3) {
+    if (!isCompany3 && !disbursementForm.useSplitPayment) {
       const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
       if (selectedBank && selectedBank.currentBalance < disbursementForm.disbursedAmount) {
         toast({ 
           title: 'Insufficient Bank Balance', 
           description: `Bank account has only ${formatCurrency(selectedBank.currentBalance)}. Please add funds or select another account.`, 
+          variant: 'destructive' 
+        });
+        return;
+      }
+    }
+    
+    // Check split payment validation
+    if (disbursementForm.useSplitPayment) {
+      const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
+      if (total !== disbursementForm.disbursedAmount) {
+        toast({ 
+          title: 'Split Amount Error', 
+          description: `Bank + Cash amount (₹${total.toLocaleString()}) must equal disbursement amount (₹${disbursementForm.disbursedAmount.toLocaleString()})`, 
+          variant: 'destructive' 
+        });
+        return;
+      }
+      const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
+      if ((disbursementForm.bankAmount || 0) > (selectedBank?.currentBalance || 0)) {
+        toast({ 
+          title: 'Insufficient Bank Balance', 
+          description: `Bank amount exceeds available balance`, 
           variant: 'destructive' 
         });
         return;
@@ -394,7 +416,11 @@ export default function CashierDashboard() {
             amount: disbursementForm.disbursedAmount,
             mode: disbursementForm.disbursementMode,
             reference: disbursementForm.disbursementRef,
-            bankAccountId: isCompany3 ? null : disbursementForm.selectedBankAccountId
+            bankAccountId: isCompany3 ? null : disbursementForm.selectedBankAccountId,
+            // Split payment fields
+            useSplitPayment: disbursementForm.useSplitPayment || false,
+            bankAmount: disbursementForm.bankAmount || 0,
+            cashAmount: disbursementForm.cashAmount || 0
           },
           remarks: disbursementForm.remarks,
           agreementSigned: disbursementForm.agreementSigned

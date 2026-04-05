@@ -183,7 +183,16 @@ async function processSingleApproval({
   companyId?: string;
   agentId?: string;
   staffId?: string;
-  disbursementData?: any;
+  disbursementData?: {
+    amount: number;
+    mode: string;
+    reference: string;
+    bankAccountId?: string;
+    // Split Payment fields
+    useSplitPayment?: boolean;
+    bankAmount?: number;
+    cashAmount?: number;
+  };
   mirrorLoanConfig?: { enabled: boolean; mirrorCompanyId?: string; mirrorType?: string };
   request: NextRequest;
 }): Promise<{ nextStatus: LoanStatus }> {
@@ -434,7 +443,80 @@ async function processSingleApproval({
         
         console.log(`[Disbursement] Company: ${company?.name}, Type: ${companyType}, Is Company 3: ${isCompany3}`);
         
-        if (isCompany3 && company) {
+        // Handle Split Payment
+        if (disbursementData.useSplitPayment && disbursementData.bankAmount && disbursementData.cashAmount) {
+          console.log(`[Disbursement] Split Payment: Bank ₹${disbursementData.bankAmount}, Cash ₹${disbursementData.cashAmount}`);
+          
+          // 1. Handle Bank Portion
+          if (disbursementData.bankAmount > 0 && disbursementData.bankAccountId) {
+            const bank = await tx.bankAccount.findUnique({ 
+              where: { id: disbursementData.bankAccountId },
+              select: { currentBalance: true }
+            });
+            
+            if (bank && bank.currentBalance >= disbursementData.bankAmount) {
+              await tx.bankAccount.update({
+                where: { id: disbursementData.bankAccountId },
+                data: { currentBalance: { decrement: disbursementData.bankAmount } }
+              });
+              
+              await tx.bankTransaction.create({
+                data: {
+                  bankAccountId: disbursementData.bankAccountId,
+                  transactionType: 'DEBIT',
+                  amount: disbursementData.bankAmount,
+                  balanceAfter: bank.currentBalance - disbursementData.bankAmount,
+                  description: `Loan Disbursement (Bank Portion) - ${loan.applicationNo}`,
+                  referenceType: 'LOAN_DISBURSEMENT',
+                  referenceId: loanId,
+                  createdById: userId || 'SYSTEM'
+                }
+              });
+              console.log(`[Disbursement] Bank deduction: ₹${disbursementData.bankAmount}`);
+            }
+          }
+          
+          // 2. Handle Cash Portion
+          if (disbursementData.cashAmount > 0 && company) {
+            let cashBook = await tx.cashBook.findUnique({
+              where: { companyId: company.id }
+            });
+            
+            if (!cashBook) {
+              cashBook = await tx.cashBook.create({
+                data: {
+                  companyId: company.id,
+                  currentBalance: 0
+                }
+              });
+            }
+            
+            const newCashBalance = cashBook.currentBalance - disbursementData.cashAmount;
+            
+            await tx.cashBookEntry.create({
+              data: {
+                cashBookId: cashBook.id,
+                entryType: 'DEBIT',
+                amount: disbursementData.cashAmount,
+                balanceAfter: newCashBalance,
+                description: `Loan Disbursement (Cash Portion) - ${loan.applicationNo}`,
+                referenceType: 'LOAN_DISBURSEMENT',
+                referenceId: loanId,
+                createdById: userId || 'SYSTEM'
+              }
+            });
+            
+            await tx.cashBook.update({
+              where: { id: cashBook.id },
+              data: {
+                currentBalance: newCashBalance,
+                lastUpdatedById: userId,
+                lastUpdatedAt: new Date()
+              }
+            });
+            console.log(`[Disbursement] Cash deduction: ₹${disbursementData.cashAmount}, New Balance: ₹${newCashBalance}`);
+          }
+        } else if (isCompany3 && company) {
         // Company 3: Use CashBook instead of BankAccount
         // Get or create cash book for Company 3
         let cashBook = await tx.cashBook.findUnique({

@@ -157,6 +157,10 @@ export interface DisbursementForm {
   agreementSigned: boolean;
   // Extra EMI Payment Page (for mirror loans)
   extraEMIPaymentPageId?: string;
+  // Split Payment fields
+  useSplitPayment?: boolean;
+  bankAmount?: number;
+  cashAmount?: number;
 }
 
 export interface ExpandedSections {

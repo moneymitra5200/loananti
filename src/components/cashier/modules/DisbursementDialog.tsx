@@ -18,7 +18,7 @@ import {
   Send, Loader2, User, Building2, ArrowRight, AlertCircle, Landmark, AlertTriangle,
   ChevronDown, ChevronUp, FileImage, ExternalLink, Car, Gem, Home, IdCard, FileText,
   IndianRupee, Wallet, Users2, Briefcase, ArrowLeft, RefreshCw, DollarSign, CreditCard,
-  PlusCircle
+  PlusCircle, Split
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -793,7 +793,7 @@ export default function DisbursementDialog({
                 {/* Bank Balance Warning */}
                 {disbursementForm.selectedBankAccountId && (() => {
                   const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
-                  if (selectedBank && selectedBank.currentBalance < disbursementForm.disbursedAmount) {
+                  if (selectedBank && selectedBank.currentBalance < disbursementForm.disbursedAmount && !disbursementForm.useSplitPayment) {
                     return (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
@@ -809,6 +809,133 @@ export default function DisbursementDialog({
                   }
                   return null;
                 })()}
+
+                {/* Split Payment Option */}
+                {!mirrorLoanInfo?.isMirrorLoan && !isCompany3 && bankAccounts.length > 0 && cashBook && (
+                  <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Split className="h-5 w-5 text-blue-600" />
+                        <Label className="font-semibold text-blue-800">Split Payment</Label>
+                      </div>
+                      <Checkbox
+                        id="use-split-payment"
+                        checked={disbursementForm.useSplitPayment || false}
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            const halfAmount = Math.floor(disbursementForm.disbursedAmount / 2);
+                            setDisbursementForm({
+                              ...disbursementForm, 
+                              useSplitPayment: true, 
+                              bankAmount: halfAmount,
+                              cashAmount: disbursementForm.disbursedAmount - halfAmount
+                            });
+                          } else {
+                            setDisbursementForm({
+                              ...disbursementForm, 
+                              useSplitPayment: false, 
+                              bankAmount: 0,
+                              cashAmount: 0
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                    <p className="text-sm text-blue-600 mb-3">
+                      Enable split payment to disburse from both Bank Account and Cash Book
+                    </p>
+                    
+                    {/* Balances Display */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="p-3 bg-white rounded-lg border border-blue-100">
+                        <p className="text-xs text-gray-500">Bank Balance</p>
+                        <p className="font-bold text-green-600">
+                          {formatCurrency(bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId)?.currentBalance || 0)}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg border border-blue-100">
+                        <p className="text-xs text-gray-500">Cash Book Balance</p>
+                        <p className={`font-bold ${cashBook.currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(cashBook.currentBalance)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Split Amount Inputs */}
+                    {disbursementForm.useSplitPayment && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-sm text-blue-700">Bank Amount (₹)</Label>
+                            <Input 
+                              type="number" 
+                              value={disbursementForm.bankAmount || 0} 
+                              onChange={(e) => {
+                                const bankAmt = parseFloat(e.target.value) || 0;
+                                const total = disbursementForm.disbursedAmount;
+                                setDisbursementForm({
+                                  ...disbursementForm, 
+                                  bankAmount: bankAmt,
+                                  cashAmount: total - bankAmt
+                                });
+                              }} 
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm text-blue-700">Cash Amount (₹)</Label>
+                            <Input 
+                              type="number" 
+                              value={disbursementForm.cashAmount || 0} 
+                              onChange={(e) => {
+                                const cashAmt = parseFloat(e.target.value) || 0;
+                                const total = disbursementForm.disbursedAmount;
+                                setDisbursementForm({
+                                  ...disbursementForm, 
+                                  cashAmount: cashAmt,
+                                  bankAmount: total - cashAmt
+                                });
+                              }} 
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Validation */}
+                        {(() => {
+                          const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
+                          const bankBal = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId)?.currentBalance || 0;
+                          const cashBal = cashBook.currentBalance;
+                          
+                          if (total !== disbursementForm.disbursedAmount) {
+                            return (
+                              <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700">
+                                ⚠️ Bank + Cash amount (₹{total.toLocaleString()}) must equal disbursement amount (₹{disbursementForm.disbursedAmount.toLocaleString()})
+                              </div>
+                            );
+                          }
+                          if ((disbursementForm.bankAmount || 0) > bankBal) {
+                            return (
+                              <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                                ❌ Bank amount exceeds available balance
+                              </div>
+                            );
+                          }
+                          if ((disbursementForm.cashAmount || 0) > cashBal && cashBal > 0) {
+                            return (
+                              <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                                ❌ Cash amount exceeds available balance
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                              ✓ Split payment amounts are valid. Total: ₹{total.toLocaleString()}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Selected Bank Balance Display */}
                 {disbursementForm.selectedBankAccountId && (() => {
