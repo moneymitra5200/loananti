@@ -41,6 +41,15 @@ export async function GET(request: NextRequest) {
         contactEmail: true,
         contactPhone: true,
         isMirrorCompany: true,
+        accountingType: true,
+        logoUrl: true,
+        address: true,
+        city: true,
+        state: true,
+        gstNumber: true,
+        panNumber: true,
+        ownerName: true,
+        ownerPhone: true,
       }
     });
 
@@ -63,7 +72,40 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, code, contactEmail, contactPhone, defaultInterestRate, defaultInterestType, isActive } = body;
+    const { 
+      name, 
+      code, 
+      contactEmail, 
+      contactPhone, 
+      defaultInterestRate, 
+      defaultInterestType, 
+      isActive,
+      // New profile fields
+      address,
+      city,
+      state,
+      pincode,
+      country,
+      gstNumber,
+      panNumber,
+      website,
+      ownerName,
+      ownerPhone,
+      ownerEmail,
+      ownerPan,
+      ownerAadhaar,
+      logoUrl,
+      // Mirror settings
+      isMirrorCompany,
+      mirrorInterestRate,
+      mirrorInterestType,
+      enableMirrorLoan,
+      // Accounting settings
+      accountingType,
+      maxLoanAmount,
+      minLoanAmount,
+      maxTenureMonths
+    } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
@@ -78,9 +120,33 @@ export async function POST(request: NextRequest) {
         code: companyCode,
         contactEmail,
         contactPhone,
+        address,
+        city,
+        state,
+        pincode,
+        country: country || 'India',
+        gstNumber,
+        panNumber,
+        website,
+        ownerName,
+        ownerPhone,
+        ownerEmail,
+        ownerPan,
+        ownerAadhaar,
+        logoUrl,
         defaultInterestRate: defaultInterestRate || 12,
         defaultInterestType: defaultInterestType || 'FLAT',
-        isActive: isActive ?? true
+        isActive: isActive ?? true,
+        // Mirror settings
+        isMirrorCompany: isMirrorCompany ?? true,
+        mirrorInterestRate: mirrorInterestRate || null,
+        mirrorInterestType: mirrorInterestType || 'REDUCING',
+        enableMirrorLoan: enableMirrorLoan ?? false,
+        // Accounting settings
+        accountingType: accountingType || 'FULL',
+        maxLoanAmount: maxLoanAmount || 10000000,
+        minLoanAmount: minLoanAmount || 10000,
+        maxTenureMonths: maxTenureMonths || 60,
       }
     });
 

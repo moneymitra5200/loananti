@@ -114,7 +114,14 @@ export default function SuperAdminDashboard() {
   const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
-  const [userForm, setUserForm] = useState({ name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '' });
+  const [userForm, setUserForm] = useState({
+    name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '',
+    // Extended company fields
+    code: '', address: '', city: '', state: '', pincode: '', gstNumber: '', panNumber: '', website: '',
+    ownerName: '', ownerPhone: '', ownerEmail: '', ownerPan: '', ownerAadhaar: '', logoUrl: '',
+    isMirrorCompany: true, mirrorInterestRate: undefined as number | undefined, mirrorInterestType: 'REDUCING',
+    accountingType: 'FULL', defaultInterestRate: 12, defaultInterestType: 'FLAT'
+  });
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | 'send_back'>('approve');
   const [remarks, setRemarks] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
@@ -624,7 +631,13 @@ export default function SuperAdminDashboard() {
       if (response.ok) {
         toast({ title: 'User Created', description: `${userForm.name} has been created successfully` });
         setShowUserDialog(false);
-        setUserForm({ name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '' });
+        setUserForm({
+          name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '',
+          code: '', address: '', city: '', state: '', pincode: '', gstNumber: '', panNumber: '', website: '',
+          ownerName: '', ownerPhone: '', ownerEmail: '', ownerPan: '', ownerAadhaar: '', logoUrl: '',
+          isMirrorCompany: true, mirrorInterestRate: undefined, mirrorInterestType: 'REDUCING',
+          accountingType: 'FULL', defaultInterestRate: 12, defaultInterestType: 'FLAT'
+        });
         fetchUsers();
         fetchCompanies(); // Refresh companies list if a company user was created
       } else {

@@ -75,7 +75,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, phone, password, role, companyId, agentId } = body;
+    const { 
+      name, email, phone, password, role, companyId, agentId,
+      // Extended company fields
+      code, address, city, state, pincode, gstNumber, panNumber, website,
+      ownerName, ownerPhone, ownerEmail, ownerPan, ownerAadhaar, logoUrl,
+      isMirrorCompany, mirrorInterestRate, mirrorInterestType,
+      accountingType, defaultInterestRate, defaultInterestType
+    } = body;
 
     // Convert empty strings to null for foreign key fields
     // AGENT, CASHIER, and ACCOUNTANT are common for all companies - no company selection needed
@@ -107,13 +114,33 @@ export async function POST(request: NextRequest) {
 
     // Create company if role is COMPANY and no company specified
     if (role === 'COMPANY' && !cleanCompanyId) {
-      const companyCode = generateCode('COMP');
+      const companyCode = code || generateCode('COMP');
       console.log('[User API] Creating company:', companyCode);
       createdCompany = await db.company.create({
         data: {
           name,
           code: companyCode,
           contactEmail: email,
+          contactPhone: phone || null,
+          address: address || null,
+          city: city || null,
+          state: state || null,
+          pincode: pincode || null,
+          gstNumber: gstNumber || null,
+          panNumber: panNumber || null,
+          website: website || null,
+          ownerName: ownerName || null,
+          ownerPhone: ownerPhone || null,
+          ownerEmail: ownerEmail || null,
+          ownerPan: ownerPan || null,
+          ownerAadhaar: ownerAadhaar || null,
+          logoUrl: logoUrl || null,
+          isMirrorCompany: isMirrorCompany !== undefined ? isMirrorCompany : true,
+          mirrorInterestRate: mirrorInterestRate || null,
+          mirrorInterestType: mirrorInterestType || 'REDUCING',
+          accountingType: accountingType || 'FULL',
+          defaultInterestRate: defaultInterestRate || 12,
+          defaultInterestType: defaultInterestType || 'FLAT',
           isActive: true
         }
       });
