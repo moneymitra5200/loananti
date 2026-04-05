@@ -35,6 +35,29 @@ export function ChartOfAccountsSection({
   const [selectedAccount, setSelectedAccount] = useState<ChartOfAccountItem | null>(null);
   const [openingBalance, setOpeningBalance] = useState('');
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncLoanDisbursements = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/accounting/quick-fix-loans');
+      const data = await res.json();
+      
+      if (data.success) {
+        toast.success(`Synced ${data.results.loansProcessed} loans. Updated ${data.results.accountsUpdated} accounts.`);
+        if (data.results.errors.length > 0) {
+          toast.warning(`${data.results.errors.length} errors occurred during sync`);
+        }
+        onRefresh();
+      } else {
+        toast.error(data.error || 'Failed to sync');
+      }
+    } catch (error) {
+      toast.error('Failed to sync loan disbursements');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleSetOpeningBalance = (account: ChartOfAccountItem) => {
     setSelectedAccount(account);
@@ -101,10 +124,16 @@ export function ChartOfAccountsSection({
           <h2 className="text-xl font-semibold">Chart of Accounts</h2>
           <p className="text-sm text-gray-500">Double-Entry Accounting - Set opening balances for your capital</p>
         </div>
-        <Button onClick={onRefresh} variant="outline">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={handleSyncLoanDisbursements} variant="outline" disabled={syncing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync Loans'}
+          </Button>
+          <Button onClick={onRefresh} variant="outline">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Account Type Summary */}

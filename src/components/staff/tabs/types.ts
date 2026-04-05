@@ -13,7 +13,7 @@ export interface Loan {
   customer: { id: string; name: string; email: string; phone: string; };
   sessionForm?: any;
   loanForm?: any;
-  company?: any;
+  company?: { id?: string; name: string; code?: string };
   requestedTenure?: number;
   requestedInterestRate?: number;
   currentHandlerId?: string;
@@ -40,4 +40,7 @@ export interface Loan {
   interestRate?: number;
   tenure?: number;
   emiAmount?: number;
+  disbursementDate?: string;
+  nextEmi?: { id?: string; dueDate: string; amount: number; status: string; installmentNumber?: number };
+  emiSchedules?: any[];
 }

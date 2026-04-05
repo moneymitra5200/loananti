@@ -62,17 +62,23 @@ function ActiveLoansTabComponent({ activeLoans, setSelectedLoanId, setShowLoanDe
   // Convert Loan to format expected by MirrorLoanPairView
   const convertToLoanData = (loan: Loan) => ({
     id: loan.id,
-    identifier: loan.identifier,
+    identifier: loan.identifier || loan.applicationNo,
     customer: loan.customer,
-    approvedAmount: loan.approvedAmount,
-    interestRate: loan.interestRate,
-    tenure: loan.tenure,
+    approvedAmount: loan.approvedAmount || 0,
+    interestRate: loan.interestRate || 0,
+    tenure: loan.tenure || 0,
     emiAmount: loan.emiAmount || 0,
     status: loan.status,
     loanType: loan.loanType,
     disbursementDate: loan.disbursementDate,
     createdAt: loan.createdAt,
-    company: loan.company
+    company: loan.company ? { 
+      id: loan.company.id || '', 
+      name: loan.company.name, 
+      code: loan.company.code || '' 
+    } : undefined,
+    nextEmi: loan.nextEmi,
+    emiSchedules: loan.emiSchedules
   });
 
   // Filter out mirror loans (they will be shown with original)

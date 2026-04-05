@@ -45,13 +45,13 @@ export async function GET(request: NextRequest) {
 
     for (const loan of mirrorLoans) {
       // Check if journal entry exists for this loan
-      const journalEntry = await db.journalEntry.findFirst({
+      const journalEntry = loan.companyId ? await db.journalEntry.findFirst({
         where: {
           companyId: loan.companyId,
           referenceType: 'MIRROR_LOAN_DISBURSEMENT',
           referenceId: loan.id,
         }
-      });
+      }) : null;
 
       syncStatus.push({
         loanId: loan.id,

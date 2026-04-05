@@ -370,7 +370,11 @@ export function ActiveLoansSection({
     loanType: loan.loanType,
     disbursementDate: loan.disbursementDate,
     createdAt: loan.createdAt,
-    company: loan.company,
+    company: loan.company ? { 
+      id: loan.company.id || '', 
+      name: loan.company.name, 
+      code: '' 
+    } : undefined,
     nextEmi: loan.nextEmi,
     emiSchedules: loan.emiSchedules
   });

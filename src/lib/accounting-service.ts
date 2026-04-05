@@ -156,6 +156,7 @@ export const ACCOUNT_CODES = {
 
 export type JournalEntryType = 
   | 'LOAN_DISBURSEMENT'
+  | 'MIRROR_LOAN_DISBURSEMENT'
   | 'LOAN_REPAYMENT'
   | 'EMI_PAYMENT'
   | 'MIRROR_EMI_PAYMENT'

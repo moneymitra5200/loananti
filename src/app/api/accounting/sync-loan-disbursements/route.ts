@@ -42,6 +42,12 @@ export async function GET(request: NextRequest) {
 
     for (const loan of offlineLoans) {
       try {
+        // Skip loans without company
+        if (!loan.companyId) {
+          results.errors.push(`Loan ${loan.loanNumber} has no company assigned`);
+          continue;
+        }
+
         // Check if journal entry exists for this loan disbursement
         const existingEntry = await db.journalEntry.findFirst({
           where: {
