@@ -126,15 +126,36 @@ const formatDateShort = (date: Date | string) => {
 // Original company (Company 3) has only cash book
 const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_3' => {
   if (!company) return 'COMPANY_1_2';
-  // Use isMirrorCompany field if available
+  
+  // Check name and code for Company 3 patterns FIRST
+  // This ensures we detect Company 3 even if isMirrorCompany field is wrong in database
+  const upperName = company.name?.toUpperCase() || '';
+  const upperCode = company.code?.toUpperCase() || '';
+  
+  // Check for Company 3 patterns in name or code
+  const isCompany3ByName = 
+    upperName.includes('COMPANY 3') || 
+    upperName.includes('COMPANY3') || 
+    upperName === 'C3' ||
+    upperName.includes('ORIGINAL') ||
+    upperName.includes('CASH ONLY');
+    
+  const isCompany3ByCode = 
+    upperCode.includes('3') || 
+    upperCode === 'C3' || 
+    upperCode === 'COMPANY3' || 
+    upperCode === 'COMPANY_3' ||
+    upperCode.includes('ORIGINAL');
+  
+  if (isCompany3ByName || isCompany3ByCode) {
+    return 'COMPANY_3';
+  }
+  
+  // Then use isMirrorCompany field if available
   if (company.isMirrorCompany !== undefined) {
     return company.isMirrorCompany ? 'COMPANY_1_2' : 'COMPANY_3';
   }
-  // Fallback to code-based detection
-  const upperCode = company.code?.toUpperCase() || '';
-  if (upperCode.includes('3') || upperCode === 'C3' || upperCode === 'COMPANY3' || upperCode === 'COMPANY_3') {
-    return 'COMPANY_3';
-  }
+  
   return 'COMPANY_1_2';
 };
 
@@ -1992,6 +2013,19 @@ export default function UnifiedAccountantDashboard() {
         { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
       ];
 
+  // Debug log for company type detection
+  useEffect(() => {
+    if (selectedCompany) {
+      console.log('Company selected:', {
+        name: selectedCompany.name,
+        code: selectedCompany.code,
+        isMirrorCompany: selectedCompany.isMirrorCompany,
+        detectedType: companyType,
+        menuItemsCount: menuItems.length
+      });
+    }
+  }, [selectedCompany, companyType, menuItems.length]);
+
   // Render Section
   const renderSection = () => {
     switch (activeSection) {
@@ -2085,9 +2119,16 @@ export default function UnifiedAccountantDashboard() {
                 <Calculator className="h-5 w-5" />
               </div>
               <div>
-                <h1 className="text-base font-bold leading-tight">
-                  {companyType === 'COMPANY_3' ? 'Company 3 - Cash Book' : 'Accountant Dashboard'}
-                </h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base font-bold leading-tight">
+                    {companyType === 'COMPANY_3' ? 'Company 3 - Cash Book' : 'Accountant Dashboard'}
+                  </h1>
+                  {companyType === 'COMPANY_3' ? (
+                    <Badge className="bg-amber-500 text-white text-[10px] px-1.5 py-0">CASH ONLY</Badge>
+                  ) : (
+                    <Badge className="bg-emerald-400 text-white text-[10px] px-1.5 py-0">FULL ACCOUNTING</Badge>
+                  )}
+                </div>
                 <p className="text-[10px] text-emerald-100">
                   {selectedCompany?.name || 'Select Company'}
                 </p>
