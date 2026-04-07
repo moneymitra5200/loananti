@@ -114,7 +114,32 @@ export async function POST(request: NextRequest) {
 
     // Create company if role is COMPANY and no company specified
     if (role === 'COMPANY' && !cleanCompanyId) {
-      const companyCode = code || generateCode('COMP');
+      // Generate unique company code with retry logic
+      let companyCode = code || generateCode('COMP');
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      // Check if code exists and regenerate if needed
+      while (attempts < maxAttempts) {
+        const existingCompany = await db.company.findUnique({
+          where: { code: companyCode }
+        });
+        
+        if (!existingCompany) {
+          break; // Code is unique
+        }
+        
+        // Code exists, generate new one
+        attempts++;
+        companyCode = generateCode('COMP');
+        console.log(`[User API] Code collision, regenerating (attempt ${attempts}):`, companyCode);
+        
+        if (attempts >= maxAttempts) {
+          // If still colliding after max attempts, add extra randomness
+          companyCode = `COMP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        }
+      }
+      
       console.log('[User API] Creating company with code:', companyCode);
       console.log('[User API] Company data:', {
         name,
@@ -163,7 +188,7 @@ export async function POST(request: NextRequest) {
           // Check for unique constraint violation
           if (companyError.message.includes('Unique constraint') || companyError.message.includes('code')) {
             return NextResponse.json({ 
-              error: 'Company code already exists. Please try again or use a different code.',
+              error: 'Company code already exists. Please try again.',
               details: companyError.message 
             }, { status: 400 });
           }
