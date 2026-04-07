@@ -18,11 +18,24 @@ import {
   Send, Loader2, User, Building2, ArrowRight, AlertCircle, Landmark, AlertTriangle,
   ChevronDown, ChevronUp, FileImage, ExternalLink, Car, Gem, Home, IdCard, FileText,
   IndianRupee, Wallet, Users2, Briefcase, ArrowLeft, RefreshCw, DollarSign, CreditCard,
-  PlusCircle, Split
+  PlusCircle, Split, Banknote
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections, SecondaryPaymentPage } from '../tabs/types';
+
+// Payment Source Type - Combined Bank + Cash
+interface PaymentSource {
+  id: string;
+  type: 'BANK' | 'CASH';
+  name: string;
+  displayName: string;
+  accountNumber: string | null;
+  ifscCode: string | null;
+  currentBalance: number;
+  isDefault: boolean;
+  details: any;
+}
 
 interface DisbursementDialogProps {
   open: boolean;
@@ -65,6 +78,10 @@ export default function DisbursementDialog({
   const [confirmAction, setConfirmAction] = useState<'disburse' | 'send_back'>('disburse');
   const [secondaryPaymentPages, setSecondaryPaymentPages] = useState<SecondaryPaymentPage[]>([]);
   const [loadingPaymentPages, setLoadingPaymentPages] = useState(false);
+  
+  // Combined payment sources state
+  const [paymentSources, setPaymentSources] = useState<PaymentSource[]>([]);
+  const [loadingPaymentSources, setLoadingPaymentSources] = useState(false);
 
   // Fetch secondary payment pages when dialog opens for a mirror loan
   useEffect(() => {
@@ -72,6 +89,28 @@ export default function DisbursementDialog({
       fetchSecondaryPaymentPages();
     }
   }, [open, mirrorLoanInfo?.isMirrorLoan]);
+  
+  // Fetch payment sources when dialog opens
+  useEffect(() => {
+    if (open && selectedLoan?.companyId) {
+      fetchPaymentSources(selectedLoan.companyId);
+    }
+  }, [open, selectedLoan?.companyId]);
+  
+  const fetchPaymentSources = async (companyId: string) => {
+    setLoadingPaymentSources(true);
+    try {
+      const response = await fetch(`/api/payment-sources?companyId=${companyId}`);
+      const data = await response.json();
+      if (data.success) {
+        setPaymentSources(data.paymentSources || []);
+      }
+    } catch (error) {
+      console.error('Error fetching payment sources:', error);
+    } finally {
+      setLoadingPaymentSources(false);
+    }
+  };
 
   const fetchSecondaryPaymentPages = async () => {
     setLoadingPaymentPages(true);
@@ -745,63 +784,105 @@ export default function DisbursementDialog({
                     />
                   </div>
                   <div>
-                    <Label>Select Bank Account for Disbursement *</Label>
+                    <Label>Select Payment Source (Bank/Cash) *</Label>
                     {mirrorLoanInfo?.isMirrorLoan ? (
                       <p className="text-xs text-purple-600 mb-2 font-medium">
-                        Showing bank accounts for: <span className="text-purple-700">{mirrorLoanInfo.mirrorCompanyName}</span>
+                        Showing sources for: <span className="text-purple-700">{mirrorLoanInfo.mirrorCompanyName}</span>
                         <span className="text-gray-500 ml-1">(Mirror Company)</span>
                       </p>
                     ) : selectedLoan?.company ? (
                       <p className="text-xs text-muted-foreground mb-2">
-                        Showing bank accounts for: <span className="font-medium text-green-600">{selectedLoan.company.name}</span>
+                        Showing sources for: <span className="font-medium text-green-600">{selectedLoan.company.name}</span>
                       </p>
                     ) : null}
-                    <Select 
-                      value={disbursementForm.selectedBankAccountId} 
-                      onValueChange={(v) => setDisbursementForm({...disbursementForm, selectedBankAccountId: v})}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={bankAccounts.length === 0 ? "No bank accounts available" : "Select bank account"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {bankAccounts.length === 0 ? (
-                          <div className="p-2 text-sm text-muted-foreground">
-                            No bank accounts found for this company
-                          </div>
-                        ) : (
-                          bankAccounts.map(account => (
-                            <SelectItem key={account.id} value={account.id}>
-                              <div className="flex flex-col">
-                                <span className="font-medium">{account.bankName}</span>
-                                <span className="text-xs text-gray-500">
-                                  A/C: {account.accountNumber} | Bal: {formatCurrency(account.currentBalance)}
-                                </span>
+                    
+                    {loadingPaymentSources ? (
+                      <div className="flex items-center gap-2 p-3 border rounded-lg bg-gray-50">
+                        <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                        <span className="text-sm text-gray-500">Loading payment sources...</span>
+                      </div>
+                    ) : (
+                      <Select 
+                        value={disbursementForm.selectedBankAccountId} 
+                        onValueChange={(v) => setDisbursementForm({...disbursementForm, selectedBankAccountId: v})}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={paymentSources.length === 0 ? "No payment sources available" : "Select bank or cash"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Bank Accounts Section */}
+                          {paymentSources.filter(s => s.type === 'BANK').length > 0 && (
+                            <>
+                              <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 flex items-center gap-1">
+                                <Landmark className="h-3 w-3" /> BANK ACCOUNTS
                               </div>
-                            </SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {bankAccounts.length === 0 && (
+                              {paymentSources.filter(s => s.type === 'BANK').map(source => (
+                                <SelectItem key={source.id} value={source.id}>
+                                  <div className="flex items-center gap-2">
+                                    <Landmark className="h-4 w-4 text-blue-500" />
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{source.name}</span>
+                                      <span className="text-xs text-gray-500">
+                                        A/C: {source.accountNumber} | Bal: {formatCurrency(source.currentBalance)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                          
+                          {/* Cash Book Section */}
+                          {paymentSources.filter(s => s.type === 'CASH').length > 0 && (
+                            <>
+                              <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50 flex items-center gap-1 mt-1">
+                                <Banknote className="h-3 w-3" /> CASH BOOK
+                              </div>
+                              {paymentSources.filter(s => s.type === 'CASH').map(source => (
+                                <SelectItem key={source.id} value={source.id}>
+                                  <div className="flex items-center gap-2">
+                                    <Banknote className="h-4 w-4 text-green-500" />
+                                    <div className="flex flex-col">
+                                      <span className="font-medium">{source.displayName}</span>
+                                      <span className="text-xs text-gray-500">
+                                        Bal: {formatCurrency(source.currentBalance)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                          
+                          {paymentSources.length === 0 && (
+                            <div className="p-2 text-sm text-muted-foreground">
+                              No payment sources found for this company
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    
+                    {paymentSources.length === 0 && !loadingPaymentSources && (
                       <p className="text-xs text-amber-600 mt-1">
-                        Please add a bank account for {mirrorLoanInfo?.isMirrorLoan ? mirrorLoanInfo.mirrorCompanyName : selectedLoan?.company?.name || 'this company'} first.
+                        Please add a bank account or cash book for {mirrorLoanInfo?.isMirrorLoan ? mirrorLoanInfo.mirrorCompanyName : selectedLoan?.company?.name || 'this company'} first.
                       </p>
                     )}
                   </div>
                 </div>
 
-                {/* Bank Balance Warning */}
+                {/* Selected Payment Source Balance Warning */}
                 {disbursementForm.selectedBankAccountId && (() => {
-                  const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
-                  if (selectedBank && selectedBank.currentBalance < disbursementForm.disbursedAmount && !disbursementForm.useSplitPayment) {
+                  const selectedSource = paymentSources.find(s => s.id === disbursementForm.selectedBankAccountId);
+                  if (selectedSource && selectedSource.currentBalance < disbursementForm.disbursedAmount && !disbursementForm.useSplitPayment) {
                     return (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
                         <div>
-                          <p className="font-medium text-red-700">Insufficient Bank Balance</p>
+                          <p className="font-medium text-red-700">Insufficient Balance</p>
                           <p className="text-sm text-red-600">
-                            Selected bank account has only {formatCurrency(selectedBank.currentBalance)}. 
-                            You need {formatCurrency(disbursementForm.disbursedAmount - selectedBank.currentBalance)} more.
+                            Selected {selectedSource.type === 'CASH' ? 'Cash Book' : 'Bank Account'} has only {formatCurrency(selectedSource.currentBalance)}. 
+                            You need {formatCurrency(disbursementForm.disbursedAmount - selectedSource.currentBalance)} more.
                           </p>
                         </div>
                       </div>
@@ -810,13 +891,13 @@ export default function DisbursementDialog({
                   return null;
                 })()}
 
-                {/* Split Payment Option */}
-                {!mirrorLoanInfo?.isMirrorLoan && !isCompany3 && bankAccounts.length > 0 && cashBook && (
+                {/* Split Payment Option - Show when both Bank and Cash are available */}
+                {!mirrorLoanInfo?.isMirrorLoan && !isCompany3 && paymentSources.filter(s => s.type === 'BANK').length > 0 && paymentSources.filter(s => s.type === 'CASH').length > 0 && (
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <Split className="h-5 w-5 text-blue-600" />
-                        <Label className="font-semibold text-blue-800">Split Payment</Label>
+                        <Label className="font-semibold text-blue-800">Split Payment (Bank + Cash)</Label>
                       </div>
                       <Checkbox
                         id="use-split-payment"
@@ -850,13 +931,13 @@ export default function DisbursementDialog({
                       <div className="p-3 bg-white rounded-lg border border-blue-100">
                         <p className="text-xs text-gray-500">Bank Balance</p>
                         <p className="font-bold text-green-600">
-                          {formatCurrency(bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId)?.currentBalance || 0)}
+                          {formatCurrency(paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.selectedBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0)}
                         </p>
                       </div>
                       <div className="p-3 bg-white rounded-lg border border-blue-100">
                         <p className="text-xs text-gray-500">Cash Book Balance</p>
-                        <p className={`font-bold ${cashBook.currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(cashBook.currentBalance)}
+                        <p className={`font-bold ${(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0)}
                         </p>
                       </div>
                     </div>
@@ -902,8 +983,8 @@ export default function DisbursementDialog({
                         {/* Validation */}
                         {(() => {
                           const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
-                          const bankBal = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId)?.currentBalance || 0;
-                          const cashBal = cashBook.currentBalance;
+                          const bankBal = paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0;
+                          const cashBal = paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0;
                           
                           if (total !== disbursementForm.disbursedAmount) {
                             return (
@@ -937,22 +1018,26 @@ export default function DisbursementDialog({
                   </div>
                 )}
 
-                {/* Selected Bank Balance Display */}
+                {/* Selected Payment Source Balance Display */}
                 {disbursementForm.selectedBankAccountId && (() => {
-                  const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
-                  if (selectedBank && selectedBank.currentBalance >= disbursementForm.disbursedAmount) {
+                  const selectedSource = paymentSources.find(s => s.id === disbursementForm.selectedBankAccountId);
+                  if (selectedSource && selectedSource.currentBalance >= disbursementForm.disbursedAmount) {
                     return (
                       <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                          <Landmark className="h-5 w-5 text-green-600" />
+                          {selectedSource.type === 'CASH' ? (
+                            <Banknote className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <Landmark className="h-5 w-5 text-green-600" />
+                          )}
                           <div>
-                            <p className="font-medium text-green-700">{selectedBank.bankName}</p>
-                            <p className="text-sm text-green-600">Current Balance: {formatCurrency(selectedBank.currentBalance)}</p>
+                            <p className="font-medium text-green-700">{selectedSource.displayName}</p>
+                            <p className="text-sm text-green-600">Current Balance: {formatCurrency(selectedSource.currentBalance)}</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-green-600">After Disbursement</p>
-                          <p className="font-bold text-green-700">{formatCurrency(selectedBank.currentBalance - disbursementForm.disbursedAmount)}</p>
+                          <p className="font-bold text-green-700">{formatCurrency(selectedSource.currentBalance - disbursementForm.disbursedAmount)}</p>
                         </div>
                       </div>
                     );
