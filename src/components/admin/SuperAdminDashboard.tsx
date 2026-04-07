@@ -1343,6 +1343,7 @@ export default function SuperAdminDashboard() {
                   .catch(() => toast({ title: 'Error', description: 'Failed to fetch company details', variant: 'destructive' }))
                   .finally(() => setLoadingDetailSheet(false));
               }}
+              onRefresh={() => fetchAllData(true)}
             />
           </Suspense>
         );

@@ -1,12 +1,14 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Building2, CheckCircle, User, FileText, UserPlus, Eye, RefreshCw, Star } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Building2, CheckCircle, User, FileText, UserPlus, Eye, RefreshCw, Star, Trash2, Loader2 } from 'lucide-react';
 import { identifyCompanyType } from '@/lib/mirror-company-utils';
+import { toast } from 'sonner';
 
 interface CompanyUser {
   id: string;
@@ -24,6 +26,7 @@ interface Props {
   loans: { length: number };
   onAddCompany: () => void;
   onViewCompany: (companyId: string) => void;
+  onRefresh: () => void;
 }
 
 function CompaniesSection({
@@ -31,8 +34,63 @@ function CompaniesSection({
   agents,
   loans,
   onAddCompany,
-  onViewCompany
+  onViewCompany,
+  onRefresh
 }: Props) {
+  const [deleteDialog, setDeleteDialog] = useState<{open: boolean; company: CompanyUser | null; loading: boolean}>({
+    open: false,
+    company: null,
+    loading: false
+  });
+
+  const handleDeleteClick = (company: CompanyUser) => {
+    setDeleteDialog({ open: true, company, loading: false });
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteDialog.company) return;
+    
+    const companyId = deleteDialog.company.companyId || deleteDialog.company.companyObj?.id;
+    if (!companyId) {
+      toast.error('Company ID not found');
+      return;
+    }
+
+    setDeleteDialog(prev => ({ ...prev, loading: true }));
+
+    try {
+      // First delete the company user
+      const userResponse = await fetch(`/api/user?id=${deleteDialog.company.id}`, {
+        method: 'DELETE'
+      });
+      
+      const userData = await userResponse.json();
+      
+      if (!userResponse.ok) {
+        throw new Error(userData.error || 'Failed to delete company user');
+      }
+
+      // Then delete the company
+      const companyResponse = await fetch(`/api/company?id=${companyId}`, {
+        method: 'DELETE'
+      });
+      
+      const companyData = await companyResponse.json();
+      
+      if (!companyResponse.ok) {
+        throw new Error(companyData.error || 'Failed to delete company');
+      }
+
+      toast.success('Company deleted successfully');
+      setDeleteDialog({ open: false, company: null, loading: false });
+      onRefresh();
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete company');
+      setDeleteDialog(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Stats Row */}
@@ -96,34 +154,11 @@ function CompaniesSection({
         <CardContent className="p-4">
           <h4 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">
             <RefreshCw className="h-4 w-4" />
-            Mirror Loan Configuration (Permanent)
+            Mirror Loan Configuration
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-3 rounded-lg border border-emerald-200">
-              <div className="flex items-center gap-2 mb-1">
-                <Badge className="bg-emerald-100 text-emerald-700">Company 1</Badge>
-                <RefreshCw className="h-4 w-4 text-emerald-600" />
-              </div>
-              <p className="text-sm font-semibold text-emerald-800">15% REDUCING</p>
-              <p className="text-xs text-gray-500">Mirror Loan Provider</p>
-            </div>
-            <div className="bg-white p-3 rounded-lg border border-amber-200">
-              <div className="flex items-center gap-2 mb-1">
-                <Badge className="bg-amber-100 text-amber-700">Company 2</Badge>
-                <RefreshCw className="h-4 w-4 text-amber-600" />
-              </div>
-              <p className="text-sm font-semibold text-amber-800">24% REDUCING</p>
-              <p className="text-xs text-gray-500">Mirror Loan Provider</p>
-            </div>
-            <div className="bg-white p-3 rounded-lg border border-blue-200">
-              <div className="flex items-center gap-2 mb-1">
-                <Badge className="bg-blue-100 text-blue-700">Company 3</Badge>
-                <Star className="h-4 w-4 text-blue-600" />
-              </div>
-              <p className="text-sm font-semibold text-blue-800">Original Loan Rate</p>
-              <p className="text-xs text-gray-500">Customer-Facing (Not Mirror)</p>
-            </div>
-          </div>
+          <p className="text-sm text-gray-600 mb-2">
+            Interest rate for mirror loans is set <strong>per loan</strong> when creating or mirroring, not fixed per company.
+          </p>
         </CardContent>
       </Card>
 
@@ -198,6 +233,14 @@ function CompaniesSection({
                       >
                         <Eye className="h-4 w-4 mr-1" />View
                       </Button>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => handleDeleteClick(company)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 );
@@ -206,6 +249,41 @@ function CompaniesSection({
           )}
         </CardContent>
       </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Company</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>{deleteDialog.company?.name}</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm text-red-800">
+              This will permanently delete:
+            </p>
+            <ul className="text-sm text-red-700 mt-2 list-disc list-inside">
+              <li>The company account</li>
+              <li>All associated data (if no loans exist)</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog({ open: false, company: null, loading: false })}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteConfirm}
+              disabled={deleteDialog.loading}
+            >
+              {deleteDialog.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

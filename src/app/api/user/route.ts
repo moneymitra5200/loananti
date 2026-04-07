@@ -114,30 +114,52 @@ export async function POST(request: NextRequest) {
 
     // Create company if role is COMPANY and no company specified
     if (role === 'COMPANY' && !cleanCompanyId) {
-      // Generate unique company code with retry logic
-      let companyCode = code || generateCode('COMP');
-      let attempts = 0;
-      const maxAttempts = 5;
+      // Use user-provided code OR generate unique code
+      let companyCode: string;
       
-      // Check if code exists and regenerate if needed
-      while (attempts < maxAttempts) {
+      if (code && code.trim()) {
+        // User provided a code - use it exactly as provided
+        companyCode = code.trim().toUpperCase();
+        console.log('[User API] Using user-provided code:', companyCode);
+        
+        // Check if this code already exists
         const existingCompany = await db.company.findUnique({
           where: { code: companyCode }
         });
         
-        if (!existingCompany) {
-          break; // Code is unique
+        if (existingCompany) {
+          return NextResponse.json({ 
+            error: `Company code "${companyCode}" already exists. Please use a different code.`,
+            field: 'code'
+          }, { status: 400 });
         }
-        
-        // Code exists, generate new one
-        attempts++;
+      } else {
+        // No code provided - auto-generate unique code
         companyCode = generateCode('COMP');
-        console.log(`[User API] Code collision, regenerating (attempt ${attempts}):`, companyCode);
+        let attempts = 0;
+        const maxAttempts = 5;
         
-        if (attempts >= maxAttempts) {
-          // If still colliding after max attempts, add extra randomness
-          companyCode = `COMP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        // Check if code exists and regenerate if needed
+        while (attempts < maxAttempts) {
+          const existingCompany = await db.company.findUnique({
+            where: { code: companyCode }
+          });
+          
+          if (!existingCompany) {
+            break; // Code is unique
+          }
+          
+          // Code exists, generate new one
+          attempts++;
+          companyCode = generateCode('COMP');
+          console.log(`[User API] Code collision, regenerating (attempt ${attempts}):`, companyCode);
+          
+          if (attempts >= maxAttempts) {
+            // If still colliding after max attempts, add extra randomness
+            companyCode = `COMP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+          }
         }
+        console.log('[User API] Auto-generated unique code:', companyCode);
       }
       
       console.log('[User API] Creating company with code:', companyCode);
