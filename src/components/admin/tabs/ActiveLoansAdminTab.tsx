@@ -120,7 +120,11 @@ export default function ActiveLoansTab({
     emiAmount: loan.emiAmount || 0,
     status: loan.status,
     loanType: loan.loanType,
-    company: loan.company,
+    company: loan.company ? {
+      id: loan.company.id || '',
+      name: loan.company.name,
+      code: loan.company.code || ''
+    } : undefined,
     createdAt: new Date().toISOString()
   });
 

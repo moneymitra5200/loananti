@@ -70,12 +70,12 @@ function ActiveLoansTabComponent({
     emiAmount: loan.emiAmount,
     status: loan.status,
     loanType: loan.loanType,
-    disbursementDate: loan.disbursementDate as string,
-    createdAt: loan.createdAt as string,
+    disbursementDate: loan.disbursementDate ? new Date(loan.disbursementDate).toISOString() : undefined,
+    createdAt: loan.createdAt ? new Date(loan.createdAt).toISOString() : new Date().toISOString(),
     company: loan.company,
     nextEmi: loan.nextEmi ? {
       ...loan.nextEmi,
-      dueDate: loan.nextEmi.dueDate as string
+      dueDate: loan.nextEmi.dueDate ? new Date(loan.nextEmi.dueDate).toISOString() : ''
     } : undefined
   });
 

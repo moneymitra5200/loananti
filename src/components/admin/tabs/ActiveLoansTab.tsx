@@ -115,7 +115,11 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
     loanType: loan.loanType,
     disbursementDate: loan.disbursementDate || loan.sessionForm?.disbursementDate,
     createdAt: loan.createdAt,
-    company: loan.company,
+    company: loan.company ? {
+      id: loan.company.id || '',
+      name: loan.company.name,
+      code: loan.company.code || ''
+    } : undefined,
     nextEmi: loan.nextEmi
   });
 

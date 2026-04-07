@@ -741,7 +741,7 @@ export async function PUT(request: NextRequest) {
         });
         
         // Find or create bank account in Chart of Accounts
-        let bankCOAAccount = null;
+        let bankCOAAccount: Awaited<ReturnType<typeof db.chartOfAccount.findFirst>> = null;
         if (disbursementBankAccountId) {
           const bankAccount = await db.bankAccount.findUnique({
             where: { id: disbursementBankAccountId }
@@ -784,7 +784,14 @@ export async function PUT(request: NextRequest) {
           const effectiveCashAmount = isSplitPayment ? (cashAmount || 0) : (disbursementBankAccountId ? 0 : principalAmount);
           
           // Create journal entry lines
-          const journalLines = [];
+          const journalLines: {
+            accountId: string;
+            debitAmount: number;
+            creditAmount: number;
+            narration: string;
+            loanId?: string;
+            customerId?: string;
+          }[] = [];
           
           // Debit: Loans Receivable
           journalLines.push({
