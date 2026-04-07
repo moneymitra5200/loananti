@@ -1,0 +1,38 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10b981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="coinGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f59e0b;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Rounded square background -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bgGradient)"/>
+  
+  <!-- Coin/Circle -->
+  <circle cx="256" cy="256" r="140" fill="url(#coinGradient)" stroke="#fff" stroke-width="12"/>
+  
+  <!-- Rupee Symbol (stylized) -->
+  <g fill="#065f46">
+    <!-- Main vertical line -->
+    <rect x="220" y="170" width="16" height="172" rx="8"/>
+    <!-- Top horizontal -->
+    <rect x="220" y="170" width="100" height="16" rx="8"/>
+    <!-- Middle curve -->
+    <path d="M220 240 Q280 240 300 200" stroke="#065f46" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <!-- Bottom curve -->
+    <path d="M220 290 Q290 290 310 250" stroke="#065f46" stroke-width="16" fill="none" stroke-linecap="round"/>
+    <!-- Small horizontal lines -->
+    <rect x="200" y="200" width="60" height="8" rx="4"/>
+    <rect x="200" y="250" width="60" height="8" rx="4"/>
+  </g>
+  
+  <!-- Small decorative elements -->
+  <circle cx="380" cy="140" r="24" fill="#fff" opacity="0.3"/>
+  <circle cx="140" cy="380" r="16" fill="#fff" opacity="0.2"/>
+</svg>
