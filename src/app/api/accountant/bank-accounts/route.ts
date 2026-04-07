@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
         bankName: true,
         accountNumber: true,
         accountName: true,
+        ownerName: true,
         currentBalance: true,
         companyId: true,
         isDefault: true,
@@ -31,7 +32,10 @@ export async function GET(request: NextRequest) {
         qrCodeUrl: true,
         branchName: true,
         accountType: true,
-        isActive: true
+        isActive: true,
+        company: {
+          select: { id: true, name: true, code: true }
+        }
       }
     });
 
@@ -71,5 +75,90 @@ export async function GET(request: NextRequest) {
       error: 'Failed to get bank accounts',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
+  }
+}
+
+// POST - Create new bank account
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const {
+      bankName,
+      accountNumber,
+      accountName,
+      ownerName,
+      ifscCode,
+      branchName,
+      companyId,
+      accountType = 'CURRENT',
+      openingBalance = 0,
+      upiId,
+      qrCodeUrl,
+      isDefault
+    } = body;
+
+    if (!bankName || !accountNumber || !companyId) {
+      return NextResponse.json({ error: 'Bank name, account number and company ID are required' }, { status: 400 });
+    }
+
+    // If setting as default, unset any existing default for this company
+    if (isDefault && companyId) {
+      await db.bankAccount.updateMany({
+        where: {
+          companyId,
+          isDefault: true
+        },
+        data: {
+          isDefault: false
+        }
+      });
+    }
+
+    const account = await db.bankAccount.create({
+      data: {
+        companyId,
+        bankName,
+        accountNumber,
+        accountName: accountName || bankName,
+        ownerName,
+        ifscCode,
+        branchName,
+        accountType,
+        openingBalance,
+        currentBalance: openingBalance,
+        isActive: true,
+        isDefault: isDefault ?? false,
+        upiId,
+        qrCodeUrl
+      },
+      include: {
+        company: {
+          select: { id: true, name: true, code: true }
+        }
+      }
+    });
+
+    // Create opening balance transaction if balance > 0
+    if (openingBalance > 0) {
+      await db.bankTransaction.create({
+        data: {
+          bankAccountId: account.id,
+          transactionType: 'CREDIT',
+          amount: openingBalance,
+          balanceAfter: openingBalance,
+          description: 'Opening Balance',
+          referenceType: 'OPENING_BALANCE',
+          transactionDate: new Date()
+        }
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      bankAccount: account
+    });
+  } catch (error) {
+    console.error('Error creating bank account:', error);
+    return NextResponse.json({ error: 'Failed to create bank account' }, { status: 500 });
   }
 }

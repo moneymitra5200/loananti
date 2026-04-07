@@ -498,7 +498,7 @@ export default function SimplifiedAccountantDashboard() {
         }
       }
 
-      const response = await fetch('/api/bank-account', {
+      const response = await fetch('/api/accountant/bank-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -786,7 +786,7 @@ export default function SimplifiedAccountantDashboard() {
     
     setDeletingBank(true);
     try {
-      const response = await fetch(`/api/bank-account?id=${bankToDelete.id}`, {
+      const response = await fetch(`/api/accountant/bank-accounts/${bankToDelete.id}`, {
         method: 'DELETE'
       });
 
