@@ -351,9 +351,10 @@ export default function CompanyDashboard() {
   // Non-mirror companies (Company 3 - isMirrorCompany: false) only have cash book, no bank
   // Handle case where companyId might be an object (full company data) or company is separate
   const getIsMirrorCompany = (): boolean | undefined => {
-    // Check if companyId is an object with isMirrorCompany
-    if (typeof user?.companyId === 'object' && user.companyId?.isMirrorCompany !== undefined) {
-      return user.companyId.isMirrorCompany;
+    // Check if companyId is an object with isMirrorCompany (cast to handle runtime object)
+    const companyIdValue = user?.companyId as any;
+    if (typeof companyIdValue === 'object' && companyIdValue?.isMirrorCompany !== undefined) {
+      return companyIdValue.isMirrorCompany;
     }
     // Check company object
     if (user?.company?.isMirrorCompany !== undefined) {
@@ -419,11 +420,12 @@ export default function CompanyDashboard() {
   // Helper function to extract company ID from user object
   // user.companyId could be: string (cuid), object (company data), or null
   const getCompanyId = (): string => {
-    if (typeof user?.companyId === 'string' && user.companyId.startsWith('c')) {
-      return user.companyId;
+    const companyIdValue = user?.companyId as any;
+    if (typeof companyIdValue === 'string' && companyIdValue.startsWith('c')) {
+      return companyIdValue;
     }
-    if (typeof user?.companyId === 'object' && user.companyId?.id) {
-      return user.companyId.id;
+    if (typeof companyIdValue === 'object' && companyIdValue?.id) {
+      return companyIdValue.id;
     }
     if (user?.company?.id) {
       return user.company.id;
@@ -433,16 +435,18 @@ export default function CompanyDashboard() {
 
   // Helper function to extract company name
   const getCompanyName = (): string => {
-    if (typeof user?.companyId === 'object' && user.companyId?.name) {
-      return user.companyId.name;
+    const companyIdValue = user?.companyId as any;
+    if (typeof companyIdValue === 'object' && companyIdValue?.name) {
+      return companyIdValue.name;
     }
     return user?.company?.name || 'Company';
   };
 
   // Helper function to extract company code
   const getCompanyCode = (): string => {
-    if (typeof user?.companyId === 'object' && user.companyId?.code) {
-      return user.companyId.code;
+    const companyIdValue = user?.companyId as any;
+    if (typeof companyIdValue === 'object' && companyIdValue?.code) {
+      return companyIdValue.code;
     }
     return user?.company?.code || 'C1';
   };
