@@ -1,13 +1,22 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, FileText, Receipt, CreditCard, Wallet } from 'lucide-react';
-import type { ActiveLoansTabProps } from './types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { RefreshCw, FileText, Receipt, CreditCard, Wallet, Search } from 'lucide-react';
+import { AnimatePresence } from 'framer-motion';
+import ParallelLoanView from '@/components/loan/ParallelLoanView';
+import type { ActiveLoansTabProps, ActiveLoan } from './types';
 
 function ActiveLoansTabComponent({
   activeLoans,
@@ -18,17 +27,119 @@ function ActiveLoansTabComponent({
   formatCurrency,
   formatDate,
 }: ActiveLoansTabProps) {
-  const filteredLoans = activeLoans.filter(loan => {
-    if (loanFilter === 'all') return true;
-    return loan.loanType === loanFilter.toUpperCase();
+  const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Fetch mirror mappings on mount
+  useEffect(() => {
+    const fetchMirrorMappings = async () => {
+      try {
+        const res = await fetch('/api/mirror-loan?action=all-mappings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.mappings) {
+            const mappingMap: Record<string, any> = {};
+            for (const mapping of data.mappings) {
+              mappingMap[mapping.originalLoanId] = mapping;
+              if (mapping.mirrorLoanId) {
+                mappingMap[mapping.mirrorLoanId] = mapping;
+              }
+            }
+            setMirrorMappings(mappingMap);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch mirror mappings:', error);
+      }
+    };
+
+    fetchMirrorMappings();
+  }, []);
+
+  // Convert ActiveLoan to format expected by ParallelLoanView
+  const convertToLoanData = (loan: ActiveLoan) => ({
+    id: loan.id,
+    identifier: loan.identifier,
+    customer: loan.customer,
+    customerName: loan.customer?.name,
+    customerPhone: loan.customer?.phone,
+    approvedAmount: loan.approvedAmount,
+    interestRate: loan.interestRate,
+    tenure: loan.tenure,
+    emiAmount: loan.emiAmount,
+    status: loan.status,
+    loanType: loan.loanType,
+    disbursementDate: loan.disbursementDate as string,
+    createdAt: loan.createdAt as string,
+    company: loan.company,
+    nextEmi: loan.nextEmi ? {
+      ...loan.nextEmi,
+      dueDate: loan.nextEmi.dueDate as string
+    } : undefined
   });
+
+  // Filter loans
+  const filteredLoans = activeLoans.filter(loan => {
+    // Loan type filter
+    if (loanFilter !== 'all' && loan.loanType !== loanFilter.toUpperCase()) {
+      return false;
+    }
+    
+    // Status filter
+    if (statusFilter !== 'all' && loan.status !== statusFilter) {
+      return false;
+    }
+    
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = 
+        loan.identifier?.toLowerCase().includes(query) ||
+        loan.customer?.name?.toLowerCase().includes(query) ||
+        loan.customer?.phone?.includes(query) ||
+        loan.company?.name?.toLowerCase().includes(query);
+      if (!matchesSearch) return false;
+    }
+    
+    // Exclude mirror loans from being shown separately
+    const mapping = mirrorMappings[loan.id];
+    const isMirror = mapping?.mirrorLoanId === loan.id;
+    
+    return !isMirror;
+  });
+
+  // Render each loan in parallel view format
+  const renderLoanInParallelView = (loan: ActiveLoan, index: number) => {
+    const mapping = mirrorMappings[loan.id];
+    
+    return (
+      <ParallelLoanView
+        key={loan.id}
+        originalLoan={convertToLoanData(loan)}
+        mirrorLoan={null}
+        mirrorMapping={mapping ? {
+          displayColor: mapping.displayColor,
+          extraEMICount: mapping.extraEMICount,
+          mirrorInterestRate: mapping.mirrorInterestRate,
+          mirrorTenure: mapping.mirrorTenure,
+          mirrorEMIsPaid: mapping.mirrorEMIsPaid,
+          extraEMIsPaid: mapping.extraEMIsPaid
+        } : null}
+        onViewOriginal={() => console.log('View original:', loan.id)}
+        onViewMirror={() => console.log('View mirror:', loan.id)}
+        showPayButton={false}
+        showEmiProgress={true}
+      />
+    );
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Active Loans</h1>
-          <p className="text-muted-foreground">All disbursed and active loans (Online & Offline)</p>
+          <h1 className="text-3xl font-bold">Active Loans (Parallel View)</h1>
+          <p className="text-muted-foreground">All disbursed and active loans - Original on left, Mirror on right</p>
         </div>
         <Button variant="outline" onClick={() => fetchDashboardData()}>
           <RefreshCw className="h-4 w-4 mr-2" /> Refresh
@@ -85,11 +196,20 @@ function ActiveLoansTabComponent({
         </Card>
       </div>
 
-      {/* Filter Buttons */}
+      {/* Filter Buttons and Search */}
       <Card>
         <CardContent className="p-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-muted-foreground">Filter:</span>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input 
+                className="pl-10" 
+                placeholder="Search by name, loan#, phone, company..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+            <span className="text-sm font-medium text-muted-foreground">Type:</span>
             <Button
               size="sm"
               variant={loanFilter === 'all' ? 'default' : 'outline'}
@@ -117,7 +237,19 @@ function ActiveLoansTabComponent({
         </CardContent>
       </Card>
 
-      {/* Loans Table */}
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-emerald-400"></div>
+          <span>Original (Left)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-blue-400"></div>
+          <span>Mirror (Right)</span>
+        </div>
+      </div>
+
+      {/* Loans List in Parallel View */}
       <Card>
         <CardContent className="p-0">
           <ScrollArea className="h-[500px]">
@@ -127,72 +259,11 @@ function ActiveLoansTabComponent({
                 <p>No active loans found</p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Loan ID</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Rate/Tenure</TableHead>
-                    <TableHead className="text-right">EMI</TableHead>
-                    <TableHead>Next EMI</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredLoans.map((loan) => (
-                    <TableRow key={loan.id} className="cursor-pointer hover:bg-muted/50">
-                      <TableCell className="font-mono font-bold">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${loan.loanType === 'ONLINE' ? 'bg-blue-500' : 'bg-purple-500'}`} />
-                          {loan.identifier}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={loan.loanType === 'ONLINE' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                          {loan.loanType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{loan.customer?.name || 'N/A'}</p>
-                          <p className="text-xs text-muted-foreground">{loan.customer?.phone || loan.customer?.email}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <p className="text-sm">{loan.company?.name || 'N/A'}</p>
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-bold">
-                        {formatCurrency(loan.approvedAmount)}
-                      </TableCell>
-                      <TableCell>
-                        <p className="text-sm">{loan.interestRate}%</p>
-                        <p className="text-xs text-muted-foreground">{loan.tenure} mo</p>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-green-600">
-                        {formatCurrency(loan.emiAmount)}
-                      </TableCell>
-                      <TableCell>
-                        {loan.nextEmi ? (
-                          <div>
-                            <p className="text-sm">{formatDate(loan.nextEmi.dueDate)}</p>
-                            <Badge variant={loan.nextEmi.status === 'OVERDUE' ? 'destructive' : 'outline'} className="text-xs mt-1">
-                              {loan.nextEmi.status}
-                            </Badge>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-700">{loan.status}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <div className="p-4 space-y-3">
+                <AnimatePresence>
+                  {filteredLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
+                </AnimatePresence>
+              </div>
             )}
           </ScrollArea>
         </CardContent>

@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import OfflineLoanDetailPanel from './OfflineLoanDetailPanel';
-import MirrorLoanPairView from '@/components/loan/MirrorLoanPairView';
+import ParallelLoanView from '@/components/loan/ParallelLoanView';
 
 interface OfflineLoan {
   id: string;
@@ -98,7 +98,7 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, MirrorLoanMapping>>({});
   const [mirrorLoans, setMirrorLoans] = useState<Record<string, OfflineLoan>>({});
 
-  // Detail view state - Now using full-page panel
+  // Detail view state
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -110,9 +110,6 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
   // Undo/Redo actions
   const [undoableActions, setUndoableActions] = useState<any[]>([]);
   const [redoableActions, setRedoableActions] = useState<any[]>([]);
-
-  // Expanded loans for EMI schedule view
-  const [expandedLoans, setExpandedLoans] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchLoans();
@@ -127,7 +124,6 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.mappings) {
-          // Create a map by both original and mirror loan ID
           const mappingMap: Record<string, MirrorLoanMapping> = {};
           const mirrorLoanIds: string[] = [];
 
@@ -140,7 +136,6 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
           }
           setMirrorMappings(mappingMap);
 
-          // Fetch mirror loan details if there are any
           if (mirrorLoanIds.length > 0) {
             fetchMirrorLoanDetails(mirrorLoanIds);
           }
@@ -153,7 +148,6 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
 
   const fetchMirrorLoanDetails = async (loanIds: string[]) => {
     try {
-      // Fetch details for each mirror loan
       const mirrorLoansMap: Record<string, OfflineLoan> = {};
       for (const loanId of loanIds) {
         const res = await fetch(`/api/offline-loan?loanId=${loanId}`);
@@ -330,28 +324,26 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
     return new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ACTIVE': return 'bg-green-50 text-green-700 border-green-200';
-      case 'INTEREST_ONLY': return 'bg-purple-50 text-purple-700 border-purple-200';
-      case 'CLOSED': return 'bg-gray-50 text-gray-700 border-gray-200';
-      case 'DEFAULTED': return 'bg-red-50 text-red-700 border-red-200';
-      default: return 'bg-blue-50 text-blue-700 border-blue-200';
-    }
-  };
+  // Convert to the format expected by ParallelLoanView
+  const convertToLoanData = (loan: OfflineLoan) => ({
+    id: loan.id,
+    loanNumber: loan.loanNumber,
+    customerName: loan.customerName,
+    customerPhone: loan.customerPhone,
+    loanAmount: loan.loanAmount,
+    interestRate: loan.interestRate,
+    tenure: loan.tenure,
+    emiAmount: loan.emiAmount,
+    status: loan.status,
+    disbursementDate: loan.disbursementDate,
+    createdAt: loan.createdAt,
+    company: loan.company,
+    isInterestOnlyLoan: loan.isInterestOnlyLoan,
+    interestOnlyMonthlyAmount: loan.interestOnlyMonthlyAmount,
+    summary: loan.summary
+  });
 
-  // Check if due date is near (within 3 days)
-  const isDueDateNear = (nextDueDate?: string) => {
-    if (!nextDueDate) return false;
-    const dueDate = new Date(nextDueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    dueDate.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 3 && diffDays >= 0;
-  };
-
-  // Filter loans to only show original loans (not mirrors) to avoid duplicates
+  // Filter loans - show only original loans (not mirror loans separately)
   const filteredLoans = loans.filter(loan => {
     const matchesSearch =
       loan.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -370,19 +362,6 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
   const activeLoans = filteredLoans.filter(loan => loan.status !== 'CLOSED');
   const closedLoans = filteredLoans.filter(loan => loan.status === 'CLOSED');
 
-  // Toggle expanded state for a loan
-  const toggleExpanded = (loanId: string) => {
-    setExpandedLoans(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(loanId)) {
-        newSet.delete(loanId);
-      } else {
-        newSet.add(loanId);
-      }
-      return newSet;
-    });
-  };
-
   if (loading) {
     return (
       <Card>
@@ -396,123 +375,15 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
     );
   }
 
-  // Render a single loan card (for non-mirrored loans)
-  const renderSingleLoanCard = (loan: OfflineLoan, index: number) => {
-    const shouldBlink = isDueDateNear(loan.summary.nextDueEMI);
-
-    return (
-      <motion.div
-        key={loan.id}
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -10 }}
-        transition={{ delay: index * 0.03 }}
-        className={`p-4 rounded-lg border transition-all ${
-          shouldBlink ? 'animate-pulse ring-2 ring-red-400' : ''
-        } hover:shadow-md bg-white`}
-      >
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <Badge className={getStatusColor(loan.status)}>{loan.status}</Badge>
-              <span className="text-sm font-medium text-gray-600">{loan.loanNumber}</span>
-              <Badge variant="outline">{loan.createdByRole}</Badge>
-              {loan.company && (
-                <Badge variant="secondary" className="bg-blue-50 text-blue-700">
-                  <Building2 className="h-3 w-3 mr-1" />{loan.company.name}
-                </Badge>
-              )}
-              {loan.isInterestOnlyLoan && (
-                <Badge variant="secondary" className="bg-purple-50 text-purple-700">
-                  <Clock className="h-3 w-3 mr-1" />Interest Only
-                </Badge>
-              )}
-              {shouldBlink && (
-                <Badge variant="destructive" className="animate-pulse">
-                  <AlertTriangle className="h-3 w-3 mr-1" />Due Soon
-                </Badge>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 mb-1">
-              <User className="h-4 w-4 text-gray-400" />
-              <span className="font-medium text-gray-900">{loan.customerName}</span>
-            </div>
-
-            <div className="text-sm text-gray-500 flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-1"><Phone className="h-3 w-3" />{loan.customerPhone}</div>
-              <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{formatDate(loan.disbursementDate)}</div>
-            </div>
-
-            {/* EMI Progress */}
-            <div className="mt-3">
-              <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-gray-500">EMI Progress</span>
-                <span className="font-medium">{loan.summary.paidEMIs}/{loan.summary.totalEMIs}</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-500"
-                  style={{ width: `${(loan.summary.paidEMIs / loan.summary.totalEMIs) * 100}%` }} />
-              </div>
-              {loan.summary.overdueEMIs > 0 && (
-                <div className="flex items-center gap-1 text-xs text-red-600 mt-1">
-                  <AlertTriangle className="h-3 w-3" />{loan.summary.overdueEMIs} overdue
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="text-right ml-4">
-            <p className="text-lg font-bold text-gray-900">{formatCurrency(loan.loanAmount)}</p>
-            <p className="text-xs text-gray-500">@{loan.interestRate}% for {loan.tenure} months</p>
-            <p className="text-sm font-medium text-emerald-600 mt-1">
-              {loan.isInterestOnlyLoan ? 'Monthly Interest' : 'EMI'}: {formatCurrency(loan.isInterestOnlyLoan ? (loan.interestOnlyMonthlyAmount || 0) : loan.emiAmount)}
-            </p>
-            <div className="flex gap-2 mt-2">
-              <Button size="sm" variant="outline" onClick={() => handleViewLoan(loan)}>
-                <Eye className="h-4 w-4 mr-1" /> View
-              </Button>
-              {userRole === 'SUPER_ADMIN' && (
-                <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => handleDeleteClick(loan)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    );
-  };
-
-  // Render a loan pair (original + mirror side by side)
-  const renderLoanPair = (originalLoan: OfflineLoan, index: number) => {
-    const mapping = mirrorMappings[originalLoan.id];
+  // Render each loan in parallel view format
+  const renderLoanInParallelView = (loan: OfflineLoan, index: number) => {
+    const mapping = mirrorMappings[loan.id];
     const mirrorLoan = mapping?.mirrorLoanId ? mirrorLoans[mapping.mirrorLoanId] : null;
-    const isExpanded = expandedLoans.has(originalLoan.id);
-
-    // Convert to the format expected by MirrorLoanPairView
-    const convertToLoanData = (loan: OfflineLoan) => ({
-      id: loan.id,
-      loanNumber: loan.loanNumber,
-      customerName: loan.customerName,
-      customerPhone: loan.customerPhone,
-      loanAmount: loan.loanAmount,
-      interestRate: loan.interestRate,
-      tenure: loan.tenure,
-      emiAmount: loan.emiAmount,
-      status: loan.status,
-      disbursementDate: loan.disbursementDate,
-      createdAt: loan.createdAt,
-      company: loan.company,
-      isInterestOnlyLoan: loan.isInterestOnlyLoan,
-      interestOnlyMonthlyAmount: loan.interestOnlyMonthlyAmount,
-      summary: loan.summary
-    });
 
     return (
-      <MirrorLoanPairView
-        key={originalLoan.id}
-        originalLoan={convertToLoanData(originalLoan)}
+      <ParallelLoanView
+        key={loan.id}
+        originalLoan={convertToLoanData(loan)}
         mirrorLoan={mirrorLoan ? convertToLoanData(mirrorLoan) : null}
         mirrorMapping={mapping ? {
           displayColor: mapping.displayColor,
@@ -520,13 +391,16 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
           mirrorInterestRate: mapping.mirrorInterestRate,
           mirrorTenure: mapping.mirrorTenure,
           mirrorEMIsPaid: mapping.mirrorEMIsPaid,
-          extraEMIsPaid: mapping.extraEMIsPaid
+          extraEMIsPaid: mapping.extraEMIsPaid,
+          mirrorCompanyId: mapping.mirrorCompanyId,
+          originalCompanyId: mapping.originalCompanyId
         } : null}
-        onViewOriginal={() => handleViewLoan(originalLoan)}
+        onViewOriginal={() => handleViewLoan(loan)}
         onViewMirror={() => mirrorLoan && handleViewLoan(mirrorLoan)}
+        onPayEmi={(l, isOriginal) => handleViewLoan(isOriginal ? loan : mirrorLoan!)}
         userRole={userRole}
-        isExpanded={isExpanded}
-        onToggleExpand={() => toggleExpanded(originalLoan.id)}
+        showPayButton={true}
+        showEmiProgress={true}
       />
     );
   };
@@ -537,7 +411,7 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
         <CardHeader className="pb-2 bg-gradient-to-r from-emerald-500 to-teal-500 text-white">
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
-              <FileText className="h-5 w-5" /> Offline Loans (All Companies)
+              <FileText className="h-5 w-5" /> Offline Loans (Parallel View)
             </CardTitle>
             <div className="flex items-center gap-2">
               {undoableActions.length > 0 && (
@@ -581,6 +455,18 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
             </Select>
           </div>
 
+          {/* Legend */}
+          <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-emerald-400"></div>
+              <span>Original (Left)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 rounded bg-blue-400"></div>
+              <span>Mirror (Right)</span>
+            </div>
+          </div>
+
           {/* Loans List */}
           <ScrollArea className="h-[500px]">
             {filteredLoans.length === 0 ? (
@@ -593,19 +479,12 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
                 {/* Active Loans Section */}
                 {activeLoans.length > 0 && statusFilter !== 'CLOSED' && (
                   <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-gray-600 px-1">Active Loans ({activeLoans.length})</h3>
+                    <h3 className="text-sm font-semibold text-gray-600 px-1 flex items-center gap-2">
+                      <Wallet className="h-4 w-4" />
+                      Active Loans ({activeLoans.length})
+                    </h3>
                     <AnimatePresence>
-                      {activeLoans.map((loan, index) => {
-                        const mapping = mirrorMappings[loan.id];
-
-                        // If this loan has a mirror mapping, render as a pair
-                        if (mapping) {
-                          return renderLoanPair(loan, index);
-                        }
-
-                        // Otherwise render as a single loan card
-                        return renderSingleLoanCard(loan, index);
-                      })}
+                      {activeLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
                     </AnimatePresence>
                   </div>
                 )}
@@ -618,17 +497,7 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
                       Closed Loans ({closedLoans.length})
                     </h3>
                     <AnimatePresence>
-                      {closedLoans.map((loan, index) => {
-                        const mapping = mirrorMappings[loan.id];
-
-                        // If this loan has a mirror mapping, render as a pair
-                        if (mapping) {
-                          return renderLoanPair(loan, index);
-                        }
-
-                        // Otherwise render as a single loan card
-                        return renderSingleLoanCard(loan, index);
-                      })}
+                      {closedLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
                     </AnimatePresence>
                   </div>
                 )}

@@ -1,17 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
 import { 
   Wallet, RefreshCw, Eye, Trash2, FileText, Receipt, DollarSign, Copy, Lock, 
-  PlayCircle, Loader2, Calculator, AlertCircle, Clock
+  PlayCircle, Loader2, Calculator, AlertCircle, Clock, Search
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
-import { motion } from 'framer-motion';
-import { getBlinkAlertType, getBlinkAlertConfig, getLighterColor, BlinkAlertConfig } from '@/utils/loanColors';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Dialog,
   DialogContent,
@@ -20,10 +19,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
+import ParallelLoanView from '@/components/loan/ParallelLoanView';
 
 interface ActiveLoan {
   id: string;
@@ -34,6 +33,8 @@ interface ActiveLoan {
   emiAmount?: number;
   loanType: string;
   status: string;
+  interestRate?: number;
+  tenure?: number;
   nextEmi?: { 
     id: string;
     status: string; 
@@ -51,8 +52,11 @@ interface ActiveLoan {
     mirrorTenure: number;
     originalTenure: number;
     displayColor?: string | null;
+    extraEMICount?: number;
+    mirrorInterestRate?: number;
   } | null;
   isInterestOnlyLoan?: boolean;
+  company?: { id?: string; name: string; code?: string };
   emiSchedules?: Array<{
     id: string;
     installmentNumber: number;
@@ -60,6 +64,13 @@ interface ActiveLoan {
     totalAmount: number;
     paymentStatus: string;
   }>;
+  summary?: {
+    totalEMIs: number;
+    paidEMIs: number;
+    pendingEMIs: number;
+    overdueEMIs: number;
+    nextDueEMI?: string;
+  };
 }
 
 interface ActiveLoanStats {
@@ -94,6 +105,9 @@ export default function ActiveLoansTab({
   setSelectedLoanId,
   setShowLoanDetailPanel
 }: ActiveLoansTabProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+  
   // Start Loan Dialog State
   const [showStartLoanDialog, setShowStartLoanDialog] = useState(false);
   const [selectedLoanToStart, setSelectedLoanToStart] = useState<ActiveLoan | null>(null);
@@ -109,9 +123,52 @@ export default function ActiveLoansTab({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
 
+  // Fetch mirror mappings on mount
+  useEffect(() => {
+    const fetchMirrorMappings = async () => {
+      try {
+        const res = await fetch('/api/mirror-loan?action=all-mappings');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.mappings) {
+            const mappingMap: Record<string, any> = {};
+            for (const mapping of data.mappings) {
+              mappingMap[mapping.originalLoanId] = mapping;
+              if (mapping.mirrorLoanId) {
+                mappingMap[mapping.mirrorLoanId] = mapping;
+              }
+            }
+            setMirrorMappings(mappingMap);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch mirror mappings:', error);
+      }
+    };
+
+    fetchMirrorMappings();
+  }, []);
+
+  // Filter loans - exclude mirror loans
   const filteredActiveLoans = allActiveLoans.filter(loan => {
-    if (activeLoanFilter === 'all') return true;
-    return loan.loanType === activeLoanFilter.toUpperCase();
+    // Type filter
+    if (activeLoanFilter !== 'all' && loan.loanType !== activeLoanFilter.toUpperCase()) {
+      return false;
+    }
+    
+    // Search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch = 
+        loan.identifier?.toLowerCase().includes(query) ||
+        loan.customer?.name?.toLowerCase().includes(query) ||
+        loan.customer?.phone?.includes(query);
+      if (!matchesSearch) return false;
+    }
+    
+    // Exclude mirror loans from being shown separately
+    const isMirror = loan.isMirrorLoan;
+    return !isMirror;
   });
 
   // Count interest-only loans
@@ -124,7 +181,6 @@ export default function ActiveLoansTab({
     setShowStartLoanDialog(true);
 
     try {
-      // Fetch loan details and EMI preview
       const response = await fetch(`/api/loan/start?loanId=${loan.id}`);
       const data = await response.json();
 
@@ -202,7 +258,7 @@ export default function ActiveLoansTab({
         });
         setShowStartLoanDialog(false);
         setSelectedLoanToStart(null);
-        fetchAllActiveLoans(); // Refresh the list
+        fetchAllActiveLoans();
       } else {
         throw new Error(data.error || 'Failed to start loan');
       }
@@ -221,8 +277,88 @@ export default function ActiveLoansTab({
   // Handle form change with debounced EMI calculation
   const handleFormChange = (field: 'tenure' | 'interestRate', value: number) => {
     setStartLoanForm(prev => ({ ...prev, [field]: value }));
-    // Debounce EMI calculation
     setTimeout(() => calculateEmiPreview(), 300);
+  };
+
+  // Convert ActiveLoan to format expected by ParallelLoanView
+  const convertToLoanData = (loan: ActiveLoan) => ({
+    id: loan.id,
+    identifier: loan.identifier,
+    customer: loan.customer,
+    customerName: loan.customer?.name,
+    customerPhone: loan.customer?.phone,
+    approvedAmount: loan.approvedAmount || loan.disbursedAmount || 0,
+    interestRate: loan.interestRate || 0,
+    tenure: loan.tenure || 0,
+    emiAmount: loan.emiAmount || 0,
+    status: loan.status,
+    loanType: loan.loanType,
+    company: loan.company,
+    isInterestOnlyLoan: loan.isInterestOnlyLoan,
+    summary: loan.summary,
+    nextEmi: loan.nextEmi ? {
+      ...loan.nextEmi,
+      dueDate: loan.nextEmi.dueDate || '',
+      amount: loan.nextEmi.amount || 0,
+      status: loan.nextEmi.status
+    } : undefined,
+    emiSchedules: loan.emiSchedules,
+    createdAt: new Date().toISOString()
+  });
+
+  // Render each loan in parallel view format
+  const renderLoanInParallelView = (loan: ActiveLoan, index: number) => {
+    const mapping = mirrorMappings[loan.id] || loan.mirrorMapping;
+    const isInterestOnly = loan.status === 'ACTIVE_INTEREST_ONLY';
+    
+    return (
+      <div key={loan.id} className="relative">
+        <ParallelLoanView
+          originalLoan={convertToLoanData(loan)}
+          mirrorLoan={null}
+          mirrorMapping={mapping ? {
+            displayColor: mapping.displayColor || loan.displayColor,
+            extraEMICount: mapping.extraEMICount,
+            mirrorInterestRate: mapping.mirrorInterestRate,
+            mirrorTenure: mapping.mirrorTenure,
+            mirrorEMIsPaid: mapping.mirrorEMIsPaid,
+            extraEMIsPaid: mapping.extraEMIsPaid
+          } : null}
+          onViewOriginal={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+          onViewMirror={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+          showPayButton={!isInterestOnly}
+          showEmiProgress={true}
+        />
+        
+        {/* Interest-Only Start Button Overlay */}
+        {isInterestOnly && (
+          <div className="absolute top-4 right-4">
+            <Button
+              size="sm"
+              className="bg-amber-600 hover:bg-amber-700 text-white shadow-lg"
+              onClick={() => openStartLoanDialog(loan)}
+            >
+              <PlayCircle className="h-4 w-4 mr-1" />
+              Start Loan
+            </Button>
+          </div>
+        )}
+        
+        {/* Delete Button (not for mirror loans) */}
+        {!loan.isMirrorLoan && (
+          <div className="absolute bottom-4 right-4">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-red-600 hover:bg-red-50 bg-white shadow"
+              onClick={() => { setLoanToDelete(loan); setShowDeleteLoanDialog(true); }}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -231,9 +367,21 @@ export default function ActiveLoansTab({
       <Card className="border-0 shadow-sm bg-gradient-to-r from-slate-50 to-gray-50">
         <CardContent className="p-4">
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Filter by Type:</span>
-              <div className="flex gap-2">
+            <div className="flex items-center gap-3">
+              {/* Search */}
+              <div className="relative min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input 
+                  className="pl-10" 
+                  placeholder="Search by name, loan#..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              
+              {/* Type Filter */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Type:</span>
                 <Button
                   size="sm"
                   variant={activeLoanFilter === 'all' ? 'default' : 'outline'}
@@ -328,12 +476,24 @@ export default function ActiveLoansTab({
         </Card>
       </div>
 
-      {/* Active Loans List */}
+      {/* Legend */}
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-emerald-400"></div>
+          <span>Original (Left)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-blue-400"></div>
+          <span>Mirror (Right)</span>
+        </div>
+      </div>
+
+      {/* Active Loans List - Parallel View */}
       <Card className="bg-white shadow-sm border-0">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wallet className="h-5 w-5 text-emerald-600" />
-            Active Loans
+            Active Loans (Parallel View)
             {activeLoanFilter !== 'all' && (
               <Badge className={activeLoanFilter === 'online' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
                 {activeLoanFilter.toUpperCase()} ONLY
@@ -341,9 +501,7 @@ export default function ActiveLoansTab({
             )}
           </CardTitle>
           <CardDescription>
-            {activeLoanFilter === 'all' ? 'All disbursed loans (online + offline)' :
-             activeLoanFilter === 'online' ? 'Online loans from digital applications' :
-             'Offline loans created manually'}
+            Original loans on left, mirror loans on right
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -360,232 +518,10 @@ export default function ActiveLoansTab({
               </Button>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {filteredActiveLoans.map((loan, index) => {
-                const isOnline = loan.loanType === 'ONLINE';
-                const isMirror = loan.isMirrorLoan;
-                const isOriginalMirror = loan.isOriginalMirrorLoan;
-                const isInterestOnly = loan.status === 'ACTIVE_INTEREST_ONLY';
-                
-                // Get display color for mirror loan pairs
-                const displayColor = loan.displayColor || loan.mirrorMapping?.displayColor || null;
-                
-                // Get blink alert type based on next EMI due date
-                let blinkAlertType: 'OVERDUE' | 'ONE_DAY' | 'TWO_DAYS' | 'THREE_DAYS' | 'NORMAL' = 'NORMAL';
-                let blinkConfig: BlinkAlertConfig | null = null;
-                
-                if (loan.nextEmi && loan.nextEmi.dueDate && loan.nextEmi.status !== 'PAID') {
-                  blinkAlertType = getBlinkAlertType(loan.nextEmi.dueDate, false);
-                  blinkConfig = getBlinkAlertConfig(blinkAlertType);
-                }
-                
-                // Check all EMI schedules for the most urgent alert
-                if (loan.emiSchedules && loan.emiSchedules.length > 0) {
-                  const pendingEmis = loan.emiSchedules.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID');
-                  for (const emi of pendingEmis) {
-                    const emiAlertType = getBlinkAlertType(emi.dueDate, false);
-                    // Priority: OVERDUE > ONE_DAY > TWO_DAYS > THREE_DAYS
-                    if (emiAlertType === 'OVERDUE') {
-                      blinkAlertType = 'OVERDUE';
-                      blinkConfig = getBlinkAlertConfig('OVERDUE');
-                      break;
-                    } else if (emiAlertType === 'ONE_DAY' && blinkAlertType !== 'OVERDUE') {
-                      blinkAlertType = 'ONE_DAY';
-                      blinkConfig = getBlinkAlertConfig('ONE_DAY');
-                    } else if (emiAlertType === 'TWO_DAYS' && blinkAlertType !== 'OVERDUE' && blinkAlertType !== 'ONE_DAY') {
-                      blinkAlertType = 'TWO_DAYS';
-                      blinkConfig = getBlinkAlertConfig('TWO_DAYS');
-                    } else if (emiAlertType === 'THREE_DAYS' && blinkAlertType === 'NORMAL') {
-                      blinkAlertType = 'THREE_DAYS';
-                      blinkConfig = getBlinkAlertConfig('THREE_DAYS');
-                    }
-                  }
-                }
-
-                // Build CSS classes based on color and blink status
-                let cardClasses = 'p-4 border rounded-xl hover:shadow-md transition-all';
-                
-                // Apply display color for mirror pairs or blink alert
-                if (displayColor) {
-                  const lighterColor = getLighterColor(displayColor, 0.15);
-                  const borderColor = getLighterColor(displayColor, 0.8);
-                  cardClasses += ` border-l-4`;
-                } else if (blinkConfig && blinkAlertType !== 'NORMAL') {
-                  cardClasses += ` blink-alert-${blinkAlertType === 'OVERDUE' ? 'overdue' : blinkAlertType === 'ONE_DAY' ? 'one-day' : blinkAlertType === 'TWO_DAYS' ? 'two-days' : 'three-days'}`;
-                } else if (isInterestOnly) {
-                  cardClasses += ' bg-amber-50 border-amber-200 border-l-4 border-l-amber-500';
-                } else if (isMirror) {
-                  cardClasses += ' bg-amber-50 border-amber-200 border-l-4 border-l-amber-500';
-                } else if (isOriginalMirror) {
-                  cardClasses += ' bg-emerald-50 border-emerald-200 border-l-4 border-l-emerald-500';
-                } else {
-                  cardClasses += isOnline ? ' bg-blue-50 border-blue-100' : ' bg-purple-50 border-purple-100';
-                }
-
-                // Build avatar gradient
-                let avatarGradient = '';
-                if (displayColor) {
-                  const darkerColor = displayColor; // Use the display color
-                  avatarGradient = ''; // Will use inline style
-                } else if (isInterestOnly) {
-                  avatarGradient = 'from-amber-400 to-orange-500';
-                } else if (isMirror) {
-                  avatarGradient = 'from-amber-400 to-orange-500';
-                } else if (isOriginalMirror) {
-                  avatarGradient = 'from-emerald-400 to-teal-500';
-                } else {
-                  avatarGradient = isOnline ? 'from-blue-400 to-cyan-500' : 'from-purple-400 to-pink-500';
-                }
-
-                return (
-                  <motion.div
-                    key={`${loan.loanType}-${loan.id}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className={cardClasses}
-                    style={displayColor ? {
-                      backgroundColor: getLighterColor(displayColor, 0.15),
-                      borderLeftColor: displayColor,
-                      borderColor: getLighterColor(displayColor, 0.5)
-                    } : undefined}
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar 
-                          className="h-12 w-12 bg-gradient-to-br"
-                          style={displayColor ? {
-                            background: `linear-gradient(135deg, ${displayColor} 0%, ${getLighterColor(displayColor, 0.7)} 100%)`
-                          } : undefined}
-                        >
-                          <AvatarFallback className="bg-transparent text-white font-semibold">
-                            {isMirror ? <Lock className="h-5 w-5" /> : loan.customer?.name?.charAt(0) || 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
-                            {/* Color indicator for mirror pair */}
-                            {displayColor && (isMirror || isOriginalMirror) && (
-                              <Badge 
-                                className="border-2 flex items-center gap-1"
-                                style={{ 
-                                  backgroundColor: getLighterColor(displayColor, 0.3),
-                                  borderColor: displayColor,
-                                  color: displayColor
-                                }}
-                              >
-                                <span 
-                                  className="w-2 h-2 rounded-full" 
-                                  style={{ backgroundColor: displayColor }}
-                                />
-                                {(isMirror ? 'MIRROR' : 'ORIGINAL')}
-                              </Badge>
-                            )}
-                            {isInterestOnly && (
-                              <Badge className="bg-amber-100 text-amber-700 border border-amber-300">
-                                <Calculator className="h-3 w-3 mr-1" />
-                                INTEREST-ONLY PHASE
-                              </Badge>
-                            )}
-                            {isMirror && !displayColor && (
-                              <Badge className="bg-amber-100 text-amber-700 border border-amber-300">
-                                <Copy className="h-3 w-3 mr-1" />
-                                MIRROR LOAN (Read-Only)
-                              </Badge>
-                            )}
-                            {isOriginalMirror && !displayColor && (
-                              <Badge className="bg-emerald-100 text-emerald-700 border border-emerald-300">
-                                <Copy className="h-3 w-3 mr-1" />
-                                ORIGINAL (Has Mirror)
-                              </Badge>
-                            )}
-                            <Badge className={isOnline ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                              {loan.loanType}
-                            </Badge>
-                            {loan.status && (
-                              <Badge className={
-                                isInterestOnly 
-                                  ? 'bg-amber-100 text-amber-700'
-                                  : 'bg-green-100 text-green-700'
-                              }>
-                                {loan.status}
-                              </Badge>
-                            )}
-                            {/* Blink Alert Badge */}
-                            {blinkConfig && blinkAlertType !== 'NORMAL' && (
-                              <Badge 
-                                className="animate-pulse"
-                                style={{ 
-                                  backgroundColor: blinkConfig.bgColor,
-                                  color: blinkConfig.color,
-                                  border: `1px solid ${blinkConfig.borderColor}`
-                                }}
-                              >
-                                <Clock className="h-3 w-3 mr-1" />
-                                {blinkConfig.label}
-                              </Badge>
-                            )}
-                            {loan.nextEmi && loan.nextEmi.status === 'OVERDUE' && !blinkConfig && (
-                              <Badge className="bg-red-100 text-red-700">OVERDUE</Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-500">{loan.customer?.name}</p>
-                          {isInterestOnly && (
-                            <p className="text-xs text-amber-600 mt-1">
-                              Ready to start EMI payments
-                            </p>
-                          )}
-                          {isMirror && loan.mirrorMapping && (
-                            <p className="text-xs text-amber-600 mt-1">
-                              Mirror of: {loan.mirrorMapping.originalLoanId.substring(0, 8)}... 
-                              • Payment synced with original loan
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{formatCurrency(loan.disbursedAmount || loan.approvedAmount || 0)}</p>
-                          {loan.emiAmount && <p className="text-xs text-gray-500">EMI: {formatCurrency(loan.emiAmount)}/mo</p>}
-                        </div>
-                        <div className="flex gap-2">
-                          {/* Start Loan Button for Interest-Only Loans */}
-                          {isInterestOnly && (
-                            <Button
-                              size="sm"
-                              className="bg-amber-600 hover:bg-amber-700 text-white"
-                              onClick={() => openStartLoanDialog(loan)}
-                            >
-                              <PlayCircle className="h-4 w-4 mr-1" />
-                              Start Loan
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {/* Mirror loans are read-only - no delete allowed */}
-                          {/* Interest-only loans CAN be deleted */}
-                          {!isMirror && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 hover:bg-red-50"
-                              onClick={() => { setLoanToDelete(loan); setShowDeleteLoanDialog(true); }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+              <AnimatePresence>
+                {filteredActiveLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
+              </AnimatePresence>
             </div>
           )}
         </CardContent>
