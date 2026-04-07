@@ -213,11 +213,15 @@ export default function SuperAdminDashboard() {
   const [mirrorLoanConfig, setMirrorLoanConfig] = useState<{
     enabled: boolean;
     mirrorCompanyId: string;
-    mirrorType: 'COMPANY_1_15_PERCENT' | 'COMPANY_2_SAME_RATE' | 'NONE';
+    mirrorType: 'COMPANY_1_15_PERCENT' | 'COMPANY_2_SAME_RATE' | 'NONE' | 'CUSTOM_RATE';
+    mirrorInterestRate?: number;  // User-defined rate per loan
+    mirrorInterestType?: string;  // FLAT or REDUCING
   }>({
     enabled: false,
     mirrorCompanyId: '',
-    mirrorType: 'NONE'
+    mirrorType: 'NONE',
+    mirrorInterestRate: 15,  // Default rate
+    mirrorInterestType: 'REDUCING'  // Default type
   });
   const [mirrorPreview, setMirrorPreview] = useState<any>(null);
   const [loadingMirrorPreview, setLoadingMirrorPreview] = useState(false);
@@ -892,6 +896,8 @@ export default function SuperAdminDashboard() {
             originalLoanId: selectedLoan.id,
             mirrorCompanyId: mirrorLoanConfig.mirrorCompanyId,
             mirrorType: mirrorLoanConfig.mirrorType,
+            mirrorInterestRate: mirrorLoanConfig.mirrorInterestRate,  // Custom rate per loan
+            mirrorInterestType: mirrorLoanConfig.mirrorInterestType,  // FLAT or REDUCING
             createdBy: user?.id || 'system',
             initialStatus: 'APPROVED' // Ready for cashier disbursement
           })

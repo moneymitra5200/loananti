@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       mirrorCompanyId,
       mirrorType,
       mirrorInterestRate,
+      mirrorInterestType,  // FLAT or REDUCING - user-defined per loan
       createdBy,
       initialStatus // Allow setting initial status (for Super Admin direct approval)
     } = body;
@@ -144,6 +145,8 @@ export async function POST(request: NextRequest) {
 
     // Use provided mirror rate or default based on mirror type
     const effectiveMirrorRate = mirrorInterestRate || (mirrorType === 'COMPANY_1_15_PERCENT' ? 15 : 24);
+    // Use provided interest type or default to REDUCING
+    const effectiveMirrorType = (mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
 
     const calculation = calculateMirrorLoan(
       principal,
@@ -151,7 +154,7 @@ export async function POST(request: NextRequest) {
       originalTenure,
       originalType,
       effectiveMirrorRate,
-      'REDUCING'
+      effectiveMirrorType
     );
 
     // Determine the initial status
@@ -167,11 +170,11 @@ export async function POST(request: NextRequest) {
         originalLoanId,
         originalCompanyId: originalLoan.companyId || '',
         mirrorCompanyId,
-        mirrorType: mirrorType || 'COMPANY_1_15_PERCENT',
+        mirrorType: mirrorType || 'CUSTOM_RATE',
         originalInterestRate: originalRate,
         originalInterestType: originalType,
         mirrorInterestRate: effectiveMirrorRate,
-        mirrorInterestType: 'REDUCING',
+        mirrorInterestType: effectiveMirrorType,
         originalEMIAmount,
         originalTenure,
         mirrorTenure: calculation.mirrorLoan.schedule.length,
@@ -381,7 +384,7 @@ export async function PUT(request: NextRequest) {
         pendingLoan.originalTenure,
         pendingLoan.originalInterestType as 'FLAT' | 'REDUCING',
         pendingLoan.mirrorInterestRate,
-        'REDUCING'
+        (pendingLoan.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING'
       );
 
       // Create the actual MIRROR LOAN APPLICATION
@@ -432,7 +435,7 @@ export async function PUT(request: NextRequest) {
           agentId: originalLoan.sessionForm.agentId,
           approvedAmount: pendingLoan.principalAmount,
           interestRate: pendingLoan.mirrorInterestRate,
-          interestType: 'REDUCING',
+          interestType: pendingLoan.mirrorInterestType || 'REDUCING',
           tenure: pendingLoan.mirrorTenure,
           emiAmount: pendingLoan.originalEMIAmount,
           totalInterest: calculation.mirrorLoan.totalInterest,

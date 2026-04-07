@@ -5,12 +5,13 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertTriangle, CheckCircle, ArrowLeft, Calculator, RefreshCw, Building2, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ArrowLeft, Calculator, RefreshCw, Building2, Loader2, X, ChevronDown, ChevronUp, Percent } from 'lucide-react';
 
 // Helper function for currency formatting
 const formatCurrency = (amount: number) => {
@@ -73,7 +74,9 @@ interface MirrorCompany {
 interface MirrorLoanConfig {
   enabled: boolean;
   mirrorCompanyId: string;
-  mirrorType: 'COMPANY_1_15_PERCENT' | 'COMPANY_2_SAME_RATE' | 'NONE';
+  mirrorType: 'COMPANY_1_15_PERCENT' | 'COMPANY_2_SAME_RATE' | 'NONE' | 'CUSTOM_RATE';
+  mirrorInterestRate?: number;  // User-defined rate
+  mirrorInterestType?: string;  // FLAT or REDUCING
 }
 
 interface ApprovalDialogProps {
@@ -313,49 +316,113 @@ export default function ApprovalDialog({
                                     </p>
                                     <div className="grid grid-cols-2 gap-3">
                                       {mirrorCompanies.map((company) => {
-                                        const displayRate = company.mirrorInterestRate ?? (company.isCompany1 ? 15 : 24);
                                         const isCompany1 = company.isCompany1;
                                         const companyName = company.name || 'Unknown Company';
-                                        const badgeLabel = company.displayName || (isCompany1 ? 'Company 1 - 15% Reducing' : 'Company 2 - 24% Reducing');
+                                        const isSelected = mirrorLoanConfig.mirrorCompanyId === company.id;
                                         
                                         return (
                                           <div
                                             key={company.id}
                                             className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                                              mirrorLoanConfig.mirrorCompanyId === company.id
+                                              isSelected
                                                 ? 'border-purple-500 bg-purple-100'
                                                 : 'border-purple-200 hover:border-purple-400 bg-white'
                                             }`}
                                             onClick={() => {
+                                              // Set default rate based on company or use previous custom rate
+                                              const defaultRate = mirrorLoanConfig.mirrorInterestRate || (isCompany1 ? 15 : 24);
                                               setMirrorLoanConfig({
                                                 ...mirrorLoanConfig,
                                                 mirrorCompanyId: company.id,
-                                                mirrorType: company.mirrorType || (isCompany1 ? 'COMPANY_1_15_PERCENT' : 'COMPANY_2_SAME_RATE')
+                                                mirrorType: 'CUSTOM_RATE',
+                                                mirrorInterestRate: defaultRate,
+                                                mirrorInterestType: mirrorLoanConfig.mirrorInterestType || 'REDUCING'
                                               });
-                                              fetchMirrorPreview(selectedLoan, company.id, company.mirrorType || (isCompany1 ? 'COMPANY_1_15_PERCENT' : 'COMPANY_2_SAME_RATE'), displayRate);
+                                              fetchMirrorPreview(selectedLoan, company.id, 'CUSTOM_RATE', defaultRate);
                                             }}
                                           >
                                             <div className="flex items-center gap-2 mb-2">
                                               <Building2 className="h-4 w-4 text-purple-600" />
                                               <span className="font-semibold text-gray-900">{companyName}</span>
+                                              {isSelected && (
+                                                <CheckCircle className="h-4 w-4 text-purple-600 ml-auto" />
+                                              )}
                                             </div>
                                             <div className="text-sm space-y-1">
                                               <div className="flex justify-between">
-                                                <span className="text-gray-500">Interest Rate:</span>
-                                                <span className="font-medium text-purple-700">{displayRate}%</span>
+                                                <span className="text-gray-500">Code:</span>
+                                                <span className="font-medium text-purple-700">{company.code}</span>
                                               </div>
                                               <div className="flex justify-between">
-                                                <span className="text-gray-500">Interest Type:</span>
-                                                <span className="font-medium text-green-600">REDUCING</span>
+                                                <span className="text-gray-500">Type:</span>
+                                                <span className="font-medium text-green-600">Mirror Company</span>
                                               </div>
-                                              <Badge className={`mt-2 w-full justify-center ${isCompany1 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                {badgeLabel}
-                                              </Badge>
                                             </div>
                                           </div>
                                         );
                                       })}
                                     </div>
+                                    
+                                    {/* Custom Interest Rate and Type Inputs */}
+                                    {mirrorLoanConfig.mirrorCompanyId && (
+                                      <div className="mt-4 p-4 bg-white border border-purple-300 rounded-lg space-y-4">
+                                        <h5 className="font-semibold text-purple-800 flex items-center gap-2">
+                                          <Percent className="h-4 w-4" />
+                                          Set Mirror Loan Interest
+                                        </h5>
+                                        <p className="text-xs text-purple-600">
+                                          Interest rate is set per loan. You can customize the rate and type for this specific loan.
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div className="space-y-2">
+                                            <Label className="text-sm font-medium text-gray-700">Interest Rate (%) *</Label>
+                                            <Input
+                                              type="number"
+                                              step="0.1"
+                                              min="1"
+                                              max="50"
+                                              placeholder="e.g., 15"
+                                              value={mirrorLoanConfig.mirrorInterestRate || ''}
+                                              onChange={(e) => {
+                                                const rate = parseFloat(e.target.value) || 0;
+                                                setMirrorLoanConfig({
+                                                  ...mirrorLoanConfig,
+                                                  mirrorInterestRate: rate
+                                                });
+                                                // Update preview with new rate
+                                                if (rate > 0) {
+                                                  fetchMirrorPreview(selectedLoan, mirrorLoanConfig.mirrorCompanyId, 'CUSTOM_RATE', rate);
+                                                }
+                                              }}
+                                            />
+                                            <p className="text-xs text-gray-500">Enter any rate (e.g., 15 for 15%)</p>
+                                          </div>
+                                          <div className="space-y-2">
+                                            <Label className="text-sm font-medium text-gray-700">Interest Type *</Label>
+                                            <Select
+                                              value={mirrorLoanConfig.mirrorInterestType || 'REDUCING'}
+                                              onValueChange={(value) => {
+                                                setMirrorLoanConfig({
+                                                  ...mirrorLoanConfig,
+                                                  mirrorInterestType: value
+                                                });
+                                                // Update preview with new type
+                                                fetchMirrorPreview(selectedLoan, mirrorLoanConfig.mirrorCompanyId, 'CUSTOM_RATE', mirrorLoanConfig.mirrorInterestRate);
+                                              }}
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="REDUCING">Reducing Balance</SelectItem>
+                                                <SelectItem value="FLAT">Flat Rate</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                            <p className="text-xs text-gray-500">Reducing is recommended for mirror loans</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
 
                                   {/* Mirror Loan Preview */}
