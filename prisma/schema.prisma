@@ -174,10 +174,11 @@ model Company {
   defaultInterestType String            @default("FLAT") // FLAT or REDUCING
   // Mirror Loan Settings
   enableMirrorLoan    Boolean           @default(false)
-  mirrorInterestRate  Float?            // Custom rate for mirror loan (null = use default)
-  mirrorInterestType  String            @default("REDUCING") // FLAT or REDUCING for mirror
+  mirrorInterestRate  Float?            // DEPRECATED - Interest rate now set per loan
+  mirrorInterestType  String?           // DEPRECATED - Interest type now set per loan (FLAT or REDUCING)
   // Company Type - Mirror Company (Company 1 & 2) vs Original Company (Company 3)
   // Mirror companies have bank accounts, Original company only has cash book
+  // Interest rate for mirror loans is set PER LOAN, not per company
   isMirrorCompany     Boolean           @default(true) // true = Company 1/2, false = Company 3
   // Accounting Type - FULL (Chart of Accounts, Trial Balance, etc.) or CASHBOOK_ONLY (Cashbook & Daybook)
   accountingType      String            @default("FULL") // FULL or CASHBOOK_ONLY

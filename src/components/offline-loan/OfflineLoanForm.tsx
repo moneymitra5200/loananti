@@ -43,6 +43,7 @@ interface Company {
   id: string;
   name: string;
   code: string;
+  isMirrorCompany?: boolean;
   createdAt?: string;
 }
 
@@ -117,7 +118,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [isInterestOnly, setIsInterestOnly] = useState(false);
   const [isMirrorLoan, setIsMirrorLoan] = useState(false);
   const [mirrorCompanyId, setMirrorCompanyId] = useState('');
-  const [mirrorInterestType] = useState('REDUCING'); // Always REDUCING for mirror loans
+  const [mirrorInterestRate, setMirrorInterestRate] = useState('15'); // User-entered rate
+  const [mirrorInterestType, setMirrorInterestType] = useState('REDUCING'); // User-selected type
   const [showMirrorDialog, setShowMirrorDialog] = useState(false);
   
   // Cashbook balance for ALL companies (not just Company 3)
@@ -173,23 +175,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     isInterestOnly: false
   });
 
-  // Get mirror interest rate based on company (Company 1: 15%, Company 2: 24%)
-  const getMirrorInterestRate = (companyId: string) => {
-    const company = companies.find(c => c.id === companyId);
-    if (!company) return 0;
-    // Company 1 (C1) = 15% reducing
-    if (company.code === 'C1' || company.id.includes('1')) return 15;
-    // Company 2 (C2) = 24% reducing
-    if (company.code === 'C2' || company.id.includes('2')) return 24;
-    // Default based on order
-    const sortedCompanies = [...companies].sort((a, b) => 
-      new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
-    );
-    const companyIndex = sortedCompanies.findIndex(c => c.id === companyId);
-    if (companyIndex === 0) return 15; // First company = 15%
-    if (companyIndex === 1) return 24; // Second company = 24%
-    return 15; // Default
-  };
+  // Get mirror companies (companies with isMirrorCompany = true)
+  const mirrorCompanies = useMemo(() => {
+    return companies.filter(c => c.isMirrorCompany === true);
+  }, [companies]);
 
   // Calculate EMI schedule for original loan
   const originalEmiSchedule = useMemo(() => {
@@ -247,12 +236,12 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     return schedule;
   }, [formData.loanAmount, formData.interestRate, formData.tenure, formData.interestType]);
 
-  // Calculate EMI schedule for mirror loan (always REDUCING)
+  // Calculate EMI schedule for mirror loan using user-entered rate and type
   const mirrorEmiSchedule = useMemo(() => {
     if (!isMirrorLoan || !mirrorCompanyId) return [];
     
     const P = parseFloat(formData.loanAmount) || 0;
-    const mirrorRate = getMirrorInterestRate(mirrorCompanyId);
+    const mirrorRate = parseFloat(mirrorInterestRate) || 0;
     const originalEmi = originalEmiSchedule.length > 0 ? originalEmiSchedule[0].emi : 0;
     
     if (P <= 0 || mirrorRate <= 0 || originalEmi <= 0) return [];
@@ -299,7 +288,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     }
     
     return schedule;
-  }, [isMirrorLoan, mirrorCompanyId, formData.loanAmount, originalEmiSchedule, companies]);
+  }, [isMirrorLoan, mirrorCompanyId, formData.loanAmount, originalEmiSchedule, mirrorInterestRate]);
 
   // Calculate extra EMIs and mirror loan summary
   const mirrorLoanSummary = useMemo(() => {
@@ -313,7 +302,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     const mirrorTotalInterest = mirrorEmiSchedule.reduce((sum, e) => sum + e.interest, 0);
     const interestSaved = originalTotalInterest - mirrorTotalInterest;
     
-    const mirrorRate = getMirrorInterestRate(mirrorCompanyId);
+    const mirrorRate = parseFloat(mirrorInterestRate) || 0;
     
     return {
       originalTenure,
@@ -323,7 +312,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       mirrorRate,
       mirrorTotalInterest
     };
-  }, [isMirrorLoan, mirrorEmiSchedule, originalEmiSchedule, mirrorCompanyId]);
+  }, [isMirrorLoan, mirrorEmiSchedule, originalEmiSchedule, mirrorInterestRate]);
   
   // Helper to check if selected company is Company 3 (mirror loans only for Company 3)
   const isSelectedCompany3 = () => {
@@ -787,8 +776,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         // Mirror Loan
         isMirrorLoan,
         mirrorCompanyId: isMirrorLoan ? mirrorCompanyId : null,
-        mirrorInterestRate: isMirrorLoan ? getMirrorInterestRate(mirrorCompanyId) : null,
-        mirrorInterestType: isMirrorLoan ? 'REDUCING' : null,
+        mirrorInterestRate: isMirrorLoan ? parseFloat(mirrorInterestRate) : null,
+        mirrorInterestType: isMirrorLoan ? mirrorInterestType : null,
         // Extra EMI goes to personal credit (not company credit)
         extraEmiGoesToPersonalCredit: isMirrorLoan ? true : false,
         // Split payment info
@@ -872,6 +861,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     setIsInterestOnly(false);
     setIsMirrorLoan(false);
     setMirrorCompanyId('');
+    setMirrorInterestRate('15');
+    setMirrorInterestType('REDUCING');
 
     setCashbookBalance(null);
     // Reset split payment states
@@ -1147,30 +1138,51 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     </p>
                     {isMirrorLoan && (
                       <div className="mt-3 space-y-3">
+                        {/* Mirror Company Selection */}
+                        <div>
+                          <Label className="text-blue-700 font-medium">Select Mirror Company *</Label>
+                          <Select value={mirrorCompanyId} onValueChange={setMirrorCompanyId}>
+                            <SelectTrigger className="mt-1">
+                              <SelectValue placeholder="Select mirror company..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {mirrorCompanies.filter(c => c.id !== formData.companyId).map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name} ({c.code})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {mirrorCompanies.length === 0 && (
+                            <p className="text-xs text-red-500 mt-1">No mirror companies found. Create a company with "Is Mirror Company" checked.</p>
+                          )}
+                        </div>
+
+                        {/* Interest Rate and Type - User Defined */}
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <Label className="text-blue-700">Mirror Company</Label>
-                            <Select value={mirrorCompanyId} onValueChange={setMirrorCompanyId}>
+                            <Label className="text-blue-700 font-medium">Mirror Interest Rate (%) *</Label>
+                            <Input
+                              type="number"
+                              placeholder="e.g., 15"
+                              value={mirrorInterestRate}
+                              onChange={(e) => setMirrorInterestRate(e.target.value)}
+                              className="mt-1"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Enter the interest rate for this mirror loan</p>
+                          </div>
+                          <div>
+                            <Label className="text-blue-700 font-medium">Interest Type *</Label>
+                            <Select value={mirrorInterestType} onValueChange={setMirrorInterestType}>
                               <SelectTrigger className="mt-1">
-                                <SelectValue placeholder="Select company..." />
+                                <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {companies.filter(c => c.id !== formData.companyId).map(c => {
-                                  const mirrorRate = getMirrorInterestRate(c.id);
-                                  return (
-                                    <SelectItem key={c.id} value={c.id}>
-                                      {c.name} ({mirrorRate}% Reducing)
-                                    </SelectItem>
-                                  );
-                                })}
+                                <SelectItem value="REDUCING">Reducing Balance</SelectItem>
+                                <SelectItem value="FLAT">Flat Rate</SelectItem>
                               </SelectContent>
                             </Select>
-                          </div>
-                          <div className="p-3 bg-white rounded-lg border border-blue-300">
-                            <p className="text-xs text-gray-500">Mirror Interest Rate</p>
-                            <p className="text-lg font-bold text-blue-700">
-                              {mirrorCompanyId ? `${getMirrorInterestRate(mirrorCompanyId)}% REDUCING` : 'Select company'}
-                            </p>
+                            <p className="text-xs text-gray-500 mt-1">How interest is calculated</p>
                           </div>
                         </div>
 

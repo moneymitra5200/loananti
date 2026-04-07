@@ -1,18 +1,18 @@
 /**
  * Mirror Company Utilities
  * 
- * PERMANENT MIRROR LOAN CONFIGURATION:
- * - Company 1: 15% REDUCING (Mirror Loan Provider)
- * - Company 2: 24% REDUCING (Mirror Loan Provider)
- * - Company 3: Original Company (Customer-Facing, NOT a mirror)
+ * Mirror companies are identified by the `isMirrorCompany` flag in the Company model.
+ * Interest rate for mirror loans is set PER LOAN, not per company.
+ * This gives flexibility to use different rates for different loans.
  */
 
-export type CompanyType = 'COMPANY_1' | 'COMPANY_2' | 'COMPANY_3' | 'UNKNOWN';
+export type CompanyType = 'MIRROR_COMPANY' | 'ORIGINAL_COMPANY' | 'UNKNOWN';
 
 export interface CompanyIdentification {
   id: string;
   name: string;
   code: string | null;
+  isMirrorCompany?: boolean;
 }
 
 export interface MirrorCompanyConfig {
@@ -20,155 +20,96 @@ export interface MirrorCompanyConfig {
   name: string;
   code: string | null;
   companyType: CompanyType;
-  mirrorInterestRate: number;
-  mirrorInterestType: 'REDUCING';
-  mirrorType: 'COMPANY_1_15_PERCENT' | 'COMPANY_2_SAME_RATE';
   displayName: string;
-  isCompany1: boolean;
 }
 
 /**
- * Identifies company type based on code or name patterns
+ * Identifies company type based on isMirrorCompany flag
  */
 export function identifyCompanyType(company: CompanyIdentification): CompanyType {
+  // Primary: Check the isMirrorCompany flag
+  if (company.isMirrorCompany === true) {
+    return 'MIRROR_COMPANY';
+  }
+  if (company.isMirrorCompany === false) {
+    return 'ORIGINAL_COMPANY';
+  }
+  
+  // Fallback: Check by code/name patterns
   const code = (company.code || '').toUpperCase().trim();
   const name = (company.name || '').toLowerCase().trim();
   
-  console.log('[identifyCompanyType] Checking company:', { code, name });
+  // Code patterns for mirror companies (C1, C2)
+  if (code === 'C1' || code === 'C2' || code === 'COMPANY1' || code === 'COMPANY2') {
+    return 'MIRROR_COMPANY';
+  }
   
-  // === EXACT CODE MATCHES (highest priority) ===
-  if (code === 'COMPANY1' || code === 'COMPANY_1' || code === 'C1' || code === '1') return 'COMPANY_1';
-  if (code === 'COMPANY2' || code === 'COMPANY_2' || code === 'C2' || code === '2') return 'COMPANY_2';
-  if (code === 'COMPANY3' || code === 'COMPANY_3' || code === 'C3' || code === '3') return 'COMPANY_3';
+  // Code patterns for original company (C3)
+  if (code === 'C3' || code === 'COMPANY3') {
+    return 'ORIGINAL_COMPANY';
+  }
   
-  // === CODE PATTERN MATCHES ===
-  // Check for C-1, C_1, COMP-1, etc.
-  if (/^C[-_]?1$/i.test(code)) return 'COMPANY_1';
-  if (/^C[-_]?2$/i.test(code)) return 'COMPANY_2';
-  if (/^C[-_]?3$/i.test(code)) return 'COMPANY_3';
+  // Name patterns
+  if (name.includes('mirror') || name.includes('company 1') || name.includes('company 2')) {
+    return 'MIRROR_COMPANY';
+  }
   
-  // Check for any code containing the number
-  if (/\b1\b/.test(code) || code.endsWith('1')) return 'COMPANY_1';
-  if (/\b2\b/.test(code) || code.endsWith('2')) return 'COMPANY_2';
-  if (/\b3\b/.test(code) || code.endsWith('3')) return 'COMPANY_3';
-  
-  // === NAME PATTERN MATCHES ===
-  if (name.includes('company 1') || name.includes('company1')) return 'COMPANY_1';
-  if (name.includes('company 2') || name.includes('company2')) return 'COMPANY_2';
-  if (name.includes('company 3') || name.includes('company3')) return 'COMPANY_3';
-  
-  if (name.includes('mirror 1') || name.includes('mirror1')) return 'COMPANY_1';
-  if (name.includes('mirror 2') || name.includes('mirror2')) return 'COMPANY_2';
-  
-  // Company 3 specific patterns
-  if (name.includes('original') || name.includes('customer') || name.includes('main')) return 'COMPANY_3';
+  if (name.includes('original') || name.includes('customer') || name.includes('company 3')) {
+    return 'ORIGINAL_COMPANY';
+  }
   
   return 'UNKNOWN';
 }
 
 /**
- * Gets mirror company configuration for a list of companies
- * Returns only Company 1 and Company 2 (Company 3 is NOT a mirror)
+ * Gets mirror companies from a list of companies
+ * Returns only companies with isMirrorCompany = true
  */
 export function getMirrorCompanies<T extends CompanyIdentification>(companies: T[]): (T & MirrorCompanyConfig)[] {
-  console.log('[getMirrorCompanies] Input companies:', companies.map(c => ({ id: c.id, name: c.name, code: c.code })));
-  
-  // Sort by creation date if available, otherwise use original order
-  const sortedCompanies = [...companies].sort((a: any, b: any) => {
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return dateA - dateB;
-  });
-  
-  // Try to identify by code/name first
-  let company1 = sortedCompanies.find(c => identifyCompanyType(c) === 'COMPANY_1');
-  let company2 = sortedCompanies.find(c => identifyCompanyType(c) === 'COMPANY_2');
-  let company3 = sortedCompanies.find(c => identifyCompanyType(c) === 'COMPANY_3');
-  
-  // Fallback: Use order-based assignment if no companies identified
-  const identifiedCount = [company1, company2, company3].filter(Boolean).length;
-  
-  if (identifiedCount === 0) {
-    console.log('[getMirrorCompanies] No companies identified by code/name, using order-based fallback');
-    
-    if (sortedCompanies.length >= 3) {
-      company1 = sortedCompanies[0];
-      company2 = sortedCompanies[1];
-      company3 = sortedCompanies[2];
-    } else if (sortedCompanies.length === 2) {
-      company1 = sortedCompanies[0];
-      company2 = sortedCompanies[1];
-    }
-  }
-  
-  console.log('[getMirrorCompanies] Identified:', {
-    company1: company1?.name,
-    company2: company2?.name,
-    company3: company3?.name
-  });
-  
-  // Build mirror companies list (ONLY Company 1 and Company 2)
-  const mirrorCompanies: (T & MirrorCompanyConfig)[] = [];
-  
-  if (company1) {
-    mirrorCompanies.push({
-      ...company1,
-      companyType: 'COMPANY_1',
-      mirrorInterestRate: 15,
-      mirrorInterestType: 'REDUCING',
-      mirrorType: 'COMPANY_1_15_PERCENT',
-      displayName: 'Company 1 - 15% Reducing',
-      isCompany1: true
-    });
-  }
-  
-  if (company2) {
-    mirrorCompanies.push({
-      ...company2,
-      companyType: 'COMPANY_2',
-      mirrorInterestRate: 24,
-      mirrorInterestType: 'REDUCING',
-      mirrorType: 'COMPANY_2_SAME_RATE',
-      displayName: 'Company 2 - 24% Reducing',
-      isCompany1: false
-    });
-  }
-  
-  console.log('[getMirrorCompanies] Output mirror companies:', mirrorCompanies.map(c => ({
-    name: c.name,
-    code: c.code,
-    displayName: c.displayName,
-    mirrorInterestRate: c.mirrorInterestRate
+  console.log('[getMirrorCompanies] Input companies:', companies.map(c => ({ 
+    id: c.id, 
+    name: c.name, 
+    code: c.code, 
+    isMirrorCompany: c.isMirrorCompany 
   })));
   
-  return mirrorCompanies;
+  // Filter companies that are marked as mirror companies
+  const mirrorCompanies = companies.filter(c => c.isMirrorCompany === true);
+  
+  const result = mirrorCompanies.map(company => ({
+    ...company,
+    companyType: 'MIRROR_COMPANY' as CompanyType,
+    displayName: `${company.name} (${company.code || 'N/A'})`
+  }));
+  
+  console.log('[getMirrorCompanies] Output mirror companies:', result.map(c => ({
+    name: c.name,
+    code: c.code,
+    displayName: c.displayName
+  })));
+  
+  return result;
 }
 
 /**
- * Gets Company 3 (the original/customer-facing company)
+ * Gets the original company (non-mirror company)
  */
 export function getOriginalCompany<T extends CompanyIdentification>(companies: T[]): T | undefined {
-  const sortedCompanies = [...companies].sort((a: any, b: any) => {
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return dateA - dateB;
-  });
-  
-  // Try to identify by code/name
-  let company3 = sortedCompanies.find(c => identifyCompanyType(c) === 'COMPANY_3');
-  
-  // Fallback: Use third company if not identified
-  if (!company3 && sortedCompanies.length >= 3) {
-    company3 = sortedCompanies[2];
+  // First, try to find a company with isMirrorCompany = false
+  const originalCompany = companies.find(c => c.isMirrorCompany === false);
+  if (originalCompany) {
+    return originalCompany;
   }
   
-  return company3;
+  // Fallback: Find by code/name patterns
+  return companies.find(c => {
+    const code = (c.code || '').toUpperCase().trim();
+    const name = (c.name || '').toLowerCase().trim();
+    
+    return code === 'C3' || 
+           code === 'COMPANY3' || 
+           name.includes('original') || 
+           name.includes('customer') ||
+           name.includes('company 3');
+  });
 }
-
-/**
- * PERMANENT MIRROR LOAN RATES
- */
-export const MIRROR_RATES = {
-  COMPANY_1: 15,  // 15% REDUCING
-  COMPANY_2: 24,  // 24% REDUCING
-} as const;

@@ -423,7 +423,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { originalLoanId, mirrorCompanyId, mirrorType, extraEMIPaymentPageId, createdBy } = body;
+    const { 
+      originalLoanId, 
+      mirrorCompanyId, 
+      mirrorType, // DEPRECATED - kept for backward compatibility
+      extraEMIPaymentPageId, 
+      createdBy,
+      // NEW: Dynamic interest rate and type per loan
+      mirrorInterestRate,
+      mirrorInterestType 
+    } = body;
 
     // Check if mapping already exists
     const existingMapping = await db.mirrorLoanMapping.findUnique({
@@ -458,23 +467,21 @@ export async function POST(request: NextRequest) {
     }
 
     // ============================================
-    // CRITICAL VALIDATION: Mirror loans ONLY for Company 3
-    // If loan is from Company 1 or Company 2, mirror is NOT allowed
+    // VALIDATION: Mirror loans only for non-mirror companies (original lender)
     // ============================================
     if (originalLoan.companyId) {
-      const isFromCompany3 = await isCompany3(originalLoan.companyId);
+      const originalCompany = await db.company.findUnique({
+        where: { id: originalLoan.companyId },
+        select: { name: true, code: true, isMirrorCompany: true }
+      });
       
-      if (!isFromCompany3) {
-        const company = await db.company.findUnique({
-          where: { id: originalLoan.companyId },
-          select: { name: true, code: true }
-        });
-        
+      // If the loan is from a mirror company, mirror is not allowed
+      if (originalCompany?.isMirrorCompany === true) {
         return NextResponse.json({ 
           error: 'Mirror loan not allowed',
-          message: `Mirror loans can ONLY be created for loans from Company 3. This loan is from ${company?.name || 'Company 1/2'} (${company?.code || 'not C3'}). Mirror functionality is only available for Company 3 loans.`,
-          companyCode: company?.code,
-          isCompany3: false
+          message: `Mirror loans can only be created from original company loans. This loan is from ${originalCompany.name} (${originalCompany.code}), which is a mirror company.`,
+          companyCode: originalCompany.code,
+          isOriginalCompany: false
         }, { status: 400 });
       }
     }
@@ -485,9 +492,9 @@ export async function POST(request: NextRequest) {
     const originalEMIAmount = originalLoan.sessionForm.emiAmount;
     const originalType = (originalLoan.sessionForm.interestType || 'FLAT') as 'FLAT' | 'REDUCING';
 
-    // Determine mirror rate based on mirror type
-    // Company 1 = 15% REDUCING, Company 2 = 24% REDUCING
-    const mirrorRate = mirrorType === 'COMPANY_1_15_PERCENT' ? 15 : 24;
+    // Use provided mirror rate and type, or fall back to defaults
+    const mirrorRate = mirrorInterestRate || 15;
+    const mirrorTypeValue = mirrorInterestType || 'REDUCING';
     
     // Calculate mirror loan details
     const calculation = calculateMirrorLoan(
@@ -496,30 +503,28 @@ export async function POST(request: NextRequest) {
       originalTenure,
       originalType,
       mirrorRate,
-      'REDUCING'
+      mirrorTypeValue as 'FLAT' | 'REDUCING'
     );
 
-    // Calculate total mirror interest (this goes to Company 1 as their profit)
+    // Calculate total mirror interest (this goes to mirror company as their profit)
     const totalMirrorInterest = calculation.mirrorLoan.totalInterest;
     
-    // Calculate extra EMI profit (this goes to Company 3 as pure profit)
+    // Calculate extra EMI profit (this goes to original company as pure profit)
     const extraEMIProfit = calculation.extraEMICount * originalEMIAmount;
 
     // Create the mirror loan mapping
-    // IMPORTANT: Loan stays with Company 3, we just create a mapping
-    // Disbursement will happen from Mirror Company (Company 1)
     const displayColor = getNextUniqueColor();
 
     const mirrorMapping = await db.mirrorLoanMapping.create({
       data: {
         originalLoanId,
-        originalCompanyId: originalLoan.companyId || '', // Company 3
-        mirrorCompanyId, // Company 1 - disbursement happens from here
-        mirrorType,
+        originalCompanyId: originalLoan.companyId || '',
+        mirrorCompanyId,
+        mirrorType: mirrorType || 'CUSTOM_RATE', // Use CUSTOM_RATE for dynamic rates
         originalInterestRate: originalRate,
         originalInterestType: originalType,
         mirrorInterestRate: mirrorRate,
-        mirrorInterestType: 'REDUCING',
+        mirrorInterestType: mirrorTypeValue,
         originalEMIAmount,
         originalTenure,
         mirrorTenure: calculation.mirrorLoan.schedule.length,

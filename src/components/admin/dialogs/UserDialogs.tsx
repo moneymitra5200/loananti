@@ -6,10 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Building2, User, Briefcase, Banknote, Calculator, Shield, Upload, X, Image as ImageIcon, RefreshCw, BookOpen, Wallet } from 'lucide-react';
+import { Building2, User, Briefcase, Banknote, Calculator, Shield, Upload, X, Image as ImageIcon, RefreshCw, BookOpen, Wallet, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface UserForm {
@@ -20,8 +19,10 @@ interface UserForm {
   role: string;
   companyId: string;
   agentId: string;
-  // Extended company fields - all optional for flexibility
+  // Extended company fields - SIMPLIFIED for company creation
   code?: string;
+  isMirrorCompany?: boolean;
+  // Optional profile fields (can be filled later)
   address?: string;
   city?: string;
   state?: string;
@@ -35,9 +36,6 @@ interface UserForm {
   ownerPan?: string;
   ownerAadhaar?: string;
   logoUrl?: string;
-  isMirrorCompany?: boolean;
-  mirrorInterestRate?: number | undefined;
-  mirrorInterestType?: string;
   accountingType?: string;
   defaultInterestRate?: number;
   defaultInterestType?: string;
@@ -136,394 +134,91 @@ export default function UserDialogs({
 
   return (
     <>
-      {/* Company Creation Dialog - Comprehensive */}
+      {/* Company Creation Dialog - SIMPLIFIED */}
       <Dialog open={showUserDialog && userForm.role === 'COMPANY'} onOpenChange={(open) => !open && setShowUserDialog(false)}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Building2 className="h-6 w-6 text-blue-600" />
               Create Company Account
             </DialogTitle>
-            <DialogDescription>Create a new company with complete profile details</DialogDescription>
+            <DialogDescription>Create a new company - interest rate is set per loan, not per company</DialogDescription>
           </DialogHeader>
           
-          <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="basic">Basic Info</TabsTrigger>
-              <TabsTrigger value="profile">Profile</TabsTrigger>
-              <TabsTrigger value="mirror">Mirror Settings</TabsTrigger>
-              <TabsTrigger value="accounting">Accounting</TabsTrigger>
-            </TabsList>
-            
-            {/* Basic Info Tab */}
-            <TabsContent value="basic" className="space-y-4 py-4">
-              {/* Logo Upload */}
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  {logoPreview || userForm.logoUrl ? (
-                    <div className="relative w-20 h-20 rounded-lg overflow-hidden border-2 border-gray-200">
-                      <img 
-                        src={logoPreview || userForm.logoUrl} 
-                        alt="Company Logo" 
-                        className="w-full h-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={removeLogo}
-                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                    >
-                      {uploadingLogo ? (
-                        <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
-                      ) : (
-                        <>
-                          <ImageIcon className="h-6 w-6 text-gray-400" />
-                          <span className="text-xs text-gray-400 mt-1">Logo</span>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoSelect}
-                    className="hidden"
-                  />
-                </div>
-                <div>
-                  <p className="font-medium">Company Logo</p>
-                  <p className="text-sm text-gray-500">Upload a logo for your company (max 5MB)</p>
-                </div>
+          <div className="space-y-6 py-4">
+            {/* Basic Info */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Company Name *</Label>
+                <Input placeholder="Enter company name" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} />
+              </div>
+              
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Company Code</Label>
+                <Input placeholder="e.g., C1, C2, C3 (auto-generated if empty)" value={userForm.code || ''} onChange={(e) => setUserForm({ ...userForm, code: e.target.value })} />
+                <p className="text-xs text-gray-500">Use C1, C2 for mirror companies, C3 for original company</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Company Name *</Label>
-                  <Input placeholder="Enter company name" value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Company Code</Label>
-                  <Input placeholder="Auto-generated if empty" value={userForm.code || ''} onChange={(e) => setUserForm({ ...userForm, code: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Email Address *</Label>
-                  <Input type="email" placeholder="company@example.com" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Phone Number *</Label>
-                  <Input placeholder="+91 9876543210" value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} />
-                </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Email Address *</Label>
+                <Input type="email" placeholder="company@example.com" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })} />
               </div>
 
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Password *</Label>
                 <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
               </div>
+            </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Website</Label>
-                  <Input placeholder="https://company.com" value={userForm.website || ''} onChange={(e) => setUserForm({ ...userForm, website: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">GST Number</Label>
-                  <Input placeholder="22AAAAA0000A1Z5" value={userForm.gstNumber || ''} onChange={(e) => setUserForm({ ...userForm, gstNumber: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">PAN Number</Label>
-                  <Input placeholder="AAAAA0000A" value={userForm.panNumber || ''} onChange={(e) => setUserForm({ ...userForm, panNumber: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Default Interest Rate (%)</Label>
-                  <Input type="number" placeholder="12" value={userForm.defaultInterestRate || ''} onChange={(e) => setUserForm({ ...userForm, defaultInterestRate: parseFloat(e.target.value) })} />
-                </div>
-              </div>
-            </TabsContent>
-
-            {/* Profile Tab */}
-            <TabsContent value="profile" className="space-y-4 py-4">
-              <div className="bg-blue-50 p-3 rounded-lg mb-4">
-                <p className="text-sm text-blue-700">
-                  <strong>Owner/Director Details:</strong> These details will be used for company verification and communications.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Address</Label>
-                <Input placeholder="Full address" value={userForm.address || ''} onChange={(e) => setUserForm({ ...userForm, address: e.target.value })} />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">City</Label>
-                  <Input placeholder="City" value={userForm.city || ''} onChange={(e) => setUserForm({ ...userForm, city: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">State</Label>
-                  <Input placeholder="State" value={userForm.state || ''} onChange={(e) => setUserForm({ ...userForm, state: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Pincode</Label>
-                  <Input placeholder="Pincode" value={userForm.pincode || ''} onChange={(e) => setUserForm({ ...userForm, pincode: e.target.value })} />
-                </div>
-              </div>
-
-              <hr className="my-4" />
-              
-              <h4 className="font-semibold text-gray-700">Owner/Director Information</h4>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Owner Name</Label>
-                  <Input placeholder="Full name" value={userForm.ownerName || ''} onChange={(e) => setUserForm({ ...userForm, ownerName: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Owner Phone</Label>
-                  <Input placeholder="+91 9876543210" value={userForm.ownerPhone || ''} onChange={(e) => setUserForm({ ...userForm, ownerPhone: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Owner Email</Label>
-                  <Input type="email" placeholder="owner@example.com" value={userForm.ownerEmail || ''} onChange={(e) => setUserForm({ ...userForm, ownerEmail: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">Owner PAN</Label>
-                  <Input placeholder="AAAAA0000A" value={userForm.ownerPan || ''} onChange={(e) => setUserForm({ ...userForm, ownerPan: e.target.value })} />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Owner Aadhaar</Label>
-                <Input placeholder="1234 5678 9012" value={userForm.ownerAadhaar || ''} onChange={(e) => setUserForm({ ...userForm, ownerAadhaar: e.target.value })} />
-              </div>
-            </TabsContent>
-
-            {/* Mirror Settings Tab */}
-            <TabsContent value="mirror" className="space-y-4 py-4">
-              <div className="bg-purple-50 p-4 rounded-lg mb-4">
-                <h4 className="font-semibold text-purple-800 flex items-center gap-2 mb-2">
-                  <RefreshCw className="h-4 w-4" />
-                  Mirror Company Settings
-                </h4>
-                <p className="text-sm text-purple-700">
-                  Mirror companies receive loan data from the original company (Company 3). 
-                  They charge a different interest rate to earn profit from the spread.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            {/* Mirror Company Toggle */}
+            <div className="border rounded-lg p-4 bg-gray-50">
+              <div className="flex items-center justify-between">
                 <div>
-                  <Label className="text-sm font-medium">Is this a Mirror Company?</Label>
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 text-purple-600" />
+                    Is this a Mirror Company?
+                  </Label>
                   <p className="text-xs text-gray-500 mt-1">
-                    Mirror companies (Company 1 & 2) receive mirrored loans from Company 3
+                    Mirror companies can receive mirrored loans from other companies
                   </p>
                 </div>
                 <Switch
-                  checked={userForm.isMirrorCompany !== false}
+                  checked={userForm.isMirrorCompany === true}
                   onCheckedChange={(checked) => setUserForm({ ...userForm, isMirrorCompany: checked })}
                 />
               </div>
-
-              {userForm.isMirrorCompany !== false ? (
-                <div className="space-y-4 border rounded-lg p-4 bg-emerald-50">
-                  <div className="flex items-center gap-2 text-emerald-700">
-                    <RefreshCw className="h-4 w-4" />
-                    <span className="font-medium">Mirror Company Configuration</span>
+              
+              {userForm.isMirrorCompany ? (
+                <div className="mt-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2 text-purple-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span className="font-medium text-sm">Mirror Company</span>
                   </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Mirror Interest Rate (%) *</Label>
-                      <Input 
-                        type="number" 
-                        placeholder="15" 
-                        value={userForm.mirrorInterestRate || ''} 
-                        onChange={(e) => setUserForm({ ...userForm, mirrorInterestRate: parseFloat(e.target.value) })} 
-                      />
-                      <p className="text-xs text-gray-500">This rate will be permanent for all mirror loans</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Interest Type</Label>
-                      <Select 
-                        value={userForm.mirrorInterestType || 'REDUCING'} 
-                        onValueChange={(v) => setUserForm({ ...userForm, mirrorInterestType: v })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="REDUCING">Reducing Balance</SelectItem>
-                          <SelectItem value="FLAT">Flat Rate</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-xs text-gray-600">
-                      <strong>Example:</strong> If original loan is 24% FLAT and mirror rate is 15% REDUCING,
-                      the mirror company earns from the interest spread.
-                    </p>
-                  </div>
+                  <p className="text-xs text-purple-600 mt-1">
+                    Interest rate will be set when creating/mirroring each loan
+                  </p>
                 </div>
               ) : (
-                <div className="space-y-4 border rounded-lg p-4 bg-blue-50">
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                   <div className="flex items-center gap-2 text-blue-700">
                     <Building2 className="h-4 w-4" />
-                    <span className="font-medium">Original Company (Company 3)</span>
+                    <span className="font-medium text-sm">Original Company</span>
                   </div>
-                  
-                  <div className="bg-white p-3 rounded border">
-                    <p className="text-sm text-gray-600">
-                      This company will be the <strong>Original Lender</strong> that creates loans for customers.
-                      Mirror companies will receive a copy of these loans with their own interest rates.
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Badge className="bg-blue-100 text-blue-700">
-                      Customer-Facing
-                    </Badge>
-                    <Badge className="bg-green-100 text-green-700">
-                      Uses Original Rates
-                    </Badge>
-                  </div>
+                  <p className="text-xs text-blue-600 mt-1">
+                    This company will create loans for customers directly
+                  </p>
                 </div>
               )}
-            </TabsContent>
+            </div>
 
-            {/* Accounting Tab */}
-            <TabsContent value="accounting" className="space-y-4 py-4">
-              <div className="bg-teal-50 p-4 rounded-lg mb-4">
-                <h4 className="font-semibold text-teal-800 flex items-center gap-2 mb-2">
-                  <BookOpen className="h-4 w-4" />
-                  Accounting Type
-                </h4>
-                <p className="text-sm text-teal-700">
-                  Choose the accounting system for this company. This determines what features are available.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Full Accounting Option */}
-                <div 
-                  className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-                    userForm.accountingType !== 'CASHBOOK_ONLY' 
-                      ? 'border-emerald-500 bg-emerald-50' 
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                  onClick={() => setUserForm({ ...userForm, accountingType: 'FULL' })}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      userForm.accountingType !== 'CASHBOOK_ONLY' ? 'border-emerald-500' : 'border-gray-300'
-                    }`}>
-                      {userForm.accountingType !== 'CASHBOOK_ONLY' && (
-                        <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <BookOpen className="h-5 w-5 text-emerald-600" />
-                        <span className="font-semibold">Full Accounting</span>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-2">
-                        Complete double-entry accounting system with:
-                      </p>
-                      <ul className="text-xs text-gray-500 mt-2 space-y-1">
-                        <li>✓ Chart of Accounts</li>
-                        <li>✓ Journal Entries</li>
-                        <li>✓ Trial Balance</li>
-                        <li>✓ Balance Sheet</li>
-                        <li>✓ Profit & Loss Statement</li>
-                        <li>✓ Bank Accounts</li>
-                        <li>✓ Cash Book & Day Book</li>
-                      </ul>
-                      <Badge className="mt-3 bg-emerald-100 text-emerald-700">
-                        Recommended for Mirror Companies
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cashbook Only Option */}
-                <div 
-                  className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-                    userForm.accountingType === 'CASHBOOK_ONLY' 
-                      ? 'border-amber-500 bg-amber-50' 
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                  onClick={() => setUserForm({ ...userForm, accountingType: 'CASHBOOK_ONLY' })}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                      userForm.accountingType === 'CASHBOOK_ONLY' ? 'border-amber-500' : 'border-gray-300'
-                    }`}>
-                      {userForm.accountingType === 'CASHBOOK_ONLY' && (
-                        <div className="w-3 h-3 rounded-full bg-amber-500" />
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Wallet className="h-5 w-5 text-amber-600" />
-                        <span className="font-semibold">Cashbook & Daybook Only</span>
-                      </div>
-                      <p className="text-sm text-gray-600 mt-2">
-                        Simple accounting for cash-based operations:
-                      </p>
-                      <ul className="text-xs text-gray-500 mt-2 space-y-1">
-                        <li>✓ Cash Book</li>
-                        <li>✓ Day Book</li>
-                        <li>✗ No Chart of Accounts</li>
-                        <li>✗ No Journal Entries</li>
-                        <li>✗ No Trial Balance</li>
-                        <li>✗ No Bank Accounts</li>
-                      </ul>
-                      <Badge className="mt-3 bg-amber-100 text-amber-700">
-                        Good for Original Company (C3)
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Default Interest Type */}
-              <div className="space-y-2 mt-4">
-                <Label className="text-sm font-medium">Default Interest Type</Label>
-                <Select 
-                  value={userForm.defaultInterestType || 'FLAT'} 
-                  onValueChange={(v) => setUserForm({ ...userForm, defaultInterestType: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="FLAT">Flat Rate</SelectItem>
-                    <SelectItem value="REDUCING">Reducing Balance</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500">
-                  This will be the default interest calculation method for loans from this company
-                </p>
-              </div>
-            </TabsContent>
-          </Tabs>
+            {/* Info Box */}
+            <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-800">
+                <strong>Note:</strong> Interest rate for mirror loans is set <strong>per loan</strong> when creating or mirroring, 
+                not fixed per company. This gives you flexibility to use different rates for different loans.
+              </p>
+            </div>
+          </div>
 
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>

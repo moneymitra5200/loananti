@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
 import { 
   RefreshCw, Building2, AlertTriangle, CheckCircle, Info, Loader2,
   ArrowRight, Calculator, IndianRupee, TrendingUp, X, ArrowLeft
@@ -103,6 +104,10 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
   const [loanDetails, setLoanDetails] = useState<Loan>(loan);
   const [activeScheduleTab, setActiveScheduleTab] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  
+  // NEW: Per-company interest rate and type (user-defined)
+  const [mirrorRates, setMirrorRates] = useState<Record<string, string>>({});
+  const [mirrorTypes, setMirrorTypes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetchLoanDetails = async () => {
@@ -168,16 +173,15 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
   };
 
   const fetchCalculation = async (companyId: string) => {
-    const company = mirrorCompanies.find(c => c.id === companyId);
-    if (!company || !loanDetails.sessionForm) return;
+    if (!loanDetails.sessionForm) return;
+
+    // Use user-entered rate and type, or defaults
+    const mirrorRate = mirrorRates[companyId] ? parseFloat(mirrorRates[companyId]) : 15;
+    const mirrorType = mirrorTypes[companyId] || 'REDUCING';
 
     try {
-      const mirrorType = company.mirrorInterestRate === 15 || company.id.includes('1') 
-        ? 'COMPANY_1_15_PERCENT' 
-        : 'COMPANY_2_SAME_RATE';
-
       const response = await fetch(
-        `/api/mirror-loan?action=preview&principal=${loanDetails.sessionForm.approvedAmount}&originalRate=${loanDetails.sessionForm.interestRate}&originalTenure=${loanDetails.sessionForm.tenure}&originalType=${loanDetails.sessionForm.interestType || 'FLAT'}&mirrorType=${mirrorType}`
+        `/api/mirror-loan?action=preview&principal=${loanDetails.sessionForm.approvedAmount}&originalRate=${loanDetails.sessionForm.interestRate}&originalTenure=${loanDetails.sessionForm.tenure}&originalType=${loanDetails.sessionForm.interestType || 'FLAT'}&mirrorRate=${mirrorRate}&mirrorType=${mirrorType}`
       );
       const data = await response.json();
       if (data.success) {
@@ -206,6 +210,26 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
       }
       return newSelection;
     });
+    
+    // Initialize default values when selecting a company
+    if (!mirrorRates[companyId]) {
+      setMirrorRates(prev => ({ ...prev, [companyId]: '15' }));
+    }
+    if (!mirrorTypes[companyId]) {
+      setMirrorTypes(prev => ({ ...prev, [companyId]: 'REDUCING' }));
+    }
+  };
+
+  // Update calculation when rate or type changes
+  const handleRateTypeChange = (companyId: string, rate?: string, type?: string) => {
+    if (rate !== undefined) {
+      setMirrorRates(prev => ({ ...prev, [companyId]: rate }));
+    }
+    if (type !== undefined) {
+      setMirrorTypes(prev => ({ ...prev, [companyId]: type }));
+    }
+    // Re-fetch calculation after a short delay
+    setTimeout(() => fetchCalculation(companyId), 100);
   };
 
   const handleConfirm = async () => {
@@ -222,12 +246,9 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
       let existingCount = 0;
       
       for (const companyId of selectedMirrors) {
-        const company = mirrorCompanies.find(c => c.id === companyId);
-        if (!company) continue;
-
-        const mirrorType = company.mirrorInterestRate === 15 || company.id.includes('1')
-          ? 'COMPANY_1_15_PERCENT'
-          : 'COMPANY_2_SAME_RATE';
+        // Get user-entered rate and type
+        const mirrorRate = mirrorRates[companyId] || '15';
+        const mirrorType = mirrorTypes[companyId] || 'REDUCING';
 
         const response = await fetch('/api/mirror-loan', {
           method: 'POST',
@@ -235,7 +256,8 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
           body: JSON.stringify({
             originalLoanId: loan.id,
             mirrorCompanyId: companyId,
-            mirrorType,
+            mirrorInterestRate: parseFloat(mirrorRate),
+            mirrorInterestType: mirrorType,
             extraEMIPaymentPageId: selectedPaymentPages[companyId] || null,
             createdBy: userId
           })
@@ -279,13 +301,6 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
 
   const handleCancel = () => {
     onCancel();
-  };
-
-  const getMirrorTypeLabel = (company: MirrorCompany) => {
-    if (company.mirrorInterestRate === 15 || company.id.includes('1')) {
-      return { label: '15% Reducing', className: 'bg-emerald-100 text-emerald-800 border border-emerald-200' };
-    }
-    return { label: `${loanDetails.sessionForm?.interestRate || company.defaultInterestRate}% Reducing`, className: 'bg-blue-100 text-blue-800 border border-blue-200' };
   };
 
   const principal = loanDetails.sessionForm?.approvedAmount || loanDetails.requestedAmount || 0;
@@ -391,7 +406,6 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
                     {mirrorCompanies.map(company => {
                       const isSelected = selectedMirrors.includes(company.id);
                       const calculation = calculations[company.id];
-                      const mirrorType = getMirrorTypeLabel(company);
 
                       return (
                         <Card 
@@ -413,26 +427,58 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
                               <div className="flex-1">
                                 <div className="flex items-center gap-3 flex-wrap">
                                   <span className="font-bold text-lg text-gray-900">{company.name}</span>
-                                  <Badge className={`${mirrorType.className} text-sm px-3 py-1`}>{mirrorType.label}</Badge>
+                                  <Badge className="text-sm px-3 py-1">{company.code}</Badge>
                                 </div>
-                                <p className="text-sm text-gray-500 mt-1">Code: {company.code}</p>
                                 
-                                {isSelected && calculation && (
-                                  <div className="mt-3 flex gap-4">
-                                    <div className="bg-white p-2 rounded border">
-                                      <p className="text-xs text-gray-500">Mirror Tenure</p>
-                                      <p className="font-bold text-emerald-600">{calculation.mirrorLoan.schedule.length} months</p>
+                                {isSelected && (
+                                  <div className="mt-4 space-y-3">
+                                    {/* Interest Rate and Type Inputs */}
+                                    <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
+                                      <div>
+                                        <label className="text-xs font-medium text-gray-600">Interest Rate (%)</label>
+                                        <Input
+                                          type="number"
+                                          placeholder="e.g., 15"
+                                          value={mirrorRates[company.id] || '15'}
+                                          onChange={(e) => handleRateTypeChange(company.id, e.target.value, undefined)}
+                                          className="mt-1"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-xs font-medium text-gray-600">Interest Type</label>
+                                        <Select
+                                          value={mirrorTypes[company.id] || 'REDUCING'}
+                                          onValueChange={(v) => handleRateTypeChange(company.id, undefined, v)}
+                                        >
+                                          <SelectTrigger className="mt-1">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="REDUCING">Reducing Balance</SelectItem>
+                                            <SelectItem value="FLAT">Flat Rate</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
                                     </div>
-                                    <div className="bg-white p-2 rounded border">
-                                      <p className="text-xs text-gray-500">Interest Saved</p>
-                                      <p className="font-bold text-emerald-600">
-                                        {formatCurrency(calculation.originalLoan.totalInterest - calculation.mirrorLoan.totalInterest)}
-                                      </p>
-                                    </div>
-                                    <div className="bg-white p-2 rounded border">
-                                      <p className="text-xs text-gray-500">Extra EMIs</p>
-                                      <p className="font-bold text-amber-600">{calculation.extraEMICount}</p>
-                                    </div>
+                                    
+                                    {calculation && (
+                                      <div className="flex gap-4">
+                                        <div className="bg-white p-2 rounded border">
+                                          <p className="text-xs text-gray-500">Mirror Tenure</p>
+                                          <p className="font-bold text-emerald-600">{calculation.mirrorLoan.schedule.length} months</p>
+                                        </div>
+                                        <div className="bg-white p-2 rounded border">
+                                          <p className="text-xs text-gray-500">Interest Saved</p>
+                                          <p className="font-bold text-emerald-600">
+                                            {formatCurrency(calculation.originalLoan.totalInterest - calculation.mirrorLoan.totalInterest)}
+                                          </p>
+                                        </div>
+                                        <div className="bg-white p-2 rounded border">
+                                          <p className="text-xs text-gray-500">Extra EMIs</p>
+                                          <p className="font-bold text-amber-600">{calculation.extraEMICount}</p>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -487,8 +533,8 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
                                 </CardTitle>
                               </CardHeader>
                               <CardContent className="text-sm space-y-2">
-                                <p><strong>Original (Company 3):</strong> {interestRate}% FLAT</p>
-                                <p><strong>Mirror ({company?.name}):</strong> {company?.mirrorInterestRate || interestRate}% REDUCING</p>
+                                <p><strong>Original (Company 3):</strong> {interestRate}% {interestType}</p>
+                                <p><strong>Mirror ({company?.name}):</strong> {mirrorRates[companyId] || '15'}% {mirrorTypes[companyId] || 'REDUCING'}</p>
                                 <p className="text-gray-600">Same EMI ({formatCurrency(emiAmount)}) for both loans.</p>
                               </CardContent>
                             </Card>
