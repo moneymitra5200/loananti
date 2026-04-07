@@ -167,6 +167,78 @@ export async function GET(request: NextRequest) {
           mirrorInterestRate: true,
           mirrorEMIsPaid: true,
           extraEMIsPaid: true,
+          originalEMIAmount: true,
+          originalTenure: true,
+          // Include the actual mirror loan details
+          mirrorLoan: {
+            select: {
+              id: true,
+              applicationNo: true,
+              identifier: true,
+              status: true,
+              loanType: true,
+              disbursedAmount: true,
+              approvedAmount: true,
+              disbursementDate: true,
+              createdAt: true,
+              interestRate: true,
+              tenure: true,
+              emiAmount: true,
+              company: {
+                select: { id: true, name: true, code: true }
+              },
+              customer: {
+                select: { id: true, name: true, phone: true, email: true }
+              },
+              sessionForm: {
+                select: {
+                  approvedAmount: true,
+                  interestRate: true,
+                  tenure: true,
+                  emiAmount: true,
+                  disbursementDate: true
+                }
+              }
+            }
+          },
+          // Also include original loan for reference
+          originalLoan: {
+            select: {
+              id: true,
+              applicationNo: true,
+              identifier: true,
+              status: true,
+              loanType: true,
+              disbursedAmount: true,
+              approvedAmount: true,
+              disbursementDate: true,
+              createdAt: true,
+              interestRate: true,
+              tenure: true,
+              emiAmount: true,
+              company: {
+                select: { id: true, name: true, code: true }
+              },
+              customer: {
+                select: { id: true, name: true, phone: true, email: true }
+              },
+              sessionForm: {
+                select: {
+                  approvedAmount: true,
+                  interestRate: true,
+                  tenure: true,
+                  emiAmount: true,
+                  disbursementDate: true
+                }
+              }
+            }
+          },
+          mirrorCompany: {
+            select: { id: true, name: true, code: true }
+          },
+          originalCompany: {
+            select: { id: true, name: true, code: true }
+          }
         }
       });
 

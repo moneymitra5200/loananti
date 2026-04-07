@@ -18,6 +18,51 @@ import { AnimatePresence } from 'framer-motion';
 import ParallelLoanView from '@/components/loan/ParallelLoanView';
 import type { ActiveLoansTabProps, ActiveLoan } from './types';
 
+interface MirrorLoanData {
+  id: string;
+  applicationNo?: string;
+  identifier?: string;
+  status?: string;
+  loanType?: string;
+  disbursedAmount?: number;
+  approvedAmount?: number;
+  disbursementDate?: string;
+  createdAt?: string;
+  interestRate?: number;
+  tenure?: number;
+  emiAmount?: number;
+  company?: { id?: string; name: string; code?: string };
+  customer?: { id?: string; name?: string; phone?: string; email?: string };
+  sessionForm?: {
+    approvedAmount?: number;
+    interestRate?: number;
+    tenure?: number;
+    emiAmount?: number;
+    disbursementDate?: string;
+  };
+}
+
+interface MirrorMapping {
+  id: string;
+  originalLoanId: string;
+  mirrorLoanId: string | null;
+  originalCompanyId: string;
+  mirrorCompanyId: string;
+  displayColor: string | null;
+  extraEMICount: number | null;
+  mirrorTenure: number | null;
+  originalTenure: number | null;
+  originalInterestRate: number | null;
+  mirrorInterestRate: number | null;
+  mirrorEMIsPaid: number | null;
+  extraEMIsPaid: number | null;
+  originalEMIAmount: number | null;
+  mirrorLoan: MirrorLoanData | null;
+  originalLoan: ActiveLoan | null;
+  mirrorCompany: { id: string; name: string; code: string } | null;
+  originalCompany: { id: string; name: string; code: string } | null;
+}
+
 function ActiveLoansTabComponent({
   activeLoans,
   loanStats,
@@ -27,7 +72,7 @@ function ActiveLoansTabComponent({
   formatCurrency,
   formatDate,
 }: ActiveLoansTabProps) {
-  const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+  const [mirrorMappings, setMirrorMappings] = useState<Record<string, MirrorMapping>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -39,7 +84,7 @@ function ActiveLoansTabComponent({
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.mappings) {
-            const mappingMap: Record<string, any> = {};
+            const mappingMap: Record<string, MirrorMapping> = {};
             for (const mapping of data.mappings) {
               mappingMap[mapping.originalLoanId] = mapping;
               if (mapping.mirrorLoanId) {
@@ -79,6 +124,67 @@ function ActiveLoansTabComponent({
     } : undefined
   });
 
+  // Convert MirrorLoanData to format expected by ParallelLoanView
+  const convertMirrorToLoanData = (mirrorLoan: MirrorLoanData | null, mapping: MirrorMapping, originalLoan: ActiveLoan) => {
+    // If there's an actual mirror loan record, use it
+    if (mirrorLoan) {
+      return {
+        id: mirrorLoan.id,
+        identifier: mirrorLoan.identifier || mirrorLoan.applicationNo,
+        applicationNo: mirrorLoan.applicationNo,
+        customer: mirrorLoan.customer,
+        customerName: mirrorLoan.customer?.name,
+        customerPhone: mirrorLoan.customer?.phone,
+        approvedAmount: mirrorLoan.approvedAmount || mirrorLoan.disbursedAmount || mirrorLoan.sessionForm?.approvedAmount || 0,
+        interestRate: mapping.mirrorInterestRate || mirrorLoan.interestRate || mirrorLoan.sessionForm?.interestRate || 0,
+        tenure: mapping.mirrorTenure || mirrorLoan.tenure || mirrorLoan.sessionForm?.tenure || 0,
+        emiAmount: mapping.originalEMIAmount || mirrorLoan.emiAmount || mirrorLoan.sessionForm?.emiAmount || 0,
+        status: mirrorLoan.status || 'ACTIVE',
+        loanType: mirrorLoan.loanType,
+        disbursementDate: mirrorLoan.disbursementDate || mirrorLoan.sessionForm?.disbursementDate,
+        createdAt: mirrorLoan.createdAt || '',
+        company: mirrorLoan.company ? {
+          id: mirrorLoan.company.id || '',
+          name: mirrorLoan.company.name,
+          code: mirrorLoan.company.code || ''
+        } : mapping.mirrorCompany ? {
+          id: mapping.mirrorCompany.id,
+          name: mapping.mirrorCompany.name,
+          code: mapping.mirrorCompany.code
+        } : undefined,
+        nextEmi: undefined
+      };
+    }
+    
+    // If no mirror loan record exists (offline loans), create a virtual mirror loan from mapping data
+    if (mapping && mapping.mirrorCompanyId) {
+      return {
+        id: `virtual-mirror-${mapping.id}`,
+        identifier: `MIRROR-${originalLoan.identifier}`,
+        applicationNo: `MIRROR-${originalLoan.identifier}`,
+        customer: originalLoan.customer,
+        customerName: originalLoan.customer?.name,
+        customerPhone: originalLoan.customer?.phone,
+        approvedAmount: originalLoan.approvedAmount || 0,
+        interestRate: mapping.mirrorInterestRate || 15,
+        tenure: mapping.mirrorTenure || 0,
+        emiAmount: mapping.originalEMIAmount || 0,
+        status: 'ACTIVE',
+        loanType: originalLoan.loanType,
+        disbursementDate: originalLoan.disbursementDate ? new Date(originalLoan.disbursementDate).toISOString() : undefined,
+        createdAt: originalLoan.createdAt ? new Date(originalLoan.createdAt).toISOString() : new Date().toISOString(),
+        company: mapping.mirrorCompany ? {
+          id: mapping.mirrorCompany.id,
+          name: mapping.mirrorCompany.name,
+          code: mapping.mirrorCompany.code
+        } : undefined,
+        nextEmi: undefined
+      };
+    }
+    
+    return null;
+  };
+
   // Filter loans
   const filteredLoans = activeLoans.filter(loan => {
     // Loan type filter
@@ -113,18 +219,23 @@ function ActiveLoansTabComponent({
   const renderLoanInParallelView = (loan: ActiveLoan, index: number) => {
     const mapping = mirrorMappings[loan.id];
     
+    // Get the actual mirror loan data from the mapping, or create virtual one from mapping data
+    const mirrorLoanData = mapping ? convertMirrorToLoanData(mapping.mirrorLoan, mapping, loan) : null;
+    
     return (
       <ParallelLoanView
         key={loan.id}
         originalLoan={convertToLoanData(loan)}
-        mirrorLoan={null}
+        mirrorLoan={mirrorLoanData}
         mirrorMapping={mapping ? {
           displayColor: mapping.displayColor,
           extraEMICount: mapping.extraEMICount,
           mirrorInterestRate: mapping.mirrorInterestRate,
           mirrorTenure: mapping.mirrorTenure,
           mirrorEMIsPaid: mapping.mirrorEMIsPaid,
-          extraEMIsPaid: mapping.extraEMIsPaid
+          extraEMIsPaid: mapping.extraEMIsPaid,
+          mirrorCompanyId: mapping.mirrorCompanyId,
+          originalCompanyId: mapping.originalCompanyId
         } : null}
         onViewOriginal={() => console.log('View original:', loan.id)}
         onViewMirror={() => console.log('View mirror:', loan.id)}
