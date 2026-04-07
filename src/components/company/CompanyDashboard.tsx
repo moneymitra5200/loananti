@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Building2, FileText, CheckCircle, XCircle, Clock, Users, Wallet, AlertTriangle, Eye, TrendingUp, DollarSign, BarChart3, UserCheck, UserPlus, Target, X, Loader2, Calendar, IndianRupee, ArrowLeft, PartyPopper, Sparkles } from 'lucide-react';
+import { Building2, FileText, CheckCircle, XCircle, Clock, Users, Wallet, AlertTriangle, Eye, TrendingUp, DollarSign, BarChart3, UserCheck, UserPlus, Target, X, Loader2, Calendar, IndianRupee, ArrowLeft, PartyPopper, Sparkles, Landmark } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -347,10 +347,14 @@ export default function CompanyDashboard() {
     { label: 'Total Disbursed', value: formatCurrency(totalDisbursed), icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('active') }
   ];
 
+  // Check if company has bank access (mirror companies = Company 1 & 2)
+  // Non-mirror companies (Company 3 - isMirrorCompany: false) only have cash book, no bank
+  const hasBankAccess = user?.company?.isMirrorCompany !== false; // true for mirror companies (isMirrorCompany: true or undefined)
+  
   const menuItems = ROLE_MENU_ITEMS.COMPANY
     .filter(item => {
       // Non-mirror companies (Company 3) don't have bank accounts
-      if (item.id === 'bank-head' && user?.company?.isMirrorCompany === false) {
+      if (item.id === 'bank-head' && !hasBankAccess) {
         return false;
       }
       return true;
@@ -1003,9 +1007,24 @@ export default function CompanyDashboard() {
         );
 
       case 'bank-head':
+        // Non-mirror companies (Company 3) don't have bank access
+        if (!hasBankAccess) {
+          return (
+            <Card className="border-0 shadow-sm">
+              <CardContent className="py-12 text-center">
+                <Landmark className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p className="text-gray-500">Bank access is not available for this company.</p>
+                <p className="text-sm text-gray-400 mt-2">Please use Cash Book for cash management.</p>
+                <Button className="mt-4" onClick={() => setActiveTab('daybook')}>
+                  Go to Daybook
+                </Button>
+              </CardContent>
+            </Card>
+          );
+        }
         return (
           <BankHeadSection 
-            companyId={user?.companyId || ''} 
+            companyId={user?.companyId || user?.company?.id || ''} 
             companyName={user?.company?.name || 'Company'} 
             companyCode={user?.company?.code || 'C1'} 
           />
@@ -1014,7 +1033,7 @@ export default function CompanyDashboard() {
       case 'daybook':
         return (
           <DaybookSection 
-            companyId={user?.companyId || ''} 
+            companyId={user?.companyId || user?.company?.id || ''} 
             companyName={user?.company?.name || 'Company'} 
             companyCode={user?.company?.code || 'C1'} 
           />
