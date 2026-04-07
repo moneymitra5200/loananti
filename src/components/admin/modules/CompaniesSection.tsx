@@ -59,7 +59,10 @@ function CompaniesSection({
     setDeleteDialog(prev => ({ ...prev, loading: true }));
 
     try {
-      // First delete the company user
+      console.log('[CompaniesSection] Starting permanent delete for company:', companyId);
+      
+      // Step 1: Delete the company user first (to remove FK reference)
+      console.log('[CompaniesSection] Deleting company user...');
       const userResponse = await fetch(`/api/user?id=${deleteDialog.company.id}`, {
         method: 'DELETE'
       });
@@ -69,8 +72,10 @@ function CompaniesSection({
       if (!userResponse.ok) {
         throw new Error(userData.error || 'Failed to delete company user');
       }
+      console.log('[CompaniesSection] User deleted successfully');
 
-      // Then delete the company
+      // Step 2: Delete the company (and all its related records)
+      console.log('[CompaniesSection] Deleting company...');
       const companyResponse = await fetch(`/api/company?id=${companyId}`, {
         method: 'DELETE'
       });
@@ -80,12 +85,15 @@ function CompaniesSection({
       if (!companyResponse.ok) {
         throw new Error(companyData.error || 'Failed to delete company');
       }
+      console.log('[CompaniesSection] Company deleted successfully');
 
-      toast.success('Company deleted successfully');
+      toast.success('Company permanently deleted');
       setDeleteDialog({ open: false, company: null, loading: false });
+      
+      // Refresh the data
       onRefresh();
     } catch (error) {
-      console.error('Delete error:', error);
+      console.error('[CompaniesSection] Delete error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to delete company');
       setDeleteDialog(prev => ({ ...prev, loading: false }));
     }

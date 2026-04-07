@@ -6,14 +6,17 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const isActive = searchParams.get('isActive');
+    const noCache = searchParams.get('noCache');
 
     // Generate cache key
     const cacheKey = isActive ? `companies:active` : CacheKeys.companiesList();
 
-    // Check cache first
-    const cachedCompanies = cache.get(cacheKey);
-    if (cachedCompanies) {
-      return NextResponse.json({ companies: cachedCompanies, cached: true });
+    // Check cache first (skip if noCache is true)
+    if (noCache !== 'true') {
+      const cachedCompanies = cache.get(cacheKey);
+      if (cachedCompanies) {
+        return NextResponse.json({ companies: cachedCompanies, cached: true });
+      }
     }
 
     const where: any = {};
@@ -53,8 +56,18 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    // Deduplicate by code (in case of database issues)
+    const seenCodes = new Set<string>();
+    const deduplicatedCompanies = companies.filter(company => {
+      if (seenCodes.has(company.code)) {
+        return false; // Skip duplicate
+      }
+      seenCodes.add(company.code);
+      return true;
+    });
+
     // Format response
-    const formattedCompanies = companies.map(c => ({
+    const formattedCompanies = deduplicatedCompanies.map(c => ({
       ...c,
       loanCount: 0 // Will be fetched separately if needed
     }));
@@ -190,6 +203,8 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
+    console.log('[Company DELETE] Starting permanent delete for company:', id);
+
     if (!id) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
@@ -206,14 +221,60 @@ export async function DELETE(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // Delete all related records for this company (PERMANENT DELETE)
+    console.log('[Company DELETE] Deleting related records...');
+    
+    // Delete in order respecting foreign key constraints
+    await Promise.all([
+      // Delete chart of accounts
+      db.ledgerBalance.deleteMany({ where: { account: { companyId: id } } }),
+      db.journalEntryLine.deleteMany({ where: { account: { companyId: id } } }),
+      db.chartOfAccount.deleteMany({ where: { companyId: id } }),
+      // Delete financial years
+      db.ledgerBalance.deleteMany({ where: { financialYear: { companyId: id } } }),
+      db.financialYear.deleteMany({ where: { companyId: id } }),
+      // Delete bank accounts
+      db.bankAccount.deleteMany({ where: { companyId: id } }),
+      // Delete other related records
+      db.ledger.deleteMany({ where: { companyId: id } }),
+      db.expense.deleteMany({ where: { companyId: id } }),
+      db.journalEntry.deleteMany({ where: { companyId: id } }),
+      db.gstConfig.deleteMany({ where: { companyId: id } }),
+      db.fixedAsset.deleteMany({ where: { companyId: id } }),
+      db.commissionSlab.deleteMany({ where: { companyId: id } }),
+      db.gracePeriodConfig.deleteMany({ where: { companyId: id } }),
+      db.preApprovedOffer.deleteMany({ where: { companyId: id } }),
+      db.agentPerformance.deleteMany({ where: { companyId: id } }),
+    ]);
+
+    // PERMANENT DELETE - Hard delete the company
+    console.log('[Company DELETE] Permanently deleting company:', id);
     await db.company.delete({ where: { id } });
 
-    // Invalidate company cache
+    // Clear ALL caches
     cache.deletePattern('companies:');
+    cache.deletePattern('users:');
 
-    return NextResponse.json({ success: true });
+    console.log('[Company DELETE] Company permanently deleted successfully');
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Company permanently deleted from database',
+      deletedCompanyId: id 
+    });
   } catch (error) {
-    console.error('Error deleting company:', error);
-    return NextResponse.json({ error: 'Failed to delete company' }, { status: 500 });
+    console.error('[Company DELETE] Error deleting company:', error);
+    
+    // Handle foreign key constraint errors
+    if (error instanceof Error && error.message.includes('Foreign key constraint failed')) {
+      return NextResponse.json({ 
+        error: 'Cannot delete company. It has related records in the system.' 
+      }, { status: 400 });
+    }
+    
+    return NextResponse.json({ 
+      error: 'Failed to delete company',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }

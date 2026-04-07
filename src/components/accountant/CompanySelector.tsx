@@ -51,10 +51,22 @@ export default function CompanySelector({
   const fetchCompanies = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/company');
+      // Use noCache=true to ensure fresh data and avoid duplicates
+      const res = await fetch('/api/company?noCache=true');
       const data = await res.json();
+      
+      // Deduplicate by ID in case of any remaining duplicates
+      const seenIds = new Set<string>();
+      const uniqueCompanies = (data.companies || []).filter((company: Company) => {
+        if (seenIds.has(company.id)) {
+          return false;
+        }
+        seenIds.add(company.id);
+        return true;
+      });
+      
       const companiesWithBanks = await Promise.all(
-        (data.companies || []).map(async (company: Company) => {
+        uniqueCompanies.map(async (company: Company) => {
           try {
             const bankRes = await fetch(`/api/accounting/bank-accounts?companyId=${company.id}`);
             const bankData = await bankRes.json();

@@ -398,6 +398,8 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
+    console.log('[User DELETE] Starting permanent delete for user:', id);
+
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
@@ -417,12 +419,17 @@ export async function DELETE(request: NextRequest) {
       }, { status: 403 });
     }
 
+    // For COMPANY role users, we need to handle company deletion separately
+    // This is called from CompaniesSection which handles company deletion first
+    
     // Check for critical related records that prevent deletion
     const [loanApplications, sessionForms, payments] = await Promise.all([
       db.loanApplication.count({ where: { customerId: id } }),
       db.sessionForm.count({ where: { agentId: id } }),
       db.payment.count({ where: { customerId: id } }),
     ]);
+
+    console.log('[User DELETE] Related records:', { loanApplications, sessionForms, payments });
 
     // These are critical - cannot delete if user has these
     if (loanApplications > 0 || sessionForms > 0 || payments > 0) {
@@ -437,7 +444,8 @@ export async function DELETE(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Delete non-critical related records (audit logs, notifications, etc.)
+    // Delete non-critical related records (audit logs, notifications, etc.) - PERMANENT DELETE
+    console.log('[User DELETE] Deleting related records...');
     await Promise.all([
       db.auditLog.deleteMany({ where: { userId: id } }),
       db.notification.deleteMany({ where: { userId: id } }),
@@ -458,15 +466,24 @@ export async function DELETE(request: NextRequest) {
       }
     });
 
-    // Delete the user
+    // PERMANENT DELETE - Hard delete the user from database
+    console.log('[User DELETE] Permanently deleting user:', id);
     await db.user.delete({ where: { id } });
 
-    // Invalidate user cache
+    // Clear ALL caches to ensure fresh data
     invalidateUserCache(id);
+    cache.deletePattern('companies:');
+    cache.deletePattern('users:');
 
-    return NextResponse.json({ success: true, message: 'User deleted successfully' });
+    console.log('[User DELETE] User permanently deleted successfully');
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'User permanently deleted from database',
+      deletedUserId: id 
+    });
   } catch (error) {
-    console.error('Error deleting user:', error);
+    console.error('[User DELETE] Error deleting user:', error);
     
     // Handle Prisma foreign key constraint errors
     if (error instanceof Error && error.message.includes('Foreign key constraint failed')) {
