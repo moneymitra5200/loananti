@@ -218,7 +218,11 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, action, userId, rejectionReason, disbursementBankAccountId, disbursementReference, extraEMIPaymentPageId } = body;
+    const { 
+      id, action, userId, rejectionReason, disbursementBankAccountId, disbursementReference, extraEMIPaymentPageId,
+      // Split Payment Support
+      useSplitPayment, bankAmount, cashAmount
+    } = body;
 
     if (!id || !action || !userId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -533,35 +537,118 @@ export async function PUT(request: NextRequest) {
       });
 
       // ============================================
-      // DEDUCT FROM MIRROR COMPANY'S BANK ACCOUNT
+      // DEDUCT FROM MIRROR COMPANY'S BANK ACCOUNT AND/OR CASH BOOK
       // This is the ACTUAL disbursement - money goes out from mirror company
+      // Supports Split Payment (Bank + Cash)
       // ============================================
-      if (disbursementBankAccountId) {
+      
+      const principalAmount = pendingLoan.principalAmount;
+      const isSplitPayment = useSplitPayment && bankAmount && cashAmount;
+      
+      if (isSplitPayment) {
+        console.log(`[Mirror Loan] Split Payment: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
+        
+        // 1. Handle Bank Portion
+        if (bankAmount > 0 && disbursementBankAccountId) {
+          const bank = await db.bankAccount.findUnique({ 
+            where: { id: disbursementBankAccountId },
+            select: { currentBalance: true, companyId: true }
+          });
+          
+          if (bank) {
+            if (bank.companyId !== pendingLoan.mirrorCompanyId) {
+              console.warn(`[Mirror Loan] WARNING: Bank account ${disbursementBankAccountId} does not belong to mirror company ${pendingLoan.mirrorCompanyId}`);
+            }
+            
+            const newBalance = bank.currentBalance - bankAmount;
+            
+            await db.bankAccount.update({
+              where: { id: disbursementBankAccountId },
+              data: { currentBalance: newBalance }
+            });
+            
+            await db.bankTransaction.create({
+              data: {
+                bankAccountId: disbursementBankAccountId,
+                transactionType: 'DEBIT',
+                amount: bankAmount,
+                balanceAfter: newBalance,
+                description: `Mirror Loan Disbursement (Bank Portion) - ${mirrorApplicationNo}`,
+                referenceType: 'LOAN_DISBURSEMENT',
+                referenceId: mirrorLoan.id,
+                createdById: userId
+              }
+            });
+            
+            console.log(`[Mirror Loan] Bank deduction: ₹${bankAmount}, New Balance: ₹${newBalance}`);
+          }
+        }
+        
+        // 2. Handle Cash Portion
+        if (cashAmount > 0) {
+          let cashBook = await db.cashBook.findUnique({
+            where: { companyId: pendingLoan.mirrorCompanyId }
+          });
+          
+          if (!cashBook) {
+            cashBook = await db.cashBook.create({
+              data: {
+                companyId: pendingLoan.mirrorCompanyId,
+                openingBalance: 0,
+                currentBalance: 0
+              }
+            });
+          }
+          
+          const newCashBalance = cashBook.currentBalance - cashAmount;
+          
+          await db.cashBookEntry.create({
+            data: {
+              cashBookId: cashBook.id,
+              entryType: 'DEBIT',
+              amount: cashAmount,
+              balanceAfter: newCashBalance,
+              description: `Mirror Loan Disbursement (Cash Portion) - ${mirrorApplicationNo}`,
+              referenceType: 'LOAN_DISBURSEMENT',
+              referenceId: mirrorLoan.id,
+              createdById: userId
+            }
+          });
+          
+          await db.cashBook.update({
+            where: { id: cashBook.id },
+            data: {
+              currentBalance: newCashBalance,
+              lastUpdatedAt: new Date()
+            }
+          });
+          
+          console.log(`[Mirror Loan] Cash deduction: ₹${cashAmount}, New Balance: ₹${newCashBalance}`);
+        }
+      } else if (disbursementBankAccountId) {
+        // Single Bank Payment
         const bank = await db.bankAccount.findUnique({ 
           where: { id: disbursementBankAccountId },
           select: { currentBalance: true, companyId: true }
         });
         
         if (bank) {
-          // Verify the bank account belongs to the mirror company
           if (bank.companyId !== pendingLoan.mirrorCompanyId) {
             console.warn(`[Mirror Loan] WARNING: Bank account ${disbursementBankAccountId} does not belong to mirror company ${pendingLoan.mirrorCompanyId}`);
           }
           
-          const newBalance = bank.currentBalance - pendingLoan.principalAmount;
+          const newBalance = bank.currentBalance - principalAmount;
           
-          // Update bank balance
           await db.bankAccount.update({
             where: { id: disbursementBankAccountId },
             data: { currentBalance: newBalance }
           });
           
-          // Create bank transaction record
           await db.bankTransaction.create({
             data: {
               bankAccountId: disbursementBankAccountId,
               transactionType: 'DEBIT',
-              amount: pendingLoan.principalAmount,
+              amount: principalAmount,
               balanceAfter: newBalance,
               description: `Mirror Loan Disbursement - ${mirrorApplicationNo} (Original: ${originalLoan.applicationNo})`,
               referenceType: 'LOAN_DISBURSEMENT',
@@ -570,12 +657,52 @@ export async function PUT(request: NextRequest) {
             }
           });
           
-          console.log(`[Mirror Loan] Bank transaction created: Account ${disbursementBankAccountId}, Amount: ${pendingLoan.principalAmount}, New Balance: ${newBalance}`);
+          console.log(`[Mirror Loan] Bank transaction created: Account ${disbursementBankAccountId}, Amount: ${principalAmount}, New Balance: ${newBalance}`);
         } else {
           console.error(`[Mirror Loan] ERROR: Bank account ${disbursementBankAccountId} not found!`);
         }
       } else {
-        console.warn(`[Mirror Loan] WARNING: No bank account ID provided for disbursement. Bank balance NOT updated.`);
+        console.warn(`[Mirror Loan] WARNING: No bank account ID provided for disbursement. Checking for cash-only disbursement...`);
+        
+        // Cash-only disbursement
+        let cashBook = await db.cashBook.findUnique({
+          where: { companyId: pendingLoan.mirrorCompanyId }
+        });
+        
+        if (!cashBook) {
+          cashBook = await db.cashBook.create({
+            data: {
+              companyId: pendingLoan.mirrorCompanyId,
+              openingBalance: 0,
+              currentBalance: 0
+            }
+          });
+        }
+        
+        const newCashBalance = cashBook.currentBalance - principalAmount;
+        
+        await db.cashBookEntry.create({
+          data: {
+            cashBookId: cashBook.id,
+            entryType: 'DEBIT',
+            amount: principalAmount,
+            balanceAfter: newCashBalance,
+            description: `Mirror Loan Disbursement (Cash) - ${mirrorApplicationNo}`,
+            referenceType: 'LOAN_DISBURSEMENT',
+            referenceId: mirrorLoan.id,
+            createdById: userId
+          }
+        });
+        
+        await db.cashBook.update({
+          where: { id: cashBook.id },
+          data: {
+            currentBalance: newCashBalance,
+            lastUpdatedAt: new Date()
+          }
+        });
+        
+        console.log(`[Mirror Loan] Cash disbursement: ₹${principalAmount}, New Balance: ₹${newCashBalance}`);
       }
 
       // Update pending loan status

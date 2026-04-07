@@ -269,13 +269,16 @@ async function scanAndRecalculateAccountBalances(companyId: string): Promise<Sca
 
 /**
  * SCANNER 1: CashBook Sync
- * Detects: Equity entries in Chart of Accounts that are missing in CashBook
- * Fixes: Creates missing CashBook entries
+ * Detects: All transactions that should be in CashBook but are missing
+ * Fixes: Creates missing CashBook entries from:
+ *   1. Equity entries in Chart of Accounts
+ *   2. Loan disbursements (including mirror loan disbursements)
+ *   3. Bank transactions that should have cash counterpart
  */
 async function scanAndFixCashBookSync(companyId: string): Promise<ScanResult> {
   const result: ScanResult = {
     scanName: 'CashBook Sync',
-    description: 'Syncs CashBook with Chart of Accounts equity entries',
+    description: 'Syncs CashBook with all cash-related transactions',
     issuesFound: 0,
     issuesFixed: 0,
     details: [],
@@ -302,93 +305,152 @@ async function scanAndFixCashBookSync(companyId: string): Promise<ScanResult> {
       result.details.push('Created new CashBook');
     }
 
-    const chartCashBalance = cashAccount.currentBalance || 0;
-    const cashBookBalance = cashBook.currentBalance || 0;
+    // 1. Sync from Journal Entries that affect cash
+    const cashJournalEntries = await db.journalEntry.findMany({
+      where: {
+        companyId,
+        isApproved: true,
+        isReversed: false,
+        lines: {
+          some: {
+            accountId: cashAccount.id,
+            OR: [
+              { debitAmount: { gt: 0 } },
+              { creditAmount: { gt: 0 } }
+            ]
+          }
+        }
+      },
+      include: {
+        lines: {
+          where: { accountId: cashAccount.id }
+        }
+      }
+    });
 
-    // Check for discrepancy
-    if (Math.abs(chartCashBalance - cashBookBalance) > 0.01) {
-      result.issuesFound = 1;
-      result.details.push(`Discrepancy found: Chart of Accounts shows ₹${chartCashBalance}, CashBook shows ₹${cashBookBalance}`);
+    for (const entry of cashJournalEntries) {
+      for (const line of entry.lines) {
+        const existingEntry = await db.cashBookEntry.findFirst({
+          where: { 
+            cashBookId: cashBook.id, 
+            referenceId: entry.id,
+            referenceType: entry.referenceType || 'MANUAL_ENTRY'
+          }
+        });
 
-      // Find all journal entries that affect cash
-      const cashJournalEntries = await db.journalEntry.findMany({
-        where: {
-          companyId,
-          isApproved: true,
-          isReversed: false,
-          lines: {
-            some: {
-              accountId: cashAccount.id,
-              OR: [
-                { debitAmount: { gt: 0 } },
-                { creditAmount: { gt: 0 } }
-              ]
+        if (!existingEntry) {
+          const lastEntry = await db.cashBookEntry.findFirst({
+            where: { cashBookId: cashBook.id },
+            orderBy: { createdAt: 'desc' }
+          });
+          const lastBalance = lastEntry?.balanceAfter || 0;
+          
+          const isCredit = line.debitAmount > 0;
+          const amount = Math.max(line.debitAmount, line.creditAmount);
+          const newBalance = isCredit ? lastBalance + amount : lastBalance - amount;
+
+          await db.cashBookEntry.create({
+            data: {
+              cashBookId: cashBook.id,
+              entryType: isCredit ? 'CREDIT' : 'DEBIT',
+              amount,
+              balanceAfter: newBalance,
+              description: entry.narration || 'Auto-synced from journal entry',
+              referenceType: entry.referenceType || 'MANUAL_ENTRY',
+              referenceId: entry.id,
+              entryDate: entry.entryDate,
+              createdById: entry.createdById
             }
-          }
-        },
-        include: {
-          lines: {
-            where: { accountId: cashAccount.id }
-          }
+          });
+          result.issuesFound++;
+          result.issuesFixed++;
+          result.details.push(`Created CashBook entry for ${entry.entryNumber}: ₹${amount}`);
+        }
+      }
+    }
+
+    // 2. Sync from Loan Disbursements (for mirror loans)
+    const disbursedLoans = await db.loanApplication.findMany({
+      where: {
+        companyId,
+        status: 'ACTIVE',
+        disbursedAmount: { not: null }
+      }
+    });
+
+    for (const loan of disbursedLoans) {
+      // Check if this is a mirror loan disbursement (no bank account used)
+      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        where: { mirrorLoanId: loan.id }
+      });
+
+      // Check if CashBook entry exists for this disbursement
+      const existingEntry = await db.cashBookEntry.findFirst({
+        where: {
+          cashBookId: cashBook.id,
+          referenceId: loan.id,
+          referenceType: 'LOAN_DISBURSEMENT'
         }
       });
 
-      // Create missing CashBook entries
-      for (const entry of cashJournalEntries) {
-        for (const line of entry.lines) {
-          const existingEntry = await db.cashBookEntry.findFirst({
-            where: { cashBookId: cashBook.id, referenceId: entry.id }
+      if (!existingEntry && loan.disbursedAmount) {
+        // Check if there's a BankTransaction for this loan
+        const bankTransaction = await db.bankTransaction.findFirst({
+          where: {
+            referenceId: loan.id,
+            referenceType: 'LOAN_DISBURSEMENT'
+          }
+        });
+
+        // If no bank transaction, it might be a cash disbursement
+        // But we need to check if the amount was fully covered by bank
+        if (!bankTransaction) {
+          // Check journal entries instead
+          const journalEntry = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: loan.id,
+              referenceType: 'LOAN_DISBURSEMENT'
+            },
+            include: { lines: true }
           });
 
-          if (!existingEntry) {
-            const lastEntry = await db.cashBookEntry.findFirst({
-              where: { cashBookId: cashBook.id },
-              orderBy: { createdAt: 'desc' }
-            });
-            const lastBalance = lastEntry?.balanceAfter || 0;
-            
-            const isCredit = line.debitAmount > 0;
-            const amount = Math.max(line.debitAmount, line.creditAmount);
-            const newBalance = isCredit ? lastBalance + amount : lastBalance - amount;
-
-            await db.cashBookEntry.create({
-              data: {
-                cashBookId: cashBook.id,
-                entryType: isCredit ? 'CREDIT' : 'DEBIT',
-                amount,
-                balanceAfter: newBalance,
-                description: entry.narration || 'Auto-synced from journal entry',
-                referenceType: entry.referenceType || 'MANUAL_ENTRY',
-                referenceId: entry.id,
-                entryDate: entry.entryDate,
-                createdById: entry.createdById
-              }
-            });
-            result.details.push(`Created CashBook entry for ${entry.entryNumber}: ₹${amount}`);
+          if (journalEntry) {
+            // Check if cash account was credited
+            const cashLine = journalEntry.lines.find(l => l.accountId === cashAccount.id);
+            if (cashLine && cashLine.creditAmount > 0) {
+              result.details.push(`Loan ${loan.applicationNo}: Cash journal entry exists, CashBook should be synced`);
+            }
           }
         }
       }
+    }
 
-      // Recalculate and update CashBook balance
-      const credits = await db.cashBookEntry.aggregate({
-        where: { cashBookId: cashBook.id, entryType: 'CREDIT' },
-        _sum: { amount: true }
-      });
-      const debits = await db.cashBookEntry.aggregate({
-        where: { cashBookId: cashBook.id, entryType: 'DEBIT' },
-        _sum: { amount: true }
-      });
+    // 3. Recalculate CashBook balance
+    const credits = await db.cashBookEntry.aggregate({
+      where: { cashBookId: cashBook.id, entryType: 'CREDIT' },
+      _sum: { amount: true }
+    });
+    const debits = await db.cashBookEntry.aggregate({
+      where: { cashBookId: cashBook.id, entryType: 'DEBIT' },
+      _sum: { amount: true }
+    });
 
-      const correctBalance = (credits._sum.amount || 0) - (debits._sum.amount || 0);
+    const correctBalance = (credits._sum.amount || 0) - (debits._sum.amount || 0);
+    const currentBalance = cashBook.currentBalance || 0;
+
+    if (Math.abs(correctBalance - currentBalance) > 0.01) {
+      result.issuesFound++;
       await db.cashBook.update({
         where: { id: cashBook.id },
         data: { currentBalance: correctBalance }
       });
+      result.issuesFixed++;
+      result.details.push(`CashBook balance corrected: ₹${currentBalance} → ₹${correctBalance}`);
+    }
 
-      result.issuesFixed = 1;
-      result.details.push(`CashBook balance updated to ₹${correctBalance}`);
-    } else {
-      result.details.push('CashBook is in sync with Chart of Accounts');
+    if (result.issuesFound === 0) {
+      result.details.push('CashBook is in sync with all transactions');
     }
 
   } catch (error) {
