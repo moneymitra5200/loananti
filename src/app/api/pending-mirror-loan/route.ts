@@ -705,6 +705,171 @@ export async function PUT(request: NextRequest) {
         console.log(`[Mirror Loan] Cash disbursement: ₹${principalAmount}, New Balance: ₹${newCashBalance}`);
       }
 
+      // ============================================
+      // CREATE JOURNAL ENTRY FOR DOUBLE-ENTRY ACCOUNTING
+      // Debit: Loans Receivable (Asset increases)
+      // Credit: Cash in Hand / Bank Account (Asset decreases)
+      // ============================================
+      
+      try {
+        // Get or create financial year
+        const currentYear = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
+        const yearName = `FY ${currentYear}-${currentYear + 1}`;
+        
+        let financialYear = await db.financialYear.findFirst({
+          where: { companyId: pendingLoan.mirrorCompanyId, name: yearName }
+        });
+        
+        if (!financialYear) {
+          financialYear = await db.financialYear.create({
+            data: {
+              companyId: pendingLoan.mirrorCompanyId,
+              name: yearName,
+              startDate: new Date(currentYear, 3, 1),
+              endDate: new Date(currentYear + 1, 2, 31),
+              isClosed: false,
+            },
+          });
+        }
+        
+        // Get required accounts
+        const loansReceivableAccount = await db.chartOfAccount.findFirst({
+          where: { companyId: pendingLoan.mirrorCompanyId, accountCode: '1200' }
+        });
+        const cashInHandAccount = await db.chartOfAccount.findFirst({
+          where: { companyId: pendingLoan.mirrorCompanyId, accountCode: '1101' }
+        });
+        
+        // Find or create bank account in Chart of Accounts
+        let bankCOAAccount = null;
+        if (disbursementBankAccountId) {
+          const bankAccount = await db.bankAccount.findUnique({
+            where: { id: disbursementBankAccountId }
+          });
+          
+          if (bankAccount) {
+            bankCOAAccount = await db.chartOfAccount.findFirst({
+              where: {
+                companyId: pendingLoan.mirrorCompanyId,
+                accountCode: { startsWith: '14' }
+              }
+            });
+            
+            if (!bankCOAAccount) {
+              // Create bank account in Chart of Accounts
+              bankCOAAccount = await db.chartOfAccount.create({
+                data: {
+                  companyId: pendingLoan.mirrorCompanyId,
+                  accountCode: '1401',
+                  accountName: `${bankAccount.bankName} - ${bankAccount.accountNumber.slice(-4)}`,
+                  accountType: 'ASSET',
+                  description: `Bank Account: ${bankAccount.bankName}`,
+                  openingBalance: 0,
+                  currentBalance: bankAccount.currentBalance,
+                  isActive: true,
+                }
+              });
+            }
+          }
+        }
+        
+        if (loansReceivableAccount && (cashInHandAccount || bankCOAAccount)) {
+          // Generate entry number
+          const existingCount = await db.journalEntry.count({
+            where: { companyId: pendingLoan.mirrorCompanyId }
+          });
+          const entryNumber = `JE${String(existingCount + 1).padStart(6, '0')}`;
+          
+          const effectiveBankAmount = isSplitPayment ? (bankAmount || 0) : (disbursementBankAccountId ? principalAmount : 0);
+          const effectiveCashAmount = isSplitPayment ? (cashAmount || 0) : (disbursementBankAccountId ? 0 : principalAmount);
+          
+          // Create journal entry lines
+          const journalLines = [];
+          
+          // Debit: Loans Receivable
+          journalLines.push({
+            accountId: loansReceivableAccount.id,
+            debitAmount: principalAmount,
+            creditAmount: 0,
+            narration: `Mirror Loan Disbursement - ${mirrorApplicationNo}`,
+            loanId: mirrorLoan.id,
+            customerId: originalLoan.customerId,
+          });
+          
+          // Credit: Bank Account (if bank payment)
+          if (effectiveBankAmount > 0 && bankCOAAccount) {
+            journalLines.push({
+              accountId: bankCOAAccount.id,
+              debitAmount: 0,
+              creditAmount: effectiveBankAmount,
+              narration: `Mirror Loan Disbursement (Bank) - ${mirrorApplicationNo}`,
+            });
+          }
+          
+          // Credit: Cash in Hand (if cash payment)
+          if (effectiveCashAmount > 0 && cashInHandAccount) {
+            journalLines.push({
+              accountId: cashInHandAccount.id,
+              debitAmount: 0,
+              creditAmount: effectiveCashAmount,
+              narration: `Mirror Loan Disbursement (Cash) - ${mirrorApplicationNo}`,
+            });
+          }
+          
+          // Create the journal entry
+          await db.journalEntry.create({
+            data: {
+              companyId: pendingLoan.mirrorCompanyId,
+              entryNumber,
+              entryDate: new Date(),
+              referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+              referenceId: mirrorLoan.id,
+              narration: `Mirror Loan Disbursement - ${mirrorApplicationNo}`,
+              totalDebit: principalAmount,
+              totalCredit: principalAmount,
+              isAutoEntry: true,
+              isApproved: true,
+              createdById: userId,
+              paymentMode: isSplitPayment ? 'SPLIT' : (effectiveBankAmount > 0 ? 'BANK_TRANSFER' : 'CASH'),
+              bankAccountId: disbursementBankAccountId || null,
+              lines: {
+                create: journalLines
+              }
+            }
+          });
+          
+          // Update account balances
+          // Loans Receivable increases (debit)
+          await db.chartOfAccount.update({
+            where: { id: loansReceivableAccount.id },
+            data: { currentBalance: loansReceivableAccount.currentBalance + principalAmount }
+          });
+          
+          // Bank Account decreases (credit)
+          if (effectiveBankAmount > 0 && bankCOAAccount) {
+            await db.chartOfAccount.update({
+              where: { id: bankCOAAccount.id },
+              data: { currentBalance: bankCOAAccount.currentBalance - effectiveBankAmount }
+            });
+          }
+          
+          // Cash in Hand decreases (credit)
+          if (effectiveCashAmount > 0 && cashInHandAccount) {
+            await db.chartOfAccount.update({
+              where: { id: cashInHandAccount.id },
+              data: { currentBalance: cashInHandAccount.currentBalance - effectiveCashAmount }
+            });
+          }
+          
+          console.log(`[Mirror Loan] Journal entry ${entryNumber} created for disbursement`);
+        } else {
+          console.warn(`[Mirror Loan] WARNING: Could not create journal entry - accounts not found`);
+        }
+      } catch (jeError) {
+        console.error(`[Mirror Loan] Error creating journal entry:`, jeError);
+        // Continue - disbursement is still successful
+      }
+
       // Update pending loan status
       const updated = await db.pendingMirrorLoan.update({
         where: { id },
