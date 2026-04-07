@@ -425,6 +425,12 @@ export function ActiveLoansSection({
       formData.append('paymentMode', paymentMode);
       formData.append('paidBy', userId);
       formData.append('paymentType', paymentType);
+      
+      // Pass mirror company ID for mirror loans - payment should be recorded in mirror company's books
+      if (selectedLoan.mirrorCompanyId) {
+        formData.append('mirrorCompanyId', selectedLoan.mirrorCompanyId);
+        console.log(`[EMI Payment] Mirror loan detected - payment will be recorded in mirror company: ${selectedLoan.mirrorCompanyId}`);
+      }
 
       if (paymentType === 'PARTIAL_PAYMENT') {
         formData.append('partialAmount', partialAmount);
@@ -1393,6 +1399,25 @@ export function ActiveLoansSection({
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Mirror Loan Payment Info Banner */}
+              {selectedLoan?.mirrorCompanyId && (
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 text-blue-800 mb-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="font-semibold">Mirror Loan Payment</span>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    This loan is mirrored to <strong>{mirrorLoanData?.mirrorCompanyName || 'Mirror Company'}</strong>.
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    <strong>Payment will be recorded in: {mirrorLoanData?.mirrorCompanyName || 'Mirror Company'}'s Bank/Cashbook</strong>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Original loan ({selectedLoan?.company?.name || 'Company 3'}) is for record-keeping only.
+                  </p>
+                </div>
+              )}
 
               {/* Payment Summary */}
               <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
