@@ -23,7 +23,7 @@ export interface User {
   lastActivityAt?: Date | string;
   lastLocation?: string;
   companyId?: string | null;
-  company?: { id: string; name: string; code: string } | null;
+  company?: { id: string; name: string; code: string; isMirrorCompany?: boolean } | null;
   agentId?: string | null;
   agent?: { id: string; name: string; agentCode: string } | null;
   agentCode?: string;

@@ -104,8 +104,17 @@ export async function POST(request: NextRequest) {
           isLocked: admin.isLocked,
           companyId: admin.companyId,
           agentId: admin.agentId,
-          company: admin.company,
-          agent: admin.agent,
+          company: admin.company ? { 
+            id: admin.company.id, 
+            name: admin.company.name, 
+            code: admin.company.code,
+            isMirrorCompany: admin.company.isMirrorCompany 
+          } : null,
+          agent: admin.agent ? { 
+            id: admin.agent.id, 
+            name: admin.agent.name, 
+            agentCode: admin.agent.agentCode 
+          } : null,
           agentCode: admin.agentCode,
           staffCode: admin.staffCode,
           cashierCode: admin.cashierCode,
@@ -227,8 +236,17 @@ export async function POST(request: NextRequest) {
         profilePicture: user.profilePicture,
         companyId: user.companyId || user.company?.id || null,
         agentId: user.agentId || null,
-        company: user.company ? { id: user.company.id, name: user.company.name, code: user.company.code } : null,
-        agent: user.agent ? { id: user.agent.id, name: user.agent.name, agentCode: user.agent.agentCode } : null,
+        company: user.company ? { 
+          id: user.company.id, 
+          name: user.company.name, 
+          code: user.company.code,
+          isMirrorCompany: user.company.isMirrorCompany 
+        } : null,
+        agent: user.agent ? { 
+          id: user.agent.id, 
+          name: user.agent.name, 
+          agentCode: user.agent.agentCode 
+        } : null,
         agentCode: user.agentCode,
         staffCode: user.staffCode,
         cashierCode: user.cashierCode,
@@ -277,8 +295,17 @@ export async function GET(request: NextRequest) {
         profilePicture: user.profilePicture,
         companyId: user.companyId || user.company?.id || null,
         agentId: user.agentId || null,
-        company: user.company ? { id: user.company.id, name: user.company.name, code: user.company.code } : null,
-        agent: user.agent ? { id: user.agent.id, name: user.agent.name, agentCode: user.agent.agentCode } : null,
+        company: user.company ? { 
+          id: user.company.id, 
+          name: user.company.name, 
+          code: user.company.code,
+          isMirrorCompany: user.company.isMirrorCompany 
+        } : null,
+        agent: user.agent ? { 
+          id: user.agent.id, 
+          name: user.agent.name, 
+          agentCode: user.agent.agentCode 
+        } : null,
         agentCode: user.agentCode,
         staffCode: user.staffCode,
         cashierCode: user.cashierCode,

@@ -118,6 +118,46 @@ export async function POST(request: NextRequest) {
           where: { id: cashAccount.id },
           data: { currentBalance: cashAccount.currentBalance + cashAmount }
         });
+        
+        // Also update the CashBook table for this company
+        let cashBook = await tx.cashBook.findUnique({
+          where: { companyId }
+        });
+        
+        if (!cashBook) {
+          // Create cash book if not exists
+          cashBook = await tx.cashBook.create({
+            data: {
+              companyId,
+              openingBalance: 0,
+              currentBalance: 0
+            }
+          });
+        }
+        
+        // Update cash book balance
+        const newCashBalance = cashBook.currentBalance + cashAmount;
+        await tx.cashBook.update({
+          where: { id: cashBook.id },
+          data: { 
+            currentBalance: newCashBalance,
+            lastUpdatedAt: new Date()
+          }
+        });
+        
+        // Create cash book entry
+        await tx.cashBookEntry.create({
+          data: {
+            cashBookId: cashBook.id,
+            entryType: 'CREDIT',
+            amount: cashAmount,
+            balanceAfter: newCashBalance,
+            description: description || 'Owner equity investment - Cash',
+            referenceType: 'EQUITY_INVESTMENT',
+            createdById: createdById || 'system',
+            entryDate: new Date()
+          }
+        });
       }
 
       // Get or create Bank - Main account (1103)
@@ -158,6 +198,32 @@ export async function POST(request: NextRequest) {
           where: { id: bankAccount.id },
           data: { currentBalance: bankAccount.currentBalance + bankAmount }
         });
+        
+        // Also update the actual BankAccount table if there's a default bank account
+        const defaultBankAccount = await tx.bankAccount.findFirst({
+          where: { companyId, isDefault: true, isActive: true }
+        });
+        
+        if (defaultBankAccount) {
+          await tx.bankAccount.update({
+            where: { id: defaultBankAccount.id },
+            data: { currentBalance: defaultBankAccount.currentBalance + bankAmount }
+          });
+          
+          // Create bank transaction record
+          await tx.bankTransaction.create({
+            data: {
+              bankAccountId: defaultBankAccount.id,
+              transactionType: 'CREDIT',
+              amount: bankAmount,
+              balanceAfter: defaultBankAccount.currentBalance + bankAmount,
+              description: description || 'Owner equity investment - Bank',
+              referenceType: 'EQUITY_INVESTMENT',
+              transactionDate: new Date(),
+              createdById: createdById || 'system'
+            }
+          });
+        }
       }
 
       // Credit: Owner's Capital (Equity increases with credit)

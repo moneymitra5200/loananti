@@ -347,13 +347,21 @@ export default function CompanyDashboard() {
     { label: 'Total Disbursed', value: formatCurrency(totalDisbursed), icon: DollarSign, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('active') }
   ];
 
-  const menuItems = ROLE_MENU_ITEMS.COMPANY.map(item => ({
-    ...item,
-    count: item.id === 'pending' ? pendingForCompany.length : 
-           item.id === 'agents' ? agents.length :
-           item.id === 'active' ? activeLoans.length :
-           item.id === 'progress' ? inProgressLoans.length : undefined
-  }));
+  const menuItems = ROLE_MENU_ITEMS.COMPANY
+    .filter(item => {
+      // Non-mirror companies (Company 3) don't have bank accounts
+      if (item.id === 'bank-head' && user?.company?.isMirrorCompany === false) {
+        return false;
+      }
+      return true;
+    })
+    .map(item => ({
+      ...item,
+      count: item.id === 'pending' ? pendingForCompany.length : 
+             item.id === 'agents' ? agents.length :
+             item.id === 'active' ? activeLoans.length :
+             item.id === 'progress' ? inProgressLoans.length : undefined
+    }));
 
   const renderLoanCard = (loan: Loan, index: number, actions?: React.ReactNode) => (
     <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }}
