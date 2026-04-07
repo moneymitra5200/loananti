@@ -5,6 +5,8 @@ export interface Loan {
   applicationNo: string;
   status: string;
   requestedAmount: number;
+  requestedTenure?: number;
+  requestedInterestRate?: number;
   loanType: string;
   createdAt: string;
   riskScore: number;
@@ -121,3 +123,18 @@ export const DEFAULT_USER_FORM: UserForm = {
   agentId: '',
   commissionRate: 5
 };
+
+export interface MirrorLoanConfig {
+  enabled: boolean;
+  mirrorCompanyId: string;
+  mirrorInterestRate?: number;
+  mirrorInterestType?: 'FLAT' | 'REDUCING';
+  mirrorType: 'NONE' | 'FLAT' | 'REDUCING';
+}
+
+export interface ActiveLoanStats {
+  totalOnline: number;
+  totalOffline: number;
+  totalOnlineAmount: number;
+  totalOfflineAmount: number;
+}

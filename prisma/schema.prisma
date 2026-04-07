@@ -112,6 +112,8 @@ model User {
   actionLogs             ActionLog[]
   undoneActions          ActionLog[]        @relation("ActionUndoBy")
   redoneActions          ActionLog[]        @relation("ActionRedoBy")
+  // Interest Only Loan relations
+  startedEmiPhaseLoans   InterestOnlyLoan[]
   // Payment Request relations
   paymentRequests        PaymentRequest[]
   reviewedPaymentRequests PaymentRequest[]  @relation("PaymentRequestReviewer")

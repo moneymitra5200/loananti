@@ -440,7 +440,7 @@ async function processSingleApproval({
         // Check if this is Company 3 (uses CashBook instead of BankAccount)
         const company = loan.company || (companyId ? await db.company.findUnique({ where: { id: companyId } }) : null);
         const companyType = company ? identifyCompanyType(company) : 'UNKNOWN';
-        const isCompany3 = companyType === 'COMPANY_3';
+        const isCompany3 = companyType === 'ORIGINAL_COMPANY';
         
         console.log(`[Disbursement] Company: ${company?.name}, Type: ${companyType}, Is Company 3: ${isCompany3}`);
         

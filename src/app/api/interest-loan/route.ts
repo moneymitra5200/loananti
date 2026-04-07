@@ -197,8 +197,10 @@ export async function POST(request: NextRequest) {
         data: {
           loanApplicationId: loanApplication.id,
           principalAmount,
+          interestRate: interestOnlyRate,
           interestOnlyRate,
           monthlyInterestAmount,
+          startDate: new Date(),
           interestOnlyStartDate: new Date(),
           nextPaymentDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
         }
@@ -330,7 +332,7 @@ export async function PUT(request: NextRequest) {
         });
 
         // Create EMI schedules
-        const emiSchedules = [];
+        const emiSchedules: any[] = [];
         let dueDate = new Date();
         dueDate.setMonth(dueDate.getMonth() + 1);
         dueDate.setDate(5); // Set due date to 5th of each month

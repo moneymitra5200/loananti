@@ -167,22 +167,16 @@ function CompaniesSection({
                         <p className="text-sm text-gray-500">{company.email}</p>
                         <div className="flex gap-2 mt-1">
                           {company.companyObj?.code && <Badge variant="outline" className="text-xs">{company.companyObj.code}</Badge>}
-                          {companyType === 'COMPANY_3' && (
+                          {companyType === 'ORIGINAL_COMPANY' && (
                             <Badge className="text-xs bg-blue-100 text-blue-700">
                               <Star className="h-3 w-3 mr-1" />
-                              Original
+                              Original Company
                             </Badge>
                           )}
-                          {companyType === 'COMPANY_1' && (
+                          {companyType === 'MIRROR_COMPANY' && (
                             <Badge className="text-xs bg-emerald-100 text-emerald-700">
                               <RefreshCw className="h-3 w-3 mr-1" />
-                              15% REDUCING
-                            </Badge>
-                          )}
-                          {companyType === 'COMPANY_2' && (
-                            <Badge className="text-xs bg-amber-100 text-amber-700">
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                              24% REDUCING
+                              Mirror Company
                             </Badge>
                           )}
                         </div>

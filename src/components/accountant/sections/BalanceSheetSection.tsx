@@ -65,8 +65,8 @@ export default function BalanceSheetSection({ balanceSheet, onExport }: BalanceS
           <CardContent className="p-0">
             <Table>
               <TableBody>
-                {balanceSheet?.liabilities?.length > 0 ? (
-                  balanceSheet.liabilities.map((liab, idx) => (
+                {(balanceSheet?.liabilities?.length || 0) > 0 ? (
+                  balanceSheet?.liabilities?.map((liab, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{liab.accountName}</TableCell>
                       <TableCell className="text-right">{formatCurrency(liab.amount)}</TableCell>

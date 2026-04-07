@@ -98,8 +98,8 @@ export default function ProfitLossSection({ profitLoss, onExport }: ProfitLossSe
           <CardContent className="p-0">
             <Table>
               <TableBody>
-                {profitLoss?.expenses?.length > 0 ? (
-                  profitLoss.expenses.map((exp, idx) => (
+                {(profitLoss?.expenses?.length || 0) > 0 ? (
+                  profitLoss?.expenses?.map((exp, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium">{exp.accountName}</TableCell>
                       <TableCell className="text-right">{formatCurrency(exp.amount)}</TableCell>

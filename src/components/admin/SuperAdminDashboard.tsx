@@ -354,8 +354,7 @@ export default function SuperAdminDashboard() {
       console.log('[fetchCompanies] Mirror companies:', mirrorComps.map(c => ({ 
         name: c.name, 
         code: c.code, 
-        displayName: c.displayName, 
-        mirrorRate: c.mirrorInterestRate 
+        displayName: c.displayName
       })));
       
       setMirrorCompanies(mirrorComps);

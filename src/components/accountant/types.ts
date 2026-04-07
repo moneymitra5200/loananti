@@ -173,6 +173,44 @@ export interface TrialBalanceSummary {
   isBalanced: boolean;
 }
 
+// Balance Sheet Types
+export interface BalanceSheetItem {
+  accountName: string;
+  amount: number;
+}
+
+export interface BalanceSheet {
+  assets: BalanceSheetItem[];
+  totalAssets: number;
+  liabilities: BalanceSheetItem[];
+  totalLiabilities: number;
+  equity: BalanceSheetItem[];
+  totalEquity: number;
+}
+
+// Stats Type
+export interface Stats {
+  totalBankBalance: number;
+  totalCashBalance: number;
+  totalLoanDisbursed: number;
+  totalEmiCollected: number;
+  totalLoans: number;
+  totalOutstanding: number;
+  pendingEmis: number;
+  overdueEmis: number;
+  totalExpenses: number;
+  netProfit: number;
+}
+
+// Profit & Loss Type
+export interface ProfitLoss {
+  revenue: BalanceSheetItem[];
+  totalRevenue: number;
+  expenses: BalanceSheetItem[];
+  totalExpenses: number;
+  netProfit: number;
+}
+
 // Menu Item Type
 export interface MenuItem {
   id: string;

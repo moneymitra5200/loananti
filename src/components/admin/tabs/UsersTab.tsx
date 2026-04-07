@@ -115,7 +115,7 @@ export default function UsersTab({
                           {u.isLocked && <Badge className="bg-amber-100 text-amber-700">Locked</Badge>}
                         </div>
                         <p className="text-sm text-gray-500">{u.email}</p>
-                        {u.company && <p className="text-xs text-gray-400">{typeof u.company === 'string' ? u.company : u.company.name}</p>}
+                        {u.companyObj && <p className="text-xs text-gray-400">{u.companyObj.name}</p>}
                       </div>
                     </div>
                     <div className="flex gap-2">

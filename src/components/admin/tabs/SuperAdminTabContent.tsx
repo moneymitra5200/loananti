@@ -50,7 +50,7 @@ interface LoanCardProps {
   onSelect?: () => void;
 }
 
-export const renderLoanCard = ({ loan, index, showActions = true, actions, selected, onSelect }: LoanCardProps) => {
+export const LoanCard = ({ loan, index, showActions = true, actions, selected, onSelect }: LoanCardProps) => {
   const showSanctionDetails = loan.status === 'CUSTOMER_SESSION_APPROVED' && loan.sessionForm;
   const displayAmount = showSanctionDetails ? loan.sessionForm.approvedAmount : loan.requestedAmount;
   const displayTenure = showSanctionDetails ? loan.sessionForm.tenure : loan.requestedTenure;
@@ -208,7 +208,7 @@ export function PendingTab({
           ) : (
             <div className="space-y-3">
               {pendingForSA.map((loan, index) => (
-                <renderLoanCard
+                <LoanCard
                   key={loan.id}
                   loan={loan}
                   index={index}
@@ -272,7 +272,7 @@ export function FinalApprovalTab({
         ) : (
           <div className="space-y-3">
             {pendingForFinal.map((loan, index) => (
-              <renderLoanCard
+              <LoanCard
                 key={loan.id}
                 loan={loan}
                 index={index}
@@ -629,7 +629,7 @@ export function UsersTab({
                           {u.isLocked && <Badge className="bg-amber-100 text-amber-700">Locked</Badge>}
                         </div>
                         <p className="text-sm text-gray-500">{u.email}</p>
-                        {u.company && <p className="text-xs text-gray-400">{typeof u.company === 'string' ? u.company : u.company.name}</p>}
+                        {u.companyObj && <p className="text-xs text-gray-400">{u.companyObj.name}</p>}
                       </div>
                     </div>
                     <div className="flex gap-2">

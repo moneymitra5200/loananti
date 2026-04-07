@@ -144,7 +144,7 @@ interface UseSuperAdminState {
   setResetConfirmText: (text: string) => void;
   setMirrorLoanConfig: (config: MirrorLoanConfig) => void;
   setUserRoleFilter: (filter: string) => void;
-  logoInputRef: React.RefObject<HTMLInputElement>;
+  logoInputRef: React.RefObject<HTMLInputElement | null>;
   
   // Computed values
   pendingForSA: Loan[];

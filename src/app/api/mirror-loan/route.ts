@@ -145,7 +145,6 @@ export async function GET(request: NextRequest) {
       console.log('[Mirror Companies API] Returning mirror companies:', mirrorCompanies.map(c => ({ 
         name: c.name, 
         code: c.code, 
-        rate: c.mirrorInterestRate,
         displayName: c.displayName 
       })));
 
