@@ -7,8 +7,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
 
-    if (!companyId) {
-      return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
+    // Validate companyId - must be a valid cuid (starts with 'c' and is 25 characters)
+    if (!companyId || companyId.startsWith(':') || companyId.length < 10) {
+      console.error('Invalid companyId received:', companyId);
+      return NextResponse.json({ 
+        error: 'Valid Company ID is required',
+        receivedId: companyId 
+      }, { status: 400 });
     }
 
     // Get bank accounts

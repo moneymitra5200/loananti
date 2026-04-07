@@ -86,9 +86,16 @@ export default function BankHeadSection({ companyId, companyName, companyCode }:
   }, [companyId]);
 
   const fetchBankAccounts = async () => {
+    // Validate companyId before making API call
+    if (!companyId || companyId.startsWith(':') || companyId === '') {
+      console.error('Invalid companyId:', companyId);
+      setLoading(false);
+      return;
+    }
+    
     try {
       setLoading(true);
-      const res = await fetch(`/api/accountant/bank-accounts?companyId=${companyId}`);
+      const res = await fetch(`/api/accountant/bank-accounts?companyId=${encodeURIComponent(companyId)}`);
       if (res.ok) {
         const data = await res.json();
         setBankAccounts(data.bankAccounts || []);

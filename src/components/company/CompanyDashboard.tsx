@@ -1022,9 +1022,28 @@ export default function CompanyDashboard() {
             </Card>
           );
         }
+        // Get the actual companyId - prefer company.id over companyId
+        const actualCompanyId = user?.company?.id || user?.companyId || '';
+        // Validate companyId format (should be a cuid starting with 'c')
+        if (!actualCompanyId || actualCompanyId.startsWith(':') || !actualCompanyId.startsWith('c')) {
+          console.error('Invalid companyId format:', { 
+            companyId: user?.companyId, 
+            companyDotId: user?.company?.id,
+            actualCompanyId 
+          });
+          return (
+            <Card className="border-0 shadow-sm">
+              <CardContent className="py-12 text-center">
+                <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-orange-500" />
+                <p className="text-gray-700 font-medium">Unable to load bank accounts</p>
+                <p className="text-sm text-gray-500 mt-2">Company ID not found. Please refresh the page.</p>
+              </CardContent>
+            </Card>
+          );
+        }
         return (
           <BankHeadSection 
-            companyId={user?.companyId || user?.company?.id || ''} 
+            companyId={actualCompanyId} 
             companyName={user?.company?.name || 'Company'} 
             companyCode={user?.company?.code || 'C1'} 
           />
