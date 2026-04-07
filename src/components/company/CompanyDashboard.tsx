@@ -1073,6 +1073,13 @@ export default function CompanyDashboard() {
         }
         // Get and validate companyId using helper function
         const bankCompanyId = getCompanyId();
+        console.log('Bank Head Debug:', {
+          rawCompanyId: user?.companyId,
+          companyIdType: typeof user?.companyId,
+          companyIdKeys: typeof user?.companyId === 'object' ? Object.keys(user?.companyId || {}) : 'not an object',
+          company: user?.company,
+          extractedId: bankCompanyId
+        });
         if (!bankCompanyId || !bankCompanyId.startsWith('c')) {
           console.error('Invalid companyId for bank section:', { 
             companyId: user?.companyId, 
