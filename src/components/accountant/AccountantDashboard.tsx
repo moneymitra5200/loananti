@@ -23,7 +23,7 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap
+  Wrench, Zap, Edit
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -54,8 +54,10 @@ interface BankAccount {
   accountNumber: string;
   accountName?: string;
   ownerName?: string;
-  currentBalance: number;
+  branchName?: string;
   ifscCode?: string;
+  accountType?: string;
+  currentBalance: number;
   upiId?: string;
   qrCodeUrl?: string;
   isDefault: boolean;
@@ -661,14 +663,20 @@ function BankSection({
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEquityDialog, setShowEquityDialog] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedBankForEdit, setSelectedBankForEdit] = useState<BankAccount | null>(null);
+  const [uploadingQr, setUploadingQr] = useState(false);
   const [bankForm, setBankForm] = useState({
     bankName: '',
     accountNumber: '',
     accountName: '',
     ownerName: '',
+    branchName: '',
     ifscCode: '',
-    upiId: '',
+    accountType: 'CURRENT',
     openingBalance: 0,
+    upiId: '',
+    qrCodeUrl: '',
     isDefault: false
   });
   const [equityForm, setEquityForm] = useState({
@@ -698,37 +706,131 @@ function BankSection({
     loadData();
   }, [loadData]);
 
+  // Open Bank Dialog (for Add or Edit)
+  const openBankDialog = (bank?: BankAccount) => {
+    if (bank) {
+      setEditMode(true);
+      setSelectedBankForEdit(bank);
+      setBankForm({
+        bankName: bank.bankName,
+        accountNumber: bank.accountNumber,
+        accountName: bank.accountName || '',
+        ownerName: bank.ownerName || '',
+        branchName: bank.branchName || '',
+        ifscCode: bank.ifscCode || '',
+        accountType: bank.accountType || 'CURRENT',
+        openingBalance: 0,
+        upiId: bank.upiId || '',
+        qrCodeUrl: bank.qrCodeUrl || '',
+        isDefault: bank.isDefault
+      });
+    } else {
+      setEditMode(false);
+      setSelectedBankForEdit(null);
+      setBankForm({
+        bankName: '',
+        accountNumber: '',
+        accountName: '',
+        ownerName: '',
+        branchName: '',
+        ifscCode: '',
+        accountType: 'CURRENT',
+        openingBalance: 0,
+        upiId: '',
+        qrCodeUrl: '',
+        isDefault: false
+      });
+    }
+    setShowAddDialog(true);
+  };
+
+  // Handle QR Code Upload
+  const handleQrCodeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return;
+    }
+
+    setUploadingQr(true);
+    try {
+      const formDataUpload = new FormData();
+      formDataUpload.append('file', file);
+      formDataUpload.append('type', 'qr-code');
+
+      const res = await fetch('/api/upload/document', {
+        method: 'POST',
+        body: formDataUpload
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setBankForm(prev => ({ ...prev, qrCodeUrl: data.url }));
+        toast.success('QR Code uploaded successfully');
+      } else {
+        toast.error('Failed to upload QR Code');
+      }
+    } catch (error) {
+      toast.error('Failed to upload QR Code');
+    } finally {
+      setUploadingQr(false);
+    }
+  };
+
   const handleAddBank = async () => {
-    if (!bankForm.bankName || !bankForm.accountNumber) {
-      toast.error('Please fill bank name and account number');
+    if (!bankForm.bankName || !bankForm.accountNumber || !bankForm.accountName) {
+      toast.error('Please fill all required fields (Bank Name, Account Number, Account Name)');
       return;
     }
 
     setSaving(true);
     try {
-      const res = await fetch('/api/accounting/bank-accounts', {
-        method: 'POST',
+      const url = editMode 
+        ? `/api/accountant/bank-accounts/${selectedBankForEdit?.id}`
+        : '/api/accountant/bank-accounts';
+      
+      const method = editMode ? 'PUT' : 'POST';
+      
+      const body = editMode 
+        ? { ...bankForm, companyId: selectedCompanyId }
+        : { ...bankForm, companyId: selectedCompanyId, openingBalance: bankForm.openingBalance };
+
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...bankForm,
-          companyId: selectedCompanyId
-        })
+        body: JSON.stringify(body)
       });
 
       if (res.ok) {
-        toast.success('Bank account added successfully');
+        toast.success(editMode ? 'Bank account updated successfully' : 'Bank account added successfully');
         setShowAddDialog(false);
         setBankForm({
-          bankName: '', accountNumber: '', accountName: '', ownerName: '',
-          ifscCode: '', upiId: '', openingBalance: 0, isDefault: false
+          bankName: '',
+          accountNumber: '',
+          accountName: '',
+          ownerName: '',
+          branchName: '',
+          ifscCode: '',
+          accountType: 'CURRENT',
+          openingBalance: 0,
+          upiId: '',
+          qrCodeUrl: '',
+          isDefault: false
         });
         loadData();
       } else {
         const error = await res.json();
-        toast.error(error.error || 'Failed to add bank account');
+        toast.error(error.error || 'Failed to save bank account');
       }
     } catch (error) {
-      toast.error('Failed to add bank account');
+      toast.error('Failed to save bank account');
     } finally {
       setSaving(false);
     }
@@ -811,7 +913,7 @@ function BankSection({
             <PiggyBank className="h-4 w-4 mr-2" />
             Add Equity
           </Button>
-          <Button onClick={() => setShowAddDialog(true)}>
+          <Button onClick={() => openBankDialog()}>
             <Plus className="h-4 w-4 mr-2" />
             Add Bank
           </Button>
@@ -833,7 +935,7 @@ function BankSection({
                 <PiggyBank className="h-4 w-4 mr-2" />
                 Add Equity First
               </Button>
-              <Button onClick={() => setShowAddDialog(true)}>Add Bank Account</Button>
+              <Button onClick={() => openBankDialog()}>Add Bank Account</Button>
             </div>
           </CardContent>
         </Card>
@@ -867,7 +969,17 @@ function BankSection({
                         <p className="text-sm text-gray-500">****{bank.accountNumber.slice(-4)}</p>
                       </div>
                     </div>
-                    {bank.isDefault && <Badge className="bg-emerald-500">Default</Badge>}
+                    <div className="flex items-center gap-2">
+                      {bank.isDefault && <Badge className="bg-emerald-500">Default</Badge>}
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="h-8 w-8 p-0"
+                        onClick={() => openBankDialog(bank)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex justify-between">
@@ -878,6 +990,15 @@ function BankSection({
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">UPI ID</span>
                         <span className="font-mono">{bank.upiId}</span>
+                      </div>
+                    )}
+                    {bank.qrCodeUrl && (
+                      <div className="mt-2">
+                        <img 
+                          src={bank.qrCodeUrl} 
+                          alt="QR Code" 
+                          className="w-20 h-20 rounded border object-cover"
+                        />
                       </div>
                     )}
                   </div>
@@ -931,49 +1052,175 @@ function BankSection({
         </>
       )}
 
-      {/* Add Bank Dialog */}
+      {/* Add/Edit Bank Dialog - Same as Company Dashboard */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Bank Account</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Landmark className="h-5 w-5 text-blue-600" />
+              {editMode ? 'Edit Bank Account' : 'Add Bank Account'}
+            </DialogTitle>
+            <DialogDescription>
+              Fill in the bank account details. All fields marked with * are required.
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Bank Name *</Label>
-                <Input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Account Number *</Label>
-                <Input value={bankForm.accountNumber} onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })} />
+
+          <div className="space-y-6 py-4">
+            {/* Basic Details */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-700">Basic Details</h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Bank Name *</Label>
+                  <Input 
+                    value={bankForm.bankName} 
+                    onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
+                    placeholder="e.g., HDFC Bank"
+                  />
+                </div>
+                <div>
+                  <Label>Account Number *</Label>
+                  <Input 
+                    value={bankForm.accountNumber} 
+                    onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
+                    placeholder="Enter account number"
+                  />
+                </div>
+                <div>
+                  <Label>Account Name *</Label>
+                  <Input 
+                    value={bankForm.accountName} 
+                    onChange={(e) => setBankForm({ ...bankForm, accountName: e.target.value })}
+                    placeholder="Account holder name"
+                  />
+                </div>
+                <div>
+                  <Label>Owner Name</Label>
+                  <Input 
+                    value={bankForm.ownerName} 
+                    onChange={(e) => setBankForm({ ...bankForm, ownerName: e.target.value })}
+                    placeholder="Bank account owner's name"
+                  />
+                </div>
+                <div>
+                  <Label>Branch Name</Label>
+                  <Input 
+                    value={bankForm.branchName} 
+                    onChange={(e) => setBankForm({ ...bankForm, branchName: e.target.value })}
+                    placeholder="Branch name"
+                  />
+                </div>
+                <div>
+                  <Label>IFSC Code</Label>
+                  <Input 
+                    value={bankForm.ifscCode} 
+                    onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value.toUpperCase() })}
+                    placeholder="IFSC Code"
+                    maxLength={11}
+                  />
+                </div>
+                <div>
+                  <Label>Account Type</Label>
+                  <select 
+                    className="w-full border rounded-md p-2"
+                    value={bankForm.accountType}
+                    onChange={(e) => setBankForm({ ...bankForm, accountType: e.target.value })}
+                  >
+                    <option value="CURRENT">Current</option>
+                    <option value="SAVINGS">Savings</option>
+                    <option value="OD">Overdraft</option>
+                  </select>
+                </div>
+                {!editMode && (
+                  <div>
+                    <Label>Opening Balance</Label>
+                    <Input 
+                      type="number"
+                      value={bankForm.openingBalance} 
+                      onChange={(e) => setBankForm({ ...bankForm, openingBalance: parseFloat(e.target.value) || 0 })}
+                      placeholder="0"
+                    />
+                  </div>
+                )}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Account Name</Label>
-                <Input value={bankForm.accountName} onChange={(e) => setBankForm({ ...bankForm, accountName: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>Owner Name</Label>
-                <Input value={bankForm.ownerName} onChange={(e) => setBankForm({ ...bankForm, ownerName: e.target.value })} />
+
+            <Separator />
+
+            {/* Payment Settings */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-700">Payment Display Settings</h4>
+              <p className="text-sm text-gray-500">These details will be shown to customers when they pay EMI</p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Label>UPI ID</Label>
+                  <Input 
+                    value={bankForm.upiId} 
+                    onChange={(e) => setBankForm({ ...bankForm, upiId: e.target.value })}
+                    placeholder="e.g., company@upi"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Customer will see this UPI ID to make payments</p>
+                </div>
+                
+                <div className="col-span-2">
+                  <Label>QR Code Image</Label>
+                  <div className="flex items-center gap-4">
+                    {bankForm.qrCodeUrl && (
+                      <img 
+                        src={bankForm.qrCodeUrl} 
+                        alt="QR Code" 
+                        className="w-24 h-24 rounded border object-cover"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <Input 
+                        type="file" 
+                        accept="image/*"
+                        onChange={handleQrCodeUpload}
+                        disabled={uploadingQr}
+                      />
+                      {uploadingQr && (
+                        <p className="text-sm text-blue-600 mt-1 flex items-center gap-1">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Uploading...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Upload QR code image for customer payments</p>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>IFSC Code</Label>
-                <Input value={bankForm.ifscCode} onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label>UPI ID</Label>
-                <Input value={bankForm.upiId} onChange={(e) => setBankForm({ ...bankForm, upiId: e.target.value })} />
-              </div>
+
+            <Separator />
+
+            {/* Default Setting */}
+            <div className="flex items-center gap-2">
+              <input 
+                type="checkbox" 
+                id="isDefaultBank" 
+                checked={bankForm.isDefault}
+                onChange={(e) => setBankForm({ ...bankForm, isDefault: e.target.checked })}
+                className="h-4 w-4"
+              />
+              <Label htmlFor="isDefaultBank">Set as default bank account for this company</Label>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-            <Button onClick={handleAddBank} disabled={saving}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Add Bank
+            <Button onClick={handleAddBank} disabled={saving} className="bg-blue-600 hover:bg-blue-700">
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  {editMode ? 'Update' : 'Create'}
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
