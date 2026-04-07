@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
         phone: user.phone,
         companyId: user.companyId,
         agentId: user.agentId,
-        company: user.company ? { id: user.company.id, name: user.company.name, code: user.company.code } : null,
+        company: user.company ? { id: user.company.id, name: user.company.name, code: user.company.code, isMirrorCompany: user.company.isMirrorCompany } : null,
         agent: user.agent ? { id: user.agent.id, name: user.agent.name, agentCode: user.agent.agentCode } : null,
         agentCode: user.agentCode,
         staffCode: user.staffCode,

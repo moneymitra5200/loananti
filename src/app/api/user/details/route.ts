@@ -60,7 +60,7 @@ export async function PUT(request: NextRequest) {
         companyId: true,
         agentId: true,
         company: {
-          select: { id: true, name: true, code: true }
+          select: { id: true, name: true, code: true, isMirrorCompany: true }
         },
         agent: {
           select: { id: true, name: true, agentCode: true }
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
         companyId: true,
         agentId: true,
         company: {
-          select: { id: true, name: true, code: true }
+          select: { id: true, name: true, code: true, isMirrorCompany: true }
         },
         agent: {
           select: { id: true, name: true, agentCode: true }
