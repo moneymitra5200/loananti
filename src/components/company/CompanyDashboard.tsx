@@ -349,7 +349,21 @@ export default function CompanyDashboard() {
 
   // Check if company has bank access (mirror companies = Company 1 & 2)
   // Non-mirror companies (Company 3 - isMirrorCompany: false) only have cash book, no bank
-  const hasBankAccess = user?.company?.isMirrorCompany !== false; // true for mirror companies (isMirrorCompany: true or undefined)
+  // Handle case where companyId might be an object (full company data) or company is separate
+  const getIsMirrorCompany = (): boolean | undefined => {
+    // Check if companyId is an object with isMirrorCompany
+    if (typeof user?.companyId === 'object' && user.companyId?.isMirrorCompany !== undefined) {
+      return user.companyId.isMirrorCompany;
+    }
+    // Check company object
+    if (user?.company?.isMirrorCompany !== undefined) {
+      return user.company.isMirrorCompany;
+    }
+    return undefined; // Default to true (has bank access)
+  };
+  
+  const isMirrorCompany = getIsMirrorCompany();
+  const hasBankAccess = isMirrorCompany !== false; // true for mirror companies (isMirrorCompany: true or undefined)
   
   const menuItems = ROLE_MENU_ITEMS.COMPANY
     .filter(item => {
@@ -401,6 +415,37 @@ export default function CompanyDashboard() {
       </div>
     </motion.div>
   );
+
+  // Helper function to extract company ID from user object
+  // user.companyId could be: string (cuid), object (company data), or null
+  const getCompanyId = (): string => {
+    if (typeof user?.companyId === 'string' && user.companyId.startsWith('c')) {
+      return user.companyId;
+    }
+    if (typeof user?.companyId === 'object' && user.companyId?.id) {
+      return user.companyId.id;
+    }
+    if (user?.company?.id) {
+      return user.company.id;
+    }
+    return '';
+  };
+
+  // Helper function to extract company name
+  const getCompanyName = (): string => {
+    if (typeof user?.companyId === 'object' && user.companyId?.name) {
+      return user.companyId.name;
+    }
+    return user?.company?.name || 'Company';
+  };
+
+  // Helper function to extract company code
+  const getCompanyCode = (): string => {
+    if (typeof user?.companyId === 'object' && user.companyId?.code) {
+      return user.companyId.code;
+    }
+    return user?.company?.code || 'C1';
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -1022,14 +1067,13 @@ export default function CompanyDashboard() {
             </Card>
           );
         }
-        // Get the actual companyId - prefer company.id over companyId
-        const actualCompanyId = user?.company?.id || user?.companyId || '';
-        // Validate companyId format (should be a cuid starting with 'c')
-        if (!actualCompanyId || actualCompanyId.startsWith(':') || !actualCompanyId.startsWith('c')) {
-          console.error('Invalid companyId format:', { 
+        // Get and validate companyId using helper function
+        const bankCompanyId = getCompanyId();
+        if (!bankCompanyId || !bankCompanyId.startsWith('c')) {
+          console.error('Invalid companyId for bank section:', { 
             companyId: user?.companyId, 
-            companyDotId: user?.company?.id,
-            actualCompanyId 
+            company: user?.company,
+            extractedId: bankCompanyId 
           });
           return (
             <Card className="border-0 shadow-sm">
@@ -1043,18 +1087,18 @@ export default function CompanyDashboard() {
         }
         return (
           <BankHeadSection 
-            companyId={actualCompanyId} 
-            companyName={user?.company?.name || 'Company'} 
-            companyCode={user?.company?.code || 'C1'} 
+            companyId={bankCompanyId} 
+            companyName={getCompanyName()} 
+            companyCode={getCompanyCode()} 
           />
         );
       
       case 'daybook':
         return (
           <DaybookSection 
-            companyId={user?.companyId || user?.company?.id || ''} 
-            companyName={user?.company?.name || 'Company'} 
-            companyCode={user?.company?.code || 'C1'} 
+            companyId={getCompanyId()} 
+            companyName={getCompanyName()} 
+            companyCode={getCompanyCode()} 
           />
         );
 
