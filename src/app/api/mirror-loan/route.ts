@@ -174,12 +174,9 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               applicationNo: true,
-              identifier: true,
               status: true,
               loanType: true,
               disbursedAmount: true,
-              approvedAmount: true,
-              disbursementDate: true,
               createdAt: true,
               interestRate: true,
               tenure: true,
@@ -195,8 +192,7 @@ export async function GET(request: NextRequest) {
                   approvedAmount: true,
                   interestRate: true,
                   tenure: true,
-                  emiAmount: true,
-                  disbursementDate: true
+                  emiAmount: true
                 }
               }
             }
@@ -206,12 +202,9 @@ export async function GET(request: NextRequest) {
             select: {
               id: true,
               applicationNo: true,
-              identifier: true,
               status: true,
               loanType: true,
               disbursedAmount: true,
-              approvedAmount: true,
-              disbursementDate: true,
               createdAt: true,
               interestRate: true,
               tenure: true,
@@ -227,8 +220,7 @@ export async function GET(request: NextRequest) {
                   approvedAmount: true,
                   interestRate: true,
                   tenure: true,
-                  emiAmount: true,
-                  disbursementDate: true
+                  emiAmount: true
                 }
               }
             }

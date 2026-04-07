@@ -49,14 +49,14 @@ interface MirrorMapping {
   originalCompanyId: string;
   mirrorCompanyId: string;
   displayColor: string | null;
-  extraEMICount: number | null;
-  mirrorTenure: number | null;
-  originalTenure: number | null;
-  originalInterestRate: number | null;
-  mirrorInterestRate: number | null;
-  mirrorEMIsPaid: number | null;
-  extraEMIsPaid: number | null;
-  originalEMIAmount: number | null;
+  extraEMICount?: number | null;
+  mirrorTenure?: number | null;
+  originalTenure?: number | null;
+  originalInterestRate?: number | null;
+  mirrorInterestRate?: number | null;
+  mirrorEMIsPaid?: number | null;
+  extraEMIsPaid?: number | null;
+  originalEMIAmount?: number | null;
   mirrorLoan: MirrorLoanData | null;
   originalLoan: Loan | null;
   mirrorCompany: { id: string; name: string; code: string } | null;
@@ -231,11 +231,11 @@ function ActiveLoansTabComponent({
         mirrorLoan={mirrorLoanData}
         mirrorMapping={mapping ? {
           displayColor: mapping.displayColor,
-          extraEMICount: mapping.extraEMICount,
-          mirrorInterestRate: mapping.mirrorInterestRate,
-          mirrorTenure: mapping.mirrorTenure,
-          mirrorEMIsPaid: mapping.mirrorEMIsPaid,
-          extraEMIsPaid: mapping.extraEMIsPaid,
+          extraEMICount: mapping.extraEMICount ?? undefined,
+          mirrorInterestRate: mapping.mirrorInterestRate ?? undefined,
+          mirrorTenure: mapping.mirrorTenure ?? undefined,
+          mirrorEMIsPaid: mapping.mirrorEMIsPaid ?? undefined,
+          extraEMIsPaid: mapping.extraEMIsPaid ?? undefined,
           mirrorCompanyId: mapping.mirrorCompanyId,
           originalCompanyId: mapping.originalCompanyId
         } : null}

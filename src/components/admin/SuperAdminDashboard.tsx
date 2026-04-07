@@ -1460,8 +1460,6 @@ export default function SuperAdminDashboard() {
               setSettings={setSettings}
               savingSettings={savingSettings}
               onSave={saveSettings}
-              onLogoUpload={handleLogoUpload}
-              uploadingLogo={uploadingLogo}
               stats={{
                 totalUsers: users.length,
                 companies: companyUsers.length,
@@ -1509,8 +1507,6 @@ export default function SuperAdminDashboard() {
               setSettings={setSettings}
               savingSettings={savingSettings}
               onSave={saveSettings}
-              onLogoUpload={handleLogoUpload}
-              uploadingLogo={uploadingLogo}
             />
           </Suspense>
         );
