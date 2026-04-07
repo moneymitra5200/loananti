@@ -1,24 +1,21 @@
 'use client';
 
-import { memo, useRef } from 'react';
+import { memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Settings, Building2, Percent, AlertTriangle, Save, Camera, X, Landmark, Loader2, RefreshCw } from 'lucide-react';
+import { Settings, Building2, AlertTriangle, Save, RefreshCw } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 
 interface SettingsData {
   companyName: string;
-  companyLogo: string;
   companyTagline: string;
   companyEmail: string;
   companyPhone: string;
   companyAddress: string;
   defaultInterestRate: number;
-  minInterestRate: number;
-  maxInterestRate: number;
 }
 
 interface Stats {
@@ -33,8 +30,6 @@ interface Props {
   setSettings: (settings: SettingsData) => void;
   savingSettings: boolean;
   onSave: () => void;
-  onLogoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  uploadingLogo: boolean;
   stats: Stats;
   onShowResetDialog: () => void;
 }
@@ -44,13 +39,9 @@ function SettingsSection({
   setSettings,
   savingSettings,
   onSave,
-  onLogoUpload,
-  uploadingLogo,
   stats,
   onShowResetDialog
 }: Props) {
-  const logoInputRef = useRef<HTMLInputElement>(null);
-
   return (
     <div className="space-y-6">
       {/* Company Profile Settings */}
@@ -63,72 +54,6 @@ function SettingsSection({
           <CardDescription>Configure your company profile and system preferences</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Company Logo Section */}
-          <div className="flex flex-col md:flex-row gap-6 p-4 bg-gray-50 rounded-lg border">
-            <div className="flex-shrink-0">
-              <div className="w-24 h-24 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl flex items-center justify-center overflow-hidden relative">
-                {settings.companyLogo ? (
-                  <img src={settings.companyLogo} alt="Company Logo" className="w-full h-full object-cover" />
-                ) : (
-                  <Landmark className="h-12 w-12 text-white" />
-                )}
-                <button
-                  type="button"
-                  onClick={() => logoInputRef.current?.click()}
-                  disabled={uploadingLogo}
-                  className="absolute bottom-1 right-1 bg-white/90 p-1.5 rounded-full shadow hover:bg-white transition"
-                  title="Upload logo"
-                >
-                  {uploadingLogo ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
-                  ) : (
-                    <Camera className="h-4 w-4 text-emerald-600" />
-                  )}
-                </button>
-                <input
-                  ref={logoInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={onLogoUpload}
-                  className="hidden"
-                />
-              </div>
-            </div>
-            <div className="flex-1 space-y-3">
-              <h4 className="font-semibold text-gray-900">Company Logo</h4>
-              <p className="text-sm text-gray-500">Upload your company logo (recommended: 200x200px, PNG or JPG)</p>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => logoInputRef.current?.click()}
-                  disabled={uploadingLogo}
-                >
-                  {uploadingLogo ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4 mr-2" />
-                      Upload Logo
-                    </>
-                  )}
-                </Button>
-                {settings.companyLogo && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSettings({ ...settings, companyLogo: '' })}
-                  >
-                    <X className="h-4 w-4 mr-1" />
-                    Remove
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-
           <div className="grid md:grid-cols-2 gap-6">
             {/* Basic Company Info */}
             <div className="space-y-4">
@@ -179,9 +104,8 @@ function SettingsSection({
 
             {/* Interest Rate Settings */}
             <div className="space-y-4">
-              <h4 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Percent className="h-4 w-4" />
-                Interest Rates
+              <h4 className="font-semibold text-gray-900">
+                Default Interest Rate
               </h4>
               <div className="space-y-3">
                 <div>
@@ -191,24 +115,6 @@ function SettingsSection({
                     step="0.1"
                     value={settings.defaultInterestRate}
                     onChange={(e) => setSettings({ ...settings, defaultInterestRate: parseFloat(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <Label>Minimum Rate (%)</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={settings.minInterestRate}
-                    onChange={(e) => setSettings({ ...settings, minInterestRate: parseFloat(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <Label>Maximum Rate (%)</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={settings.maxInterestRate}
-                    onChange={(e) => setSettings({ ...settings, maxInterestRate: parseFloat(e.target.value) })}
                   />
                 </div>
               </div>

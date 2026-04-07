@@ -14,22 +14,10 @@ interface ProductForm {
   loanType: string;
   minInterestRate: number;
   maxInterestRate: number;
-  defaultInterestRate: number;
   minTenure: number;
   maxTenure: number;
-  defaultTenure: number;
   minAmount: number;
   maxAmount: number;
-  processingFeePercent: number;
-  processingFeeMin: number;
-  processingFeeMax: number;
-  latePaymentPenaltyPercent: number;
-  gracePeriodDays: number;
-  bounceCharges: number;
-  allowMoratorium: boolean;
-  maxMoratoriumMonths: number;
-  allowPrepayment: boolean;
-  prepaymentCharges: number;
   isActive: boolean;
 }
 
@@ -113,7 +101,7 @@ export default function ProductDialog({
           {/* Interest & Tenure */}
           <div className="space-y-4">
             <h4 className="font-semibold text-sm text-gray-700 uppercase tracking-wide">Interest Rate & Tenure</h4>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Min Interest (%)</Label>
                 <Input type="number" step="0.1" value={productForm.minInterestRate} onChange={(e) => setProductForm({...productForm, minInterestRate: parseFloat(e.target.value)})} />
@@ -122,12 +110,8 @@ export default function ProductDialog({
                 <Label>Max Interest (%)</Label>
                 <Input type="number" step="0.1" value={productForm.maxInterestRate} onChange={(e) => setProductForm({...productForm, maxInterestRate: parseFloat(e.target.value)})} />
               </div>
-              <div className="space-y-2">
-                <Label>Default (%)</Label>
-                <Input type="number" step="0.1" value={productForm.defaultInterestRate} onChange={(e) => setProductForm({...productForm, defaultInterestRate: parseFloat(e.target.value)})} />
-              </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Min Tenure (months)</Label>
                 <Input type="number" value={productForm.minTenure} onChange={(e) => setProductForm({...productForm, minTenure: parseInt(e.target.value)})} />
@@ -135,10 +119,6 @@ export default function ProductDialog({
               <div className="space-y-2">
                 <Label>Max Tenure (months)</Label>
                 <Input type="number" value={productForm.maxTenure} onChange={(e) => setProductForm({...productForm, maxTenure: parseInt(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Default (months)</Label>
-                <Input type="number" value={productForm.defaultTenure} onChange={(e) => setProductForm({...productForm, defaultTenure: parseInt(e.target.value)})} />
               </div>
             </div>
           </div>
@@ -154,70 +134,6 @@ export default function ProductDialog({
               <div className="space-y-2">
                 <Label>Max Amount (₹)</Label>
                 <Input type="number" value={productForm.maxAmount} onChange={(e) => setProductForm({...productForm, maxAmount: parseFloat(e.target.value)})} />
-              </div>
-            </div>
-          </div>
-
-          {/* Fees & Charges */}
-          <div className="space-y-4">
-            <h4 className="font-semibold text-sm text-gray-700 uppercase tracking-wide">Fees & Charges</h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Processing Fee (%)</Label>
-                <Input type="number" step="0.1" value={productForm.processingFeePercent} onChange={(e) => setProductForm({...productForm, processingFeePercent: parseFloat(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Min Fee (₹)</Label>
-                <Input type="number" value={productForm.processingFeeMin} onChange={(e) => setProductForm({...productForm, processingFeeMin: parseFloat(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Fee (₹)</Label>
-                <Input type="number" value={productForm.processingFeeMax} onChange={(e) => setProductForm({...productForm, processingFeeMax: parseFloat(e.target.value)})} />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Late Payment Penalty (%)</Label>
-                <Input type="number" step="0.1" value={productForm.latePaymentPenaltyPercent} onChange={(e) => setProductForm({...productForm, latePaymentPenaltyPercent: parseFloat(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Grace Period (days)</Label>
-                <Input type="number" value={productForm.gracePeriodDays} onChange={(e) => setProductForm({...productForm, gracePeriodDays: parseInt(e.target.value)})} />
-              </div>
-              <div className="space-y-2">
-                <Label>Bounce Charges (₹)</Label>
-                <Input type="number" value={productForm.bounceCharges} onChange={(e) => setProductForm({...productForm, bounceCharges: parseFloat(e.target.value)})} />
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Options */}
-          <div className="space-y-4">
-            <h4 className="font-semibold text-sm text-gray-700 uppercase tracking-wide">Additional Options</h4>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <Label>Allow Moratorium</Label>
-                  <p className="text-xs text-gray-500">Allow repayment holiday period</p>
-                </div>
-                <input type="checkbox" checked={productForm.allowMoratorium} onChange={(e) => setProductForm({...productForm, allowMoratorium: e.target.checked})} className="h-4 w-4" />
-              </div>
-              <div className="space-y-2">
-                <Label>Max Moratorium (months)</Label>
-                <Input type="number" value={productForm.maxMoratoriumMonths} onChange={(e) => setProductForm({...productForm, maxMoratoriumMonths: parseInt(e.target.value)})} disabled={!productForm.allowMoratorium} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <Label>Allow Prepayment</Label>
-                  <p className="text-xs text-gray-500">Allow early loan closure</p>
-                </div>
-                <input type="checkbox" checked={productForm.allowPrepayment} onChange={(e) => setProductForm({...productForm, allowPrepayment: e.target.checked})} className="h-4 w-4" />
-              </div>
-              <div className="space-y-2">
-                <Label>Prepayment Charges (%)</Label>
-                <Input type="number" step="0.1" value={productForm.prepaymentCharges} onChange={(e) => setProductForm({...productForm, prepaymentCharges: parseFloat(e.target.value)})} disabled={!productForm.allowPrepayment} />
               </div>
             </div>
           </div>

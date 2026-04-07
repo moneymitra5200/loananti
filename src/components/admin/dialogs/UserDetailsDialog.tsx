@@ -1,11 +1,15 @@
 'use client';
 
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useState } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Users, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Users, Loader2, Key, Mail, Save, X } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
+import { toast } from '@/hooks/use-toast';
 
 interface UserDetailsDialogProps {
   open: boolean;
@@ -20,6 +24,12 @@ export default function UserDetailsDialog({
   selectedUserDetails,
   loadingUserDetails,
 }: UserDetailsDialogProps) {
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
+  const [showEmailChange, setShowEmailChange] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [updating, setUpdating] = useState(false);
+
   const getRoleBadgeClass = (role: string) => {
     const classes: Record<string, string> = {
       SUPER_ADMIN: 'bg-purple-100 text-purple-700',
@@ -33,6 +43,70 @@ export default function UserDetailsDialog({
     return classes[role] || 'bg-gray-100 text-gray-700';
   };
 
+  const handleChangePassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      toast({ title: 'Error', description: 'Password must be at least 6 characters', variant: 'destructive' });
+      return;
+    }
+    setUpdating(true);
+    try {
+      const response = await fetch('/api/user/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          userId: selectedUserDetails.id, 
+          newPassword 
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast({ title: 'Password Updated', description: 'Password has been changed successfully' });
+        setShowPasswordChange(false);
+        setNewPassword('');
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to update password', variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to update password', variant: 'destructive' });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!newEmail || !newEmail.includes('@')) {
+      toast({ title: 'Error', description: 'Please enter a valid email address', variant: 'destructive' });
+      return;
+    }
+    setUpdating(true);
+    try {
+      const response = await fetch('/api/user', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: selectedUserDetails.id, 
+          email: newEmail 
+        })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast({ title: 'Email Updated', description: 'Email has been changed successfully' });
+        setShowEmailChange(false);
+        setNewEmail('');
+        // Update local state
+        if (selectedUserDetails) {
+          selectedUserDetails.email = newEmail;
+        }
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to update email', variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to update email', variant: 'destructive' });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -42,7 +116,7 @@ export default function UserDetailsDialog({
             User Details - {selectedUserDetails?.name}
           </DialogTitle>
           <DialogDescription>
-            Complete overview of user activity and information
+            Complete A to Z overview of user activity and information
           </DialogDescription>
         </DialogHeader>
         
@@ -55,7 +129,17 @@ export default function UserDetailsDialog({
             {/* Basic Info */}
             <Card className="border-0 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Basic Information</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Basic Information</CardTitle>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => { setNewEmail(selectedUserDetails.email || ''); setShowEmailChange(true); }}>
+                      <Mail className="h-4 w-4 mr-1" />Change Email
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setShowPasswordChange(true)}>
+                      <Key className="h-4 w-4 mr-1" />Change Password
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -108,6 +192,31 @@ export default function UserDetailsDialog({
                 )}
               </CardContent>
             </Card>
+
+            {/* Company/Agent Association */}
+            {(selectedUserDetails.company || selectedUserDetails.agent) && (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Association</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {selectedUserDetails.company && (
+                      <div>
+                        <p className="text-xs text-gray-500">Company</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.company?.name || 'N/A'}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.agent && (
+                      <div>
+                        <p className="text-xs text-gray-500">Agent</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.agent?.name || 'N/A'}</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
             
             {/* Role-Specific Stats */}
             {selectedUserDetails.roleSpecificData && Object.keys(selectedUserDetails.roleSpecificData).length > 0 && (
@@ -178,6 +287,72 @@ export default function UserDetailsDialog({
                         <span className="text-xs text-gray-400">{formatDate(activity.createdAt)}</span>
                       </div>
                     ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Change Password Dialog */}
+            {showPasswordChange && (
+              <Card className="border-0 shadow-sm border-l-4 border-l-amber-500">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Key className="h-4 w-4 text-amber-600" />
+                    Change Password
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>New Password</Label>
+                    <Input 
+                      type="password" 
+                      value={newPassword} 
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Enter new password (min 6 characters)"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => { setShowPasswordChange(false); setNewPassword(''); }}>
+                      <X className="h-4 w-4 mr-1" />Cancel
+                    </Button>
+                    <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600" onClick={handleChangePassword} disabled={updating}>
+                      {updating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating...</> : <><Save className="h-4 w-4 mr-1" />Update Password</>}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Change Email Dialog */}
+            {showEmailChange && (
+              <Card className="border-0 shadow-sm border-l-4 border-l-blue-500">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-blue-600" />
+                    Change Email
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>Current Email</Label>
+                    <Input value={selectedUserDetails.email} disabled className="bg-gray-50" />
+                  </div>
+                  <div>
+                    <Label>New Email</Label>
+                    <Input 
+                      type="email" 
+                      value={newEmail} 
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="Enter new email address"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => { setShowEmailChange(false); setNewEmail(''); }}>
+                      <X className="h-4 w-4 mr-1" />Cancel
+                    </Button>
+                    <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600" onClick={handleChangeEmail} disabled={updating}>
+                      {updating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Updating...</> : <><Save className="h-4 w-4 mr-1" />Update Email</>}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

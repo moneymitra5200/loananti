@@ -75,7 +75,6 @@ import {
   BulkApprovalDialog,
   DeleteLoanDialog,
   RoleSelectDialog,
-  DeleteConfirmDialog,
   UserDetailsDialog,
 } from './dialogs';
 
@@ -111,7 +110,6 @@ export default function SuperAdminDashboard() {
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null);
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
-  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
   
@@ -140,13 +138,10 @@ export default function SuperAdminDashboard() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [productForm, setProductForm] = useState({
     title: '', description: '', icon: '💰', code: '', loanType: 'PERSONAL',
-    minInterestRate: 8, maxInterestRate: 24, defaultInterestRate: 12,
-    minTenure: 6, maxTenure: 60, defaultTenure: 12,
+    minInterestRate: 8, maxInterestRate: 24,
+    minTenure: 6, maxTenure: 60,
     minAmount: 10000, maxAmount: 10000000,
-    processingFeePercent: 1, processingFeeMin: 500, processingFeeMax: 10000,
-    latePaymentPenaltyPercent: 2, gracePeriodDays: 5, bounceCharges: 500,
-    allowMoratorium: true, maxMoratoriumMonths: 3,
-    allowPrepayment: true, prepaymentCharges: 2, isActive: true
+    isActive: true
   });
   const [settings, setSettings] = useState<any>({
     companyName: 'Money Mitra Financial Advisor', companyLogo: '', companyTagline: 'Your Dreams, Our Support',
@@ -665,15 +660,15 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const handleDeleteUser = async () => {
-    if (!selectedUser) return;
+  const handleDeleteUser = async (userToDelete?: UserItem) => {
+    const user = userToDelete || selectedUser;
+    if (!user) return;
     try {
-      const response = await fetch(`/api/user?id=${selectedUser.id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/user?id=${user.id}`, { method: 'DELETE' });
       const data = await response.json();
       
       if (response.ok && data.success) {
         toast({ title: 'User Deleted', description: 'User has been deleted successfully' });
-        setShowDeleteConfirmDialog(false);
         setSelectedUser(null);
         fetchUsers();
       } else {
@@ -730,13 +725,10 @@ export default function SuperAdminDashboard() {
         setSelectedProduct(null);
         setProductForm({
           title: '', description: '', icon: '💰', code: '', loanType: 'PERSONAL',
-          minInterestRate: 8, maxInterestRate: 24, defaultInterestRate: 12,
-          minTenure: 6, maxTenure: 60, defaultTenure: 12,
+          minInterestRate: 8, maxInterestRate: 24,
+          minTenure: 6, maxTenure: 60,
           minAmount: 10000, maxAmount: 10000000,
-          processingFeePercent: 1, processingFeeMin: 500, processingFeeMax: 10000,
-          latePaymentPenaltyPercent: 2, gracePeriodDays: 5, bounceCharges: 500,
-          allowMoratorium: true, maxMoratoriumMonths: 3,
-          allowPrepayment: true, prepaymentCharges: 2, isActive: true
+          isActive: true
         });
         fetchProducts();
       } else {
@@ -783,22 +775,10 @@ export default function SuperAdminDashboard() {
       loanType: product.loanType || 'PERSONAL',
       minInterestRate: product.minInterestRate,
       maxInterestRate: product.maxInterestRate,
-      defaultInterestRate: product.defaultInterestRate,
       minTenure: product.minTenure,
       maxTenure: product.maxTenure,
-      defaultTenure: product.defaultTenure,
       minAmount: product.minAmount,
       maxAmount: product.maxAmount,
-      processingFeePercent: product.processingFeePercent,
-      processingFeeMin: product.processingFeeMin,
-      processingFeeMax: product.processingFeeMax,
-      latePaymentPenaltyPercent: product.latePaymentPenaltyPercent,
-      gracePeriodDays: product.gracePeriodDays,
-      bounceCharges: product.bounceCharges,
-      allowMoratorium: product.allowMoratorium,
-      maxMoratoriumMonths: product.maxMoratoriumMonths,
-      allowPrepayment: product.allowPrepayment,
-      prepaymentCharges: product.prepaymentCharges,
       isActive: product.isActive
     });
     setShowProductDialog(true);
@@ -1286,7 +1266,7 @@ export default function SuperAdminDashboard() {
                   .finally(() => setLoadingUserDetails(false));
               }}
               onUnlockUser={handleUnlockUser}
-              onDeleteUser={(user) => { setSelectedUser(user); setShowDeleteConfirmDialog(true); }}
+              onDeleteUser={(user) => handleDeleteUser(user)}
             />
           </Suspense>
         );
@@ -1707,14 +1687,6 @@ export default function SuperAdminDashboard() {
         detailsTab={detailsTab}
         setDetailsTab={setDetailsTab}
         getStatusBadge={getStatusBadge}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <DeleteConfirmDialog
-        open={showDeleteConfirmDialog}
-        onOpenChange={setShowDeleteConfirmDialog}
-        selectedUser={selectedUser}
-        handleDeleteUser={handleDeleteUser}
       />
 
       {/* Product Dialog */}

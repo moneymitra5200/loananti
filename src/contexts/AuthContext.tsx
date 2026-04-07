@@ -103,11 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
-    // Check if we have a cached user (client-side only)
+    // Check if we have a cached user (client-side only) - Use sessionStorage for tab-specific sessions
+    // This ensures that opening dashboard URL in new tab shows fresh landing page
     let demoUser: User | null = null;
     if (typeof window !== 'undefined') {
       try {
-        const demoUserStr = localStorage.getItem('demoUser');
+        const demoUserStr = sessionStorage.getItem('demoUser');
         if (demoUserStr) {
           demoUser = JSON.parse(demoUserStr);
         }
@@ -115,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     if (demoUser) {
-      // Set user from localStorage - use queueMicrotask to avoid synchronous setState warning
+      // Set user from sessionStorage - use queueMicrotask to avoid synchronous setState warning
       queueMicrotask(() => {
         setUser(demoUser);
         setLoading(false);
@@ -133,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(res => res.json())
       .then(checkData => {
         if (!checkData.canLogin) {
-          localStorage.removeItem('demoUser');
+          sessionStorage.removeItem('demoUser');
           setUser(null);
           return;
         }
@@ -153,7 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .then(res => res.json())
           .then(data => {
             if (data.deleted || data.error?.includes('deleted')) {
-              localStorage.removeItem('demoUser');
+              sessionStorage.removeItem('demoUser');
               setUser(null);
               return;
             }
@@ -170,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 staffCode: data.user.staffCode,
                 cashierCode: data.user.cashierCode
               } as User;
-              localStorage.setItem('demoUser', JSON.stringify(actualUser));
+              sessionStorage.setItem('demoUser', JSON.stringify(actualUser));
               setUser(actualUser);
             }
           })
@@ -225,7 +226,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('demoUser');
+      sessionStorage.removeItem('demoUser');
     }
     await firebaseSignOut(auth);
     setUser(null);
@@ -248,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             };
             setUser(updatedUser);
             if (typeof window !== 'undefined') {
-              localStorage.setItem('demoUser', JSON.stringify(updatedUser));
+              sessionStorage.setItem('demoUser', JSON.stringify(updatedUser));
             }
           }
         }
@@ -272,7 +273,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && result.success) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
-          localStorage.setItem('demoUser', JSON.stringify(result.user));
+          sessionStorage.setItem('demoUser', JSON.stringify(result.user));
         }
         setLoading(false);
         return { success: true, user: result.user };
@@ -300,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && result.success) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
-          localStorage.setItem('demoUser', JSON.stringify(result.user));
+          sessionStorage.setItem('demoUser', JSON.stringify(result.user));
         }
         setLoading(false);
         return { success: true, user: result.user };
@@ -367,7 +368,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && result.success) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
-          localStorage.setItem('demoUser', JSON.stringify(result.user));
+          sessionStorage.setItem('demoUser', JSON.stringify(result.user));
         }
         setLoading(false);
         return { success: true, user: result.user };

@@ -1,15 +1,14 @@
 'use client';
 
-import { memo, useRef } from 'react';
+import { memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Building2, Phone, FileText, Globe, Info, BarChart3, Clock, Camera, Save, Loader2 } from 'lucide-react';
+import { Building2, Phone, FileText, Globe, Info, BarChart3, Clock, Save, Loader2 } from 'lucide-react';
 
 interface SettingsData {
-  companyLogo: string;
   companyName: string;
   companyTagline: string;
   companyEmail: string;
@@ -37,8 +36,6 @@ interface Props {
   setSettings: (settings: SettingsData) => void;
   savingSettings: boolean;
   onSave: () => void;
-  onLogoUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  uploadingLogo: boolean;
 }
 
 function WebsiteSection({
@@ -46,11 +43,7 @@ function WebsiteSection({
   setSettings,
   savingSettings,
   onSave,
-  onLogoUpload,
-  uploadingLogo
 }: Props) {
-  const logoInputRef = useRef<HTMLInputElement>(null);
-
   return (
     <div className="space-y-6">
       {/* Website Management Header */}
@@ -81,51 +74,9 @@ function WebsiteSection({
             <Building2 className="h-5 w-5 text-emerald-600" />
             Company Branding
           </CardTitle>
-          <CardDescription>Update your company logo and brand identity</CardDescription>
+          <CardDescription>Update your company brand identity</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex flex-col md:flex-row gap-6 items-start">
-            <div className="flex-shrink-0">
-              <div className="w-32 h-32 rounded-2xl border-2 border-dashed border-gray-300 flex items-center justify-center overflow-hidden bg-gray-50">
-                {settings.companyLogo ? (
-                  <img src={settings.companyLogo} alt="Company Logo" className="w-full h-full object-contain" />
-                ) : (
-                  <Building2 className="h-12 w-12 text-gray-300" />
-                )}
-              </div>
-            </div>
-            <div className="flex-1 space-y-4">
-              <div>
-                <Label className="text-sm font-medium text-gray-600">Company Logo</Label>
-                <p className="text-sm text-gray-500 mb-2">Upload your company logo (PNG, JPG, max 2MB)</p>
-                <input
-                  type="file"
-                  accept="image/*"
-                  ref={logoInputRef}
-                  onChange={onLogoUpload}
-                  className="hidden"
-                />
-                <Button
-                  variant="outline"
-                  className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                  onClick={() => logoInputRef.current?.click()}
-                  disabled={uploadingLogo}
-                >
-                  {uploadingLogo ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Uploading...
-                    </>
-                  ) : (
-                    <>
-                      <Camera className="h-4 w-4 mr-2" />
-                      Upload Logo
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
           <div className="grid md:grid-cols-2 gap-6">
             <div>
               <Label>Company Name</Label>

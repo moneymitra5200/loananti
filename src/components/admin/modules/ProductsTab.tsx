@@ -43,13 +43,10 @@ export default function ProductsTab({
     setSelectedProduct(null);
     setProductForm({
       title: '', description: '', icon: '💰', code: '', loanType: 'PERSONAL',
-      minInterestRate: 8, maxInterestRate: 24, defaultInterestRate: 12,
-      minTenure: 6, maxTenure: 60, defaultTenure: 12,
+      minInterestRate: 8, maxInterestRate: 24,
+      minTenure: 6, maxTenure: 60,
       minAmount: 10000, maxAmount: 10000000,
-      processingFeePercent: 1, processingFeeMin: 500, processingFeeMax: 10000,
-      latePaymentPenaltyPercent: 2, gracePeriodDays: 5, bounceCharges: 500,
-      allowMoratorium: true, maxMoratoriumMonths: 3,
-      allowPrepayment: true, prepaymentCharges: 2, isActive: true
+      isActive: true
     });
     setShowProductDialog(true);
   };
