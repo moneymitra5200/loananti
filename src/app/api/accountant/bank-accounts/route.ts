@@ -148,7 +148,8 @@ export async function POST(request: NextRequest) {
           balanceAfter: openingBalance,
           description: 'Opening Balance',
           referenceType: 'OPENING_BALANCE',
-          transactionDate: new Date()
+          transactionDate: new Date(),
+          createdById: 'system'
         }
       });
     }
