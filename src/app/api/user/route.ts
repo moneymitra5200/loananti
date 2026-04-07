@@ -115,36 +115,61 @@ export async function POST(request: NextRequest) {
     // Create company if role is COMPANY and no company specified
     if (role === 'COMPANY' && !cleanCompanyId) {
       const companyCode = code || generateCode('COMP');
-      console.log('[User API] Creating company:', companyCode);
-      createdCompany = await db.company.create({
-        data: {
-          name,
-          code: companyCode,
-          contactEmail: email,
-          contactPhone: phone || null,
-          address: address || null,
-          city: city || null,
-          state: state || null,
-          pincode: pincode || null,
-          gstNumber: gstNumber || null,
-          panNumber: panNumber || null,
-          website: website || null,
-          ownerName: ownerName || null,
-          ownerPhone: ownerPhone || null,
-          ownerEmail: ownerEmail || null,
-          ownerPan: ownerPan || null,
-          ownerAadhaar: ownerAadhaar || null,
-          logoUrl: logoUrl || null,
-          isMirrorCompany: isMirrorCompany !== undefined ? isMirrorCompany : true,
-          mirrorInterestRate: mirrorInterestRate || null,
-          mirrorInterestType: mirrorInterestType || 'REDUCING',
-          accountingType: accountingType || 'FULL',
-          defaultInterestRate: defaultInterestRate || 12,
-          defaultInterestType: defaultInterestType || 'FLAT',
-          isActive: true
-        }
+      console.log('[User API] Creating company with code:', companyCode);
+      console.log('[User API] Company data:', {
+        name,
+        code: companyCode,
+        email,
+        isMirrorCompany,
+        mirrorInterestRate,
+        mirrorInterestType
       });
-      userCompanyId = createdCompany.id;
+      
+      try {
+        createdCompany = await db.company.create({
+          data: {
+            name,
+            code: companyCode,
+            contactEmail: email,
+            contactPhone: phone || null,
+            address: address || null,
+            city: city || null,
+            state: state || null,
+            pincode: pincode || null,
+            gstNumber: gstNumber || null,
+            panNumber: panNumber || null,
+            website: website || null,
+            ownerName: ownerName || null,
+            ownerPhone: ownerPhone || null,
+            ownerEmail: ownerEmail || null,
+            ownerPan: ownerPan || null,
+            ownerAadhaar: ownerAadhaar || null,
+            logoUrl: logoUrl || null,
+            isMirrorCompany: isMirrorCompany !== undefined ? isMirrorCompany : true,
+            mirrorInterestRate: mirrorInterestRate ?? null,
+            mirrorInterestType: mirrorInterestType || 'REDUCING',
+            accountingType: accountingType || 'FULL',
+            defaultInterestRate: defaultInterestRate || 12,
+            defaultInterestType: defaultInterestType || 'FLAT',
+            isActive: true
+          }
+        });
+        userCompanyId = createdCompany.id;
+        console.log('[User API] Company created successfully:', createdCompany.id);
+      } catch (companyError) {
+        console.error('[User API] Error creating company:', companyError);
+        if (companyError instanceof Error) {
+          console.error('[User API] Company error message:', companyError.message);
+          // Check for unique constraint violation
+          if (companyError.message.includes('Unique constraint') || companyError.message.includes('code')) {
+            return NextResponse.json({ 
+              error: 'Company code already exists. Please try again or use a different code.',
+              details: companyError.message 
+            }, { status: 400 });
+          }
+        }
+        throw companyError;
+      }
     }
 
     // Validate that company exists if companyId is provided (not for roles that are ecosystem-wide)
@@ -175,33 +200,63 @@ export async function POST(request: NextRequest) {
       ACCOUNTANT: generateCode('ACC')
     };
 
-    console.log('[User API] Creating user record...');
-    const user = await db.user.create({
-      data: {
-        name,
-        email,
-        phone: phone || null,
-        password: hashedPassword,
-        plainPassword: password,
-        firebaseUid,
-        role: role as UserRole,
-        companyId: userCompanyId,
-        agentId: role === 'STAFF' ? cleanAgentId : null,
-        agentCode: role === 'AGENT' ? roleCodes.AGENT : null,
-        staffCode: role === 'STAFF' ? roleCodes.STAFF : null,
-        cashierCode: role === 'CASHIER' ? roleCodes.CASHIER : null,
-        accountantCode: role === 'ACCOUNTANT' ? roleCodes.ACCOUNTANT : null,
-        // Commission removed - no one takes commission in this system
-        commissionRate: 0,
-        lastLoginAt: new Date()
-      },
-      include: {
-        company: true,
-        agent: true
-      }
+    console.log('[User API] Creating user record with role:', role);
+    console.log('[User API] User data:', {
+      name,
+      email,
+      role,
+      companyId: userCompanyId,
+      agentId: role === 'STAFF' ? cleanAgentId : null
     });
+    
+    let user;
+    try {
+      user = await db.user.create({
+        data: {
+          name,
+          email,
+          phone: phone || null,
+          password: hashedPassword,
+          plainPassword: password,
+          firebaseUid,
+          role: role as UserRole,
+          companyId: userCompanyId,
+          agentId: role === 'STAFF' ? cleanAgentId : null,
+          agentCode: role === 'AGENT' ? roleCodes.AGENT : null,
+          staffCode: role === 'STAFF' ? roleCodes.STAFF : null,
+          cashierCode: role === 'CASHIER' ? roleCodes.CASHIER : null,
+          accountantCode: role === 'ACCOUNTANT' ? roleCodes.ACCOUNTANT : null,
+          // Commission removed - no one takes commission in this system
+          commissionRate: 0,
+          lastLoginAt: new Date()
+        },
+        include: {
+          company: true,
+          agent: true
+        }
+      });
+    } catch (userCreateError) {
+      console.error('[User API] Error creating user record:', userCreateError);
+      if (userCreateError instanceof Error) {
+        console.error('[User API] User create error message:', userCreateError.message);
+        // Check for common errors
+        if (userCreateError.message.includes('Unique constraint')) {
+          return NextResponse.json({ 
+            error: 'Email or code already exists. Please use a different email.',
+            details: userCreateError.message 
+          }, { status: 400 });
+        }
+        if (userCreateError.message.includes('foreign key')) {
+          return NextResponse.json({ 
+            error: 'Invalid company or agent reference.',
+            details: userCreateError.message 
+          }, { status: 400 });
+        }
+      }
+      throw userCreateError;
+    }
 
-    console.log('[User API] User created:', user.id);
+    console.log('[User API] User created successfully:', user.id);
 
     await db.auditLog.create({
       data: {
