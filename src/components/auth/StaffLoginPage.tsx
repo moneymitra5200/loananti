@@ -51,7 +51,7 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
       }
 
       if (response.ok && data.success) {
-        localStorage.setItem('demoUser', JSON.stringify(data.user));
+        sessionStorage.setItem('demoUser', JSON.stringify(data.user));
         toast({ title: 'Success', description: 'Login successful!' });
         window.location.reload();
       } else {

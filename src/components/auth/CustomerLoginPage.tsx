@@ -107,7 +107,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
 
         if (syncResponse.ok) {
           const syncData = await syncResponse.json();
-          localStorage.setItem('demoUser', JSON.stringify(syncData.user));
+          sessionStorage.setItem('demoUser', JSON.stringify(syncData.user));
           toast({ title: 'Success', description: 'Login successful!' });
           window.location.reload();
         } else {
