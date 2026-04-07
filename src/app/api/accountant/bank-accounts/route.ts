@@ -7,15 +7,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
 
+    console.log('[Bank Accounts API] Request received for companyId:', companyId);
+
     // Validate companyId - must be a valid cuid (starts with 'c' and is 25 characters)
     if (!companyId || companyId.startsWith(':') || companyId.length < 10) {
-      console.error('Invalid companyId received:', companyId);
+      console.error('[Bank Accounts API] Invalid companyId received:', companyId);
       return NextResponse.json({ 
         error: 'Valid Company ID is required',
         receivedId: companyId 
       }, { status: 400 });
     }
 
+    console.log('[Bank Accounts API] Fetching bank accounts...');
+    
     // Get bank accounts
     const bankAccounts = await db.bankAccount.findMany({
       where: { 
@@ -44,6 +48,8 @@ export async function GET(request: NextRequest) {
       }
     });
 
+    console.log('[Bank Accounts API] Found', bankAccounts.length, 'bank accounts');
+
     // Get bank transactions for this company's bank accounts
     const bankAccountIds = bankAccounts.map(ba => ba.id);
     
@@ -60,6 +66,8 @@ export async function GET(request: NextRequest) {
       take: 100
     });
 
+    console.log('[Bank Accounts API] Found', transactions.length, 'transactions');
+
     return NextResponse.json({ 
       bankAccounts,
       transactions: transactions.map(t => ({
@@ -75,10 +83,11 @@ export async function GET(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Bank accounts error:', error);
+    console.error('[Bank Accounts API] Error:', error);
     return NextResponse.json({ 
       error: 'Failed to get bank accounts',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     }, { status: 500 });
   }
 }
