@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import bcrypt from 'bcryptjs';
 
-const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@test.com';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
 const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
 
 async function ensureSuperAdmin() {

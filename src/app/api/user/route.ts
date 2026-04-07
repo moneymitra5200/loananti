@@ -259,7 +259,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Protect permanent super admin from being deactivated
-    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@gmail.com'];
     if (isActive === false) {
       const user = await db.user.findUnique({ where: { id } });
       if (user && PERMANENT_SUPER_ADMIN_EMAILS.includes(user.email)) {
@@ -307,7 +307,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Protect permanent super admin from deletion
-    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+    const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@gmail.com'];
     if (PERMANENT_SUPER_ADMIN_EMAILS.includes(user.email)) {
       return NextResponse.json({ 
         error: 'Cannot delete the permanent Super Admin account. This account is protected.',

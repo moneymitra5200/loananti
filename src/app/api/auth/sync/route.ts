@@ -4,7 +4,7 @@ import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 // PERMANENT SUPER ADMIN - This email is reserved and cannot be deleted
-const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@test.com';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
 const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
 
 async function ensurePermanentSuperAdmin() {

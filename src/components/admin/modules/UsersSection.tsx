@@ -65,7 +65,7 @@ function UsersSection({
   onDeleteUser
 }: Props) {
   // Permanent super admin emails - these accounts are hidden from user management
-  const PERMANENT_ADMIN_EMAILS = ['moneymitra@test.com', 'moneymitra@gmail.com'];
+  const PERMANENT_ADMIN_EMAILS = ['moneymitra@gmail.com'];
   
   // Filter out permanent super admins from all displays
   const visibleUsers = users.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email));

@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import * as bcrypt from 'bcryptjs';
 
 // PERMANENT SUPER ADMIN - This email is reserved and cannot be deleted
-const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@test.com';
+const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
 const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
 
 export async function GET(request: NextRequest) {

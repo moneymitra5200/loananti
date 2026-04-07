@@ -186,12 +186,7 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
             <div className="mt-6 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-100">
               <p className="text-xs text-emerald-700 font-semibold mb-2">Demo Credentials:</p>
               <div className="text-xs text-emerald-600 space-y-1">
-                <p><span className="font-semibold">Super Admin:</span> moneymitra@test.com / 1122334455</p>
-                <p><span className="font-semibold">Company:</span> company1@test.com / 123456</p>
-                <p><span className="font-semibold">Agent:</span> agent@test.com / 123456</p>
-                <p><span className="font-semibold">Staff:</span> staff@test.com / 12345678</p>
-                <p><span className="font-semibold">Cashier:</span> cash@test.com / 12345678</p>
-                <p><span className="font-semibold">Accountant:</span> acc@test.com / 12345678</p>
+                <p><span className="font-semibold">Super Admin:</span> moneymitra@gmail.com / 1122334455</p>
               </div>
             </div>
           </div>
