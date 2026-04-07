@@ -239,7 +239,7 @@ export async function DELETE(request: NextRequest) {
       db.ledger.deleteMany({ where: { companyId: id } }),
       db.expense.deleteMany({ where: { companyId: id } }),
       db.journalEntry.deleteMany({ where: { companyId: id } }),
-      db.gstConfig.deleteMany({ where: { companyId: id } }),
+      db.gSTConfig.deleteMany({ where: { companyId: id } }),
       db.fixedAsset.deleteMany({ where: { companyId: id } }),
       db.commissionSlab.deleteMany({ where: { companyId: id } }),
       db.gracePeriodConfig.deleteMany({ where: { companyId: id } }),
