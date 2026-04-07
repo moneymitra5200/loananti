@@ -5,17 +5,34 @@ import { db } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const companyId = searchParams.get('companyId') || 'all';
+    const companyId = searchParams.get('companyId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
-    const entryType = searchParams.get('type'); // EXTRA_EMI, PROFIT_ENTRY, EXPENSE, OPENING
+    const entryType = searchParams.get('type'); // CREDIT or DEBIT
 
     console.log(`[Cash Book] Fetching entries for company: ${companyId}`);
 
-    // If 'all', check which companies are cash-book-only
-    let companyFilter: any = {};
-    if (companyId !== 'all') {
-      companyFilter = { companyId };
+    if (!companyId) {
+      return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
+    }
+
+    // Get or create cash book for the company
+    let cashBook = await db.cashBook.findUnique({
+      where: { companyId }
+    });
+
+    if (!cashBook) {
+      return NextResponse.json({
+        success: true,
+        entries: [],
+        stats: {
+          totalEntries: 0,
+          totalCashIn: 0,
+          totalCashOut: 0,
+          currentBalance: 0,
+          byType: {},
+        }
+      });
     }
 
     // Build date filter
@@ -30,14 +47,9 @@ export async function GET(request: NextRequest) {
     // Fetch entries
     const entries = await db.cashBookEntry.findMany({
       where: {
-        ...companyFilter,
+        cashBookId: cashBook.id,
         ...(Object.keys(dateFilter).length > 0 && { entryDate: dateFilter }),
-        ...(entryType && { referenceType: entryType })
-      },
-      include: {
-        company: {
-          select: { id: true, name: true, code: true, isCashBookOnly: true }
-        }
+        ...(entryType && { entryType })
       },
       orderBy: [
         { entryDate: 'desc' },
@@ -46,50 +58,39 @@ export async function GET(request: NextRequest) {
     });
 
     // Calculate totals
-    const totalCashIn = entries.reduce((sum, e) => sum + e.cashIn, 0);
-    const totalCashOut = entries.reduce((sum, e) => sum + e.cashOut, 0);
-    const currentBalance = entries.length > 0 ? entries[entries.length - 1].balance : 0;
+    const totalCashIn = entries
+      .filter(e => e.entryType === 'CREDIT')
+      .reduce((sum, e) => sum + e.amount, 0);
+    const totalCashOut = entries
+      .filter(e => e.entryType === 'DEBIT')
+      .reduce((sum, e) => sum + e.amount, 0);
+    const currentBalance = cashBook.currentBalance;
 
     // Group by type
     const byType = entries.reduce((acc, e) => {
       const type = e.referenceType || 'OTHER';
       if (!acc[type]) acc[type] = { count: 0, totalIn: 0, totalOut: 0 };
       acc[type].count++;
-      acc[type].totalIn += e.cashIn;
-      acc[type].totalOut += e.cashOut;
+      if (e.entryType === 'CREDIT') {
+        acc[type].totalIn += e.amount;
+      } else {
+        acc[type].totalOut += e.amount;
+      }
       return acc;
     }, {} as Record<string, { count: number; totalIn: number; totalOut: number }>);
-
-    // Group by company
-    const byCompany = entries.reduce((acc, e) => {
-      const cId = e.companyId;
-      if (!acc[cId]) {
-        acc[cId] = {
-          companyId: cId,
-          companyName: e.company?.name || 'Unknown',
-          entries: [],
-          totalIn: 0,
-          totalOut: 0
-        };
-      }
-      acc[cId].entries.push(e);
-      acc[cId].totalIn += e.cashIn;
-      acc[cId].totalOut += e.cashOut;
-      return acc;
-    }, {} as Record<string, any>);
 
     console.log(`[Cash Book] Found ${entries.length} entries`);
 
     return NextResponse.json({
       success: true,
       entries,
+      cashBook,
       stats: {
         totalEntries: entries.length,
         totalCashIn,
         totalCashOut,
         currentBalance,
         byType,
-        byCompany: Object.values(byCompany)
       }
     });
 
@@ -111,92 +112,75 @@ export async function POST(request: NextRequest) {
       companyId,
       entryDate,
       description,
-      reference,
       referenceType,
-      cashIn,
-      cashOut,
-      loanId,
-      customerId,
-      notes,
+      amount,
+      entryType, // CREDIT or DEBIT
+      referenceId,
       createdById
     } = body;
 
-    if (!companyId || !description) {
+    if (!companyId || !description || !amount || !entryType || !createdById) {
       return NextResponse.json({
-        error: 'Company ID and description are required'
+        error: 'Company ID, description, amount, entryType, and createdById are required'
       }, { status: 400 });
     }
 
-    // Check if company is cash-book-only
-    const company = await db.company.findUnique({
-      where: { id: companyId },
-      select: { isCashBookOnly: true, name: true }
-    });
-
-    if (!company) {
-      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    if (!['CREDIT', 'DEBIT'].includes(entryType)) {
+      return NextResponse.json({
+        error: 'entryType must be CREDIT or DEBIT'
+      }, { status: 400 });
     }
 
-    // Get the last entry to calculate running balance
-    const lastEntry = await db.cashBookEntry.findFirst({
-      where: { companyId },
-      orderBy: { entryDate: 'desc' },
-      select: { balance: true }
+    // Get or create cash book for the company
+    let cashBook = await db.cashBook.findUnique({
+      where: { companyId }
     });
 
-    const previousBalance = lastEntry?.balance || 0;
-    const inAmount = cashIn || 0;
-    const outAmount = cashOut || 0;
-    const newBalance = previousBalance + inAmount - outAmount;
-
-    // Generate voucher number
-    const today = new Date();
-    const prefix = `CB-${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}`;
-    const lastVoucher = await db.cashBookEntry.findFirst({
-      where: {
-        companyId,
-        voucherNo: { startsWith: prefix }
-      },
-      orderBy: { voucherNo: 'desc' },
-      select: { voucherNo: true }
-    });
-
-    let sequence = 1;
-    if (lastVoucher) {
-      const lastSeq = parseInt(lastVoucher.voucherNo.split('-')[2] || '0');
-      sequence = lastSeq + 1;
+    if (!cashBook) {
+      cashBook = await db.cashBook.create({
+        data: {
+          companyId,
+          openingBalance: 0,
+          currentBalance: 0
+        }
+      });
     }
-    const voucherNo = `${prefix}-${String(sequence).padStart(4, '0')}`;
+
+    // Calculate new balance
+    const newBalance = entryType === 'CREDIT'
+      ? cashBook.currentBalance + amount
+      : cashBook.currentBalance - amount;
 
     // Create entry
     const entry = await db.cashBookEntry.create({
       data: {
-        companyId,
-        entryDate: entryDate ? new Date(entryDate) : new Date(),
-        voucherNo,
+        cashBookId: cashBook.id,
+        entryType,
+        amount,
+        balanceAfter: newBalance,
         description,
-        reference,
-        referenceType: referenceType || 'MANUAL',
-        cashIn: inAmount,
-        cashOut: outAmount,
-        balance: newBalance,
-        loanId,
-        customerId,
-        notes,
-        createdById
-      },
-      include: {
-        company: {
-          select: { id: true, name: true, code: true }
-        }
+        referenceType: referenceType || 'MANUAL_ENTRY',
+        referenceId,
+        createdById,
+        entryDate: entryDate ? new Date(entryDate) : new Date()
       }
     });
 
-    console.log(`[Cash Book] Created entry ${voucherNo} for company ${company.name}`);
+    // Update cash book balance
+    await db.cashBook.update({
+      where: { id: cashBook.id },
+      data: {
+        currentBalance: newBalance,
+        lastUpdatedAt: new Date()
+      }
+    });
+
+    console.log(`[Cash Book] Created ${entryType} entry of ${amount} for company ${companyId}`);
 
     return NextResponse.json({
       success: true,
       entry,
+      newBalance,
       message: 'Cash book entry created successfully'
     });
 
@@ -220,17 +204,35 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Entry ID is required' }, { status: 400 });
     }
 
-    // Remove fields that shouldn't be updated directly
-    delete updateData.voucherNo;
-    delete updateData.companyId;
-    delete updateData.balance;
+    // Get the existing entry
+    const existingEntry = await db.cashBookEntry.findUnique({
+      where: { id },
+      include: { cashBook: true }
+    });
+
+    if (!existingEntry) {
+      return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+    }
+
+    // If amount is being updated, recalculate balance
+    if (updateData.amount !== undefined && updateData.amount !== existingEntry.amount) {
+      const amountDiff = updateData.amount - existingEntry.amount;
+      const balanceAdjustment = existingEntry.entryType === 'CREDIT' ? amountDiff : -amountDiff;
+      const newBalance = existingEntry.cashBook.currentBalance + balanceAdjustment;
+
+      await db.cashBook.update({
+        where: { id: existingEntry.cashBookId },
+        data: { currentBalance: newBalance }
+      });
+
+      updateData.balanceAfter = newBalance;
+    }
 
     const entry = await db.cashBookEntry.update({
       where: { id },
       data: {
         ...updateData,
         entryDate: updateData.entryDate ? new Date(updateData.entryDate) : undefined,
-        updatedAt: new Date()
       }
     });
 
@@ -259,6 +261,25 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'Entry ID is required' }, { status: 400 });
     }
+
+    // Get the entry first to adjust balance
+    const entry = await db.cashBookEntry.findUnique({
+      where: { id },
+      include: { cashBook: true }
+    });
+
+    if (!entry) {
+      return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
+    }
+
+    // Reverse the balance effect
+    const balanceAdjustment = entry.entryType === 'CREDIT' ? -entry.amount : entry.amount;
+    const newBalance = entry.cashBook.currentBalance + balanceAdjustment;
+
+    await db.cashBook.update({
+      where: { id: entry.cashBookId },
+      data: { currentBalance: newBalance }
+    });
 
     await db.cashBookEntry.delete({
       where: { id }

@@ -170,6 +170,8 @@ model Company {
   maxTenureMonths     Int               @default(60)
   // Company Credit - only CASH payments increase this
   companyCredit       Float             @default(0)
+  // My Cash - For Company 3 (cash only company)
+  myCash              Float             @default(0)
   // Interest Type Settings
   defaultInterestType String            @default("FLAT") // FLAT or REDUCING
   // Mirror Loan Settings
@@ -397,6 +399,8 @@ model LoanApplication {
   paymentRequests        PaymentRequest[]
   // EMI Payment Settings
   emiPaymentSettings    EMIPaymentSetting[]
+  // Interest Only Loan
+  interestOnlyLoan      InterestOnlyLoan?
   // Loan Type Specific Details
   goldLoanDetail        GoldLoanDetail?
   vehicleLoanDetail     VehicleLoanDetail?
@@ -1209,6 +1213,200 @@ model AccountingSettings {
   journalEntryPrefix    String   @default("JE")
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+}
+
+// Account Head - Simplified chart of accounts for daybook
+model AccountHead {
+  id              String        @id @default(cuid())
+  companyId       String
+  headCode        String
+  headName        String
+  headType        String        // ASSET, LIABILITY, INCOME, EXPENSE, EQUITY
+  isSystemHead    Boolean       @default(false)
+  isActive        Boolean       @default(true)
+  openingBalance  Float         @default(0)
+  currentBalance  Float         @default(0)
+  description     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  daybookEntries  DaybookEntry[]
+  @@unique([companyId, headCode])
+  @@index([companyId])
+  @@index([headCode])
+  @@index([headType])
+}
+
+// Daybook Entry - All transactions recorded here
+model DaybookEntry {
+  id              String    @id @default(cuid())
+  companyId       String
+  entryNumber     String
+  entryDate       DateTime
+  accountHeadId   String
+  accountHeadName String
+  accountType     String    // ASSET, LIABILITY, INCOME, EXPENSE, EQUITY
+  particular      String
+  referenceType   String    // LOAN_DISBURSEMENT, EMI_PAYMENT, EXPENSE, etc.
+  referenceId     String?
+  debit           Float     @default(0)
+  credit          Float     @default(0)
+  sourceType      String    // ONLINE_LOAN, OFFLINE_LOAN, MANUAL, etc.
+  sourceId        String?
+  loanNo          String?
+  customerName    String?
+  paymentMode     String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  accountHead     AccountHead @relation(fields: [accountHeadId], references: [id])
+  @@unique([companyId, entryNumber])
+  @@index([companyId])
+  @@index([entryDate])
+  @@index([referenceType])
+  @@index([referenceId])
+  @@index([accountHeadId])
+}
+
+// Borrowed Money - Track money borrowed from external sources
+model BorrowedMoney {
+  id              String    @id @default(cuid())
+  companyId       String
+  sourceType      String    // BANK, NBFC, INDIVIDUAL, etc.
+  sourceName      String
+  sourceId        String?
+  amount          Float
+  interestRate    Float?
+  dueDate         DateTime?
+  borrowedDate    DateTime
+  description     String?
+  amountRepaid    Float     @default(0)
+  status          String    @default("ACTIVE") // ACTIVE, PARTIALLY_PAID, FULLY_PAID
+  journalEntryId  String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([companyId])
+  @@index([sourceType])
+  @@index([status])
+}
+
+// Invest Money - Track investments made by the company
+model InvestMoney {
+  id              String    @id @default(cuid())
+  companyId       String
+  investmentType  String    // FIXED_DEPOSIT, MUTUAL_FUND, STOCKS, etc.
+  investmentName  String
+  amount          Float
+  interestRate    Float?
+  maturityDate    DateTime?
+  investedDate    DateTime
+  description     String?
+  currentValue    Float?
+  status          String    @default("ACTIVE") // ACTIVE, MATURED, WITHDRAWN
+  journalEntryId  String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([companyId])
+  @@index([investmentType])
+  @@index([status])
+}
+
+// Equity Entry - Track owner's equity movements
+model EquityEntry {
+  id              String    @id @default(cuid())
+  companyId       String
+  entryType       String    // OPENING, ADDITIONAL, WITHDRAWAL
+  amount          Float
+  description     String?
+  entryDate       DateTime
+  journalEntryId  String?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  @@index([companyId])
+  @@index([entryType])
+}
+
+// AI Chat History - Store chat conversations
+model AIChatHistory {
+  id           String   @id @default(cuid())
+  customerId   String
+  sessionId    String
+  userMessage  String
+  aiResponse   String
+  intent       String?
+  createdAt    DateTime @default(now())
+  @@index([customerId])
+  @@index([sessionId])
+  @@index([createdAt])
+}
+
+// Interest Only Loan - Track interest-only loans separately
+model InterestOnlyLoan {
+  id                      String                 @id @default(cuid())
+  loanApplicationId       String                 @unique
+  principalAmount         Float
+  interestRate            Float
+  interestOnlyRate        Float?                 // Interest rate during interest-only phase
+  monthlyInterestAmount   Float
+  totalInterestPaid       Float                  @default(0)
+  totalMonthsPaid         Int                    @default(0)
+  currentPhase            String                 @default("INTEREST_ONLY") // INTEREST_ONLY or EMI_PHASE
+  startDate               DateTime
+  interestOnlyStartDate   DateTime?
+  interestOnlyEndDate     DateTime?
+  lastPaymentDate         DateTime?
+  nextPaymentDueDate      DateTime?
+  convertedToNormalAt     DateTime?
+  isActive                Boolean                @default(true)
+  // EMI Phase fields
+  emiInterestRate         Float?
+  emiTenureMonths         Int?
+  emiAmount               Float?
+  totalInterestInEmiPhase Float?
+  totalAmountInEmiPhase   Float?
+  emiPhaseStartDate       DateTime?
+  startedEmiPhase         Boolean                @default(false)
+  startedEmiPhaseById     String?
+  startedEmiPhaseAt       DateTime?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  loanApplication         LoanApplication        @relation(fields: [loanApplicationId], references: [id])
+  startedEmiPhaseBy       User?                  @relation(fields: [startedEmiPhaseById], references: [id])
+  interestPayments        InterestOnlyPayment[]
+  @@index([loanApplicationId])
+  @@index([currentPhase])
+  @@index([isActive])
+}
+
+// Interest Only Payment - Track monthly interest payments
+model InterestOnlyPayment {
+  id                  String           @id @default(cuid())
+  interestOnlyLoanId  String
+  paymentMonth        Int
+  paymentYear        Int
+  dueDate             DateTime
+  interestAmount      Float
+  paidAmount          Float            @default(0)
+  paidDate            DateTime?
+  paymentMode         String?
+  paymentReference    String?
+  utrNumber           String?
+  receiptNumber       String?
+  status              String           @default("PENDING") // PENDING, PAID, OVERDUE, WAIVED
+  isOverdue           Boolean          @default(false)
+  daysOverdue         Int              @default(0)
+  penaltyAmount       Float            @default(0)
+  waivedAmount        Float            @default(0)
+  waiverReason        String?
+  waivedById          String?
+  waivedAt            DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  interestOnlyLoan    InterestOnlyLoan @relation(fields: [interestOnlyLoanId], references: [id])
+  @@index([interestOnlyLoanId])
+  @@index([status])
+  @@index([dueDate])
 }
 
 // Company Accounting Settings Extension

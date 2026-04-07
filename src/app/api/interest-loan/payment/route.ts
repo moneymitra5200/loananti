@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         const now = new Date();
         payment = await tx.interestOnlyPayment.findFirst({
           where: {
-            interestOnlyLoanId,
+            interestOnlyLoanId: interestLoanId,
             status: { in: ['PENDING', 'OVERDUE'] }
           },
           orderBy: { dueDate: 'asc' }
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
 
           payment = await tx.interestOnlyPayment.create({
             data: {
-              interestOnlyLoanId,
+              interestOnlyLoanId: interestLoanId,
               paymentMonth: now.getMonth() + 1,
               paymentYear: now.getFullYear(),
               dueDate,

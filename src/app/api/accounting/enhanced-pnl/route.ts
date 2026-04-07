@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
     });
     
     const totalInvested = investMoney.reduce((sum, i) => sum + i.amount, 0);
-    const totalReceivable = investMoney.reduce((sum, i) => sum + (i.receivableAmount || 0), 0);
+    const totalCurrentValue = investMoney.reduce((sum, i) => sum + (i.currentValue || i.amount), 0);
 
     // 8. Calculate Final Equity
     const finalEquity = totalEquity + netProfitLoss;
@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
       },
       investMoney: {
         total: totalInvested,
-        receivable: totalReceivable,
+        currentValue: totalCurrentValue,
         entries: investMoney
       }
     });

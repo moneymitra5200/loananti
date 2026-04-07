@@ -169,7 +169,6 @@ export async function POST(request: NextRequest) {
           credit: 0,
           sourceType: 'JOURNAL_ENTRY',
           sourceId: journalEntry.id,
-          journalEntryId: journalEntry.id,
           createdById
         },
         {
@@ -186,7 +185,6 @@ export async function POST(request: NextRequest) {
           credit: parseFloat(amount),
           sourceType: 'JOURNAL_ENTRY',
           sourceId: journalEntry.id,
-          journalEntryId: journalEntry.id,
           createdById
         }
       ]

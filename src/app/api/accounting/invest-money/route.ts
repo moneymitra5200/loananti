@@ -13,35 +13,32 @@ export async function GET(request: NextRequest) {
 
     const investEntries = await db.investMoney.findMany({
       where: { companyId },
-      orderBy: { investmentDate: 'desc' }
+      orderBy: { investedDate: 'desc' }
     });
 
     // Calculate totals
     const totalInvested = investEntries.reduce((sum, entry) => sum + entry.amount, 0);
-    const totalReceived = investEntries.reduce((sum, entry) => sum + entry.receivedAmount, 0);
-    const totalReceivable = investEntries.reduce((sum, entry) => sum + entry.receivableAmount, 0);
+    const totalCurrentValue = investEntries.reduce((sum, entry) => sum + (entry.currentValue || entry.amount), 0);
 
-    // Group by investor type
-    const byInvestorType = investEntries.reduce((acc, entry) => {
-      if (!acc[entry.investorType]) {
-        acc[entry.investorType] = { count: 0, total: 0, received: 0, receivable: 0 };
+    // Group by investment type
+    const byInvestmentType = investEntries.reduce((acc, entry) => {
+      if (!acc[entry.investmentType]) {
+        acc[entry.investmentType] = { count: 0, total: 0, currentValue: 0 };
       }
-      acc[entry.investorType].count++;
-      acc[entry.investorType].total += entry.amount;
-      acc[entry.investorType].received += entry.receivedAmount;
-      acc[entry.investorType].receivable += entry.receivableAmount;
+      acc[entry.investmentType].count++;
+      acc[entry.investmentType].total += entry.amount;
+      acc[entry.investmentType].currentValue += entry.currentValue || entry.amount;
       return acc;
-    }, {} as Record<string, { count: number; total: number; received: number; receivable: number }>);
+    }, {} as Record<string, { count: number; total: number; currentValue: number }>);
 
     return NextResponse.json({
       investEntries,
       totalInvested,
-      totalReceived,
-      totalReceivable,
-      byInvestorType,
+      totalCurrentValue,
+      byInvestmentType,
       activeCount: investEntries.filter(e => e.status === 'ACTIVE').length,
       maturedCount: investEntries.filter(e => e.status === 'MATURED').length,
-      closedCount: investEntries.filter(e => e.status === 'CLOSED').length
+      withdrawnCount: investEntries.filter(e => e.status === 'WITHDRAWN').length
     });
   } catch (error) {
     console.error('Error fetching invest money entries:', error);
@@ -55,19 +52,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { 
       companyId, 
-      investorType, 
-      investorName, 
-      investorContact,
+      investmentType, 
+      investmentName, 
       amount, 
-      investmentDate,
-      expectedReturn,
-      returnAmount,
-      returnDueDate,
+      interestRate,
+      maturityDate,
+      investedDate,
       description, 
       createdById 
     } = body;
 
-    if (!companyId || !investorType || !investorName || !amount || !createdById) {
+    if (!companyId || !investmentType || !investmentName || !amount || !createdById) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -75,15 +70,12 @@ export async function POST(request: NextRequest) {
     const investEntry = await db.investMoney.create({
       data: {
         companyId,
-        investorType,
-        investorName,
-        investorContact,
+        investmentType,
+        investmentName,
         amount: parseFloat(amount),
-        investmentDate: investmentDate ? new Date(investmentDate) : new Date(),
-        expectedReturn: expectedReturn ? parseFloat(expectedReturn) : null,
-        returnAmount: returnAmount ? parseFloat(returnAmount) : null,
-        returnDueDate: returnDueDate ? new Date(returnDueDate) : null,
-        receivableAmount: returnAmount ? parseFloat(returnAmount) : 0,
+        interestRate: interestRate ? parseFloat(interestRate) : null,
+        maturityDate: maturityDate ? new Date(maturityDate) : null,
+        investedDate: investedDate ? new Date(investedDate) : new Date(),
         description,
         createdById
       }
@@ -92,18 +84,18 @@ export async function POST(request: NextRequest) {
     // Create journal entry
     const entryNumber = `JE-INV-${Date.now()}`;
     
-    // Get or create Invest Money account head (Liability)
+    // Get or create Invest Money account head
     let investAccount = await db.accountHead.findFirst({
-      where: { companyId, headCode: 'LIAB-002' }
+      where: { companyId, headCode: 'EQUITY-INV-001' }
     });
 
     if (!investAccount) {
       investAccount = await db.accountHead.create({
         data: {
           companyId,
-          headCode: 'LIAB-002',
+          headCode: 'EQUITY-INV-001',
           headName: 'Invest Money',
-          headType: 'LIABILITY',
+          headType: 'EQUITY',
           isSystemHead: true
         }
       });
@@ -111,14 +103,14 @@ export async function POST(request: NextRequest) {
 
     // Get or create Bank account head
     let bankAccount = await db.accountHead.findFirst({
-      where: { companyId, headCode: 'ASSET-001' }
+      where: { companyId, headCode: 'ASSET-BANK-001' }
     });
 
     if (!bankAccount) {
       bankAccount = await db.accountHead.create({
         data: {
           companyId,
-          headCode: 'ASSET-001',
+          headCode: 'ASSET-BANK-001',
           headName: 'Bank Account',
           headType: 'ASSET',
           isSystemHead: true
@@ -131,12 +123,12 @@ export async function POST(request: NextRequest) {
       data: {
         companyId,
         entryNumber,
-        entryDate: investEntry.investmentDate,
+        entryDate: investEntry.investedDate,
         referenceType: 'INVEST_MONEY',
         referenceId: investEntry.id,
-        narration: description || `Investment from ${investorName}`,
-        totalDebit: amount,
-        totalCredit: amount,
+        narration: description || `Investment: ${investmentName}`,
+        totalDebit: parseFloat(amount),
+        totalCredit: parseFloat(amount),
         isAutoEntry: true,
         createdById,
         lines: {
@@ -162,35 +154,33 @@ export async function POST(request: NextRequest) {
         {
           companyId,
           entryNumber: `DB-${Date.now()}-1`,
-          entryDate: investEntry.investmentDate,
+          entryDate: investEntry.investedDate,
           accountHeadId: bankAccount.id,
           accountHeadName: bankAccount.headName,
           accountType: 'ASSET',
-          particular: description || `Investment from ${investorName}`,
+          particular: description || `Investment: ${investmentName}`,
           referenceType: 'INVEST_MONEY',
           referenceId: investEntry.id,
           debit: parseFloat(amount),
           credit: 0,
           sourceType: 'JOURNAL_ENTRY',
           sourceId: journalEntry.id,
-          journalEntryId: journalEntry.id,
           createdById
         },
         {
           companyId,
           entryNumber: `DB-${Date.now()}-2`,
-          entryDate: investEntry.investmentDate,
+          entryDate: investEntry.investedDate,
           accountHeadId: investAccount.id,
           accountHeadName: investAccount.headName,
-          accountType: 'LIABILITY',
-          particular: description || `Investment from ${investorName}`,
+          accountType: 'EQUITY',
+          particular: description || `Investment: ${investmentName}`,
           referenceType: 'INVEST_MONEY',
           referenceId: investEntry.id,
           debit: 0,
           credit: parseFloat(amount),
           sourceType: 'JOURNAL_ENTRY',
           sourceId: journalEntry.id,
-          journalEntryId: journalEntry.id,
           createdById
         }
       ]
