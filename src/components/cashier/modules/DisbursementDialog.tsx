@@ -91,11 +91,19 @@ export default function DisbursementDialog({
   }, [open, mirrorLoanInfo?.isMirrorLoan]);
   
   // Fetch payment sources when dialog opens
+  // For mirror loans, fetch from MIRROR company; for regular loans, fetch from loan's company
   useEffect(() => {
-    if (open && selectedLoan?.companyId) {
-      fetchPaymentSources(selectedLoan.companyId);
+    if (open) {
+      // For mirror loans, use mirrorCompanyId; otherwise use loan's companyId
+      const companyIdToUse = mirrorLoanInfo?.isMirrorLoan && mirrorLoanInfo?.mirrorCompanyId
+        ? mirrorLoanInfo.mirrorCompanyId
+        : selectedLoan?.companyId;
+      
+      if (companyIdToUse) {
+        fetchPaymentSources(companyIdToUse);
+      }
     }
-  }, [open, selectedLoan?.companyId]);
+  }, [open, selectedLoan?.companyId, mirrorLoanInfo?.isMirrorLoan, mirrorLoanInfo?.mirrorCompanyId]);
   
   const fetchPaymentSources = async (companyId: string) => {
     setLoadingPaymentSources(true);
@@ -892,7 +900,8 @@ export default function DisbursementDialog({
                 })()}
 
                 {/* Split Payment Option - Show when both Bank and Cash are available */}
-                {!mirrorLoanInfo?.isMirrorLoan && !isCompany3 && paymentSources.filter(s => s.type === 'BANK').length > 0 && paymentSources.filter(s => s.type === 'CASH').length > 0 && (
+                {/* Available for: Mirror Loans (Company 1/2) AND Regular non-Company3 loans */}
+                {!isCompany3 && paymentSources.filter(s => s.type === 'BANK').length > 0 && paymentSources.filter(s => s.type === 'CASH').length > 0 && (
                   <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
@@ -923,7 +932,9 @@ export default function DisbursementDialog({
                       />
                     </div>
                     <p className="text-sm text-blue-600 mb-3">
-                      Enable split payment to disburse from both Bank Account and Cash Book
+                      {mirrorLoanInfo?.isMirrorLoan 
+                        ? `Enable split payment to disburse from both ${mirrorLoanInfo.mirrorCompanyName}'s Bank Account and Cash Book`
+                        : "Enable split payment to disburse from both Bank Account and Cash Book"}
                     </p>
                     
                     {/* Balances Display */}
