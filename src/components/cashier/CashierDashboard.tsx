@@ -462,19 +462,36 @@ export default function CashierDashboard() {
 
         // If this is a mirror loan, also disburse the pending mirror loan
         if (mirrorLoanInfo?.isMirrorLoan && mirrorLoanInfo.pendingMirrorLoanId) {
+          console.log('[handleDisburse] Processing mirror loan disbursement...');
+          
+          // For split payment, use the splitBankAccountId; for regular bank payment, use selectedBankAccountId
+          const bankAccountIdForMirror = isSplitPayment 
+            ? disbursementForm.splitBankAccountId 
+            : (isCashPayment ? null : actualBankAccountId);
+          
+          const mirrorRequestBody: any = {
+            id: mirrorLoanInfo.pendingMirrorLoanId,
+            action: 'disburse',
+            userId: user?.id,
+            disbursementBankAccountId: bankAccountIdForMirror,
+            disbursementReference: disbursementForm.disbursementRef || `TXN${Date.now()}`,
+            extraEMIPaymentPageId: disbursementForm.extraEMIPaymentPageId,
+            // Pass split payment parameters
+            useSplitPayment: isSplitPayment,
+            bankAmount: disbursementForm.bankAmount || 0,
+            cashAmount: disbursementForm.cashAmount || 0
+          };
+          
+          console.log('[handleDisburse] Mirror request body:', JSON.stringify(mirrorRequestBody, null, 2));
+          
           const mirrorResponse = await fetch('/api/pending-mirror-loan', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: mirrorLoanInfo.pendingMirrorLoanId,
-              action: 'disburse',
-              userId: user?.id,
-              disbursementBankAccountId: disbursementForm.selectedBankAccountId,
-              disbursementReference: disbursementForm.disbursementRef,
-              // Pass the Extra EMI Payment Page ID for creating EMI payment settings
-              extraEMIPaymentPageId: disbursementForm.extraEMIPaymentPageId
-            })
+            body: JSON.stringify(mirrorRequestBody)
           });
+          
+          const mirrorResponseData = await mirrorResponse.json();
+          console.log('[handleDisburse] Mirror response:', mirrorResponse.status, mirrorResponseData);
           
           if (mirrorResponse.ok) {
             toast({ 
@@ -482,8 +499,12 @@ export default function CashierDashboard() {
               description: 'Both original and mirror loans are now active. Extra EMIs will be collected via selected payment page.' 
             });
           } else {
-            const mirrorData = await mirrorResponse.json();
-            console.error('Mirror loan disbursement error:', mirrorData.error);
+            console.error('Mirror loan disbursement error:', mirrorResponseData.error);
+            toast({ 
+              title: 'Mirror Loan Error', 
+              description: mirrorResponseData.error || 'Failed to activate mirror loan',
+              variant: 'destructive'
+            });
           }
         }
 
