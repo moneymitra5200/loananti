@@ -619,10 +619,85 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PUT - Update mirror loan progress (called when EMI is paid)
+// PUT - Update mirror loan progress (called when EMI is paid) or update extra EMI payment page
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
+    const { action } = body;
+    
+    // Handle update-extra-emi-payment-page action
+    if (action === 'update-extra-emi-payment-page') {
+      const { mappingId, extraEMIPaymentPageId, modifiedById } = body;
+      
+      if (!mappingId) {
+        return NextResponse.json({ error: 'Mapping ID is required' }, { status: 400 });
+      }
+      
+      console.log(`[Mirror Loan] Updating extra EMI payment page for mapping ${mappingId} to ${extraEMIPaymentPageId || 'default'}`);
+      
+      // Get the mapping to find the original loan
+      const mapping = await db.mirrorLoanMapping.findUnique({
+        where: { id: mappingId },
+        include: {
+          originalLoan: {
+            select: { id: true, applicationNo: true }
+          }
+        }
+      });
+      
+      if (!mapping) {
+        return NextResponse.json({ error: 'Mirror loan mapping not found' }, { status: 404 });
+      }
+      
+      // Update the mapping
+      const updatedMapping = await db.mirrorLoanMapping.update({
+        where: { id: mappingId },
+        data: { 
+          extraEMIPaymentPageId: extraEMIPaymentPageId || null
+        }
+      });
+      
+      // Update all EMIPaymentSettings for extra EMIs (installment > mirrorTenure)
+      const extraEMISettings = await db.eMIPaymentSetting.findMany({
+        where: {
+          loanApplicationId: mapping.originalLoanId,
+          emiSchedule: {
+            installmentNumber: { gt: mapping.mirrorTenure }
+          }
+        },
+        include: {
+          emiSchedule: {
+            select: { installmentNumber: true }
+          }
+        }
+      });
+      
+      console.log(`[Mirror Loan] Found ${extraEMISettings.length} extra EMI settings to update`);
+      
+      // Update each extra EMI payment setting
+      for (const setting of extraEMISettings) {
+        await db.eMIPaymentSetting.update({
+          where: { id: setting.id },
+          data: {
+            secondaryPaymentPageId: extraEMIPaymentPageId || null,
+            useDefaultCompanyPage: !extraEMIPaymentPageId,
+            lastModifiedById: modifiedById,
+            lastModifiedAt: new Date()
+          }
+        });
+      }
+      
+      console.log(`[Mirror Loan] Updated ${extraEMISettings.length} extra EMI payment settings`);
+      
+      return NextResponse.json({
+        success: true,
+        mapping: updatedMapping,
+        updatedSettingsCount: extraEMISettings.length,
+        message: `Extra EMI payment page updated. ${extraEMISettings.length} EMIs will now use the selected payment page.`
+      });
+    }
+    
+    // Default: Update mirror loan progress (called when EMI is paid)
     const { loanId, emiNumber, paidAmount } = body;
 
     // Get the mirror loan mapping
