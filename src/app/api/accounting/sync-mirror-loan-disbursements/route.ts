@@ -52,6 +52,13 @@ export async function POST(request: NextRequest) {
 
     for (const loan of mirrorLoans) {
       try {
+        // Skip loans without company
+        if (!loan.companyId) {
+          results.failed++;
+          results.errors.push(`${loan.loanNumber}: No company assigned`);
+          continue;
+        }
+
         // Check if this loan already has accounting entries
         const existingBankTxn = await db.bankTransaction.findFirst({
           where: {
@@ -84,13 +91,13 @@ export async function POST(request: NextRequest) {
 
         // Try to create missing entries
         let disbursementSuccess = false;
-        let disbursementMode: 'BANK' | 'CASH' = 'BANK';
+        let disbursementMode: 'BANK' | 'CASH' | 'PENDING' = 'PENDING';
         let bankAccountIdUsed: string | null = null;
 
-        // Try bank first
+        // Try bank first (allow negative balance - overdraft)
         if (!existingBankTxn) {
           const defaultBank = await db.bankAccount.findFirst({
-            where: { companyId: loan.companyId, isDefault: true, isActive: true }
+            where: { companyId: loan.companyId!, isDefault: true, isActive: true }
           });
 
           if (defaultBank) {
@@ -99,11 +106,14 @@ export async function POST(request: NextRequest) {
               select: { currentBalance: true }
             });
 
-            if (currentBank && currentBank.currentBalance >= loan.loanAmount) {
+            if (currentBank) {
+              // Allow negative balance (overdraft) - always create the transaction
+              const newBalance = currentBank.currentBalance - loan.loanAmount;
+              
               // Update bank balance
               await db.bankAccount.update({
                 where: { id: defaultBank.id },
-                data: { currentBalance: currentBank.currentBalance - loan.loanAmount }
+                data: { currentBalance: newBalance }
               });
 
               // Create bank transaction
@@ -112,7 +122,7 @@ export async function POST(request: NextRequest) {
                   bankAccountId: defaultBank.id,
                   transactionType: 'DEBIT',
                   amount: loan.loanAmount,
-                  balanceAfter: currentBank.currentBalance - loan.loanAmount,
+                  balanceAfter: newBalance,
                   description: `Mirror Loan Disbursement - ${loan.loanNumber}`,
                   referenceType: 'MIRROR_LOAN_DISBURSEMENT',
                   referenceId: loan.id,
@@ -124,7 +134,7 @@ export async function POST(request: NextRequest) {
               disbursementMode = 'BANK';
               bankAccountIdUsed = defaultBank.id;
               results.fixedWithBank++;
-              console.log(`[Sync] ✓ Fixed with bank for ${loan.loanNumber}`);
+              console.log(`[Sync] ✓ Fixed with bank for ${loan.loanNumber} (New Balance: ₹${newBalance})`);
             }
           }
         } else {
@@ -140,7 +150,7 @@ export async function POST(request: NextRequest) {
             const { recordCashBookEntry } = await import('@/lib/simple-accounting');
             
             const cashResult = await recordCashBookEntry({
-              companyId: loan.companyId,
+              companyId: loan.companyId!,
               entryType: 'DEBIT',
               amount: loan.loanAmount,
               description: `Mirror Loan Disbursement - ${loan.loanNumber}`,
@@ -161,22 +171,35 @@ export async function POST(request: NextRequest) {
           disbursementMode = 'CASH';
         }
 
-        // Create journal entry if missing
-        if (!existingJournalEntry && disbursementSuccess) {
+        // Create journal entry if missing - ALWAYS create regardless of disbursement success
+        if (!existingJournalEntry) {
           try {
             const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
-            const accountingService = new AccountingService(loan.companyId);
+            const accountingService = new AccountingService(loan.companyId!);
             await accountingService.initializeChartOfAccounts();
 
-            const creditAccountCode = disbursementMode === 'BANK'
-              ? ACCOUNT_CODES.BANK_ACCOUNT
-              : ACCOUNT_CODES.CASH_IN_HAND;
+            // Determine credit account based on disbursement status
+            let creditAccountCode: string;
+            let creditNarration: string;
+            
+            if (disbursementSuccess && disbursementMode === 'BANK') {
+              creditAccountCode = ACCOUNT_CODES.BANK_ACCOUNT;
+              creditNarration = 'Bank account debited (synced)';
+            } else if (disbursementSuccess && disbursementMode === 'CASH') {
+              creditAccountCode = ACCOUNT_CODES.CASH_IN_HAND;
+              creditNarration = 'Cash account debited (synced)';
+            } else {
+              // No bank/cash available - record as borrowed funds (liability)
+              creditAccountCode = ACCOUNT_CODES.BORROWED_FUNDS;
+              creditNarration = 'Pending disbursement - funds to be received (synced)';
+              disbursementMode = 'PENDING';
+            }
 
             await accountingService.createJournalEntry({
               entryDate: loan.disbursementDate || loan.createdAt,
               referenceType: 'MIRROR_LOAN_DISBURSEMENT',
               referenceId: loan.id,
-              narration: `Mirror Loan Disbursement - ${loan.loanNumber} - ₹${loan.loanAmount.toLocaleString()} via ${disbursementMode} (SYNCED)`,
+              narration: `Mirror Loan Disbursement - ${loan.loanNumber} - ₹${loan.loanAmount.toLocaleString()} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING FUNDS)'} (SYNCED)`,
               lines: [
                 {
                   accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
@@ -189,24 +212,28 @@ export async function POST(request: NextRequest) {
                   accountCode: creditAccountCode,
                   debitAmount: 0,
                   creditAmount: loan.loanAmount,
-                  narration: `${disbursementMode} account debited (synced)`,
+                  narration: creditNarration,
                 },
               ],
               createdById: createdBy,
-              paymentMode: disbursementMode === 'BANK' ? 'BANK_TRANSFER' : 'CASH',
+              paymentMode: disbursementMode === 'BANK' ? 'BANK_TRANSFER' : disbursementMode === 'CASH' ? 'CASH' : 'PENDING',
               bankAccountId: bankAccountIdUsed || undefined,
               isAutoEntry: true,
             });
 
-            console.log(`[Sync] ✓ Created journal entry for ${loan.loanNumber}`);
+            console.log(`[Sync] ✓ Created journal entry for ${loan.loanNumber} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING)'}`);
           } catch (journalError) {
             console.error(`[Sync] Journal entry failed for ${loan.loanNumber}:`, journalError);
+            results.failed++;
+            results.errors.push(`${loan.loanNumber}: Journal entry failed - ${journalError instanceof Error ? journalError.message : 'Unknown error'}`);
+            continue;
           }
         }
 
-        if (!disbursementSuccess) {
-          results.failed++;
-          results.errors.push(`${loan.loanNumber}: No bank or cash available in ${loan.company?.name}`);
+        // Only count as failed if journal entry is still missing
+        if (!disbursementSuccess && !existingJournalEntry) {
+          // Journal entry was created with PENDING status, so it's not a failure
+          console.log(`[Sync] ⚠️ ${loan.loanNumber}: Journal entry created with PENDING status - no bank/cash available`);
         }
 
       } catch (loanError) {
@@ -248,7 +275,17 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    const status = [];
+    const status: {
+      loanId: string;
+      loanNumber: string;
+      loanAmount: number;
+      company: { id: string; name: string; code: string } | null;
+      hasBankTransaction: boolean;
+      hasCashEntry: boolean;
+      hasJournalEntry: boolean;
+      isComplete: boolean;
+      createdAt: Date;
+    }[] = [];
 
     for (const loan of mirrorLoans) {
       const hasBankTxn = await db.bankTransaction.findFirst({
@@ -263,15 +300,19 @@ export async function GET(request: NextRequest) {
         where: { referenceId: loan.id, referenceType: 'MIRROR_LOAN_DISBURSEMENT' }
       });
 
+      const hasBank = !!hasBankTxn;
+      const hasCash = !!hasCashEntry;
+      const hasJournal = !!hasJournalEntry;
+
       status.push({
         loanId: loan.id,
         loanNumber: loan.loanNumber,
         loanAmount: loan.loanAmount,
         company: loan.company,
-        hasBankTransaction: !!hasBankTxn,
-        hasCashEntry: !!hasCashEntry,
-        hasJournalEntry: !!hasJournalEntry,
-        isComplete: (hasBankTxn || hasCashEntry) && hasJournalEntry,
+        hasBankTransaction: hasBank,
+        hasCashEntry: hasCash,
+        hasJournalEntry: hasJournal,
+        isComplete: (hasBank || hasCash) && hasJournal,
         createdAt: loan.createdAt
       });
     }
