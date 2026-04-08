@@ -812,10 +812,31 @@ export default function DisbursementDialog({
                     ) : (
                       <Select 
                         value={disbursementForm.selectedBankAccountId} 
-                        onValueChange={(v) => setDisbursementForm({...disbursementForm, selectedBankAccountId: v})}
+                        onValueChange={(v) => {
+                          if (v === 'SPLIT_PAYMENT') {
+                            // Enable split payment with default 50-50 split
+                            const halfAmount = Math.floor(disbursementForm.disbursedAmount / 2);
+                            setDisbursementForm({
+                              ...disbursementForm, 
+                              selectedBankAccountId: 'SPLIT_PAYMENT',
+                              useSplitPayment: true,
+                              bankAmount: halfAmount,
+                              cashAmount: disbursementForm.disbursedAmount - halfAmount
+                            });
+                          } else {
+                            // Regular selection - disable split if it was enabled
+                            setDisbursementForm({
+                              ...disbursementForm, 
+                              selectedBankAccountId: v,
+                              useSplitPayment: false,
+                              bankAmount: 0,
+                              cashAmount: 0
+                            });
+                          }
+                        }}
                       >
-                        <SelectTrigger>
-                          <SelectValue placeholder={paymentSources.length === 0 ? "No payment sources available" : "Select bank or cash"} />
+                        <SelectTrigger className={disbursementForm.useSplitPayment ? "border-blue-400 bg-blue-50" : ""}>
+                          <SelectValue placeholder={paymentSources.length === 0 ? "No payment sources available" : "Select payment source"} />
                         </SelectTrigger>
                         <SelectContent>
                           {/* Bank Accounts Section */}
@@ -862,6 +883,26 @@ export default function DisbursementDialog({
                             </>
                           )}
                           
+                          {/* Split Payment Option - Show when both Bank and Cash are available */}
+                          {!isCompany3 && paymentSources.filter(s => s.type === 'BANK').length > 0 && paymentSources.filter(s => s.type === 'CASH').length > 0 && (
+                            <>
+                              <div className="px-2 py-1.5 text-xs font-semibold text-purple-600 bg-purple-50 flex items-center gap-1 mt-1">
+                                <Split className="h-3 w-3" /> SPLIT PAYMENT
+                              </div>
+                              <SelectItem value="SPLIT_PAYMENT">
+                                <div className="flex items-center gap-2">
+                                  <div className="p-1 bg-purple-100 rounded">
+                                    <Split className="h-4 w-4 text-purple-600" />
+                                  </div>
+                                  <div className="flex flex-col">
+                                    <span className="font-medium text-purple-700">Bank + Cash Split</span>
+                                    <span className="text-xs text-purple-500">Pay from both sources</span>
+                                  </div>
+                                </div>
+                              </SelectItem>
+                            </>
+                          )}
+                          
                           {paymentSources.length === 0 && (
                             <div className="p-2 text-sm text-muted-foreground">
                               No payment sources found for this company
@@ -879,10 +920,145 @@ export default function DisbursementDialog({
                   </div>
                 </div>
 
+                {/* Split Payment UI - Show when SPLIT_PAYMENT is selected */}
+                {disbursementForm.useSplitPayment && disbursementForm.selectedBankAccountId === 'SPLIT_PAYMENT' && (
+                  <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 border-2 border-purple-300 rounded-lg">
+                    <div className="flex items-center gap-2 mb-4">
+                      <div className="p-2 bg-purple-100 rounded-lg">
+                        <Split className="h-5 w-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <Label className="font-bold text-purple-800 text-base">Split Payment Active</Label>
+                        <p className="text-xs text-purple-500">Distribute amount between Bank and Cash</p>
+                      </div>
+                    </div>
+
+                    {/* Balances Display */}
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <div className="p-3 bg-white rounded-lg border border-blue-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Landmark className="h-4 w-4 text-blue-500" />
+                          <p className="text-xs text-gray-500">Bank Balance</p>
+                        </div>
+                        <p className="font-bold text-green-600 text-lg">
+                          {formatCurrency(paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0)}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg border border-green-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Banknote className="h-4 w-4 text-green-500" />
+                          <p className="text-xs text-gray-500">Cash Balance</p>
+                        </div>
+                        <p className={`font-bold text-lg ${((paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0) >= 0) ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatCurrency(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Bank Account Selection for Split */}
+                    <div className="mb-3">
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">Select Bank Account</Label>
+                      <Select
+                        value={disbursementForm.splitBankAccountId || ''}
+                        onValueChange={(v) => setDisbursementForm({...disbursementForm, splitBankAccountId: v})}
+                      >
+                        <SelectTrigger className="border-blue-200">
+                          <SelectValue placeholder="Choose bank account for split" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {paymentSources.filter(s => s.type === 'BANK').map(source => (
+                            <SelectItem key={source.id} value={source.id}>
+                              <div className="flex items-center gap-2">
+                                <Landmark className="h-4 w-4 text-blue-500" />
+                                <span>{source.name} - {source.accountNumber}</span>
+                                <span className="text-xs text-gray-500">(Bal: {formatCurrency(source.currentBalance)})</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Split Amount Inputs */}
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="p-3 bg-white rounded-lg border border-blue-200">
+                        <Label className="text-sm font-medium text-blue-700 mb-2 block">Bank Amount (₹)</Label>
+                        <Input
+                          type="number"
+                          value={disbursementForm.bankAmount || 0}
+                          onChange={(e) => {
+                            const bankAmt = parseFloat(e.target.value) || 0;
+                            const total = disbursementForm.disbursedAmount;
+                            setDisbursementForm({
+                              ...disbursementForm,
+                              bankAmount: bankAmt,
+                              cashAmount: total - bankAmt
+                            });
+                          }}
+                          className="border-blue-200"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Available: {formatCurrency(paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.splitBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0)}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white rounded-lg border border-green-200">
+                        <Label className="text-sm font-medium text-green-700 mb-2 block">Cash Amount (₹)</Label>
+                        <Input
+                          type="number"
+                          value={disbursementForm.cashAmount || 0}
+                          onChange={(e) => {
+                            const cashAmt = parseFloat(e.target.value) || 0;
+                            const total = disbursementForm.disbursedAmount;
+                            setDisbursementForm({
+                              ...disbursementForm,
+                              cashAmount: cashAmt,
+                              bankAmount: total - cashAmt
+                            });
+                          }}
+                          className="border-green-200"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Available: {formatCurrency(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Validation */}
+                    {(() => {
+                      const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
+                      const bankBal = paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.splitBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0;
+                      const cashBal = paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0;
+
+                      if (total !== disbursementForm.disbursedAmount) {
+                        return (
+                          <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4" />
+                            Bank + Cash (₹{total.toLocaleString()}) must equal ₹{disbursementForm.disbursedAmount.toLocaleString()}
+                          </div>
+                        );
+                      }
+                      if ((disbursementForm.bankAmount || 0) > bankBal) {
+                        return (
+                          <div className="p-3 bg-red-50 border border-red-300 rounded-lg text-sm text-red-700 flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4" />
+                            Bank amount exceeds balance ({formatCurrency(bankBal)})
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="p-3 bg-green-50 border border-green-300 rounded-lg text-sm text-green-700 flex items-center gap-2">
+                          <span className="text-green-500 text-lg">✓</span>
+                          Split: Bank {formatCurrency(disbursementForm.bankAmount || 0)} + Cash {formatCurrency(disbursementForm.cashAmount || 0)} = {formatCurrency(total)}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {/* Selected Payment Source Balance Warning */}
-                {disbursementForm.selectedBankAccountId && (() => {
+                {disbursementForm.selectedBankAccountId && !disbursementForm.useSplitPayment && (() => {
                   const selectedSource = paymentSources.find(s => s.id === disbursementForm.selectedBankAccountId);
-                  if (selectedSource && selectedSource.currentBalance < disbursementForm.disbursedAmount && !disbursementForm.useSplitPayment) {
+                  if (selectedSource && selectedSource.currentBalance < disbursementForm.disbursedAmount) {
                     return (
                       <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5" />
@@ -899,176 +1075,8 @@ export default function DisbursementDialog({
                   return null;
                 })()}
 
-                {/* Split Payment Option - Show when both Bank and Cash are available */}
-                {/* Available for: Mirror Loans (Company 1/2) AND Regular non-Company3 loans */}
-                {!isCompany3 && paymentSources.filter(s => s.type === 'BANK').length > 0 && paymentSources.filter(s => s.type === 'CASH').length > 0 && (
-                  <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <Split className="h-5 w-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <Label className="font-bold text-blue-800 text-base cursor-pointer">Split Payment (Bank + Cash)</Label>
-                          <p className="text-xs text-blue-500">Pay from both sources at once</p>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant={disbursementForm.useSplitPayment ? "default" : "outline"}
-                        size="sm"
-                        onClick={() => {
-                          if (!disbursementForm.useSplitPayment) {
-                            const halfAmount = Math.floor(disbursementForm.disbursedAmount / 2);
-                            setDisbursementForm({
-                              ...disbursementForm, 
-                              useSplitPayment: true, 
-                              bankAmount: halfAmount,
-                              cashAmount: disbursementForm.disbursedAmount - halfAmount
-                            });
-                          } else {
-                            setDisbursementForm({
-                              ...disbursementForm, 
-                              useSplitPayment: false, 
-                              bankAmount: 0,
-                              cashAmount: 0
-                            });
-                          }
-                        }}
-                        className={disbursementForm.useSplitPayment ? "bg-blue-600 hover:bg-blue-700" : "border-blue-300 text-blue-600 hover:bg-blue-50"}
-                      >
-                        {disbursementForm.useSplitPayment ? "✓ Enabled" : "Enable Split"}
-                      </Button>
-                    </div>
-                    
-                    {/* Balances Display */}
-                    <div className="grid grid-cols-2 gap-3 mb-3">
-                      <div className="p-3 bg-white rounded-lg border border-blue-100">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Landmark className="h-4 w-4 text-blue-500" />
-                          <p className="text-xs text-gray-500">Bank Balance</p>
-                        </div>
-                        <p className="font-bold text-green-600 text-lg">
-                          {formatCurrency(paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.selectedBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0)}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-white rounded-lg border border-blue-100">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Banknote className="h-4 w-4 text-green-500" />
-                          <p className="text-xs text-gray-500">Cash Book Balance</p>
-                        </div>
-                        <p className={`font-bold text-lg ${(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {formatCurrency(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Split Amount Inputs */}
-                    {disbursementForm.useSplitPayment && (
-                      <div className="space-y-3">
-                        {/* Bank Account Selection for Split */}
-                        <div className="p-3 bg-white rounded-lg border border-blue-200">
-                          <Label className="text-sm font-medium text-blue-700 mb-2 block">Select Bank Account for Split Payment</Label>
-                          <Select
-                            value={disbursementForm.selectedBankAccountId || ''}
-                            onValueChange={(v) => setDisbursementForm({...disbursementForm, selectedBankAccountId: v})}
-                          >
-                            <SelectTrigger className="border-blue-200">
-                              <SelectValue placeholder="Choose bank account" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {paymentSources.filter(s => s.type === 'BANK').map(source => (
-                                <SelectItem key={source.id} value={source.id}>
-                                  <div className="flex items-center gap-2">
-                                    <Landmark className="h-4 w-4 text-blue-500" />
-                                    <span>{source.name} - {source.accountNumber}</span>
-                                    <span className="text-xs text-gray-500">(Bal: {formatCurrency(source.currentBalance)})</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 bg-white rounded-lg border border-blue-200">
-                            <Label className="text-sm font-medium text-blue-700 mb-2 block">Bank Amount (₹)</Label>
-                            <Input
-                              type="number"
-                              value={disbursementForm.bankAmount || 0}
-                              onChange={(e) => {
-                                const bankAmt = parseFloat(e.target.value) || 0;
-                                const total = disbursementForm.disbursedAmount;
-                                setDisbursementForm({
-                                  ...disbursementForm,
-                                  bankAmount: bankAmt,
-                                  cashAmount: total - bankAmt
-                                });
-                              }}
-                              className="border-blue-200"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                              Available: {formatCurrency(paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.selectedBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0)}
-                            </p>
-                          </div>
-                          <div className="p-3 bg-white rounded-lg border border-green-200">
-                            <Label className="text-sm font-medium text-green-700 mb-2 block">Cash Amount (₹)</Label>
-                            <Input
-                              type="number"
-                              value={disbursementForm.cashAmount || 0}
-                              onChange={(e) => {
-                                const cashAmt = parseFloat(e.target.value) || 0;
-                                const total = disbursementForm.disbursedAmount;
-                                setDisbursementForm({
-                                  ...disbursementForm,
-                                  cashAmount: cashAmt,
-                                  bankAmount: total - cashAmt
-                                });
-                              }}
-                              className="border-green-200"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">
-                              Available: {formatCurrency(paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0)}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Validation */}
-                        {(() => {
-                          const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
-                          const bankBal = paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.selectedBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0;
-                          const cashBal = paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0;
-
-                          if (total !== disbursementForm.disbursedAmount) {
-                            return (
-                              <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-sm text-amber-700 flex items-center gap-2">
-                                <AlertCircle className="h-4 w-4" />
-                                Bank + Cash amount (₹{total.toLocaleString()}) must equal disbursement amount (₹{disbursementForm.disbursedAmount.toLocaleString()})
-                              </div>
-                            );
-                          }
-                          if ((disbursementForm.bankAmount || 0) > bankBal) {
-                            return (
-                              <div className="p-3 bg-red-50 border border-red-300 rounded-lg text-sm text-red-700 flex items-center gap-2">
-                                <AlertTriangle className="h-4 w-4" />
-                                Bank amount exceeds available balance ({formatCurrency(bankBal)})
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="p-3 bg-green-50 border border-green-300 rounded-lg text-sm text-green-700 flex items-center gap-2">
-                              <span className="text-green-500 text-lg">✓</span>
-                              Split payment valid! Bank: {formatCurrency(disbursementForm.bankAmount || 0)} + Cash: {formatCurrency(disbursementForm.cashAmount || 0)} = {formatCurrency(total)}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Selected Payment Source Balance Display */}
-                {disbursementForm.selectedBankAccountId && (() => {
+                {/* Selected Payment Source Balance Display - Only show for non-split payments */}
+                {disbursementForm.selectedBankAccountId && !disbursementForm.useSplitPayment && (() => {
                   const selectedSource = paymentSources.find(s => s.id === disbursementForm.selectedBankAccountId);
                   if (selectedSource && selectedSource.currentBalance >= disbursementForm.disbursedAmount) {
                     return (

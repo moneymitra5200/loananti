@@ -161,6 +161,7 @@ export interface DisbursementForm {
   useSplitPayment?: boolean;
   bankAmount?: number;
   cashAmount?: number;
+  splitBankAccountId?: string; // Selected bank account for split payment
 }
 
 export interface ExpandedSections {
