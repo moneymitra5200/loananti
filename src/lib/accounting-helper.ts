@@ -918,6 +918,55 @@ export async function syncExistingTransactions(companyId: string) {
     }
   }
   
+  // 6. Sync Journal Entries to Daybook
+  const journalEntries = await db.journalEntry.findMany({
+    where: { companyId },
+    include: {
+      lines: {
+        include: {
+          account: {
+            select: { accountName: true, accountType: true }
+          }
+        }
+      }
+    }
+  });
+  
+  for (const je of journalEntries) {
+    // Check if already synced
+    const existingEntry = await db.daybookEntry.findFirst({
+      where: { 
+        referenceId: je.id, 
+        referenceType: 'JOURNAL_ENTRY'
+      }
+    });
+    
+    if (!existingEntry) {
+      // Create daybook entries for each journal entry line
+      for (const line of je.lines) {
+        await createDaybookEntry({
+          companyId,
+          entryDate: je.entryDate,
+          accountHeadId: line.accountId,
+          accountHeadName: line.account?.accountName || 'Unknown',
+          accountType: (line.account?.accountType as 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY') || 'ASSET',
+          particular: je.narration || `Journal Entry ${je.entryNumber}`,
+          referenceType: 'JOURNAL_ENTRY',
+          referenceId: je.id,
+          debit: line.debitAmount,
+          credit: line.creditAmount,
+          sourceType: je.referenceType || 'MANUAL_ENTRY',
+          sourceId: line.loanId || undefined,
+          loanNo: undefined,
+          customerName: undefined,
+          paymentMode: je.paymentMode || undefined,
+          createdById: je.createdById
+        });
+      }
+      syncedCount++;
+    }
+  }
+  
   console.log(`[Accounting Sync] Completed. Synced ${syncedCount} transactions`);
   
   return { syncedCount };

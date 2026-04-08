@@ -169,7 +169,9 @@ export async function GET(request: NextRequest) {
           extraEMIsPaid: true,
           originalEMIAmount: true,
           originalTenure: true,
-          // Include the actual mirror loan details
+          isOfflineLoan: true,
+          mirrorLoanNumber: true,
+          // Include the actual mirror loan details (for online loans)
           mirrorLoan: {
             select: {
               id: true,
@@ -197,7 +199,7 @@ export async function GET(request: NextRequest) {
               }
             }
           },
-          // Also include original loan for reference
+          // Also include original loan for reference (for online loans)
           originalLoan: {
             select: {
               id: true,
@@ -234,7 +236,57 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      return NextResponse.json({ success: true, mappings });
+      // For offline loans, we need to fetch the OfflineLoan records separately
+      // because the relations point to LoanApplication, not OfflineLoan
+      const offlineLoanIds = new Set<string>();
+      mappings.forEach(m => {
+        if (m.isOfflineLoan) {
+          if (m.originalLoanId) offlineLoanIds.add(m.originalLoanId);
+          if (m.mirrorLoanId) offlineLoanIds.add(m.mirrorLoanId);
+        }
+      });
+
+      let offlineLoansMap: Record<string, any> = {};
+      if (offlineLoanIds.size > 0) {
+        const offlineLoans = await db.offlineLoan.findMany({
+          where: { id: { in: Array.from(offlineLoanIds) } },
+          select: {
+            id: true,
+            loanNumber: true,
+            status: true,
+            loanAmount: true,
+            createdAt: true,
+            interestRate: true,
+            tenure: true,
+            emiAmount: true,
+            displayColor: true,
+            isMirrorLoan: true,
+            originalLoanId: true,
+            company: {
+              select: { id: true, name: true, code: true }
+            },
+            customerName: true
+          }
+        });
+
+        offlineLoans.forEach(loan => {
+          offlineLoansMap[loan.id] = loan;
+        });
+      }
+
+      // Enrich mappings with offline loan details
+      const enrichedMappings = mappings.map(m => {
+        if (m.isOfflineLoan) {
+          return {
+            ...m,
+            offlineOriginalLoan: m.originalLoanId ? offlineLoansMap[m.originalLoanId] : null,
+            offlineMirrorLoan: m.mirrorLoanId ? offlineLoansMap[m.mirrorLoanId] : null
+          };
+        }
+        return m;
+      });
+
+      return NextResponse.json({ success: true, mappings: enrichedMappings });
     }
 
     if (action === 'preview') {

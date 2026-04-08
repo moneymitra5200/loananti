@@ -189,12 +189,17 @@ export async function GET(request: NextRequest) {
 
     // Get all mirror loan mappings to identify mirror loans
     let mirrorLoanMappings: any[] = [];
-    if (onlineLoans.length > 0) {
+    const allLoanIds = [
+      ...onlineLoans.map(l => l.id),
+      ...offlineLoans.map(l => l.id)
+    ];
+    
+    if (allLoanIds.length > 0) {
       mirrorLoanMappings = await db.mirrorLoanMapping.findMany({
         where: {
           OR: [
-            { mirrorLoanId: { in: onlineLoans.map(l => l.id) } },
-            { originalLoanId: { in: onlineLoans.map(l => l.id) } }
+            { mirrorLoanId: { in: allLoanIds } },
+            { originalLoanId: { in: allLoanIds } }
           ]
         },
         select: {
@@ -205,7 +210,8 @@ export async function GET(request: NextRequest) {
           originalCompanyId: true,
           mirrorTenure: true,
           originalTenure: true,
-          displayColor: true
+          displayColor: true,
+          isOfflineLoan: true
         }
       });
     }
@@ -290,15 +296,32 @@ export async function GET(request: NextRequest) {
       // Check if this is an interest-only loan
       const isInterestOnlyLoan = loan.isInterestOnlyLoan || loan.status === 'INTEREST_ONLY';
 
+      // Check if this is a mirror loan (for offline loans)
+      const isMirrorLoan = mirrorLoanIds.has(loan.id) || loan.isMirrorLoan === true;
+      const mirrorMapping = isMirrorLoan ? mirrorLoanMappingsByMirrorId.get(loan.id) : originalLoanMappings.get(loan.id);
+
       return {
         id: loan.id,
         identifier: loan.loanNumber,
         applicationNo: loan.loanNumber,
         loanType: 'OFFLINE',
         status: loan.status,
+        isMirrorLoan,
+        isOriginalMirrorLoan: !isMirrorLoan && mirrorMapping !== undefined,
+        // Mirror pair color - same for both original and mirror
+        displayColor: mirrorMapping?.displayColor || loan.displayColor || null,
         isInterestOnlyLoan,
         interestOnlyMonthlyAmount: loan.interestOnlyMonthlyAmount,
         totalInterestOnlyPaid: loan.totalInterestPaid,
+        mirrorMapping: mirrorMapping ? {
+          id: mirrorMapping.id,
+          originalLoanId: mirrorMapping.originalLoanId,
+          mirrorLoanId: mirrorMapping.mirrorLoanId,
+          mirrorTenure: mirrorMapping.mirrorTenure,
+          originalTenure: mirrorMapping.originalTenure,
+          displayColor: mirrorMapping.displayColor,
+          isOfflineLoan: mirrorMapping.isOfflineLoan
+        } : null,
         requestedAmount: loan.loanAmount,
         approvedAmount: loan.loanAmount,
         interestRate: loan.interestRate,

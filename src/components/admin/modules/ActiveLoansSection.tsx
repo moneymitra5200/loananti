@@ -96,6 +96,22 @@ interface ActiveLoan {
   bankIfsc?: string;
   bankName?: string;
   // Mirror Loan Info
+  isMirrorLoan?: boolean;
+  isOriginalMirrorLoan?: boolean;
+  displayColor?: string;
+  mirrorMapping?: {
+    id: string;
+    originalLoanId: string;
+    mirrorLoanId?: string;
+    mirrorTenure?: number;
+    originalTenure?: number;
+    displayColor?: string;
+    extraEMICount?: number;
+    mirrorInterestRate?: number;
+    mirrorEMIsPaid?: number;
+    extraEMIsPaid?: number;
+    isOfflineLoan?: boolean;
+  };
   mirrorLoanId?: string;
   mirrorCompanyId?: string;
   mirrorInterestRate?: number;
@@ -338,9 +354,23 @@ export function ActiveLoansSection({
 
   const filteredLoans = loans.filter(loan => {
     if (filter !== 'all' && loan.loanType !== filter.toUpperCase()) return false;
+    
+    // Use the isMirrorLoan field from API (now properly set for both online and offline loans)
+    // Also check mapping for backward compatibility
+    if (loan.isMirrorLoan) return false;
+    
     // If this loan is a mirror loan, don't show it separately (will be shown with original)
     const mapping = mirrorMappings[loan.id];
-    const isMirror = mapping?.mirrorLoanId === loan.id;
+    
+    // Check if this is a mirror loan (online or offline)
+    // For online loans: mapping.mirrorLoanId === loan.id
+    // For offline loans: mapping.isOfflineLoan && mapping.mirrorLoanId === loan.id
+    //                  OR mapping.offlineMirrorLoan?.id === loan.id
+    const isOnlineMirror = mapping?.mirrorLoanId === loan.id && !mapping?.isOfflineLoan;
+    const isOfflineMirror = mapping?.isOfflineLoan && 
+                            (mapping?.mirrorLoanId === loan.id || mapping?.offlineMirrorLoan?.id === loan.id);
+    const isMirror = isOnlineMirror || isOfflineMirror;
+    
     return !isMirror;
   });
 
@@ -664,23 +694,25 @@ export function ActiveLoansSection({
                 const isExpanded = expandedLoan === loan.id;
 
                 // Check if this loan has a mirror mapping
-                const mapping = mirrorMappings[loan.id];
-                const isMirrorPair = !!mapping;
+                // Use both the API-provided fields and the local mapping state
+                const mapping = mirrorMappings[loan.id] || loan.mirrorMapping;
+                const isMirrorPair = loan.isOriginalMirrorLoan || (!!mapping && !loan.isMirrorLoan);
 
                 // If this is a mirror pair, render with parallel view
                 if (isMirrorPair) {
+                  const mirrorMappingData = loan.mirrorMapping || mapping;
                   return (
                     <MirrorLoanPairView
                       key={`${loan.loanType}-${loan.id}`}
                       originalLoan={convertToLoanData(loan)}
                       mirrorLoan={null} // Mirror loan data would need to be fetched separately
                       mirrorMapping={{
-                        displayColor: mapping.displayColor,
-                        extraEMICount: mapping.extraEMICount,
-                        mirrorInterestRate: mapping.mirrorInterestRate,
-                        mirrorTenure: mapping.mirrorTenure,
-                        mirrorEMIsPaid: mapping.mirrorEMIsPaid,
-                        extraEMIsPaid: mapping.extraEMIsPaid
+                        displayColor: mirrorMappingData?.displayColor || loan.displayColor,
+                        extraEMICount: mirrorMappingData?.extraEMICount || 0,
+                        mirrorInterestRate: mirrorMappingData?.mirrorInterestRate || 0,
+                        mirrorTenure: mirrorMappingData?.mirrorTenure || 0,
+                        mirrorEMIsPaid: mirrorMappingData?.mirrorEMIsPaid || 0,
+                        extraEMIsPaid: mirrorMappingData?.extraEMIsPaid || 0
                       }}
                       onViewOriginal={() => onView(loan)}
                       onViewMirror={() => onView(loan)}
