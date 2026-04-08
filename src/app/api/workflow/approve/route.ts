@@ -189,6 +189,7 @@ async function processSingleApproval({
     mode: string;
     reference: string;
     bankAccountId?: string;
+    isCashPayment?: boolean;
     // Split Payment fields
     useSplitPayment?: boolean;
     bankAmount?: number;
@@ -560,6 +561,50 @@ async function processSingleApproval({
         });
         
         console.log(`[Disbursement] Company 3 CashBook updated: Balance ${cashBook.currentBalance} → ${newBalance}`);
+      } else if (disbursementData?.isCashPayment && company) {
+        // Cash payment from cash book
+        console.log(`[Disbursement] Processing CASH payment for company ${company.name}`);
+        
+        let cashBook = await tx.cashBook.findUnique({
+          where: { companyId: company.id }
+        });
+        
+        if (!cashBook) {
+          cashBook = await tx.cashBook.create({
+            data: {
+              companyId: company.id,
+              currentBalance: 0
+            }
+          });
+        }
+        
+        const newBalance = cashBook.currentBalance - disbursementData.amount;
+        
+        // Create cash book entry for disbursement
+        await tx.cashBookEntry.create({
+          data: {
+            cashBookId: cashBook.id,
+            entryType: 'DEBIT',
+            amount: disbursementData.amount,
+            balanceAfter: newBalance,
+            description: `Loan Disbursement (Cash) - ${loan.applicationNo}`,
+            referenceType: 'LOAN_DISBURSEMENT',
+            referenceId: loanId,
+            createdById: userId || 'SYSTEM'
+          }
+        });
+        
+        // Update cash book balance
+        await tx.cashBook.update({
+          where: { id: cashBook.id },
+          data: {
+            currentBalance: newBalance,
+            lastUpdatedById: userId,
+            lastUpdatedAt: new Date()
+          }
+        });
+        
+        console.log(`[Disbursement] Cash Book updated: Balance ${cashBook.currentBalance} → ${newBalance}`);
       } else if (disbursementData?.bankAccountId) {
         // Other companies: Use BankAccount
         const bank = await tx.bankAccount.findUnique({ 

@@ -326,35 +326,55 @@ export default function CashierDashboard() {
   };
 
   const handleDisburse = async () => {
-    if (!selectedLoan) return;
-    if (!disbursementForm.disbursedAmount || !disbursementForm.disbursementRef) {
-      toast({ title: 'Error', description: 'Please fill all required fields', variant: 'destructive' });
+    console.log('[handleDisburse] Starting disbursement...');
+    console.log('[handleDisburse] selectedLoan:', selectedLoan?.id);
+    console.log('[handleDisburse] disbursementForm:', disbursementForm);
+    
+    if (!selectedLoan) {
+      console.error('[handleDisburse] No selected loan');
+      toast({ title: 'Error', description: 'No loan selected', variant: 'destructive' });
+      return;
+    }
+    if (!disbursementForm.disbursedAmount) {
+      console.error('[handleDisburse] No disbursed amount');
+      toast({ title: 'Error', description: 'Disbursement amount is required', variant: 'destructive' });
       return;
     }
     if (!disbursementForm.agreementSigned) {
+      console.error('[handleDisburse] Agreement not signed');
       toast({ title: 'Error', description: 'Please confirm that the loan agreement has been signed', variant: 'destructive' });
       return;
     }
     
-    // Company 3 doesn't require bank account selection
+    // Check payment source selection
     if (!isCompany3 && !disbursementForm.selectedBankAccountId) {
-      toast({ title: 'Error', description: 'Please select a bank account for disbursement', variant: 'destructive' });
+      console.error('[handleDisburse] No payment source selected');
+      toast({ title: 'Error', description: 'Please select a payment source for disbursement', variant: 'destructive' });
       return;
     }
     
     if (disbursementForm.disbursedAmount > remainingLimit) {
+      console.error('[handleDisburse] Amount exceeds limit');
       toast({ title: 'Error', description: 'Amount exceeds daily limit', variant: 'destructive' });
       return;
     }
     
     // Check for Extra EMI Payment Page selection (required for mirror loans)
     if (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId) {
+      console.error('[handleDisburse] No extra EMI payment page');
       toast({ title: 'Error', description: 'Please select a Secondary Payment Page for Extra EMIs', variant: 'destructive' });
       return;
     }
     
-    // Check bank balance for non-Company 3
-    if (!isCompany3 && !disbursementForm.useSplitPayment) {
+    // Determine if payment is from bank or cash
+    const isCashPayment = disbursementForm.selectedBankAccountId?.startsWith('cash_');
+    const isSplitPayment = disbursementForm.useSplitPayment;
+    
+    console.log('[handleDisburse] isCashPayment:', isCashPayment);
+    console.log('[handleDisburse] isSplitPayment:', isSplitPayment);
+    
+    // Check bank balance for bank payments
+    if (!isCompany3 && !isCashPayment && !isSplitPayment) {
       const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
       if (selectedBank && selectedBank.currentBalance < disbursementForm.disbursedAmount) {
         toast({ 
@@ -367,7 +387,7 @@ export default function CashierDashboard() {
     }
     
     // Check split payment validation
-    if (disbursementForm.useSplitPayment) {
+    if (isSplitPayment) {
       const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
       if (total !== disbursementForm.disbursedAmount) {
         toast({ 
@@ -377,55 +397,57 @@ export default function CashierDashboard() {
         });
         return;
       }
-      const selectedBank = bankAccounts.find(a => a.id === disbursementForm.selectedBankAccountId);
-      if ((disbursementForm.bankAmount || 0) > (selectedBank?.currentBalance || 0)) {
-        toast({ 
-          title: 'Insufficient Bank Balance', 
-          description: `Bank amount exceeds available balance`, 
-          variant: 'destructive' 
-        });
-        return;
-      }
     }
     
     // Check CashBook balance for Company 3
     if (isCompany3 && cashBook) {
-      // For Company 3, negative balance is allowed (accountant can add funds later)
       console.log(`[Disbursement] Company 3 CashBook balance: ${cashBook.currentBalance}`);
       if (cashBook.currentBalance < disbursementForm.disbursedAmount) {
         toast({ 
           title: 'Low Cash Book Balance', 
           description: `Cash book has ${formatCurrency(cashBook.currentBalance)}. Disbursement will result in negative balance. Accountant can add funds later.`, 
         });
-        // Still allow disbursement for Company 3
       }
     }
     
     setSaving(true);
+    console.log('[handleDisburse] Sending API request...');
+    
     try {
-      // Disburse the original loan
+      // Determine the actual bank account ID (null for cash payments)
+      const actualBankAccountId = isCashPayment ? null : disbursementForm.selectedBankAccountId;
+      const isCashDisbursement = isCashPayment || isCompany3;
+      
+      const requestBody = {
+        loanId: selectedLoan.id,
+        action: 'disburse',
+        role: 'CASHIER',
+        userId: user?.id,
+        disbursementData: {
+          amount: disbursementForm.disbursedAmount,
+          mode: isCashDisbursement ? 'CASH' : 'BANK_TRANSFER',
+          reference: disbursementForm.disbursementRef || `TXN${Date.now()}`,
+          bankAccountId: actualBankAccountId,
+          isCashPayment: isCashPayment,
+          // Split payment fields
+          useSplitPayment: isSplitPayment || false,
+          bankAmount: disbursementForm.bankAmount || 0,
+          cashAmount: disbursementForm.cashAmount || 0
+        },
+        remarks: disbursementForm.remarks,
+        agreementSigned: disbursementForm.agreementSigned
+      };
+      
+      console.log('[handleDisburse] Request body:', JSON.stringify(requestBody, null, 2));
+      
       const response = await fetch('/api/workflow/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          loanId: selectedLoan.id,
-          action: 'disburse',
-          role: 'CASHIER',
-          userId: user?.id,
-          disbursementData: {
-            amount: disbursementForm.disbursedAmount,
-            mode: disbursementForm.disbursementMode,
-            reference: disbursementForm.disbursementRef,
-            bankAccountId: isCompany3 ? null : disbursementForm.selectedBankAccountId,
-            // Split payment fields
-            useSplitPayment: disbursementForm.useSplitPayment || false,
-            bankAmount: disbursementForm.bankAmount || 0,
-            cashAmount: disbursementForm.cashAmount || 0
-          },
-          remarks: disbursementForm.remarks,
-          agreementSigned: disbursementForm.agreementSigned
-        })
+        body: JSON.stringify(requestBody)
       });
+      
+      const responseData = await response.json();
+      console.log('[handleDisburse] Response:', response.status, responseData);
       
       if (response.ok) {
         // Only generate EMI schedule for NON interest-only loans
