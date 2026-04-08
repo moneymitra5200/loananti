@@ -305,7 +305,7 @@ export class RulesEngine {
             mirrorLoanId: { not: null }
           },
           include: {
-            originalLoan: { select: { id: true, loanNumber: true, companyId: true } }
+            originalLoan: { select: { id: true, applicationNo: true, companyId: true } }
           }
         });
 
@@ -323,7 +323,7 @@ export class RulesEngine {
               entityId: mapping.id,
               entityIdentifier: mapping.mirrorLoanNumber || mapping.id,
               title: 'Mirror Loan Record Missing',
-              description: `MirrorLoanMapping exists for ${mapping.originalLoan?.loanNumber} but the mirror loan record (${mapping.mirrorLoanId}) was not found.`,
+              description: `MirrorLoanMapping exists for loan ${mapping.originalLoanId} but the mirror loan record (${mapping.mirrorLoanId}) was not found.`,
               severity: 'CRITICAL',
               category: 'MIRROR_LOAN',
               currentState: {
@@ -375,22 +375,26 @@ export class RulesEngine {
           where: {
             isOfflineLoan: true,
             mirrorLoanId: { not: null }
-          },
-          include: {
-            originalLoan: { select: { id: true, loanNumber: true, displayColor: true } }
           }
         });
 
         for (const mapping of mappings) {
           if (!mapping.mirrorLoanId) continue;
 
-          const mirrorLoan = await db.offlineLoan.findUnique({
-            where: { id: mapping.mirrorLoanId },
-            select: { id: true, loanNumber: true, displayColor: true }
-          });
+          // Fetch original and mirror offline loans
+          const [originalLoan, mirrorLoan] = await Promise.all([
+            db.offlineLoan.findUnique({
+              where: { id: mapping.originalLoanId },
+              select: { id: true, loanNumber: true, displayColor: true }
+            }),
+            db.offlineLoan.findUnique({
+              where: { id: mapping.mirrorLoanId },
+              select: { id: true, loanNumber: true, displayColor: true }
+            })
+          ]);
 
-          if (mirrorLoan && mapping.originalLoan) {
-            const originalColor = mapping.originalLoan.displayColor || mapping.displayColor;
+          if (mirrorLoan && originalLoan) {
+            const originalColor = originalLoan.displayColor || mapping.displayColor;
             const mirrorColor = mirrorLoan.displayColor;
 
             if (originalColor !== mirrorColor) {
@@ -400,7 +404,7 @@ export class RulesEngine {
                 entityId: mirrorLoan.id,
                 entityIdentifier: mirrorLoan.loanNumber,
                 title: 'Display Color Mismatch',
-                description: `Original loan ${mapping.originalLoan.loanNumber} has color ${originalColor} but mirror loan ${mirrorLoan.loanNumber} has color ${mirrorColor}.`,
+                description: `Original loan ${originalLoan.loanNumber} has color ${originalColor} but mirror loan ${mirrorLoan.loanNumber} has color ${mirrorColor}.`,
                 severity: 'LOW',
                 category: 'MIRROR_LOAN',
                 currentState: {

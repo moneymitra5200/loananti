@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { rulesEngine } from '@/lib/workflow-validator/rules-engine';
+import { EMIPaymentStatus } from '@prisma/client';
 
 // Get validator settings (create default if not exists)
 async function getOrCreateSettings() {
@@ -423,7 +424,7 @@ export async function PUT(request: NextRequest) {
           const { emiId, newStatus } = suggestedFix;
           await db.offlineLoanEMI.update({
             where: { id: emiId as string },
-            data: { paymentStatus: newStatus as string }
+            data: { paymentStatus: newStatus as EMIPaymentStatus }
           });
           fixResult = { success: true, message: `Updated status to ${newStatus}` };
         }
