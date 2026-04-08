@@ -139,13 +139,6 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     window.dispatchEvent(new CustomEvent('dataRefresh', { detail: { timestamp: Date.now() } }));
   }, []);
   
-  // Initialize timestamps after mount to avoid hydration mismatch
-  useEffect(() => {
-    const now = Date.now();
-    setLastActivity(now);
-    setLastUpdate(now);
-  }, []);
-  
   // Check for session timeout on mount and activity
   useEffect(() => {
     if (!enableSecurityFeatures) return;
@@ -178,9 +171,6 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     events.forEach(event => {
       document.addEventListener(event, handleUserActivity, { passive: true });
     });
-    
-    // Initial activity tracking
-    trackActivity();
     
     // Set up warning check interval
     warningIntervalRef.current = setInterval(() => {

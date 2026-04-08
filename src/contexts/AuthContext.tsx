@@ -65,13 +65,35 @@ interface CustomerRegisterData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to get initial user from sessionStorage (client-side only)
+function getInitialUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const demoUserStr = sessionStorage.getItem('demoUser');
+    if (demoUserStr) {
+      const storedUser = JSON.parse(demoUserStr);
+      console.log('[Auth] Restored user from sessionStorage:', storedUser.email, storedUser.role);
+      return storedUser;
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
+}
+
+// Helper to get initial loading state
+function getInitialLoading(): boolean {
+  if (typeof window === 'undefined') return true;
+  // If we have a user in sessionStorage, we're not loading
+  return !sessionStorage.getItem('demoUser');
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Always start with consistent initial state to avoid hydration mismatch
-  const [user, setUser] = useState<User | null>(null);
+  // Use lazy initializers to read from sessionStorage during initial render
+  const [user, setUser] = useState<User | null>(getInitialUser);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(getInitialLoading);
   const initializedRef = useRef(false);
-  const hydratedRef = useRef(false);
 
   const fetchUserData = useCallback(async (fbUser: FirebaseUser) => {
     try {
@@ -105,108 +127,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
-    // STEP 1: Hydration - Check sessionStorage AFTER mount (client-side only)
-    // This prevents hydration mismatch between server and client
-    if (!hydratedRef.current) {
-      hydratedRef.current = true;
-      try {
-        const demoUserStr = sessionStorage.getItem('demoUser');
-        if (demoUserStr) {
-          const storedUser = JSON.parse(demoUserStr);
-          console.log('[Auth] Found stored user:', storedUser.email, storedUser.role);
-          setUser(storedUser);
-          setLoading(false);
-          
-          // Skip check-login verification for recently logged-in users (within 30 seconds)
-          // The login API already validates the user, so we don't need to check again
-          const lastActivity = localStorage.getItem('lastActivity');
-          const now = Date.now();
-          const recentLogin = lastActivity && (now - parseInt(lastActivity)) < 30000; // 30 seconds
-          
-          if (recentLogin) {
-            console.log('[Auth] Recent login detected, skipping check-login verification');
-            return; // Skip the check-login API call entirely
-          }
-          
-          // Verify stored user in background (but don't logout on error)
-          fetch('/api/auth/check-login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              email: storedUser.email,
-              firebaseUid: storedUser.firebaseUid
-            })
-          })
-          .then(res => {
-            if (!res.ok) {
-              console.error('[Auth] check-login API error:', res.status);
-              return null;
-            }
-            return res.json();
-          })
-          .then(checkData => {
-            if (!checkData) {
-              console.log('[Auth] No check-login response, keeping session');
-              return; // Keep the user logged in on API error
-            }
-            
-            console.log('[Auth] check-login response:', JSON.stringify(checkData));
-            
-            // Only logout if explicitly told canLogin: false (not on undefined or error)
-            if (checkData.canLogin === false) {
-              console.log('[Auth] check-login returned false, reason:', checkData.reason);
-              sessionStorage.removeItem('demoUser');
-              setUser(null);
-              setLoading(true);
-              return;
-            }
-            
-            // Sync with backend for demo users
-            if (storedUser?.id?.startsWith('demo-')) {
-              fetch('/api/auth/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  email: storedUser.email,
-                  firebaseUid: storedUser.firebaseUid,
-                  name: storedUser.name,
-                  role: storedUser.role
-                })
-              })
-              .then(res => res.json())
-              .then(data => {
-                if (data.user?.id) {
-                  const actualUser = {
-                    ...storedUser,
-                    id: data.user.id,
-                    companyId: data.user.companyId,
-                    company: data.user.company,
-                    agentId: data.user.agentId,
-                    agent: data.user.agent,
-                    agentCode: data.user.agentCode,
-                    staffCode: data.user.staffCode,
-                    cashierCode: data.user.cashierCode
-                  } as User;
-                  sessionStorage.setItem('demoUser', JSON.stringify(actualUser));
-                  localStorage.setItem('lastActivity', Date.now().toString());
-                  setUser(actualUser);
-                }
-              })
-              .catch(() => {});
-            }
-          })
-          .catch((error) => {
-            console.error('[Auth] check-login error:', error);
-            // Keep the user logged in on network error
-          });
-          return; // Have user, skip Firebase check
-        }
-      } catch {
-        // sessionStorage not available
-      }
+    // If we already have a user from sessionStorage, nothing more to do
+    if (user) {
+      return;
     }
 
-    // STEP 2: No cached user, check Firebase auth
+    // No cached user, check Firebase auth
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
@@ -218,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchUserData]);
+  }, [fetchUserData, user]);
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);
