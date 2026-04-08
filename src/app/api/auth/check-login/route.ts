@@ -25,22 +25,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ canLogin: true });
     }
 
-    const deletedUser = await db.deletedUser.findFirst({
-      where: {
-        OR: [
-          { email },
-          { firebaseUid }
-        ]
-      }
-    });
-
-    console.log('[check-login] Deleted user check:', deletedUser ? { email: deletedUser.email, firebaseUid: deletedUser.firebaseUid } : null);
-
-    if (deletedUser) {
-      console.log('[check-login] User was deleted, returning false');
-      return NextResponse.json({ canLogin: false, reason: 'Account has been deleted' });
-    }
-
     if (user.isLocked) {
       console.log('[check-login] User is locked');
       return NextResponse.json({ canLogin: false, reason: 'Account is locked' });

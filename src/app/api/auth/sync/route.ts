@@ -126,22 +126,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const deletedUserCheck = await db.deletedUser.findFirst({
-      where: {
-        OR: [
-          { email: email },
-          { firebaseUid: firebaseUid }
-        ]
-      }
-    });
-
-    if (deletedUserCheck) {
-      return NextResponse.json(
-        { error: 'This user account has been permanently deleted', deleted: true },
-        { status: 403 }
-      );
-    }
-
     let user = await db.user.findUnique({
       where: { firebaseUid },
       include: { company: true, agent: true }
@@ -155,13 +139,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (user) {
-      if (user.deletedAt) {
-        return NextResponse.json(
-          { error: 'User account has been deleted', deleted: true },
-          { status: 403 }
-        );
-      }
-
       user = await db.user.update({
         where: { id: user.id },
         data: {

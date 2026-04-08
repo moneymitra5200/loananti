@@ -508,18 +508,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ========================================
-    // PHASE 10: Clear Deleted Users
-    // ========================================
-    
-    console.log('[System Reset] Clearing deleted users...');
-    try {
-      await db.deletedUser.deleteMany({}).then(r => { stats.deletedUsers = r.count; }).catch(() => {});
-    } catch (e) {
-      errors.push(`Phase 10 (deletedUsers): ${e instanceof Error ? e.message : 'Unknown'}`);
-    }
-
-    // ========================================
-    // PHASE 11: Clear User Sessions (keep users logged in if needed)
+    // PHASE 10: Clear User Sessions (keep users logged in if needed)
     // ========================================
     
     console.log('[System Reset] Clearing user sessions...');
@@ -527,11 +516,11 @@ export async function POST(request: NextRequest) {
       await db.userSession.deleteMany({}).then(r => { stats.userSessions = r.count; }).catch(() => {});
       await db.userPreference.deleteMany({}).then(r => { stats.userPreferences = r.count; }).catch(() => {});
     } catch (e) {
-      errors.push(`Phase 11 (sessions): ${e instanceof Error ? e.message : 'Unknown'}`);
+      errors.push(`Phase 10 (sessions): ${e instanceof Error ? e.message : 'Unknown'}`);
     }
 
     // ========================================
-    // PHASE 12: Re-initialize Chart of Accounts for Fresh Start
+    // PHASE 11: Re-initialize Chart of Accounts for Fresh Start
     // ========================================
     
     if (resetOptions.allAccounting || resetOptions.chartOfAccounts) {

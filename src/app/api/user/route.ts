@@ -457,15 +457,6 @@ export async function DELETE(request: NextRequest) {
       db.blacklist.deleteMany({ where: { userId: id } }),
     ]);
 
-    // Create deleted user record for email reuse tracking
-    await db.deletedUser.create({
-      data: {
-        email: user.email,
-        firebaseUid: user.firebaseUid,
-        originalRole: user.role
-      }
-    });
-
     // PERMANENT DELETE - Hard delete the user from database
     console.log('[User DELETE] Permanently deleting user:', id);
     await db.user.delete({ where: { id } });

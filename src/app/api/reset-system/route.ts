@@ -308,26 +308,20 @@ export async function POST(request: NextRequest) {
     console.log(`[RESET] Deleted ${stats.contactEnquiries} contact enquiries`);
 
     // ========================================
-    // PHASE 12: Deleted Users
-    // ========================================
-    
-    stats.deletedUsers = (await db.deletedUser.deleteMany({})).count;
-
-    // ========================================
-    // PHASE 13: User Preferences
+    // PHASE 12: User Preferences
     // ========================================
     
     stats.userPreferences = (await db.userPreference.deleteMany({})).count;
 
     // ========================================
-    // PHASE 14: Companies (keep users!)
+    // PHASE 13: Companies (keep users!)
     // ========================================
     
     stats.companies = (await db.company.deleteMany({})).count;
     console.log(`[RESET] Deleted ${stats.companies} companies (users preserved)`);
 
     // ========================================
-    // PHASE 15: Re-create Default Companies & Initialize Chart of Accounts
+    // PHASE 14: Re-create Default Companies & Initialize Chart of Accounts
     // ========================================
     
     try {

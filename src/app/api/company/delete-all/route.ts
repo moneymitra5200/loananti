@@ -127,20 +127,7 @@ export async function POST(request: NextRequest) {
           await db.userSession.deleteMany({ where: { userId: companyUser.id } });
           await db.userPreference.deleteMany({ where: { userId: companyUser.id } });
 
-          // Create deleted user record
-          try {
-            await db.deletedUser.create({
-              data: {
-                email: companyUser.email,
-                firebaseUid: companyUser.firebaseUid,
-                originalRole: companyUser.role
-              }
-            });
-          } catch {
-            // Ignore if exists
-          }
-
-          // Delete the user
+          // Delete the user permanently
           await db.user.delete({ where: { id: companyUser.id } });
         }
 

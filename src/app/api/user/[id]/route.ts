@@ -187,20 +187,7 @@ export async function DELETE(
       console.log('[User DELETE] Company deleted');
     }
 
-    // 10. Create deleted user record for tracking
-    try {
-      await db.deletedUser.create({
-        data: {
-          email: user.email,
-          firebaseUid: user.firebaseUid,
-          originalRole: user.role
-        }
-      });
-    } catch {
-      // Ignore if already exists
-    }
-
-    // 11. FINALLY - Delete the user
+    // 10. FINALLY - Delete the user permanently
     await db.user.delete({ where: { id } });
     console.log('[User DELETE] User permanently deleted');
 
