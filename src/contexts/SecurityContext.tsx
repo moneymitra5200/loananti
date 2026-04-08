@@ -48,9 +48,9 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const [showWarning, setShowWarning] = useState(false);
   const [warningTimeRemaining, setWarningTimeRemaining] = useState(0);
   
-  // Security settings
+  // Security settings - DISABLE security features by default to prevent login issues
   const [sessionTimeout, setSessionTimeout] = useState(DEFAULT_SESSION_TIMEOUT);
-  const [enableSecurityFeatures, setEnableSecurityFeatures] = useState(true);
+  const [enableSecurityFeatures, setEnableSecurityFeatures] = useState(false);
   
   // Real-time updates - disabled by default to prevent DB connection limit issues
   const [isRealTimeEnabled, setRealTimeEnabled] = useState(false);
@@ -61,9 +61,24 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const warningIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const realTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Helper to check if user has active session
+  const hasActiveSession = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    return !!sessionStorage.getItem('demoUser');
+  }, []);
+  
   // Handle session timeout - defined first since it's used by other functions
   const handleSessionTimeout = useCallback(() => {
+    // Always check for active session before timing out
+    if (hasActiveSession()) {
+      console.log('[Security] Active session found, skipping timeout');
+      localStorage.setItem('lastActivity', Date.now().toString());
+      return;
+    }
+    
     if (!enableSecurityFeatures) return;
+    
+    console.log('[Security] No active session, timing out');
     
     // Clear auth data
     localStorage.removeItem('user');
@@ -79,7 +94,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     
     // Redirect to home page (which shows landing/login)
     router.push('/');
-  }, [enableSecurityFeatures, router]);
+  }, [enableSecurityFeatures, router, hasActiveSession]);
   
   // Track user activity
   const trackActivity = useCallback(() => {
@@ -129,22 +144,21 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     if (!enableSecurityFeatures) return;
     
     // Check if there's a valid session in sessionStorage (user logged in this tab)
-    const hasActiveSession = sessionStorage.getItem('demoUser');
-    
-    // Only check for expired session if there's NO active session in this tab
-    // This prevents logging out a freshly logged-in user
-    if (!hasActiveSession) {
+    if (hasActiveSession()) {
+      // Valid session exists - update lastActivity to now
+      localStorage.setItem('lastActivity', Date.now().toString());
+      console.log('[Security] Active session found on mount');
+    } else {
+      // Only check for expired session if there's NO active session in this tab
       const storedActivity = localStorage.getItem('lastActivity');
       if (storedActivity) {
         const timeSinceLastActivity = Date.now() - parseInt(storedActivity);
         if (timeSinceLastActivity > sessionTimeout) {
-          handleSessionTimeout();
-          return;
+          // Old session expired, but don't redirect - let user login fresh
+          localStorage.removeItem('lastActivity');
+          console.log('[Security] Old expired session found, cleared');
         }
       }
-    } else {
-      // Valid session exists - update lastActivity to now
-      localStorage.setItem('lastActivity', Date.now().toString());
     }
     
     // Set up activity listeners
@@ -184,6 +198,13 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     // Handle page visibility change (refresh/logout on tab switch)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        // Check if there's an active session first
+        if (hasActiveSession()) {
+          localStorage.setItem('lastActivity', Date.now().toString());
+          refreshData();
+          return;
+        }
+        
         // Check if session expired while tab was hidden
         const storedActivity = localStorage.getItem('lastActivity');
         if (storedActivity) {
@@ -218,7 +239,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
       if (warningIntervalRef.current) clearInterval(warningIntervalRef.current);
       if (realTimeIntervalRef.current) clearInterval(realTimeIntervalRef.current);
     };
-  }, [enableSecurityFeatures, sessionTimeout, isRealTimeEnabled, trackActivity, handleSessionTimeout, lastActivity, refreshData]);
+  }, [enableSecurityFeatures, sessionTimeout, isRealTimeEnabled, trackActivity, handleSessionTimeout, lastActivity, refreshData, hasActiveSession]);
   
   // Effect for real-time updates toggle
   useEffect(() => {
