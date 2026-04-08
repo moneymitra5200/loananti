@@ -3081,3 +3081,226 @@ model ContactEnquiry {
   @@index([status])
   @@index([createdAt])
 }
+
+// ==================== WORKFLOW VALIDATOR (AI BOT) ====================
+
+// Validation Rule - Defines what to check in the system
+model ValidationRule {
+  id              String   @id @default(cuid())
+  code            String   @unique  // e.g., "MIRROR_MAPPING_001"
+  name            String   // e.g., "Mirror Loan Mapping Check"
+  description     String   // What this rule checks
+  category        String   // MIRROR_LOAN, ACCOUNTING, EMI, BALANCE, DATA_INTEGRITY
+  severity        String   @default("MEDIUM")  // CRITICAL, HIGH, MEDIUM, LOW
+  
+  // Rule Configuration
+  isActive        Boolean  @default(true)
+  autoFixable     Boolean  @default(false)  // Can this be auto-fixed?
+  requiresApproval Boolean @default(true)  // Does fix need SuperAdmin approval?
+  
+  // Detection Logic (stored as JSON for flexibility)
+  detectionLogic  String   // JSON: conditions to check
+  
+  // Fix Logic (stored as JSON)
+  fixLogic        String?  // JSON: steps to fix the issue
+  
+  // Impact and Guidance
+  impactDescription String? // What happens if this issue is not fixed
+  fixGuidance     String?  // Step-by-step guide for manual fix
+  
+  // Statistics
+  timesDetected   Int      @default(0)
+  timesFixed      Int      @default(0)
+  lastDetectedAt  DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  issues          ValidationIssue[]
+  
+  @@index([category])
+  @@index([isActive])
+  @@index([severity])
+}
+
+// Validation Issue - Detected problem in the system
+model ValidationIssue {
+  id              String   @id @default(cuid())
+  ruleId          String
+  rule            ValidationRule @relation(fields: [ruleId], references: [id])
+  
+  // What is affected
+  entityType      String   // OFFLINE_LOAN, LOAN_APPLICATION, EMI, JOURNAL_ENTRY, MIRROR_MAPPING, etc.
+  entityId        String   // ID of the affected record
+  entityIdentifier String? // Human-readable identifier (loan number, etc.)
+  
+  // Issue details
+  title           String   // Short description
+  description     String   // Full explanation
+  severity        String   // CRITICAL, HIGH, MEDIUM, LOW (can override rule severity)
+  
+  // Current state vs Expected state
+  currentState    String   // JSON: What it currently looks like
+  expectedState   String   // JSON: What it should look like
+  differenceAnalysis String? // JSON: Analysis of what's different
+  
+  // Fix suggestion
+  suggestedFix    String   // JSON: Steps to fix it
+  fixDescription  String   // Human-readable fix description
+  fixSqlPreview   String?  // SQL preview for database fixes
+  
+  // Related entities (for context)
+  relatedEntities String?  // JSON: [{type, id, relation}]
+  
+  // Status
+  status          String   @default("PENDING") // PENDING, IN_PROGRESS, APPROVED, REJECTED, FIXED, IGNORED, CANT_FIX
+  
+  // Review tracking
+  reviewedById    String?  // User ID who reviewed
+  reviewedByName  String?  // Name of reviewer
+  reviewedAt      DateTime?
+  reviewNotes     String?  // Notes from reviewer
+  
+  // Fix tracking
+  fixedById       String?  // User ID who applied fix
+  fixedByName     String?  // Name of fixer
+  fixedAt         DateTime?
+  fixResult       String?  // JSON: Result of fix attempt
+  
+  // Snooze/Defer
+  snoozedUntil    DateTime?
+  snoozedById     String?
+  snoozeReason    String?
+  
+  // Recurrence tracking
+  recurrenceCount Int      @default(0)
+  parentIssueId   String?  // If this is a recurrence of a previous issue
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  fixLogs         ValidationFixLog[]
+  
+  @@index([status])
+  @@index([entityType, entityId])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([ruleId])
+}
+
+// Validation Fix Log - History of fixes applied
+model ValidationFixLog {
+  id              String   @id @default(cuid())
+  issueId         String
+  issue           ValidationIssue @relation(fields: [issueId], references: [id])
+  
+  // Fix details
+  fixType         String   // AUTO, MANUAL, SUGGESTED
+  fixApplied      String   // JSON: What was changed
+  
+  // Who applied
+  appliedById     String?  // User ID or "SYSTEM_AUTO"
+  appliedByName   String?  // Name or "System"
+  
+  // Result
+  result          String   // SUCCESS, FAILED, PARTIAL
+  errorMessage    String?
+  affectedRecords Int      @default(0)
+  
+  // Before/After state for rollback
+  beforeState     String?  // JSON: State before fix
+  afterState      String?  // JSON: State after fix
+  
+  // Duration
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  durationMs      Int?     // How long the fix took
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([issueId])
+  @@index([result])
+  @@index([createdAt])
+}
+
+// Validator Settings - System-wide configuration
+model ValidatorSettings {
+  id              String   @id @default(cuid()) @unique
+  
+  // Master switch
+  isEnabled       Boolean  @default(true)
+  
+  // Schedule configuration
+  scheduleType    String   @default("HOURLY")  // MANUAL, HOURLY, DAILY, WEEKLY, CUSTOM
+  customCron      String?  // Custom cron expression if scheduleType is CUSTOM
+  lastRunAt       DateTime?
+  nextRunAt       DateTime?
+  isRunning       Boolean  @default(false)
+  
+  // Run configuration
+  maxIssuesPerRun Int      @default(100)  // Max issues to detect per run
+  timeoutMinutes  Int      @default(30)   // Max time for a scan
+  
+  // Notification settings
+  notifyOnIssues  Boolean  @default(true)
+  notifyOnCritical Boolean @default(true)
+  notifyOnFixes   Boolean  @default(true)
+  notifyEmails    String?  // JSON array of email addresses
+  
+  // Auto-fix settings
+  autoFixEnabled  Boolean  @default(false)
+  autoFixSeverities String? // JSON array: ["LOW", "MEDIUM"]
+  autoFixRequiresApproval Boolean @default(true)
+  
+  // Rule management
+  disabledRules   String?  // JSON array of rule IDs to skip
+  
+  // Performance
+  parallelRules   Boolean  @default(false)  // Run rules in parallel
+  batchSize       Int      @default(50)     // Records per batch
+  
+  // Audit
+  totalRuns       Int      @default(0)
+  totalIssuesFound Int     @default(0)
+  totalIssuesFixed Int     @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Validator Run History - Track each scan
+model ValidatorRun {
+  id              String   @id @default(cuid())
+  
+  // Run info
+  runType         String   // SCHEDULED, MANUAL, TRIGGERED
+  triggeredBy     String?  // User ID or "SYSTEM"
+  triggeredByName String?  // Name
+  
+  // Timing
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  durationMs      Int?
+  status          String   @default("RUNNING")  // RUNNING, COMPLETED, FAILED, CANCELLED
+  
+  // Results
+  rulesRun        Int      @default(0)
+  recordsScanned  Int      @default(0)
+  issuesFound     Int      @default(0)
+  issuesByCategory String? // JSON: {MIRROR_LOAN: 5, ACCOUNTING: 3}
+  issuesBySeverity String? // JSON: {CRITICAL: 1, HIGH: 3, MEDIUM: 5}
+  
+  // Errors
+  errorMessage    String?
+  errorStack      String?
+  
+  // Performance
+  peakMemoryMb    Float?
+  avgRuleTimeMs   Float?
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([status])
+  @@index([startedAt])
+  @@index([runType])
+}

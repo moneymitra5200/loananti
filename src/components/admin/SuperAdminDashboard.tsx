@@ -61,6 +61,7 @@ const ProductsTab = lazy(() => import('./modules/ProductsTab'));
 const PendingTab = lazy(() => import('./modules/PendingTab'));
 const FinalTab = lazy(() => import('./modules/FinalTab'));
 const SimpleTabs = lazy(() => import('./modules/SimpleTabs'));
+const WorkflowValidatorDashboard = lazy(() => import('./modules/WorkflowValidatorDashboard'));
 
 // Eager load components used in dialogs
 import SystemResetDialog, { ResetOptions } from './modules/SystemResetDialog';
@@ -1557,6 +1558,13 @@ export default function SuperAdminDashboard() {
 
       case 'profile':
         return <ProfileSection />;
+
+      case 'ai-validator':
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></div>}>
+            <WorkflowValidatorDashboard userId={user?.id} userName={user?.name} />
+          </Suspense>
+        );
 
       case 'dashboard':
       default:

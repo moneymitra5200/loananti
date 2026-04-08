@@ -14,7 +14,7 @@ import {
   Settings, LogOut, Menu, Search, Edit, Calculator, MapPin, AlertTriangle, PieChart,
   CreditCard, Banknote, User, ClipboardCheck, Calendar, Receipt, TrendingUp,
   Target, FileCheck, Activity, Briefcase, BookOpen, IndianRupee, Landmark, Percent,
-  FileSpreadsheet, Globe, RefreshCw, Bell
+  FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
@@ -446,7 +446,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'risk', label: 'Risk Management', icon: AlertTriangle },
     { id: 'products', label: 'Loan Products', icon: Briefcase },
     { id: 'website', label: 'Website Management', icon: Globe },
-    { id: 'audit', label: 'Audit Logs', icon: Activity }
+    { id: 'audit', label: 'Audit Logs', icon: Activity },
+    { id: 'ai-validator', label: 'AI Validator', icon: Sparkles }
   ],
   COMPANY: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
