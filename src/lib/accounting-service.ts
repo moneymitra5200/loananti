@@ -28,6 +28,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
   ASSETS: [
     // Current Assets (1100-1199)
     { code: '1101', name: 'Cash in Hand', type: 'ASSET', isSystemAccount: true, description: 'Physical cash on hand' },
+    { code: '1102', name: 'Bank Account', type: 'ASSET', isSystemAccount: true, description: 'Bank account for online payments' },
     // Loans Receivable (1200-1299)
     { code: '1200', name: 'Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Total loans given to borrowers' },
     { code: '1201', name: 'Online Loans Receivable', type: 'ASSET', isSystemAccount: true, description: 'Loans from online applications' },
@@ -107,6 +108,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
 export const ACCOUNT_CODES = {
   // Assets
   CASH_IN_HAND: '1101',
+  BANK_ACCOUNT: '1102',  // Bank Account for online payments
   LOANS_RECEIVABLE: '1200',
   ONLINE_LOANS_RECEIVABLE: '1201',
   OFFLINE_LOANS_RECEIVABLE: '1210',

@@ -2011,9 +2011,11 @@ export async function PUT(request: NextRequest) {
       //    - Company Credit + ONLINE → Mirror Company's Bank Account
       //    - Company Credit + CASH → Mirror Company's Cashbook
       //    - Payment recorded in MIRROR company's books
+      //    - ONLY MIRROR INTEREST (calculated at mirror rate) is recorded as income
       //
       // 3. EXTRA EMIs (beyond mirror tenure):
       //    - Goes to Original Company (C3) Cashbook
+      //    - Full EMI amount is profit for Company 3
       // ============================================
       
       try {
@@ -2021,6 +2023,38 @@ export async function PUT(request: NextRequest) {
         const targetCompanyId = isMirrorLoan 
           ? mirrorLoanMapping!.mirrorCompanyId 
           : (creditTypeUsed === 'PERSONAL' ? company3Id : emi.offlineLoan.companyId);
+        
+        // ============================================
+        // CRITICAL: Calculate MIRROR INTEREST for mirror loans
+        // The mirror interest is calculated at the MIRROR rate, not original rate
+        // ============================================
+        let mirrorInterestAmount = 0;
+        let mirrorPrincipalAmount = 0;
+        
+        if (isMirrorLoan && mirrorLoanMapping?.mirrorLoanId) {
+          // Fetch the mirror EMI to get the correct interest at mirror rate
+          const mirrorEmiForAccounting = await db.offlineLoanEMI.findFirst({
+            where: {
+              offlineLoanId: mirrorLoanMapping.mirrorLoanId,
+              installmentNumber: emi.installmentNumber
+            }
+          });
+          
+          if (mirrorEmiForAccounting) {
+            mirrorInterestAmount = mirrorEmiForAccounting.interestAmount;
+            mirrorPrincipalAmount = mirrorEmiForAccounting.principalAmount;
+            console.log(`[Accounting] MIRROR EMI Interest: ₹${mirrorInterestAmount} (Mirror Rate) vs Original: ₹${emi.interestAmount}`);
+          } else {
+            // Fallback: Calculate mirror interest if mirror EMI not found
+            const mirrorRate = (await db.mirrorLoanMapping.findFirst({
+              where: { id: mirrorLoanMapping.id },
+              select: { mirrorInterestRate: true }
+            }))?.mirrorInterestRate || 15;
+            const monthlyRate = mirrorRate / 100 / 12;
+            mirrorInterestAmount = Math.round(emi.outstandingPrincipal * monthlyRate * 100) / 100;
+            console.log(`[Accounting] MIRROR Interest calculated: ₹${mirrorInterestAmount} at ${mirrorRate}% rate`);
+          }
+        }
         
         if (targetCompanyId) {
           // Use the comprehensive accounting function
@@ -2041,8 +2075,8 @@ export async function PUT(request: NextRequest) {
             userId,
             customerId: emi.offlineLoan.customerId || undefined,
             mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || undefined,
-            mirrorPrincipal: isMirrorLoan ? paidPrincipal : undefined,
-            mirrorInterest: isMirrorLoan ? paidInterest : undefined,
+            mirrorPrincipal: isMirrorLoan ? mirrorPrincipalAmount : undefined,
+            mirrorInterest: isMirrorLoan ? mirrorInterestAmount : undefined,  // Use MIRROR interest
             mirrorCompanyId: mirrorLoanMapping?.mirrorCompanyId || undefined,
             isMirrorPayment: isMirrorLoan
           });
@@ -2052,6 +2086,9 @@ export async function PUT(request: NextRequest) {
           console.log(`  - Credit: ${creditTypeUsed}`);
           console.log(`  - Mode: ${paymentMode}`);
           console.log(`  - Target Company: ${targetCompanyId}`);
+          if (isMirrorLoan) {
+            console.log(`  - Mirror Interest Recorded: ₹${mirrorInterestAmount}`);
+          }
           console.log(`  - Bank Entry: ${accountingResult.bankTransaction ? 'Yes' : 'No'}`);
           console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
           console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes' : 'No'}`);

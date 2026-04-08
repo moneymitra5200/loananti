@@ -302,41 +302,64 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   // ============================================
   // For mirror loans, record ONLY the mirror interest as income
   // NO deductions, NO profit calculations
-  // ALL payments go to CASH BOOK only (no bank account)
+  // ONLINE payments go to Bank Account, CASH payments go to Cash Book
   // ============================================
   
   if (isMirrorPayment && mirrorCompanyId && mirrorInterest !== undefined) {
-    console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording ONLY mirror interest: ₹${mirrorInterest} in CASH BOOK`);
+    console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording ONLY mirror interest: ₹${mirrorInterest}`);
+    console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
     
-    // ALWAYS record in Mirror Company's Cashbook (no bank account used)
-    result.cashBookEntry = await recordCashBookEntry({
-      companyId: mirrorCompanyId,
-      entryType: 'CREDIT',
-      amount: mirrorInterest,  // ONLY mirror interest
-      description: `MIRROR INTEREST INCOME - ${loanNumber} - EMI #${installmentNumber}`,
-      referenceType: 'MIRROR_INTEREST_INCOME',
-      referenceId: paymentId,
-      createdById: userId
-    });
+    // ONLINE/BANK_TRANSFER payments go to Bank Account
+    if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
+      result.bankTransaction = await recordBankTransaction({
+        companyId: mirrorCompanyId,
+        transactionType: 'CREDIT',
+        amount: mirrorInterest,  // ONLY mirror interest
+        description: `MIRROR INTEREST INCOME (Online) - ${loanNumber} - EMI #${installmentNumber}`,
+        referenceType: 'MIRROR_INTEREST_INCOME',
+        referenceId: paymentId,
+        createdById: userId
+      });
+      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorInterest} in Mirror Company BANK ACCOUNT`);
+    } else {
+      // CASH payments go to Cash Book
+      result.cashBookEntry = await recordCashBookEntry({
+        companyId: mirrorCompanyId,
+        entryType: 'CREDIT',
+        amount: mirrorInterest,  // ONLY mirror interest
+        description: `MIRROR INTEREST INCOME (Cash) - ${loanNumber} - EMI #${installmentNumber}`,
+        referenceType: 'MIRROR_INTEREST_INCOME',
+        referenceId: paymentId,
+        createdById: userId
+      });
+      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorInterest} in Mirror Company CASH BOOK`);
+    }
     
     // Create journal entry for Mirror Company - ONLY mirror interest
     try {
       const accountingService = new AccountingService(mirrorCompanyId);
       await accountingService.initializeChartOfAccounts();
       
+      // Use Bank Account code for ONLINE payments, Cash for CASH payments
+      const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
+        ? ACCOUNT_CODES.BANK_ACCOUNT 
+        : ACCOUNT_CODES.CASH_IN_HAND;
+      
       result.journalEntryId = await accountingService.createJournalEntry({
         entryDate: new Date(),
         referenceType: 'MIRROR_EMI_PAYMENT',
         referenceId: paymentId,
-        narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - Interest Income: ₹${mirrorInterest}`,
+        narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - Interest Income: ₹${mirrorInterest} (${paymentMode})`,
         lines: [
           {
-            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+            accountCode: debitAccountCode,
             debitAmount: mirrorInterest,  // ONLY mirror interest
             creditAmount: 0,
             loanId,
             customerId,
-            narration: 'Cash received for mirror interest'
+            narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' 
+              ? 'Bank received for mirror interest' 
+              : 'Cash received for mirror interest'
           },
           {
             accountCode: ACCOUNT_CODES.INTEREST_INCOME,
@@ -351,7 +374,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         paymentMode
       });
       
-      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorInterest} as Interest Income in Mirror Company ${mirrorCompanyId} CASH BOOK`);
+      console.log(`[Accounting] MIRROR: Journal entry created for ₹${mirrorInterest} as Interest Income in Mirror Company ${mirrorCompanyId}`);
     } catch (journalError) {
       console.error('Failed to create journal entry for mirror EMI:', journalError);
     }
@@ -428,26 +451,48 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   }
 
   // ============================================
-  // COMPANY CREDIT - ALL payments go to CASH BOOK
+  // COMPANY CREDIT - ONLINE goes to BANK, CASH goes to CASH BOOK
   // ============================================
-  // ALL payments are recorded in CASH BOOK (no bank account)
+  // ONLINE/BANK_TRANSFER/UPI payments go to Bank Account
+  // CASH payments go to Cash Book
   // Extra EMI and secondary payments are PURE PROFIT for Company 3
   // ============================================
   
-  result.cashBookEntry = await recordCashBookEntry({
-    companyId: targetCompanyId,
-    entryType: 'CREDIT',
-    amount,
-    description: `${description} [Company Credit - ${paymentMode}]`,
-    referenceType: 'EMI_PAYMENT',
-    referenceId: paymentId,
-    createdById: userId
-  });
+  // ONLINE/BANK_TRANSFER payments go to Bank Account
+  if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
+    result.bankTransaction = await recordBankTransaction({
+      companyId: targetCompanyId,
+      transactionType: 'CREDIT',
+      amount,
+      description: `${description} [Company Credit - ${paymentMode}]`,
+      referenceType: 'EMI_PAYMENT',
+      referenceId: paymentId,
+      createdById: userId
+    });
+    console.log(`[Accounting] Company Credit EMI recorded in BANK ACCOUNT: ₹${amount}`);
+  } else {
+    // CASH payments go to Cash Book
+    result.cashBookEntry = await recordCashBookEntry({
+      companyId: targetCompanyId,
+      entryType: 'CREDIT',
+      amount,
+      description: `${description} [Company Credit - ${paymentMode}]`,
+      referenceType: 'EMI_PAYMENT',
+      referenceId: paymentId,
+      createdById: userId
+    });
+    console.log(`[Accounting] Company Credit EMI recorded in CASH BOOK: ₹${amount}`);
+  }
   
   // Create journal entry
   try {
     const accountingService = new AccountingService(targetCompanyId);
     await accountingService.initializeChartOfAccounts();
+    
+    // Use Bank Account code for ONLINE payments, Cash for CASH payments
+    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
+      ? ACCOUNT_CODES.BANK_ACCOUNT 
+      : ACCOUNT_CODES.CASH_IN_HAND;
     
     result.journalEntryId = await accountingService.createJournalEntry({
       entryDate: new Date(),
@@ -456,12 +501,14 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
       lines: [
         {
-          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+          accountCode: debitAccountCode,
           debitAmount: amount,
           creditAmount: 0,
           loanId,
           customerId,
-          narration: 'Cash received for EMI'
+          narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
+            ? 'Bank received for EMI'
+            : 'Cash received for EMI'
         },
         {
           accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
