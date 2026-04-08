@@ -22,6 +22,13 @@ interface ResetOptions {
   accountingSettings: boolean;
   fixedAssets: boolean;
   allAccounting: boolean;
+  // Role Dashboard Reset Options (UI grouping - these trigger the same resets)
+  superAdminDashboard: boolean;
+  adminDashboard: boolean;
+  staffDashboard: boolean;
+  accountantDashboard: boolean;
+  agentDashboard: boolean;
+  allRoleDashboards: boolean;
 }
 
 // GET - Check system status before reset
@@ -151,6 +158,13 @@ export async function POST(request: NextRequest) {
       accountingSettings: true,
       fixedAssets: true,
       allAccounting: true,
+      // Role Dashboard Resets - ALL TRUE by default for fresh start
+      superAdminDashboard: true,
+      adminDashboard: true,
+      staffDashboard: true,
+      accountantDashboard: true,
+      agentDashboard: true,
+      allRoleDashboards: true,
     };
 
     console.log('[System Reset] Starting with options:', resetOptions);
@@ -565,7 +579,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'System reset completed - ALL accounting portal sections cleared',
+      message: 'System reset completed - ALL role dashboards reset to fresh state',
       stats: { duration: `${duration}s`, deleted: stats },
       errors: errors.length > 0 ? errors : undefined
     });

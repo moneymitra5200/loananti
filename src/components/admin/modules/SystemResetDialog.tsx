@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { AlertTriangle, XCircle, CheckCircle, RefreshCw, Loader2, Shield, FileText, Wallet, Landmark, Users, Activity, CreditCard, Calculator, BookOpen } from 'lucide-react';
+import { AlertTriangle, XCircle, CheckCircle, RefreshCw, Loader2, Shield, FileText, Wallet, Landmark, Users, Activity, CreditCard, Calculator, BookOpen, User, Briefcase, Settings, BarChart3, Calendar, Clock } from 'lucide-react';
 
 interface ResetOptions {
   loanApplications: boolean;
@@ -30,6 +30,13 @@ interface ResetOptions {
   accountingSettings: boolean;
   fixedAssets: boolean;
   allAccounting: boolean;
+  // Role Dashboard Reset Options
+  superAdminDashboard: boolean;
+  adminDashboard: boolean;
+  staffDashboard: boolean;
+  accountantDashboard: boolean;
+  agentDashboard: boolean;
+  allRoleDashboards: boolean;
 }
 
 interface Props {
@@ -60,6 +67,13 @@ const defaultOptions: ResetOptions = {
   accountingSettings: true,
   fixedAssets: true,
   allAccounting: true,
+  // Role Dashboard Resets - ALL TRUE by default for fresh start
+  superAdminDashboard: true,
+  adminDashboard: true,
+  staffDashboard: true,
+  accountantDashboard: true,
+  agentDashboard: true,
+  allRoleDashboards: true,
 };
 
 function SystemResetDialog({
@@ -93,6 +107,13 @@ function SystemResetDialog({
       accountingSettings: checked,
       fixedAssets: checked,
       allAccounting: checked,
+      // Role Dashboards
+      superAdminDashboard: checked,
+      adminDashboard: checked,
+      staffDashboard: checked,
+      accountantDashboard: checked,
+      agentDashboard: checked,
+      allRoleDashboards: checked,
     });
   };
 
@@ -116,6 +137,19 @@ function SystemResetDialog({
     }));
   };
 
+  // Handle "All Role Dashboards" master toggle
+  const handleAllRoleDashboardsChange = (checked: boolean) => {
+    setResetOptions(prev => ({
+      ...prev,
+      allRoleDashboards: checked,
+      superAdminDashboard: checked,
+      adminDashboard: checked,
+      staffDashboard: checked,
+      accountantDashboard: checked,
+      agentDashboard: checked,
+    }));
+  };
+
   const handleReset = () => {
     if (resetConfirmText !== 'RESET_SYSTEM') return;
     onReset(resetOptions);
@@ -133,6 +167,10 @@ function SystemResetDialog({
   // Check if all accounting options are selected
   const allAccountingOptions = ['chartOfAccounts', 'financialYears', 'journalEntries', 'expenses', 'gstConfig', 'cashBook', 'accountingSettings', 'fixedAssets'] as const;
   const allAccountingSelected = allAccountingOptions.every(key => resetOptions[key]);
+
+  // Check if all role dashboard options are selected
+  const allRoleOptions = ['superAdminDashboard', 'adminDashboard', 'staffDashboard', 'accountantDashboard', 'agentDashboard'] as const;
+  const allRoleDashboardsSelected = allRoleOptions.every(key => resetOptions[key]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -176,6 +214,102 @@ function SystemResetDialog({
                 </Label>
               </div>
               <span className="text-sm text-gray-500">{selectedCount} items selected</span>
+            </div>
+
+            {/* Role Dashboard Reset - NEW SECTION */}
+            <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+              <h5 className="font-semibold text-indigo-700 mb-3 flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Role Dashboard Reset (Fresh Look)
+              </h5>
+              
+              {/* Master Toggle */}
+              <div className="flex items-center space-x-2 mb-3 p-2 bg-indigo-100 rounded">
+                <Checkbox
+                  id="allRoleDashboards"
+                  checked={resetOptions.allRoleDashboards && allRoleDashboardsSelected}
+                  onCheckedChange={(checked) => handleAllRoleDashboardsChange(checked as boolean)}
+                />
+                <Label htmlFor="allRoleDashboards" className="font-semibold cursor-pointer text-indigo-800">
+                  ALL ROLE DASHBOARDS (Master Toggle)
+                </Label>
+              </div>
+              
+              <div className="grid md:grid-cols-2 gap-3 ml-4">
+                <div className="flex items-center space-x-2 p-2 bg-white rounded border border-indigo-100">
+                  <Checkbox
+                    id="superAdminDashboard"
+                    checked={resetOptions.superAdminDashboard}
+                    onCheckedChange={(checked) => handleOptionChange('superAdminDashboard', checked as boolean)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-purple-600" />
+                    <Label htmlFor="superAdminDashboard" className="cursor-pointer text-sm">
+                      Super Admin Dashboard
+                    </Label>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 p-2 bg-white rounded border border-indigo-100">
+                  <Checkbox
+                    id="adminDashboard"
+                    checked={resetOptions.adminDashboard}
+                    onCheckedChange={(checked) => handleOptionChange('adminDashboard', checked as boolean)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Settings className="h-4 w-4 text-blue-600" />
+                    <Label htmlFor="adminDashboard" className="cursor-pointer text-sm">
+                      Admin/Company Dashboard
+                    </Label>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 p-2 bg-white rounded border border-indigo-100">
+                  <Checkbox
+                    id="staffDashboard"
+                    checked={resetOptions.staffDashboard}
+                    onCheckedChange={(checked) => handleOptionChange('staffDashboard', checked as boolean)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-orange-600" />
+                    <Label htmlFor="staffDashboard" className="cursor-pointer text-sm">
+                      Staff Dashboard
+                    </Label>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 p-2 bg-white rounded border border-indigo-100">
+                  <Checkbox
+                    id="accountantDashboard"
+                    checked={resetOptions.accountantDashboard}
+                    onCheckedChange={(checked) => handleOptionChange('accountantDashboard', checked as boolean)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Calculator className="h-4 w-4 text-teal-600" />
+                    <Label htmlFor="accountantDashboard" className="cursor-pointer text-sm">
+                      Accountant Dashboard
+                    </Label>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2 p-2 bg-white rounded border border-indigo-100">
+                  <Checkbox
+                    id="agentDashboard"
+                    checked={resetOptions.agentDashboard}
+                    onCheckedChange={(checked) => handleOptionChange('agentDashboard', checked as boolean)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Briefcase className="h-4 w-4 text-cyan-600" />
+                    <Label htmlFor="agentDashboard" className="cursor-pointer text-sm">
+                      Agent Dashboard
+                    </Label>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-xs text-indigo-600 mt-3 ml-4">
+                <Calendar className="h-3 w-3 inline mr-1" />
+                Clears all dashboard data: Pending loans, Active loans, EMI collections, Sessions, Progress
+              </p>
+              <p className="text-xs text-green-600 mt-2 ml-4 font-medium">
+                ✓ After reset: All role dashboards will show fresh/empty state
+              </p>
             </div>
 
             {/* Accounting Portal - FULL RESET */}
