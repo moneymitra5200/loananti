@@ -10,14 +10,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
+import {
   Send, Loader2, User, Building2, ArrowRight, AlertCircle, Landmark, AlertTriangle,
   ChevronDown, ChevronUp, FileImage, ExternalLink, Car, Gem, Home, IdCard, FileText,
-  IndianRupee, Wallet, Users2, Briefcase, ArrowLeft, RefreshCw, DollarSign, CreditCard,
+  IndianRupee, Wallet, Users2, Briefcase, ArrowLeft, RefreshCw, CreditCard,
   PlusCircle, Split, Banknote
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -74,8 +74,6 @@ export default function DisbursementDialog({
   isCompany3 = false,
   cashBook = null
 }: DisbursementDialogProps) {
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<'disburse' | 'send_back'>('disburse');
   const [secondaryPaymentPages, setSecondaryPaymentPages] = useState<SecondaryPaymentPage[]>([]);
   const [loadingPaymentPages, setLoadingPaymentPages] = useState(false);
   
@@ -139,14 +137,7 @@ export default function DisbursementDialog({
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const handleConfirmAction = () => {
-    if (confirmAction === 'disburse') {
-      onDisburse();
-    } else {
-      onSendBack();
-    }
-    setShowConfirmDialog(false);
-  };
+
 
   return (
     <>
@@ -763,33 +754,14 @@ export default function DisbursementDialog({
                 </h4>
 
                 <div className="grid grid-cols-2 gap-4">
+                  {/* Disbursement Amount - Read Only */}
                   <div>
-                    <Label>Disbursement Amount (₹) *</Label>
-                    <Input 
-                      type="number" 
-                      value={disbursementForm.disbursedAmount} 
-                      onChange={(e) => setDisbursementForm({...disbursementForm, disbursedAmount: parseFloat(e.target.value) || 0})} 
-                    />
-                  </div>
-                  <div>
-                    <Label>Disbursement Mode *</Label>
-                    <Select value={disbursementForm.disbursementMode} onValueChange={(v) => setDisbursementForm({...disbursementForm, disbursementMode: v})}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="BANK_TRANSFER">Bank Transfer (NEFT/RTGS/IMPS)</SelectItem>
-                        <SelectItem value="CHEQUE">Cheque</SelectItem>
-                        <SelectItem value="CASH">Cash</SelectItem>
-                        <SelectItem value="UPI">UPI</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Transaction Reference *</Label>
-                    <Input 
-                      value={disbursementForm.disbursementRef} 
-                      onChange={(e) => setDisbursementForm({...disbursementForm, disbursementRef: e.target.value})} 
-                      placeholder="UTR/Transaction ID"
-                    />
+                    <Label>Disbursement Amount (₹)</Label>
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <span className="text-2xl font-bold text-green-700">
+                        {formatCurrency(disbursementForm.disbursedAmount)}
+                      </span>
+                    </div>
                   </div>
                   <div>
                     <Label>Select Payment Source (Bank/Cash) *</Label>
@@ -1283,10 +1255,7 @@ export default function DisbursementDialog({
             <Button 
               variant="outline" 
               className="border-amber-500 text-amber-600 hover:bg-amber-50"
-              onClick={() => {
-                setConfirmAction('send_back');
-                setShowConfirmDialog(true);
-              }}
+              onClick={onSendBack}
               disabled={saving}
             >
               <ArrowLeft className="h-4 w-4 mr-1" /> Send Back
@@ -1294,11 +1263,8 @@ export default function DisbursementDialog({
           )}
           <Button 
             className="bg-green-500 hover:bg-green-600" 
-            onClick={() => {
-              setConfirmAction('disburse');
-              setShowConfirmDialog(true);
-            }}
-            disabled={saving || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
+            onClick={onDisburse}
+            disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
           >
             {saving ? (
               <>
@@ -1315,51 +1281,6 @@ export default function DisbursementDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-
-    {/* Confirmation Dialog */}
-    <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-full ${confirmAction === 'disburse' ? 'bg-green-100' : 'bg-amber-100'}`}>
-              {confirmAction === 'disburse' 
-                ? <DollarSign className="h-6 w-6 text-green-600" />
-                : <ArrowLeft className="h-6 w-6 text-amber-600" />
-              }
-            </div>
-            <AlertDialogTitle>
-              {confirmAction === 'disburse' ? 'Confirm Disbursement' : 'Confirm Send Back'}
-            </AlertDialogTitle>
-          </div>
-          <AlertDialogDescription className="pt-2">
-            {confirmAction === 'disburse' 
-              ? `Are you sure you want to DISBURSE ₹${disbursementForm.disbursedAmount?.toLocaleString() || '0'} for loan ${selectedLoan?.applicationNo}? This will transfer money to the customer's account.`
-              : `Are you sure you want to SEND BACK loan ${selectedLoan?.applicationNo}? It will return to the previous stage for review.`
-            }
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => {
-              e.preventDefault();
-              handleConfirmAction();
-            }}
-            disabled={saving}
-            className={confirmAction === 'disburse' ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              `Yes, ${confirmAction === 'disburse' ? 'Disburse' : 'Send Back'}`
-            )}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 }
