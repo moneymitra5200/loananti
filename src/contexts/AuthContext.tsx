@@ -117,6 +117,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(storedUser);
           setLoading(false);
           
+          // Skip check-login verification for recently logged-in users (within 30 seconds)
+          // The login API already validates the user, so we don't need to check again
+          const lastActivity = localStorage.getItem('lastActivity');
+          const now = Date.now();
+          const recentLogin = lastActivity && (now - parseInt(lastActivity)) < 30000; // 30 seconds
+          
+          if (recentLogin) {
+            console.log('[Auth] Recent login detected, skipping check-login verification');
+            return; // Skip the check-login API call entirely
+          }
+          
           // Verify stored user in background (but don't logout on error)
           fetch('/api/auth/check-login', {
             method: 'POST',
@@ -139,11 +150,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               return; // Keep the user logged in on API error
             }
             
-            console.log('[Auth] check-login response:', checkData);
+            console.log('[Auth] check-login response:', JSON.stringify(checkData));
             
             // Only logout if explicitly told canLogin: false (not on undefined or error)
             if (checkData.canLogin === false) {
-              console.log('[Auth] check-login returned false, logging out');
+              console.log('[Auth] check-login returned false, reason:', checkData.reason);
               sessionStorage.removeItem('demoUser');
               setUser(null);
               setLoading(true);
