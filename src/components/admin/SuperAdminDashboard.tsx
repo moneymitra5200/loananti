@@ -695,14 +695,30 @@ export default function SuperAdminDashboard() {
   const handleDeleteUser = async (userToDelete?: UserItem) => {
     const user = userToDelete || selectedUser;
     if (!user) return;
+    
+    // Confirm before deletion
+    const confirmDelete = window.confirm(
+      `Are you sure you want to PERMANENTLY DELETE "${user.name}"?\n\n` +
+      `This will also delete:\n` +
+      (user.role === 'COMPANY' ? `- The company associated with this user\n` : '') +
+      `- All related records (audit logs, notifications, etc.)\n\n` +
+      `This action CANNOT be undone!`
+    );
+    
+    if (!confirmDelete) return;
+    
     try {
-      const response = await fetch(`/api/user?id=${user.id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/user/${user.id}`, { method: 'DELETE' });
       const data = await response.json();
       
       if (response.ok && data.success) {
-        toast({ title: 'User Deleted', description: 'User has been deleted successfully' });
+        toast({ 
+          title: 'User Deleted Permanently', 
+          description: `${user.name} and all related records have been permanently deleted from the database.` 
+        });
         setSelectedUser(null);
         fetchUsers();
+        fetchCompanies(); // Refresh companies list too
       } else {
         toast({ 
           title: 'Error', 

@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,14 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Building2, User, ClipboardCheck, UserPlus, Eye, Shield, Trash2, Edit } from 'lucide-react';
+import { 
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle 
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { 
+  Users, Building2, User, UserPlus, Eye, Trash2, Edit, Shield, AlertTriangle, Search, X
+} from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 
 interface UserItem {
   id: string;
@@ -33,11 +40,6 @@ interface UserItem {
 
 interface Props {
   users: UserItem[];
-  companyUsers: UserItem[];
-  agents: UserItem[];
-  staff: UserItem[];
-  cashiers: UserItem[];
-  accountants: UserItem[];
   userRoleFilter: string;
   setUserRoleFilter: (filter: string) => void;
   searchQuery: string;
@@ -49,13 +51,115 @@ interface Props {
   onDeleteUser: (user: UserItem) => void;
 }
 
+// Simple edit dialog component
+function EditUserDialog({
+  user,
+  open,
+  onClose,
+  onSave
+}: {
+  user: UserItem | null;
+  open: boolean;
+  onClose: () => void;
+  onSave: (data: { name: string; phone: string; password: string }) => void;
+}) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Update form when user changes
+  useState(() => {
+    if (user) {
+      setName(user.name || '');
+      setPhone(user.phone || '');
+      setPassword('');
+    }
+  });
+
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast({ title: 'Error', description: 'Name is required', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/user/${user?.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, phone, password: password || undefined })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast({ title: 'Success', description: 'User updated successfully' });
+        onClose();
+        onSave({ name, phone, password });
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to update', variant: 'destructive' });
+      }
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to update user', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Edit className="h-5 w-5 text-blue-600" />
+            Edit {user.role === 'COMPANY' ? 'Company' : 'User'}
+          </DialogTitle>
+          <DialogDescription>
+            Update details for {user.name}
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label>Name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter name" />
+          </div>
+          
+          <div className="space-y-2">
+            <Label>Phone</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter phone" />
+          </div>
+          
+          <div className="space-y-2">
+            <Label>New Password</Label>
+            <Input 
+              type="password" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              placeholder="Leave blank to keep current" 
+            />
+            <p className="text-xs text-gray-500">Leave blank to keep current password</p>
+          </div>
+          
+          <div className="bg-gray-50 p-3 rounded-lg text-sm">
+            <p className="text-gray-600"><strong>Email:</strong> {user.email}</p>
+            <p className="text-gray-600"><strong>Role:</strong> {user.role}</p>
+          </div>
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button className="bg-blue-500 hover:bg-blue-600" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function UsersSection({
   users,
-  companyUsers,
-  agents,
-  staff,
-  cashiers,
-  accountants,
   userRoleFilter,
   setUserRoleFilter,
   searchQuery,
@@ -66,72 +170,101 @@ function UsersSection({
   onUnlockUser,
   onDeleteUser
 }: Props) {
-  // Permanent super admin emails - these accounts are hidden from user management
+  // Permanent super admin emails - these accounts are hidden
   const PERMANENT_ADMIN_EMAILS = ['moneymitra@gmail.com'];
   
-  // Filter out permanent super admins from all displays
+  // Local edit dialog state
+  const [editDialogUser, setEditDialogUser] = useState<UserItem | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  
+  // Filter out permanent super admins
   const visibleUsers = users.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email));
   const nonCustomerUsers = visibleUsers.filter(u => u.role !== 'CUSTOMER');
-  const filteredByRole = userRoleFilter === 'all' ? nonCustomerUsers : nonCustomerUsers.filter(u => u.role === userRoleFilter);
-  const filteredBySearch = filteredByRole.filter(u => 
+  
+  // Apply role filter
+  const filteredByRole = userRoleFilter === 'all' 
+    ? nonCustomerUsers 
+    : nonCustomerUsers.filter(u => u.role === userRoleFilter);
+  
+  // Apply search filter
+  const filteredUsers = filteredByRole.filter(u => 
     u.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    u.email.toLowerCase().includes(searchQuery.toLowerCase())
+    u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.phone && u.phone.includes(searchQuery))
   );
+
+  // Count by role
+  const counts = {
+    total: visibleUsers.length,
+    companies: visibleUsers.filter(u => u.role === 'COMPANY').length,
+    agents: visibleUsers.filter(u => u.role === 'AGENT').length,
+    staff: visibleUsers.filter(u => u.role === 'STAFF').length,
+    cashiers: visibleUsers.filter(u => u.role === 'CASHIER').length,
+    accountants: visibleUsers.filter(u => u.role === 'ACCOUNTANT').length,
+  };
+
+  const getRoleBadgeStyle = (role: string) => {
+    switch (role) {
+      case 'SUPER_ADMIN': return 'bg-purple-100 text-purple-700';
+      case 'COMPANY': return 'bg-blue-100 text-blue-700';
+      case 'AGENT': return 'bg-cyan-100 text-cyan-700';
+      case 'STAFF': return 'bg-orange-100 text-orange-700';
+      case 'CASHIER': return 'bg-green-100 text-green-700';
+      case 'ACCOUNTANT': return 'bg-teal-100 text-teal-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const handleEditClick = (user: UserItem) => {
+    setEditDialogUser(user);
+    setShowEditDialog(true);
+  };
+
+  const handleEditSave = () => {
+    setShowEditDialog(false);
+    setEditDialogUser(null);
+    // Trigger refresh by calling onEditUser which should refresh the list
+    window.location.reload();
+  };
 
   return (
     <div className="space-y-6">
-      {/* Stats Row - using visibleUsers to hide permanent admin from counts */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Total Users</p>
-                <p className="text-2xl font-bold text-gray-900">{visibleUsers.length}</p>
-              </div>
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <Users className="h-5 w-5 text-gray-600" />
-              </div>
-            </div>
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Total</p>
+            <p className="text-xl font-bold text-gray-900">{counts.total}</p>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Companies</p>
-                <p className="text-2xl font-bold text-blue-600">{companyUsers.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
-              </div>
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <Building2 className="h-5 w-5 text-blue-600" />
-              </div>
-            </div>
+        <Card className="border-0 shadow-sm border-l-4 border-l-blue-500">
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Companies</p>
+            <p className="text-xl font-bold text-blue-600">{counts.companies}</p>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Agents</p>
-                <p className="text-2xl font-bold text-cyan-600">{agents.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
-              </div>
-              <div className="p-2 bg-cyan-50 rounded-lg">
-                <User className="h-5 w-5 text-cyan-600" />
-              </div>
-            </div>
+        <Card className="border-0 shadow-sm border-l-4 border-l-cyan-500">
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Agents</p>
+            <p className="text-xl font-bold text-cyan-600">{counts.agents}</p>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Staff & Others</p>
-                <p className="text-2xl font-bold text-violet-600">{staff.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length + cashiers.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length + accountants.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email)).length}</p>
-              </div>
-              <div className="p-2 bg-violet-50 rounded-lg">
-                <ClipboardCheck className="h-5 w-5 text-violet-600" />
-              </div>
-            </div>
+        <Card className="border-0 shadow-sm border-l-4 border-l-orange-500">
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Staff</p>
+            <p className="text-xl font-bold text-orange-600">{counts.staff}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-0 shadow-sm border-l-4 border-l-green-500">
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Cashiers</p>
+            <p className="text-xl font-bold text-green-600">{counts.cashiers}</p>
+          </CardContent>
+        </Card>
+        <Card className="border-0 shadow-sm border-l-4 border-l-teal-500">
+          <CardContent className="p-3 text-center">
+            <p className="text-xs text-gray-500">Accountants</p>
+            <p className="text-xl font-bold text-teal-600">{counts.accountants}</p>
           </CardContent>
         </Card>
       </div>
@@ -144,14 +277,13 @@ function UsersSection({
               <Users className="h-5 w-5 text-emerald-600" />
               User Management
             </CardTitle>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex gap-2 flex-wrap items-center">
               <Select value={userRoleFilter} onValueChange={setUserRoleFilter}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-36">
                   <SelectValue placeholder="Filter by role" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                   <SelectItem value="COMPANY">Company</SelectItem>
                   <SelectItem value="AGENT">Agent</SelectItem>
                   <SelectItem value="STAFF">Staff</SelectItem>
@@ -159,7 +291,21 @@ function UsersSection({
                   <SelectItem value="ACCOUNTANT">Accountant</SelectItem>
                 </SelectContent>
               </Select>
-              <Input placeholder="Search users..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-48" />
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input 
+                  placeholder="Search..." 
+                  value={searchQuery} 
+                  onChange={(e) => setSearchQuery(e.target.value)} 
+                  className="w-48 pl-9" 
+                />
+                {searchQuery && (
+                  <X 
+                    className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 cursor-pointer hover:text-gray-600"
+                    onClick={() => setSearchQuery('')}
+                  />
+                )}
+              </div>
               <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={onAddUser}>
                 <UserPlus className="h-4 w-4 mr-2" />Add User
               </Button>
@@ -167,13 +313,13 @@ function UsersSection({
           </div>
         </CardHeader>
         <CardContent>
-          {filteredBySearch.length === 0 ? (
+          {filteredUsers.length === 0 ? (
             <div className="text-center py-12">
               <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <p className="text-gray-500 mb-2">No users found</p>
-              <p className="text-sm text-gray-400">Create a user to get started</p>
+              <p className="text-sm text-gray-400">Try a different filter or add a new user</p>
               <Button className="mt-4 bg-emerald-500 hover:bg-emerald-600" onClick={onAddUser}>
-                <UserPlus className="h-4 w-4 mr-2" />Add First User
+                <UserPlus className="h-4 w-4 mr-2" />Add User
               </Button>
             </div>
           ) : (
@@ -182,63 +328,52 @@ function UsersSection({
                 <TableHeader>
                   <TableRow>
                     <TableHead>User</TableHead>
-                    <TableHead>Email</TableHead>
+                    <TableHead>Contact</TableHead>
                     <TableHead>Role</TableHead>
-                    <TableHead>Company/Agent</TableHead>
-                    <TableHead>Credits</TableHead>
+                    <TableHead>Associated With</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredBySearch.map((u) => (
-                    <TableRow key={u.id}>
+                  {filteredUsers.map((u) => (
+                    <TableRow key={u.id} className="hover:bg-gray-50">
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <Avatar className="h-10 w-10">
-                            <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold">{u.name.charAt(0)}</AvatarFallback>
+                          <Avatar className="h-9 w-9">
+                            <AvatarFallback className={`font-semibold ${
+                              u.role === 'COMPANY' ? 'bg-blue-100 text-blue-700' :
+                              u.role === 'AGENT' ? 'bg-cyan-100 text-cyan-700' :
+                              'bg-emerald-100 text-emerald-700'
+                            }`}>
+                              {u.name.charAt(0).toUpperCase()}
+                            </AvatarFallback>
                           </Avatar>
                           <div>
                             <p className="font-medium">{u.name}</p>
-                            <div className="flex gap-2">
-                              {u.agentCode && <Badge variant="outline" className="text-xs">{u.agentCode}</Badge>}
-                              {u.staffCode && <Badge variant="outline" className="text-xs">{u.staffCode}</Badge>}
-                              {u.cashierCode && <Badge variant="outline" className="text-xs">{u.cashierCode}</Badge>}
-                              {u.accountantCode && <Badge variant="outline" className="text-xs">{u.accountantCode}</Badge>}
-                            </div>
+                            {(u.agentCode || u.staffCode || u.cashierCode || u.accountantCode) && (
+                              <p className="text-xs text-gray-500">
+                                {u.agentCode || u.staffCode || u.cashierCode || u.accountantCode}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <p className="text-sm">{u.email}</p>
-                          {u.phone && <p className="text-xs text-gray-500">{u.phone}</p>}
-                        </div>
+                        <p className="text-sm">{u.email}</p>
+                        {u.phone && <p className="text-xs text-gray-500">{u.phone}</p>}
                       </TableCell>
                       <TableCell>
-                        <Badge className={
-                          u.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700' :
-                          u.role === 'COMPANY' ? 'bg-blue-100 text-blue-700' :
-                          u.role === 'AGENT' ? 'bg-cyan-100 text-cyan-700' :
-                          u.role === 'STAFF' ? 'bg-orange-100 text-orange-700' :
-                          u.role === 'CASHIER' ? 'bg-green-100 text-green-700' :
-                          u.role === 'ACCOUNTANT' ? 'bg-teal-100 text-teal-700' :
-                          'bg-gray-100 text-gray-700'
-                        }>
-                          {u.role}
-                        </Badge>
+                        <Badge className={getRoleBadgeStyle(u.role)}>{u.role}</Badge>
                       </TableCell>
                       <TableCell>
-                        {u.company && typeof u.company === 'object' && <p className="text-sm">{u.company.name}</p>}
-                        {u.company && typeof u.company === 'string' && <p className="text-sm">{u.company}</p>}
-                        {u.agent && <p className="text-sm text-gray-500">{u.agent.name}</p>}
-                        {!u.company && !u.agent && <span className="text-gray-400">-</span>}
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          <p className="text-emerald-600">Co: ₹{(u.companyCredit || 0).toLocaleString()}</p>
-                          <p className="text-amber-600">Pr: ₹{(u.personalCredit || 0).toLocaleString()}</p>
-                        </div>
+                        {u.company ? (
+                          <p className="text-sm">{typeof u.company === 'object' ? u.company.name : u.company}</p>
+                        ) : u.agent ? (
+                          <p className="text-sm text-gray-500">Agent: {u.agent.name}</p>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -246,25 +381,50 @@ function UsersSection({
                             {u.isActive ? 'Active' : 'Inactive'}
                           </Badge>
                           {u.isLocked && (
-                            <Badge className="bg-orange-100 text-orange-700 text-xs">Locked</Badge>
+                            <Badge className="bg-orange-100 text-orange-700 text-xs flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> Locked
+                            </Badge>
                           )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="outline" onClick={() => onViewUserDetails(u.id)} title="View Details">
-                            <Eye className="h-4 w-4" />
+                        <div className="flex gap-1 justify-end">
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => onViewUserDetails(u.id)} 
+                            title="View Details"
+                          >
+                            <Eye className="h-4 w-4 text-gray-500" />
                           </Button>
-                          <Button size="sm" variant="outline" className="text-blue-600 hover:bg-blue-50" onClick={() => onEditUser(u)} title="Edit">
-                            <Edit className="h-4 w-4" />
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="hover:bg-blue-50" 
+                            onClick={() => handleEditClick(u)} 
+                            title="Edit"
+                          >
+                            <Edit className="h-4 w-4 text-blue-600" />
                           </Button>
                           {u.isLocked && (
-                            <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" onClick={() => onUnlockUser(u.id)} title="Unlock">
-                              <Shield className="h-4 w-4" />
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="hover:bg-orange-50" 
+                              onClick={() => onUnlockUser(u.id)} 
+                              title="Unlock"
+                            >
+                              <Shield className="h-4 w-4 text-orange-600" />
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => onDeleteUser(u)} title="Delete">
-                            <Trash2 className="h-4 w-4" />
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            className="hover:bg-red-50" 
+                            onClick={() => onDeleteUser(u)} 
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
                           </Button>
                         </div>
                       </TableCell>
@@ -276,6 +436,14 @@ function UsersSection({
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Dialog */}
+      <EditUserDialog
+        user={editDialogUser}
+        open={showEditDialog}
+        onClose={() => { setShowEditDialog(false); setEditDialogUser(null); }}
+        onSave={handleEditSave}
+      />
     </div>
   );
 }

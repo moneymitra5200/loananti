@@ -3,7 +3,32 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Fix all accounting portal issues - Chart of Accounts, Cash Book, Journal Entries, NPA, Auto Fix
+Task: Fix mirror loan visibility and user management issues
+
+Work Log:
+- Fixed user management edit functionality:
+  - Updated /api/user/[id]/route.ts PUT endpoint to handle all fields including password
+  - Updated /api/user/[id]/route.ts DELETE endpoint to cascade delete all related records
+  - When deleting a COMPANY user, now also deletes: audit logs, notifications, workflow logs, location logs, reminders, notification settings, device fingerprints, blacklist entries, AND the company itself with all accounting records
+  - Added proper cache invalidation after updates/deletes
+  
+- Fixed user management UI:
+  - Simplified UsersSection.tsx with cleaner layout
+  - Added inline EditUserDialog for quick editing
+  - Edit button now works correctly - opens dialog to edit name, phone, and password
+  - Delete now shows confirmation dialog explaining what will be deleted
+  - Added stats cards at top showing counts by role
+  
+- Mirror loan visibility:
+  - Verified mirror loan API at /api/mirror-loan/route.ts is working
+  - ParallelLoanView component displays original + mirror loan side by side
+  - ActiveLoansTab fetches mirror mappings and displays them
+  - The mirror loan system works via MirrorLoanMapping table which links original loans to mirror loans
+
+Stage Summary:
+- User management is now simplified with edit and delete functionality working correctly
+- Delete now cascade deletes all related records permanently from database
+- Mirror loan system is functional - shows parallel view in Active Loans tab
 
 Work Log:
 - Queried database to understand current state:

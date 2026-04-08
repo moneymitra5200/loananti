@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { invalidateUserCache } from '@/lib/cache';
+import { invalidateUserCache, cache } from '@/lib/cache';
+import bcrypt from 'bcryptjs';
 
 // GET - Fetch a single user by ID
 export async function GET(
@@ -63,7 +64,9 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, phone, isActive, agentId, companyCredit, personalCredit } = body;
+    const { name, phone, isActive, agentId, companyCredit, personalCredit, password } = body;
+
+    console.log('[User PUT] Updating user:', id, { name, phone, isActive, agentId });
 
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -73,9 +76,16 @@ export async function PUT(
     if (name !== undefined) updateData.name = name;
     if (phone !== undefined) updateData.phone = phone;
     if (isActive !== undefined) updateData.isActive = isActive;
-    if (agentId !== undefined) updateData.agentId = agentId;
+    if (agentId !== undefined) updateData.agentId = agentId || null;
     if (companyCredit !== undefined) updateData.companyCredit = companyCredit;
     if (personalCredit !== undefined) updateData.personalCredit = personalCredit;
+    
+    // Handle password update
+    if (password && password.trim() !== '') {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      updateData.password = hashedPassword;
+      updateData.plainPassword = password;
+    }
 
     const user = await db.user.update({
       where: { id },
@@ -85,6 +95,9 @@ export async function PUT(
 
     // Invalidate user cache
     invalidateUserCache(id);
+    cache.deletePattern('users:');
+
+    console.log('[User PUT] User updated successfully:', user.id);
 
     return NextResponse.json({ success: true, user });
   } catch (error) {
@@ -93,7 +106,7 @@ export async function PUT(
   }
 }
 
-// DELETE - Delete a user by ID
+// DELETE - Delete a user by ID (PERMANENT DELETE with cascade)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -101,11 +114,18 @@ export async function DELETE(
   try {
     const { id } = await params;
 
+    console.log('[User DELETE] Starting cascade delete for user:', id);
+
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    const user = await db.user.findUnique({ where: { id } });
+    const user = await db.user.findUnique({ 
+      where: { id },
+      include: {
+        company: true
+      }
+    });
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -120,15 +140,91 @@ export async function DELETE(
       }, { status: 403 });
     }
 
-    // Delete the user
+    // ============================================
+    // CASCADE DELETE - Remove all related records
+    // ============================================
+    
+    // 1. Delete audit logs
+    await db.auditLog.deleteMany({ where: { userId: id } });
+    
+    // 2. Delete notifications
+    await db.notification.deleteMany({ where: { userId: id } });
+    
+    // 3. Delete workflow logs
+    await db.workflowLog.deleteMany({ where: { actionById: id } });
+    
+    // 4. Delete location logs
+    await db.locationLog.deleteMany({ where: { userId: id } });
+    
+    // 5. Delete reminders
+    await db.reminder.deleteMany({ where: { userId: id } });
+    
+    // 6. Delete notification settings
+    await db.notificationSetting.deleteMany({ where: { userId: id } });
+    
+    // 7. Delete device fingerprints
+    await db.deviceFingerprint.deleteMany({ where: { userId: id } });
+    
+    // 8. Delete blacklist entries
+    await db.blacklist.deleteMany({ where: { userId: id } });
+
+    // 9. For COMPANY role - also delete the company
+    if (user.role === 'COMPANY' && user.companyId) {
+      console.log('[User DELETE] Deleting company:', user.companyId);
+      
+      // Delete company-related records first
+      await db.chartOfAccount.deleteMany({ where: { companyId: user.companyId } });
+      await db.journalEntry.deleteMany({ where: { companyId: user.companyId } });
+      await db.ledgerBalance.deleteMany({ where: { companyId: user.companyId } });
+      await db.bankAccount.deleteMany({ where: { companyId: user.companyId } });
+      await db.cashAccount.deleteMany({ where: { companyId: user.companyId } });
+      await db.financialYear.deleteMany({ where: { companyId: user.companyId } });
+      
+      // Delete the company
+      await db.company.delete({ where: { id: user.companyId } });
+      console.log('[User DELETE] Company deleted');
+    }
+
+    // 10. Create deleted user record for tracking
+    try {
+      await db.deletedUser.create({
+        data: {
+          email: user.email,
+          firebaseUid: user.firebaseUid,
+          originalRole: user.role
+        }
+      });
+    } catch {
+      // Ignore if already exists
+    }
+
+    // 11. FINALLY - Delete the user
     await db.user.delete({ where: { id } });
+    console.log('[User DELETE] User permanently deleted');
 
-    // Invalidate user cache
+    // Clear all caches
     invalidateUserCache(id);
+    cache.deletePattern('users:');
+    cache.deletePattern('companies:');
 
-    return NextResponse.json({ success: true, message: 'User deleted successfully' });
+    return NextResponse.json({ 
+      success: true, 
+      message: 'User and all related records permanently deleted from database',
+      deletedUserId: id 
+    });
   } catch (error) {
     console.error('Error deleting user:', error);
-    return NextResponse.json({ error: 'Failed to delete user' }, { status: 500 });
+    
+    // Handle Prisma foreign key constraint errors
+    if (error instanceof Error && error.message.includes('Foreign key constraint failed')) {
+      return NextResponse.json({ 
+        error: 'Cannot delete user. They have related records in the system. Please contact support.' 
+      }, { status: 400 });
+    }
+    
+    return NextResponse.json({ 
+      error: 'Failed to delete user',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }
