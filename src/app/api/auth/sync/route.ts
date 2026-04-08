@@ -51,31 +51,36 @@ async function ensurePermanentSuperAdmin() {
 
 export async function POST(request: NextRequest) {
   try {
-    // Always ensure super admin exists
-    await ensurePermanentSuperAdmin();
-
     const body = await request.json();
     const { email, firebaseUid, name, profilePicture, phone, role } = body;
 
-    if (!email || !firebaseUid) {
+    console.log('[sync] Request received:', { email, firebaseUid, role });
+
+    if (!email) {
       return NextResponse.json(
-        { error: 'Email and Firebase UID are required' },
+        { error: 'Email is required' },
         { status: 400 }
       );
     }
+
+    // Always ensure super admin exists
+    await ensurePermanentSuperAdmin();
+
+    // If no firebaseUid, generate one for non-Firebase logins
+    const effectiveFirebaseUid = firebaseUid || `local-${email}-${Date.now()}`;
 
     if (email === PERMANENT_SUPER_ADMIN_EMAIL) {
       let admin = await db.user.findUnique({
         where: { email: PERMANENT_SUPER_ADMIN_EMAIL },
         include: { company: true, agent: true }
       });
-      
+
       if (!admin) {
         const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 10);
         admin = await db.user.create({
           data: {
             email: PERMANENT_SUPER_ADMIN_EMAIL,
-            firebaseUid,
+            firebaseUid: effectiveFirebaseUid,
             name: 'Money Mitra Admin',
             role: 'SUPER_ADMIN',
             password: hashedPassword,
@@ -88,7 +93,7 @@ export async function POST(request: NextRequest) {
       } else {
         admin = await db.user.update({
           where: { id: admin.id },
-          data: { lastLoginAt: new Date(), firebaseUid },
+          data: { lastLoginAt: new Date(), firebaseUid: effectiveFirebaseUid },
           include: { company: true, agent: true }
         });
       }
@@ -127,7 +132,7 @@ export async function POST(request: NextRequest) {
     }
 
     let user = await db.user.findUnique({
-      where: { firebaseUid },
+      where: { firebaseUid: effectiveFirebaseUid },
       include: { company: true, agent: true }
     });
 
@@ -142,7 +147,7 @@ export async function POST(request: NextRequest) {
       user = await db.user.update({
         where: { id: user.id },
         data: {
-          firebaseUid,
+          firebaseUid: effectiveFirebaseUid,
           name: name || user.name,
           profilePicture: profilePicture || user.profilePicture,
           phone: phone || user.phone,
@@ -173,7 +178,7 @@ export async function POST(request: NextRequest) {
       
       user = await db.user.create({
         data: {
-          firebaseUid,
+          firebaseUid: effectiveFirebaseUid,
           email,
           name: name || email.split('@')[0],
           profilePicture,
