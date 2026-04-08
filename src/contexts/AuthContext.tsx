@@ -65,10 +65,36 @@ interface CustomerRegisterData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to get initial user from sessionStorage (runs once on module load)
+function getInitialUser(): User | null {
+  if (typeof window !== 'undefined') {
+    try {
+      const demoUserStr = sessionStorage.getItem('demoUser');
+      if (demoUserStr) {
+        return JSON.parse(demoUserStr);
+      }
+    } catch {}
+  }
+  return null;
+}
+
+// Helper to determine initial loading state
+function getInitialLoading(): boolean {
+  if (typeof window !== 'undefined') {
+    try {
+      const demoUserStr = sessionStorage.getItem('demoUser');
+      if (demoUserStr) {
+        return false; // Have user, no need to show loading
+      }
+    } catch {}
+  }
+  return true; // No user, show loading until auth check completes
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(getInitialUser);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(getInitialLoading);
   const initializedRef = useRef(false);
 
   const fetchUserData = useCallback(async (fbUser: FirebaseUser) => {
@@ -103,32 +129,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
-    // Check if we have a cached user (client-side only) - Use sessionStorage for tab-specific sessions
-    // This ensures that opening dashboard URL in new tab shows fresh landing page
-    let demoUser: User | null = null;
-    if (typeof window !== 'undefined') {
-      try {
-        const demoUserStr = sessionStorage.getItem('demoUser');
-        if (demoUserStr) {
-          demoUser = JSON.parse(demoUserStr);
-        }
-      } catch {}
-    }
-    
-    if (demoUser) {
-      // Set user from sessionStorage - use queueMicrotask to avoid synchronous setState warning
-      queueMicrotask(() => {
-        setUser(demoUser);
-        setLoading(false);
-      });
-      
+    // If user was loaded from sessionStorage (via state initializer), verify in background
+    if (user) {
       // Verify in background
       fetch('/api/auth/check-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: demoUser.email,
-          firebaseUid: demoUser.firebaseUid
+          email: user.email,
+          firebaseUid: user.firebaseUid
         })
       })
       .then(res => res.json())
@@ -136,19 +145,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!checkData.canLogin) {
           sessionStorage.removeItem('demoUser');
           setUser(null);
+          setLoading(true);
           return;
         }
         
-        // User is valid, sync with backend if needed
-        if (demoUser?.id?.startsWith('demo-')) {
+        // User is valid, sync with backend if needed (for demo users with demo- IDs)
+        if (user?.id?.startsWith('demo-')) {
           fetch('/api/auth/sync', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              email: demoUser.email,
-              firebaseUid: demoUser.firebaseUid,
-              name: demoUser.name,
-              role: demoUser.role
+              email: user.email,
+              firebaseUid: user.firebaseUid,
+              name: user.name,
+              role: user.role
             })
           })
           .then(res => res.json())
@@ -156,12 +166,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (data.deleted || data.error?.includes('deleted')) {
               sessionStorage.removeItem('demoUser');
               setUser(null);
+              setLoading(true);
               return;
             }
             
             if (data.user?.id) {
               const actualUser = {
-                ...demoUser,
+                ...user,
                 id: data.user.id,
                 companyId: data.user.companyId,
                 company: data.user.company,
@@ -188,8 +199,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(fbUser);
       if (fbUser) {
         await fetchUserData(fbUser);
+        setLoading(false);
+      } else {
+        // Only set loading false if no sessionStorage user exists
+        // This prevents clearing a just-logged-in staff user
+        const storedUser = sessionStorage.getItem('demoUser');
+        if (!storedUser) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
