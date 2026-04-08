@@ -51,9 +51,14 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
       }
 
       if (response.ok && data.success) {
+        console.log('[StaffLogin] Login successful, user:', data.user?.email, data.user?.role);
         sessionStorage.setItem('demoUser', JSON.stringify(data.user));
         toast({ title: 'Success', description: 'Login successful!' });
-        window.location.reload();
+        // Use timeout to ensure sessionStorage is set before reload
+        setTimeout(() => {
+          console.log('[StaffLogin] Reloading page...');
+          window.location.reload();
+        }, 100);
       } else {
         toast({ title: 'Error', description: data.error || 'Login failed', variant: 'destructive' });
       }

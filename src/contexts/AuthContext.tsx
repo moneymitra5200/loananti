@@ -113,10 +113,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const demoUserStr = sessionStorage.getItem('demoUser');
         if (demoUserStr) {
           const storedUser = JSON.parse(demoUserStr);
+          console.log('[Auth] Found stored user:', storedUser.email, storedUser.role);
           setUser(storedUser);
           setLoading(false);
           
-          // Verify stored user in background
+          // Verify stored user in background (but don't logout on error)
           fetch('/api/auth/check-login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -125,9 +126,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               firebaseUid: storedUser.firebaseUid
             })
           })
-          .then(res => res.json())
+          .then(res => {
+            if (!res.ok) {
+              console.error('[Auth] check-login API error:', res.status);
+              return null;
+            }
+            return res.json();
+          })
           .then(checkData => {
-            if (!checkData.canLogin) {
+            if (!checkData) {
+              console.log('[Auth] No check-login response, keeping session');
+              return; // Keep the user logged in on API error
+            }
+            
+            console.log('[Auth] check-login response:', checkData);
+            
+            // Only logout if explicitly told canLogin: false (not on undefined or error)
+            if (checkData.canLogin === false) {
+              console.log('[Auth] check-login returned false, logging out');
               sessionStorage.removeItem('demoUser');
               setUser(null);
               setLoading(true);
@@ -168,7 +184,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               .catch(() => {});
             }
           })
-          .catch(() => {});
+          .catch((error) => {
+            console.error('[Auth] check-login error:', error);
+            // Keep the user logged in on network error
+          });
           return; // Have user, skip Firebase check
         }
       } catch {
