@@ -54,6 +54,9 @@ interface OfflineLoan {
   isInterestOnlyLoan?: boolean;
   interestOnlyMonthlyAmount?: number;
   totalInterestPaid?: number;
+  isMirrorLoan?: boolean; // TRUE if this is a mirror loan (READ-ONLY)
+  originalLoanId?: string; // Reference to original loan if this is a mirror
+  displayColor?: string; // Display color for mirror pair
   company?: { id: string; name: string; code: string };
   summary: {
     totalEMIs: number;
@@ -340,6 +343,9 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
     company: loan.company,
     isInterestOnlyLoan: loan.isInterestOnlyLoan,
     interestOnlyMonthlyAmount: loan.interestOnlyMonthlyAmount,
+    isMirrorLoan: loan.isMirrorLoan,
+    originalLoanId: loan.originalLoanId,
+    displayColor: loan.displayColor,
     summary: loan.summary
   });
 
@@ -351,9 +357,13 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
       loan.customerPhone.includes(searchQuery) ||
       loan.company?.name.toLowerCase().includes(searchQuery.toLowerCase());
 
-    // If this loan is a mirror loan, don't show it separately
+    // Check if this loan is a mirror loan using multiple methods:
+    // 1. Direct isMirrorLoan field on the loan itself (most reliable for offline loans)
+    // 2. Check if this loan's ID is stored as mirrorLoanId in a mapping
+    const isMirrorFromField = loan.isMirrorLoan === true;
     const mapping = mirrorMappings[loan.id];
-    const isMirror = mapping?.mirrorLoanId === loan.id;
+    const isMirrorFromMapping = mapping?.mirrorLoanId === loan.id;
+    const isMirror = isMirrorFromField || isMirrorFromMapping;
 
     return matchesSearch && !isMirror;
   });
@@ -378,7 +388,27 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
   // Render each loan in parallel view format
   const renderLoanInParallelView = (loan: OfflineLoan, index: number) => {
     const mapping = mirrorMappings[loan.id];
-    const mirrorLoan = mapping?.mirrorLoanId ? mirrorLoans[mapping.mirrorLoanId] : null;
+
+    // Try multiple methods to find the mirror loan:
+    // 1. From mirrorLoans state (fetched from API)
+    // 2. From local loans array (look for loan with originalLoanId = this loan's id and isMirrorLoan = true)
+    let mirrorLoan = mapping?.mirrorLoanId ? mirrorLoans[mapping.mirrorLoanId] : null;
+
+    // Fallback: Search in local loans array for mirror loan
+    if (!mirrorLoan && !mapping?.mirrorLoanId) {
+      mirrorLoan = loans.find(l =>
+        l.isMirrorLoan === true &&
+        l.originalLoanId === loan.id
+      ) || null;
+    }
+
+    // Also check if mapping exists but mirrorLoanId is null - look for mirror in loans array
+    if (!mirrorLoan && mapping && !mapping.mirrorLoanId) {
+      mirrorLoan = loans.find(l =>
+        l.isMirrorLoan === true &&
+        l.originalLoanId === loan.id
+      ) || null;
+    }
 
     return (
       <ParallelLoanView
@@ -394,7 +424,17 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
           extraEMIsPaid: mapping.extraEMIsPaid,
           mirrorCompanyId: mapping.mirrorCompanyId,
           originalCompanyId: mapping.originalCompanyId
-        } : null}
+        } : (mirrorLoan ? {
+          // Create a basic mapping from the mirror loan data
+          displayColor: loan.displayColor || mirrorLoan.displayColor,
+          extraEMICount: Math.max(0, loan.tenure - mirrorLoan.tenure),
+          mirrorInterestRate: mirrorLoan.interestRate,
+          mirrorTenure: mirrorLoan.tenure,
+          mirrorEMIsPaid: 0,
+          extraEMIsPaid: 0,
+          mirrorCompanyId: mirrorLoan.company?.id,
+          originalCompanyId: loan.company?.id
+        } : null)}
         onViewOriginal={() => handleViewLoan(loan)}
         onViewMirror={() => mirrorLoan && handleViewLoan(mirrorLoan)}
         onPayEmi={(l, isOriginal) => handleViewLoan(isOriginal ? loan : mirrorLoan!)}

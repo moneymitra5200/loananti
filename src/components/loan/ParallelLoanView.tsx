@@ -35,6 +35,9 @@ interface LoanData {
   company?: { id: string; name: string; code: string };
   isInterestOnlyLoan?: boolean;
   interestOnlyMonthlyAmount?: number;
+  isMirrorLoan?: boolean;
+  originalLoanId?: string;
+  displayColor?: string;
   summary?: {
     totalEMIs: number;
     paidEMIs: number;
