@@ -42,8 +42,8 @@ const ACTIVITY_CHECK_INTERVAL = 60 * 1000;
 export function SecurityProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   
-  // Session state
-  const [lastActivity, setLastActivity] = useState(Date.now());
+  // Session state - Initialize with consistent values to avoid hydration mismatch
+  const [lastActivity, setLastActivity] = useState(0); // Will be set in useEffect
   const [isAuthenticated, setIsAuthenticated] = useState(true);
   const [showWarning, setShowWarning] = useState(false);
   const [warningTimeRemaining, setWarningTimeRemaining] = useState(0);
@@ -54,7 +54,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   
   // Real-time updates - disabled by default to prevent DB connection limit issues
   const [isRealTimeEnabled, setRealTimeEnabled] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(Date.now());
+  const [lastUpdate, setLastUpdate] = useState(0); // Will be set in useEffect
   
   // Refs
   const activityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -137,6 +137,13 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     setLastUpdate(Date.now());
     // Dispatch custom event for components to listen to
     window.dispatchEvent(new CustomEvent('dataRefresh', { detail: { timestamp: Date.now() } }));
+  }, []);
+  
+  // Initialize timestamps after mount to avoid hydration mismatch
+  useEffect(() => {
+    const now = Date.now();
+    setLastActivity(now);
+    setLastUpdate(now);
   }, []);
   
   // Check for session timeout on mount and activity

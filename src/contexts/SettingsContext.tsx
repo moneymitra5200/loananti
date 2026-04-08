@@ -171,11 +171,9 @@ interface SettingsProviderProps {
 }
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
-  // Initialize with cached settings if available for instant load
-  const [settings, setSettings] = useState<AppSettings>(() => {
-    const { settings: cachedSettings } = getCachedSettings();
-    return cachedSettings ? { ...defaultSettings, ...cachedSettings } : defaultSettings;
-  });
+  // Initialize with default settings to avoid hydration mismatch
+  // Cached settings will be loaded in useEffect after mount
+  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +182,8 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   const hasFetchedRef = useRef(false);
   // Use ref to prevent multiple simultaneous fetches
   const fetchingRef = useRef(false);
+  // Use ref to track if hydration is complete
+  const hydratedRef = useRef(false);
 
   // Fetch settings from API
   const fetchSettings = useCallback(async (forceRefresh: boolean = false) => {
@@ -289,6 +289,20 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   useEffect(() => {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
+      
+      // First, try to load from cache for instant display
+      if (!hydratedRef.current) {
+        hydratedRef.current = true;
+        const { settings: cachedSettings, isValid } = getCachedSettings();
+        if (isValid && cachedSettings) {
+          setSettings({ ...defaultSettings, ...cachedSettings });
+          setLoading(false);
+          // Still fetch in background to ensure fresh data
+          fetchSettings(true);
+          return;
+        }
+      }
+      
       fetchSettings();
     }
   }, [fetchSettings]);
