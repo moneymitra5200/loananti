@@ -889,6 +889,16 @@ export default function DisbursementDialog({
                         Please add a bank account or cash book for {mirrorLoanInfo?.isMirrorLoan ? mirrorLoanInfo.mirrorCompanyName : selectedLoan?.company?.name || 'this company'} first.
                       </p>
                     )}
+                    
+                    {/* Warning when no payment source selected */}
+                    {paymentSources.length > 0 && !disbursementForm.selectedBankAccountId && (
+                      <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg mt-2 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        <span className="text-sm text-amber-700">
+                          <strong>Required:</strong> Please select a payment source above to enable the Disburse button
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1249,6 +1259,17 @@ export default function DisbursementDialog({
         </ScrollArea>
 
         <DialogFooter className="p-6 border-t">
+          {/* Show missing requirements warning */}
+          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)) && (
+            <div className="w-full mb-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-red-600" />
+              <span className="text-sm text-red-700">
+                {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source" : ""}
+                {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed" : ""}
+                {mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page" : ""}
+              </span>
+            </div>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           {/* Send Back button for FINAL_APPROVED loans */}
           {selectedLoan?.status === 'FINAL_APPROVED' && (
