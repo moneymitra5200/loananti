@@ -4,6 +4,7 @@ import { processBankTransaction } from '@/lib/bank-transaction-service';
 import { EMIPaymentStatus } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
 import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
+import { recordOfflineLoanDisbursement as recordDaybookDisbursement } from '@/lib/accounting-helper';
 
 // Get or create the global loan sequence
 async function getNextLoanSequence(): Promise<number> {
@@ -1095,6 +1096,30 @@ export async function POST(request: NextRequest) {
         // If disbursement failed: Credit Borrowed Funds (liability) - money needs to be added
         // This ensures accounting is ALWAYS recorded and balanced
         // ============================================
+        
+        // 1. Create Daybook Entry for Mirror Loan Disbursement
+        try {
+          const effectivePaymentMode = disbursementSuccess 
+            ? (disbursementMode === 'BANK' ? 'BANK_TRANSFER' : 'CASH')
+            : 'PENDING';
+            
+          await recordDaybookDisbursement({
+            companyId: mirrorCompanyId,
+            loanId: mirrorLoan.id,
+            loanNo: mirrorLoanNumber,
+            customerName,
+            amount: loanAmount,
+            processingFee: 0, // No processing fee for mirror loans
+            paymentMode: effectivePaymentMode,
+            createdById,
+            isMirrorLoan: true
+          });
+          console.log(`[Mirror Loan Accounting] ✓ Created daybook entry for mirror loan disbursement`);
+        } catch (daybookError) {
+          console.error('[Mirror Loan Accounting] Failed to create daybook entry:', daybookError);
+        }
+        
+        // 2. Create Journal Entry for Chart of Accounts
         try {
           const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
           const accountingService = new AccountingService(mirrorCompanyId);
@@ -1150,7 +1175,7 @@ export async function POST(request: NextRequest) {
 
           console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING)'}`);
         } catch (accountingError) {
-          console.error('[Mirror Loan Accounting] Failed to create accounting entry:', accountingError);
+          console.error('[Mirror Loan Accounting] Failed to create journal entry:', accountingError);
           // Don't fail the loan creation, but log prominently
         }
 
@@ -1429,7 +1454,7 @@ export async function POST(request: NextRequest) {
 
     // ============================================
     // CREATE ACCOUNTING ENTRIES FOR LOAN DISBURSEMENT
-    // This updates the Chart of Accounts properly
+    // This updates the Chart of Accounts, Daybook, and Bank/Cash records
     // 
     // IMPORTANT FOR MIRROR LOANS:
     // - Accounting entry is ALREADY created in mirror loan creation section above
@@ -1441,10 +1466,31 @@ export async function POST(request: NextRequest) {
       console.log(`[Accounting] SKIPPED for mirror loan - already handled in mirror loan creation section`);
     } else {
       // Regular loan - create accounting entries
+      const effectiveDisbursementMode = disbursementMode || 'CASH';
+      
+      // 1. Create Daybook Entry (for daybook view)
+      try {
+        console.log(`[Accounting] Creating daybook entry for company: ${companyId}`);
+        await recordDaybookDisbursement({
+          companyId,
+          loanId: loan.id,
+          loanNo: loanNumber,
+          customerName,
+          amount: loanAmount,
+          processingFee: processingFee || 0,
+          paymentMode: effectiveDisbursementMode,
+          createdById
+        });
+        console.log(`[Accounting] Created daybook entry for loan disbursement: ${loanNumber}`);
+      } catch (daybookError) {
+        console.error('Daybook entry creation failed:', daybookError);
+      }
+      
+      // 2. Create Journal Entry (for Chart of Accounts)
       try {
         const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
         
-        console.log(`[Accounting] Creating disbursement entry for company: ${companyId}`);
+        console.log(`[Accounting] Creating journal entry for company: ${companyId}`);
         
         // Create accounting entry for the company that actually disbursed the money
         const accountingService = new AccountingService(companyId);
@@ -1465,20 +1511,20 @@ export async function POST(request: NextRequest) {
               narration: 'Loan principal disbursed'
             },
             {
-              accountCode: disbursementMode === 'CASH' ? ACCOUNT_CODES.CASH_IN_HAND : ACCOUNT_CODES.BANK_ACCOUNT,
+              accountCode: effectiveDisbursementMode === 'CASH' ? ACCOUNT_CODES.CASH_IN_HAND : ACCOUNT_CODES.BANK_ACCOUNT,
               debitAmount: 0,
               creditAmount: loanAmount,
-              narration: 'Cash/Bank paid out for loan'
+              narration: `${effectiveDisbursementMode === 'CASH' ? 'Cash' : 'Bank'} paid out for loan`
             }
           ],
           createdById,
-          paymentMode: disbursementMode || 'CASH',
+          paymentMode: effectiveDisbursementMode,
           isAutoEntry: true
         });
         
         console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}, Amount: ₹${loanAmount}, Company: ${companyId}`);
       } catch (accountingError) {
-        console.error('Accounting entry creation failed:', accountingError);
+        console.error('Journal entry creation failed:', accountingError);
         // Don't fail the loan creation if accounting fails
       }
     }

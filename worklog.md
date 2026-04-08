@@ -1,6 +1,43 @@
 # Worklog - Accounting Portal Fixes
 
 ---
+Task ID: 2
+Agent: Main Agent
+Task: Fix accounting portal - Daybook, Bank, Cash Book entries not created for offline loan disbursement
+
+Work Log:
+- Identified root cause: offline-loan/route.ts was NOT calling the accounting-helper functions
+  - Journal entries were being created (accounting-service.ts)
+  - Bank transactions were being created
+  - Cash book entries were being created (simple-accounting.ts)
+  - BUT Daybook entries were MISSING - no call to accounting-helper.ts
+
+- Fixed offline-loan/route.ts:
+  - Added import for `recordOfflineLoanDisbursement` from accounting-helper.ts
+  - Added daybook entry creation for regular loan disbursement
+  - Added daybook entry creation for mirror loan disbursement
+  - Ensured both journal entries AND daybook entries are created
+
+- Enhanced accounting-helper.ts:
+  - Updated `recordOfflineLoanDisbursement` to support both BANK and CASH payments
+  - Added `isMirrorLoan` flag parameter for proper reference types
+  - Now creates correct account heads based on payment mode (Bank vs Cash)
+  - Properly tags daybook entries with correct reference types
+
+Stage Summary:
+- Offline loan disbursement now creates ALL accounting entries:
+  1. Daybook entries (for daybook view)
+  2. Journal entries (for Chart of Accounts)
+  3. Bank transactions (for bank account tracking)
+  4. Cash book entries (for cash tracking)
+- Mirror loans also create proper daybook entries in mirror company
+- Both regular and mirror loan accounting is complete
+
+Files Modified:
+- /src/app/api/offline-loan/route.ts
+- /src/lib/accounting-helper.ts
+
+---
 Task ID: 1
 Agent: Main Agent
 Task: Fix mirror loan visibility and user management issues

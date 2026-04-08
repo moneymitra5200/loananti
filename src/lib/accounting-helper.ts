@@ -408,10 +408,17 @@ export async function recordOfflineLoanDisbursement(params: {
   customerName: string;
   amount: number;
   processingFee: number;
-  paymentMode: string;
+  paymentMode: string; // CASH, BANK_TRANSFER, BANK, UPI, ONLINE
   createdById: string;
+  isMirrorLoan?: boolean; // Flag for mirror loans
 }) {
   const date = new Date();
+  
+  // Determine if payment is via bank or cash
+  const isBankPayment = params.paymentMode === 'BANK_TRANSFER' || 
+                        params.paymentMode === 'BANK' || 
+                        params.paymentMode === 'ONLINE' || 
+                        params.paymentMode === 'UPI';
   
   // 1. Ensure account heads exist
   const loanReceivableHead = await ensureAccountHead(
@@ -421,10 +428,14 @@ export async function recordOfflineLoanDisbursement(params: {
     'ASSET'
   );
   
-  const cashHead = await ensureAccountHead(
+  // Use BANK_ACCOUNT for bank payments, CASH_IN_HAND for cash payments
+  const paymentAccountCode = isBankPayment ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
+  const paymentAccountName = isBankPayment ? 'Bank Account' : 'Cash in Hand';
+  
+  const paymentHead = await ensureAccountHead(
     params.companyId,
-    ACCOUNT_CODES.CASH_IN_HAND,
-    'Cash in Hand',
+    paymentAccountCode,
+    paymentAccountName,
     'ASSET'
   );
   
@@ -435,19 +446,19 @@ export async function recordOfflineLoanDisbursement(params: {
     'INCOME'
   );
   
-  // 2. Create Daybook Entry for Loan Disbursement
+  // 2. Create Daybook Entry for Loan Disbursement (DEBIT - Asset increases)
   await createDaybookEntry({
     companyId: params.companyId,
     entryDate: date,
     accountHeadId: loanReceivableHead.id,
     accountHeadName: loanReceivableHead.headName,
     accountType: 'ASSET',
-    particular: `Offline Loan Disbursement - ${params.loanNo} - ${params.customerName}`,
-    referenceType: 'LOAN_DISBURSEMENT',
+    particular: `${params.isMirrorLoan ? 'Mirror ' : ''}Loan Disbursement - ${params.loanNo} - ${params.customerName}`,
+    referenceType: params.isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
     referenceId: params.loanId,
     debit: params.amount,
     credit: 0,
-    sourceType: 'OFFLINE_LOAN',
+    sourceType: params.isMirrorLoan ? 'MIRROR_LOAN' : 'OFFLINE_LOAN',
     sourceId: params.loanId,
     loanNo: params.loanNo,
     customerName: params.customerName,
@@ -455,19 +466,19 @@ export async function recordOfflineLoanDisbursement(params: {
     createdById: params.createdById
   });
   
-  // 3. Create Daybook Entry for Cash Outflow
+  // 3. Create Daybook Entry for Payment Outflow (CREDIT - Asset decreases)
   await createDaybookEntry({
     companyId: params.companyId,
     entryDate: date,
-    accountHeadId: cashHead.id,
-    accountHeadName: cashHead.headName,
+    accountHeadId: paymentHead.id,
+    accountHeadName: paymentHead.headName,
     accountType: 'ASSET',
-    particular: `Offline Loan Disbursement - ${params.loanNo} - ${params.customerName}`,
-    referenceType: 'LOAN_DISBURSEMENT',
+    particular: `${params.isMirrorLoan ? 'Mirror ' : ''}Loan Disbursement - ${params.loanNo} - ${params.customerName} (${isBankPayment ? 'Bank' : 'Cash'})`,
+    referenceType: params.isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
     referenceId: params.loanId,
     debit: 0,
     credit: params.amount,
-    sourceType: 'OFFLINE_LOAN',
+    sourceType: params.isMirrorLoan ? 'MIRROR_LOAN' : 'OFFLINE_LOAN',
     sourceId: params.loanId,
     loanNo: params.loanNo,
     customerName: params.customerName,
@@ -480,15 +491,15 @@ export async function recordOfflineLoanDisbursement(params: {
     await createDaybookEntry({
       companyId: params.companyId,
       entryDate: date,
-      accountHeadId: cashHead.id,
-      accountHeadName: cashHead.headName,
+      accountHeadId: paymentHead.id,
+      accountHeadName: paymentHead.headName,
       accountType: 'ASSET',
-      particular: `Processing Fee (Offline) - ${params.loanNo} - ${params.customerName}`,
+      particular: `Processing Fee (${params.isMirrorLoan ? 'Mirror ' : 'Offline'}) - ${params.loanNo} - ${params.customerName}`,
       referenceType: 'PROCESSING_FEE',
       referenceId: params.loanId,
       debit: params.processingFee,
       credit: 0,
-      sourceType: 'OFFLINE_LOAN',
+      sourceType: params.isMirrorLoan ? 'MIRROR_LOAN' : 'OFFLINE_LOAN',
       sourceId: params.loanId,
       loanNo: params.loanNo,
       customerName: params.customerName,
@@ -502,12 +513,12 @@ export async function recordOfflineLoanDisbursement(params: {
       accountHeadId: processingFeeHead.id,
       accountHeadName: processingFeeHead.headName,
       accountType: 'INCOME',
-      particular: `Processing Fee (Offline) - ${params.loanNo} - ${params.customerName}`,
+      particular: `Processing Fee (${params.isMirrorLoan ? 'Mirror ' : 'Offline'}) - ${params.loanNo} - ${params.customerName}`,
       referenceType: 'PROCESSING_FEE',
       referenceId: params.loanId,
       debit: 0,
       credit: params.processingFee,
-      sourceType: 'OFFLINE_LOAN',
+      sourceType: params.isMirrorLoan ? 'MIRROR_LOAN' : 'OFFLINE_LOAN',
       sourceId: params.loanId,
       loanNo: params.loanNo,
       customerName: params.customerName,
@@ -516,7 +527,7 @@ export async function recordOfflineLoanDisbursement(params: {
     });
   }
   
-  console.log(`[Accounting] Offline Loan Disbursement recorded: ${params.loanNo} - ₹${params.amount}`);
+  console.log(`[Accounting] ${params.isMirrorLoan ? 'Mirror ' : ''}Loan Disbursement recorded: ${params.loanNo} - ₹${params.amount} via ${isBankPayment ? 'Bank' : 'Cash'}`);
 }
 
 // ============================================
