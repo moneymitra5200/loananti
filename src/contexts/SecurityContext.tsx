@@ -128,14 +128,23 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!enableSecurityFeatures) return;
     
-    // Check if session was already expired
-    const storedActivity = localStorage.getItem('lastActivity');
-    if (storedActivity) {
-      const timeSinceLastActivity = Date.now() - parseInt(storedActivity);
-      if (timeSinceLastActivity > sessionTimeout) {
-        handleSessionTimeout();
-        return;
+    // Check if there's a valid session in sessionStorage (user logged in this tab)
+    const hasActiveSession = sessionStorage.getItem('demoUser');
+    
+    // Only check for expired session if there's NO active session in this tab
+    // This prevents logging out a freshly logged-in user
+    if (!hasActiveSession) {
+      const storedActivity = localStorage.getItem('lastActivity');
+      if (storedActivity) {
+        const timeSinceLastActivity = Date.now() - parseInt(storedActivity);
+        if (timeSinceLastActivity > sessionTimeout) {
+          handleSessionTimeout();
+          return;
+        }
       }
+    } else {
+      // Valid session exists - update lastActivity to now
+      localStorage.setItem('lastActivity', Date.now().toString());
     }
     
     // Set up activity listeners

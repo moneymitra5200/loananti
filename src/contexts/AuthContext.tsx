@@ -172,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 cashierCode: data.user.cashierCode
               } as User;
               sessionStorage.setItem('demoUser', JSON.stringify(actualUser));
+              localStorage.setItem('lastActivity', Date.now().toString());
               setUser(actualUser);
             }
           })
@@ -250,6 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(updatedUser);
             if (typeof window !== 'undefined') {
               sessionStorage.setItem('demoUser', JSON.stringify(updatedUser));
+            localStorage.setItem('lastActivity', Date.now().toString());
             }
           }
         }
@@ -274,6 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('demoUser', JSON.stringify(result.user));
+          localStorage.setItem('lastActivity', Date.now().toString());
         }
         setLoading(false);
         return { success: true, user: result.user };
@@ -302,6 +305,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('demoUser', JSON.stringify(result.user));
+          localStorage.setItem('lastActivity', Date.now().toString());
         }
         setLoading(false);
         return { success: true, user: result.user };
@@ -369,6 +373,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
           sessionStorage.setItem('demoUser', JSON.stringify(result.user));
+          localStorage.setItem('lastActivity', Date.now().toString());
         }
         setLoading(false);
         return { success: true, user: result.user };
