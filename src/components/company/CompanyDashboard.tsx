@@ -29,6 +29,7 @@ import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import BankHeadSection from '@/components/company/BankHeadSection';
 import DaybookSection from '@/components/company/DaybookSection';
+import FixMirrorAccountingPage from '@/components/accounting/FixMirrorAccountingPage';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
@@ -1168,6 +1169,9 @@ export default function CompanyDashboard() {
       
       case 'profile':
         return <ProfileSection />;
+      
+      case 'fix-accounting':
+        return <FixMirrorAccountingPage />;
       
       case 'dashboard':
       default:

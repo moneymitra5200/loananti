@@ -461,7 +461,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'agents', label: 'Agent Management', icon: Users },
     { id: 'personalCredits', label: 'My Credits', icon: IndianRupee },
     { id: 'portfolio', label: 'Portfolio', icon: PieChart },
-    { id: 'risk', label: 'Risk Analysis', icon: Target }
+    { id: 'risk', label: 'Risk Analysis', icon: Target },
+    { id: 'fix-accounting', label: 'Fix Mirror Accounting', icon: AlertTriangle }
   ],
   AGENT: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
