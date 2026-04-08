@@ -29,7 +29,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   const refreshCompanies = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/company?isActive=true');
+      // Use noCache=true to ensure fresh data after deletions
+      const response = await fetch('/api/company?isActive=true&noCache=true');
       const data = await response.json();
       if (data.companies) {
         setCompanies(data.companies.map((c: Company) => ({
@@ -38,9 +39,12 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
           code: c.code,
           isActive: c.isActive
         })));
+      } else {
+        setCompanies([]);
       }
     } catch (error) {
       console.error('Error fetching companies:', error);
+      setCompanies([]);
     } finally {
       setLoading(false);
     }

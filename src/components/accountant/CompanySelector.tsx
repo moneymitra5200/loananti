@@ -48,6 +48,13 @@ export default function CompanySelector({
     fetchCompanies();
   }, []);
   
+  // Fetch fresh data when dialog opens
+  useEffect(() => {
+    if (open) {
+      fetchCompanies();
+    }
+  }, [open]);
+  
   const fetchCompanies = async () => {
     setLoading(true);
     try {

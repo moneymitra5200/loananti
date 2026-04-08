@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Building2, CheckCircle, User, FileText, UserPlus, Eye, RefreshCw, Star, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { identifyCompanyType } from '@/lib/mirror-company-utils';
 import { toast } from 'sonner';
+import { useCompany } from '@/contexts/CompanyContext';
+import { useCompaniesStore } from '@/stores/companiesStore';
 
 interface CompanyUser {
   id: string;
@@ -37,6 +39,9 @@ function CompaniesSection({
   onViewCompany,
   onRefresh
 }: Props) {
+  const { refreshCompanies } = useCompany();
+  const { setCompanies, clearCache } = useCompaniesStore();
+  
   const [deleteDialog, setDeleteDialog] = useState<{open: boolean; company: CompanyUser | null; loading: boolean}>({
     open: false,
     company: null,
@@ -80,7 +85,8 @@ function CompaniesSection({
       toast.success('Company permanently deleted from database');
       setDeleteDialog({ open: false, company: null, loading: false });
       
-      // Refresh the data
+      // Refresh both local data and CompanyContext
+      await refreshCompanies();
       onRefresh();
     } catch (error) {
       console.error('[CompaniesSection] Delete error:', error);
@@ -93,6 +99,7 @@ function CompaniesSection({
     setDeleteAllDialog(prev => ({ ...prev, loading: true }));
 
     try {
+      // Use the comprehensive delete-all API that handles cascade deletion properly
       const response = await fetch('/api/company/delete-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -108,8 +115,16 @@ function CompaniesSection({
         throw new Error(data.error || 'Failed to delete companies');
       }
 
-      toast.success(`Successfully deleted ${data.deletedCount} companies`);
+      const deletedCount = data.deletedCount || data.deletedCompanies || 0;
+      toast.success(`Successfully deleted ${deletedCount} companies and all related data from database`);
       setDeleteAllDialog({ open: false, loading: false });
+      
+      // Clear all caches and stores
+      setCompanies([]);  // Clear companies store
+      clearCache();      // Clear cache timestamp
+      
+      // Refresh both local data and CompanyContext to update all UI components
+      await refreshCompanies();
       onRefresh();
     } catch (error) {
       console.error('[CompaniesSection] Delete all error:', error);
