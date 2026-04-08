@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Building2, CheckCircle, User, FileText, UserPlus, Eye, RefreshCw, Star, Trash2, Loader2 } from 'lucide-react';
+import { Building2, CheckCircle, User, FileText, UserPlus, Eye, RefreshCw, Star, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { identifyCompanyType } from '@/lib/mirror-company-utils';
 import { toast } from 'sonner';
 
@@ -43,6 +43,11 @@ function CompaniesSection({
     loading: false
   });
 
+  const [deleteAllDialog, setDeleteAllDialog] = useState<{open: boolean; loading: boolean}>({
+    open: false,
+    loading: false
+  });
+
   const handleDeleteClick = (company: CompanyUser) => {
     setDeleteDialog({ open: true, company, loading: false });
   };
@@ -61,33 +66,18 @@ function CompaniesSection({
     try {
       console.log('[CompaniesSection] Starting permanent delete for company:', companyId);
       
-      // Step 1: Delete the company user first (to remove FK reference)
-      console.log('[CompaniesSection] Deleting company user...');
-      const userResponse = await fetch(`/api/user?id=${deleteDialog.company.id}`, {
+      // Delete via the user API which now handles cascade delete
+      const userResponse = await fetch(`/api/user/${deleteDialog.company.id}`, {
         method: 'DELETE'
       });
       
       const userData = await userResponse.json();
       
       if (!userResponse.ok) {
-        throw new Error(userData.error || 'Failed to delete company user');
+        throw new Error(userData.error || 'Failed to delete company');
       }
-      console.log('[CompaniesSection] User deleted successfully');
 
-      // Step 2: Delete the company (and all its related records)
-      console.log('[CompaniesSection] Deleting company...');
-      const companyResponse = await fetch(`/api/company?id=${companyId}`, {
-        method: 'DELETE'
-      });
-      
-      const companyData = await companyResponse.json();
-      
-      if (!companyResponse.ok) {
-        throw new Error(companyData.error || 'Failed to delete company');
-      }
-      console.log('[CompaniesSection] Company deleted successfully');
-
-      toast.success('Company permanently deleted');
+      toast.success('Company permanently deleted from database');
       setDeleteDialog({ open: false, company: null, loading: false });
       
       // Refresh the data
@@ -96,6 +86,35 @@ function CompaniesSection({
       console.error('[CompaniesSection] Delete error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to delete company');
       setDeleteDialog(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleDeleteAllCompanies = async () => {
+    setDeleteAllDialog(prev => ({ ...prev, loading: true }));
+
+    try {
+      const response = await fetch('/api/company/delete-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmDelete: 'DELETE_ALL_COMPANIES',
+          userId: 'admin'
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete companies');
+      }
+
+      toast.success(`Successfully deleted ${data.deletedCount} companies`);
+      setDeleteAllDialog({ open: false, loading: false });
+      onRefresh();
+    } catch (error) {
+      console.error('[CompaniesSection] Delete all error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to delete all companies');
+      setDeleteAllDialog(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -177,9 +196,20 @@ function CompaniesSection({
               <Building2 className="h-5 w-5 text-blue-600" />
               Company Management
             </CardTitle>
-            <Button className="bg-blue-500 hover:bg-blue-600" onClick={onAddCompany}>
-              <UserPlus className="h-4 w-4 mr-2" />Add Company
-            </Button>
+            <div className="flex gap-2">
+              {companyUsers.length > 0 && (
+                <Button 
+                  variant="outline" 
+                  className="text-red-600 border-red-200 hover:bg-red-50"
+                  onClick={() => setDeleteAllDialog({ open: true, loading: false })}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />Delete All
+                </Button>
+              )}
+              <Button className="bg-blue-500 hover:bg-blue-600" onClick={onAddCompany}>
+                <UserPlus className="h-4 w-4 mr-2" />Add Company
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -273,8 +303,9 @@ function CompaniesSection({
               This will permanently delete:
             </p>
             <ul className="text-sm text-red-700 mt-2 list-disc list-inside">
-              <li>The company account</li>
-              <li>All associated data (if no loans exist)</li>
+              <li>The company user account</li>
+              <li>The company record</li>
+              <li>All accounting records (if no loans exist)</li>
             </ul>
           </div>
           <DialogFooter>
@@ -288,6 +319,65 @@ function CompaniesSection({
             >
               {deleteDialog.loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
               Delete Permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete All Companies Dialog */}
+      <Dialog open={deleteAllDialog.open} onOpenChange={(open) => setDeleteAllDialog(prev => ({ ...prev, open }))}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5" />
+              Delete ALL Companies
+            </DialogTitle>
+            <DialogDescription>
+              This is a <strong>destructive action</strong> that cannot be undone!
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm text-red-800 font-medium mb-2">
+              This will permanently delete ALL {companyUsers.length} companies:
+            </p>
+            <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+              <li>All company user accounts</li>
+              <li>All company records</li>
+              <li>All loans and EMI schedules</li>
+              <li>All accounting records</li>
+              <li>All related data from entire database</li>
+            </ul>
+          </div>
+          <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p className="text-sm text-amber-800">
+              <strong>Warning:</strong> This will remove ALL data from your system. 
+              Make sure you have a backup if needed.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setDeleteAllDialog({ open: false, loading: false })}
+              disabled={deleteAllDialog.loading}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteAllCompanies}
+              disabled={deleteAllDialog.loading}
+            >
+              {deleteAllDialog.loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete ALL Companies
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
