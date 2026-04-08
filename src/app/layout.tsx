@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { CompanyProvider } from "@/contexts/CompanyContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import { SecurityProvider } from "@/contexts/SecurityContext";
 import QueryProvider from "@/providers/QueryProvider";
@@ -152,13 +153,15 @@ export default function RootLayout({
       <body>
         <QueryProvider>
           <AuthProvider>
-            <SettingsProvider>
-              <SecurityProvider>
-                <DataPrefetchWrapper>
-                  {children}
-                </DataPrefetchWrapper>
-              </SecurityProvider>
-            </SettingsProvider>
+            <CompanyProvider>
+              <SettingsProvider>
+                <SecurityProvider>
+                  <DataPrefetchWrapper>
+                    {children}
+                  </DataPrefetchWrapper>
+                </SecurityProvider>
+              </SettingsProvider>
+            </CompanyProvider>
           </AuthProvider>
         </QueryProvider>
         <Toaster position="top-right" richColors closeButton />
