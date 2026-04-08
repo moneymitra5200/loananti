@@ -100,7 +100,7 @@ export default function ReceiptDialog({ open, onOpenChange, receiptData }: Recei
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[95vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[95vh] overflow-hidden flex flex-col p-4 sm:p-6">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-blue-600" />

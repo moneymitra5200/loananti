@@ -311,16 +311,16 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
 
   return (
     <Dialog open={true} onOpenChange={() => {}}>
-      <DialogContent className="w-[98vw] max-w-[1600px] h-[98vh] max-h-[98vh] p-0 gap-0 flex flex-col bg-white">
+      <DialogContent className="w-[95vw] sm:w-[98vw] max-w-[1600px] h-[95vh] sm:h-[98vh] max-h-[98vh] p-0 gap-0 flex flex-col bg-white">
         {/* Fixed Header */}
-        <DialogHeader className="flex-shrink-0 p-6 border-b bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg">
-          <div className="flex items-center justify-between">
-            <div>
-              <DialogTitle className="flex items-center gap-3 text-2xl font-bold">
-                <RefreshCw className="h-7 w-7" />
-                Mirror Loan Configuration
+        <DialogHeader className="flex-shrink-0 p-3 sm:p-6 border-b bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-t-lg">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="flex items-center gap-2 sm:gap-3 text-lg sm:text-2xl font-bold">
+                <RefreshCw className="h-5 w-5 sm:h-7 sm:w-7 flex-shrink-0" />
+                <span className="truncate">Mirror Loan Configuration</span>
               </DialogTitle>
-              <DialogDescription className="text-purple-100 mt-2 text-base">
+              <DialogDescription className="text-purple-100 mt-1 sm:mt-2 text-xs sm:text-base hidden sm:block">
                 Create mirror loans with reducing interest. Compare EMI schedules for both companies side by side.
               </DialogDescription>
             </div>
@@ -328,24 +328,24 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
               variant="ghost" 
               size="icon" 
               onClick={handleCancel}
-              className="text-white hover:bg-white/20 h-10 w-10"
+              className="text-white hover:bg-white/20 h-8 w-8 sm:h-10 sm:w-10 flex-shrink-0"
             >
-              <X className="h-6 w-6" />
+              <X className="h-5 w-5 sm:h-6 sm:w-6" />
             </Button>
           </div>
         </DialogHeader>
 
         {/* Error Alert */}
         {error && (
-          <Alert className="m-4 bg-red-50 border-red-200">
+          <Alert className="m-2 sm:m-4 bg-red-50 border-red-200">
             <AlertTriangle className="h-4 w-4 text-red-600" />
             <AlertTitle className="text-red-800">Error</AlertTitle>
-            <AlertDescription className="text-red-700">{error}</AlertDescription>
+            <AlertDescription className="text-red-700 text-sm">{error}</AlertDescription>
           </Alert>
         )}
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-3 sm:p-6">
           {loading ? (
             <div className="py-20 text-center">
               <Loader2 className="h-12 w-12 animate-spin mx-auto text-purple-600" />
@@ -355,54 +355,54 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
             <div className="space-y-6">
               {/* Original Loan Info */}
               <Card className="bg-gradient-to-r from-red-50 to-orange-50 border-red-200 shadow-lg">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3 mb-4">
-                    <Building2 className="h-6 w-6 text-red-600" />
-                    <span className="font-bold text-xl text-gray-800">Original Loan</span>
-                    <Badge variant="outline" className="ml-2 bg-white text-base px-3 py-1 border-red-200">
+                <CardContent className="p-3 sm:p-6">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+                    <Building2 className="h-5 w-5 sm:h-6 sm:w-6 text-red-600" />
+                    <span className="font-bold text-base sm:text-xl text-gray-800">Original Loan</span>
+                    <Badge variant="outline" className="bg-white text-xs sm:text-base px-2 sm:px-3 py-0.5 sm:py-1 border-red-200">
                       {loanDetails.company?.name || 'Company 3'}
                     </Badge>
-                    <Badge className="bg-red-500 text-white text-base px-3 py-1">{interestRate}% FLAT</Badge>
+                    <Badge className="bg-red-500 text-white text-xs sm:text-base px-2 sm:px-3 py-0.5 sm:py-1">{interestRate}% FLAT</Badge>
                   </div>
-                  <div className="grid grid-cols-4 gap-6">
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <p className="text-sm text-gray-500 mb-1">Principal Amount</p>
-                      <p className="font-bold text-2xl text-gray-900">{formatCurrency(principal)}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-6">
+                    <div className="bg-white p-2 sm:p-4 rounded-lg border shadow-sm">
+                      <p className="text-xs sm:text-sm text-gray-500 mb-0.5 sm:mb-1">Principal Amount</p>
+                      <p className="font-bold text-base sm:text-2xl text-gray-900">{formatCurrency(principal)}</p>
                     </div>
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <p className="text-sm text-gray-500 mb-1">Interest Rate</p>
-                      <p className="font-bold text-2xl text-gray-900">{interestRate}% <span className="text-base font-normal text-red-500">FLAT</span></p>
+                    <div className="bg-white p-2 sm:p-4 rounded-lg border shadow-sm">
+                      <p className="text-xs sm:text-sm text-gray-500 mb-0.5 sm:mb-1">Interest Rate</p>
+                      <p className="font-bold text-base sm:text-2xl text-gray-900">{interestRate}% <span className="text-xs sm:text-base font-normal text-red-500">FLAT</span></p>
                     </div>
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <p className="text-sm text-gray-500 mb-1">EMI Amount</p>
-                      <p className="font-bold text-2xl text-gray-900">{formatCurrency(emiAmount)}</p>
+                    <div className="bg-white p-2 sm:p-4 rounded-lg border shadow-sm">
+                      <p className="text-xs sm:text-sm text-gray-500 mb-0.5 sm:mb-1">EMI Amount</p>
+                      <p className="font-bold text-base sm:text-2xl text-gray-900">{formatCurrency(emiAmount)}</p>
                     </div>
-                    <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <p className="text-sm text-gray-500 mb-1">Tenure</p>
-                      <p className="font-bold text-2xl text-gray-900">{tenure} months</p>
+                    <div className="bg-white p-2 sm:p-4 rounded-lg border shadow-sm">
+                      <p className="text-xs sm:text-sm text-gray-500 mb-0.5 sm:mb-1">Tenure</p>
+                      <p className="font-bold text-base sm:text-2xl text-gray-900">{tenure} months</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Mirror Companies Selection */}
-              <div className="space-y-4">
-                <h4 className="font-bold text-xl flex items-center gap-2 text-gray-800">
-                  <ArrowRight className="h-5 w-5 text-purple-600" />
+              <div className="space-y-3 sm:space-y-4">
+                <h4 className="font-bold text-base sm:text-xl flex items-center gap-2 text-gray-800">
+                  <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 text-purple-600" />
                   Select Mirror Companies
                 </h4>
 
                 {mirrorCompanies.length === 0 ? (
                   <Alert className="bg-amber-50 border-amber-200">
-                    <Info className="h-5 w-5 text-amber-600" />
-                    <AlertDescription className="text-amber-800">
+                    <Info className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
+                    <AlertDescription className="text-amber-800 text-sm">
                       <strong>No mirror companies configured.</strong>
                       <br />
-                      <span className="text-sm">Go to Companies → View Company → Mirror Loan Settings → Enable &quot;Mirror Target&quot;</span>
+                      <span className="text-xs sm:text-sm">Go to Companies → View Company → Mirror Loan Settings → Enable &quot;Mirror Target&quot;</span>
                     </AlertDescription>
                   </Alert>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                     {mirrorCompanies.map(company => {
                       const isSelected = selectedMirrors.includes(company.id);
                       const calculation = calculations[company.id];
@@ -417,23 +417,23 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
                           }`}
                           onClick={() => toggleMirror(company.id)}
                         >
-                          <CardContent className="p-5">
-                            <div className="flex items-start gap-4">
+                          <CardContent className="p-3 sm:p-5">
+                            <div className="flex items-start gap-3 sm:gap-4">
                               <Checkbox 
                                 checked={isSelected} 
                                 onCheckedChange={() => toggleMirror(company.id)}
-                                className="mt-1 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600 h-5 w-5"
+                                className="mt-1 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600 h-4 w-4 sm:h-5 sm:w-5"
                               />
-                              <div className="flex-1">
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  <span className="font-bold text-lg text-gray-900">{company.name}</span>
-                                  <Badge className="text-sm px-3 py-1">{company.code}</Badge>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                                  <span className="font-bold text-sm sm:text-lg text-gray-900">{company.name}</span>
+                                  <Badge className="text-xs sm:text-sm px-2 sm:px-3 py-0.5 sm:py-1">{company.code}</Badge>
                                 </div>
                                 
                                 {isSelected && (
-                                  <div className="mt-4 space-y-3">
+                                  <div className="mt-3 sm:mt-4 space-y-2 sm:space-y-3">
                                     {/* Interest Rate and Type Inputs */}
-                                    <div className="grid grid-cols-2 gap-3" onClick={e => e.stopPropagation()}>
+                                    <div className="grid grid-cols-2 gap-2 sm:gap-3" onClick={e => e.stopPropagation()}>
                                       <div>
                                         <label className="text-xs font-medium text-gray-600">Interest Rate (%)</label>
                                         <Input
@@ -732,34 +732,34 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
         </div>
 
         {/* Fixed Footer */}
-        <DialogFooter className="flex-shrink-0 border-t p-6 gap-3 bg-gray-50">
+        <DialogFooter className="flex-shrink-0 border-t p-3 sm:p-6 gap-2 sm:gap-3 bg-gray-50 flex-col sm:flex-row">
           <Button 
             variant="outline" 
             onClick={handleCancel} 
             disabled={saving} 
-            className="border-gray-300 h-12 px-6 text-base"
+            className="border-gray-300 h-10 sm:h-12 px-4 sm:px-6 text-sm sm:text-base w-full sm:w-auto"
           >
-            <ArrowLeft className="h-5 w-5 mr-2" />
+            <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
             Cancel & Go Back
           </Button>
           <Button 
             onClick={handleConfirm} 
             disabled={saving || loading || (selectedMirrors.length > 0 && Object.keys(calculations).length < selectedMirrors.length)}
-            className="bg-purple-600 hover:bg-purple-700 text-white shadow-lg h-12 px-8 text-base"
+            className="bg-purple-600 hover:bg-purple-700 text-white shadow-lg h-10 sm:h-12 px-4 sm:px-8 text-sm sm:text-base w-full sm:w-auto"
           >
             {saving ? (
               <>
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 animate-spin" />
                 Creating Mirror Loans...
               </>
             ) : selectedMirrors.length > 0 ? (
               <>
-                <RefreshCw className="h-5 w-5 mr-2" />
+                <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                 Confirm & Create {selectedMirrors.length} Mirror Loan(s)
               </>
             ) : (
               <>
-                <CheckCircle className="h-5 w-5 mr-2" />
+                <CheckCircle className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
                 Continue Without Mirror
               </>
             )}

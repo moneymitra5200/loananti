@@ -951,7 +951,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-4xl max-h-[95vh] overflow-y-auto">
+        <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[95vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Create Offline Loan</DialogTitle>
             <DialogDescription>Fill in the customer and loan details below</DialogDescription>
@@ -1015,7 +1015,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                   {selectedProduct && (
                     <div className="mt-3 p-3 bg-white rounded-lg border text-sm">
                       <p className="text-gray-600">{selectedProduct.description}</p>
-                      <div className="grid grid-cols-4 gap-4 mt-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mt-2">
                         <div>
                           <p className="text-xs text-gray-500">Interest Rate</p>
                           <p className="font-medium">{selectedProduct.minInterestRate}% - {selectedProduct.maxInterestRate}%</p>
@@ -1047,7 +1047,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             {/* Customer Details */}
             <div className="space-y-4">
               <h3 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> Customer Details</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2"><Label>Customer Name *</Label><Input value={formData.customerName} onChange={(e) => handleInputChange('customerName', e.target.value)} placeholder="Full name" /></div>
                 <div className="space-y-2"><Label>Phone Number *</Label><Input value={formData.customerPhone} onChange={(e) => handleInputChange('customerPhone', e.target.value)} placeholder="10-digit number" /></div>
                 <div className="space-y-2"><Label>Email</Label><Input type="email" value={formData.customerEmail} onChange={(e) => handleInputChange('customerEmail', e.target.value)} /></div>
@@ -1058,7 +1058,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 <div className="space-y-2"><Label>Date of Birth</Label><Input type="date" value={formData.customerDOB} onChange={(e) => handleInputChange('customerDOB', e.target.value)} /></div>
               </div>
               <div className="space-y-2"><Label>Address *</Label><Input value={formData.customerAddress} onChange={(e) => handleInputChange('customerAddress', e.target.value)} /></div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 <div className="space-y-2"><Label>City</Label><Input value={formData.customerCity} onChange={(e) => handleInputChange('customerCity', e.target.value)} /></div>
                 <div className="space-y-2"><Label>State</Label><Input value={formData.customerState} onChange={(e) => handleInputChange('customerState', e.target.value)} /></div>
                 <div className="space-y-2"><Label>Pincode</Label><Input value={formData.customerPincode} onChange={(e) => handleInputChange('customerPincode', e.target.value)} maxLength={6} /></div>
@@ -1068,7 +1068,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             {/* Loan Details */}
             <div className="space-y-4 pt-4 border-t">
               <h3 className="font-semibold flex items-center gap-2"><IndianRupee className="h-4 w-4" /> Loan Details</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2">
                   <Label>Loan Type</Label>
                   <Input value={selectedProduct?.title || formData.loanType} disabled className="bg-gray-50" />

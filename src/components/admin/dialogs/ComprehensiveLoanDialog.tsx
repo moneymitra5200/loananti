@@ -32,7 +32,7 @@ export default function ComprehensiveLoanDialog({
 }: ComprehensiveLoanDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-0">
+      <DialogContent className="w-[95vw] sm:max-w-5xl max-h-[90vh] overflow-hidden p-0">
         {loadingDetails ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
