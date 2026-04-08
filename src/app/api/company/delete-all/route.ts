@@ -33,126 +33,85 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const companyIds = companies.map(c => c.id);
     const deletedCompanies: string[] = [];
     const errors: string[] = [];
 
     // Delete in proper order to respect foreign key constraints
-    for (const companyId of companyIds) {
+    for (const company of companies) {
       try {
-        console.log(`[Delete All Companies] Processing company: ${companyId}`);
+        console.log(`[Delete All Companies] Processing company: ${company.id} (${company.name})`);
 
         // 1. Get all loans for this company
         const loans = await db.loanApplication.findMany({
-          where: { companyId },
+          where: { companyId: company.id },
           select: { id: true }
         });
         const loanIds = loans.map(l => l.id);
 
         if (loanIds.length > 0) {
-          // 2. Delete EMI schedules and payments
-          await db.eMISchedule.deleteMany({
-            where: { loanApplicationId: { in: loanIds } }
-          });
+          // Delete loan-related records
+          await db.eMISchedule.deleteMany({ where: { loanApplicationId: { in: loanIds } } });
+          await db.sessionForm.deleteMany({ where: { loanApplicationId: { in: loanIds } } });
+          await db.payment.deleteMany({ where: { loanApplicationId: { in: loanIds } } });
+          await db.secureDocument.deleteMany({ where: { loanApplicationId: { in: loanIds } } });
+          await db.workflowLog.deleteMany({ where: { loanApplicationId: { in: loanIds } } });
           
-          // 3. Delete session forms
-          await db.sessionForm.deleteMany({
-            where: { loanApplicationId: { in: loanIds } }
-          });
-
-          // 4. Delete payments
-          await db.payment.deleteMany({
-            where: { loanApplicationId: { in: loanIds } }
-          });
-
-          // 5. Delete loan documents
-          await db.loanDocument.deleteMany({
-            where: { loanApplicationId: { in: loanIds } }
-          });
-
-          // 6. Delete workflow logs for these loans
-          await db.workflowLog.deleteMany({
-            where: { loanApplicationId: { in: loanIds } }
-          });
-
-          // 7. Delete mirror loan mappings
+          // Delete mirror loan mappings
           await db.mirrorLoanMapping.deleteMany({
             where: { 
               OR: [
-                { originalCompanyId: companyId },
-                { mirrorCompanyId: companyId }
+                { originalCompanyId: company.id },
+                { mirrorCompanyId: company.id }
               ]
             }
           });
 
-          // 8. Delete pending mirror loans
+          // Delete pending mirror loans
           await db.pendingMirrorLoan.deleteMany({
             where: {
               OR: [
-                { originalCompanyId: companyId },
-                { mirrorCompanyId: companyId }
+                { originalCompanyId: company.id },
+                { mirrorCompanyId: company.id }
               ]
             }
           });
 
-          // 9. Delete the loans
-          await db.loanApplication.deleteMany({
-            where: { companyId }
-          });
+          // Delete offline loans
+          await db.offlineLoan.deleteMany({ where: { companyId: company.id } });
+
+          // Delete the loans
+          await db.loanApplication.deleteMany({ where: { companyId: company.id } });
         }
 
-        // 10. Delete chart of accounts and related
-        await db.ledgerBalance.deleteMany({
-          where: { account: { companyId } }
-        });
+        // Delete accounting records
+        await db.ledgerBalance.deleteMany({ where: { account: { companyId: company.id } } });
+        await db.journalEntryLine.deleteMany({ where: { account: { companyId: company.id } } });
+        await db.chartOfAccount.deleteMany({ where: { companyId: company.id } });
+        await db.journalEntry.deleteMany({ where: { companyId: company.id } });
+        await db.ledgerBalance.deleteMany({ where: { financialYear: { companyId: company.id } } });
+        await db.financialYear.deleteMany({ where: { companyId: company.id } });
+        await db.ledger.deleteMany({ where: { companyId: company.id } });
+        await db.bankAccount.deleteMany({ where: { companyId: company.id } });
         
-        await db.journalEntryLine.deleteMany({
-          where: { account: { companyId } }
-        });
-        
-        await db.chartOfAccount.deleteMany({
-          where: { companyId }
-        });
+        // Delete other company records
+        await db.expense.deleteMany({ where: { companyId: company.id } });
+        await db.gSTConfig.deleteMany({ where: { companyId: company.id } });
+        await db.fixedAsset.deleteMany({ where: { companyId: company.id } });
+        await db.commissionSlab.deleteMany({ where: { companyId: company.id } });
+        await db.gracePeriodConfig.deleteMany({ where: { companyId: company.id } });
+        await db.preApprovedOffer.deleteMany({ where: { companyId: company.id } });
+        await db.agentPerformance.deleteMany({ where: { companyId: company.id } });
+        await db.companyAccountingSettings.deleteMany({ where: { companyId: company.id } });
+        await db.companyPaymentSettings.deleteMany({ where: { companyId: company.id } });
+        await db.companyPaymentPage.deleteMany({ where: { companyId: company.id } });
+        await db.daybookEntry.deleteMany({ where: { companyId: company.id } });
+        await db.borrowedMoney.deleteMany({ where: { companyId: company.id } });
+        await db.investMoney.deleteMany({ where: { companyId: company.id } });
+        await db.equityEntry.deleteMany({ where: { companyId: company.id } });
 
-        // 11. Delete journal entries
-        await db.journalEntry.deleteMany({
-          where: { companyId }
-        });
-
-        // 12. Delete financial years and ledgers
-        await db.ledgerBalance.deleteMany({
-          where: { financialYear: { companyId } }
-        });
-        
-        await db.financialYear.deleteMany({
-          where: { companyId }
-        });
-        
-        await db.ledger.deleteMany({
-          where: { companyId }
-        });
-
-        // 13. Delete bank and cash accounts
-        await db.bankAccount.deleteMany({
-          where: { companyId }
-        });
-        
-        await db.cashAccount.deleteMany({
-          where: { companyId }
-        });
-
-        // 14. Delete other company records
-        await db.expense.deleteMany({ where: { companyId } });
-        await db.gSTConfig.deleteMany({ where: { companyId } });
-        await db.fixedAsset.deleteMany({ where: { companyId } });
-        await db.commissionSlab.deleteMany({ where: { companyId } });
-        await db.gracePeriodConfig.deleteMany({ where: { companyId } });
-        await db.preApprovedOffer.deleteMany({ where: { companyId } });
-        await db.agentPerformance.deleteMany({ where: { companyId } });
-
-        // 15. Get the company user
+        // Get and delete the company user
         const companyUser = await db.user.findFirst({
-          where: { companyId, role: 'COMPANY' }
+          where: { companyId: company.id, role: 'COMPANY' }
         });
 
         if (companyUser) {
@@ -165,6 +124,8 @@ export async function POST(request: NextRequest) {
           await db.notificationSetting.deleteMany({ where: { userId: companyUser.id } });
           await db.deviceFingerprint.deleteMany({ where: { userId: companyUser.id } });
           await db.blacklist.deleteMany({ where: { userId: companyUser.id } });
+          await db.userSession.deleteMany({ where: { userId: companyUser.id } });
+          await db.userPreference.deleteMany({ where: { userId: companyUser.id } });
 
           // Create deleted user record
           try {
@@ -183,16 +144,16 @@ export async function POST(request: NextRequest) {
           await db.user.delete({ where: { id: companyUser.id } });
         }
 
-        // 16. FINALLY - Delete the company
-        await db.company.delete({ where: { id: companyId } });
+        // FINALLY - Delete the company
+        await db.company.delete({ where: { id: company.id } });
         
-        deletedCompanies.push(companyId);
-        console.log(`[Delete All Companies] Deleted company: ${companyId}`);
+        deletedCompanies.push(company.id);
+        console.log(`[Delete All Companies] Deleted company: ${company.name}`);
 
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-        console.error(`[Delete All Companies] Error deleting company ${companyId}:`, errorMsg);
-        errors.push(`Company ${companyId}: ${errorMsg}`);
+        console.error(`[Delete All Companies] Error deleting company ${company.id}:`, errorMsg);
+        errors.push(`Company ${company.name}: ${errorMsg}`);
       }
     }
 

@@ -173,12 +173,14 @@ export async function DELETE(
       console.log('[User DELETE] Deleting company:', user.companyId);
       
       // Delete company-related records first
+      await db.ledgerBalance.deleteMany({ where: { account: { companyId: user.companyId } } });
+      await db.journalEntryLine.deleteMany({ where: { account: { companyId: user.companyId } } });
       await db.chartOfAccount.deleteMany({ where: { companyId: user.companyId } });
       await db.journalEntry.deleteMany({ where: { companyId: user.companyId } });
-      await db.ledgerBalance.deleteMany({ where: { companyId: user.companyId } });
-      await db.bankAccount.deleteMany({ where: { companyId: user.companyId } });
-      await db.cashAccount.deleteMany({ where: { companyId: user.companyId } });
+      await db.ledgerBalance.deleteMany({ where: { financialYear: { companyId: user.companyId } } });
       await db.financialYear.deleteMany({ where: { companyId: user.companyId } });
+      await db.bankAccount.deleteMany({ where: { companyId: user.companyId } });
+      await db.ledger.deleteMany({ where: { companyId: user.companyId } });
       
       // Delete the company
       await db.company.delete({ where: { id: user.companyId } });

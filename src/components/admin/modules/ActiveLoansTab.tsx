@@ -54,6 +54,25 @@ interface ActiveLoan {
     displayColor?: string | null;
     extraEMICount?: number;
     mirrorInterestRate?: number;
+    mirrorLoan?: {
+      id: string;
+      applicationNo: string;
+      status: string;
+      loanType?: string;
+      disbursedAmount?: number;
+      createdAt?: string;
+      interestRate?: number;
+      tenure?: number;
+      emiAmount?: number;
+      company?: { id?: string; name: string; code?: string };
+      customer?: { name?: string; phone?: string; email?: string };
+      sessionForm?: {
+        approvedAmount?: number;
+        interestRate?: number;
+        tenure?: number;
+        emiAmount?: number;
+      };
+    };
   } | null;
   isInterestOnlyLoan?: boolean;
   company?: { id?: string; name: string; code?: string };
@@ -316,7 +335,24 @@ export default function ActiveLoansTab({
     const isInterestOnly = loan.status === 'ACTIVE_INTEREST_ONLY';
     
     // Extract mirror loan data from the mapping if it exists
-    let mirrorLoanData = null;
+    let mirrorLoanData: {
+      id: string;
+      identifier: string;
+      applicationNo: string;
+      customer?: { name?: string; phone?: string; email?: string };
+      customerName?: string;
+      customerPhone?: string;
+      approvedAmount: number;
+      disbursedAmount?: number;
+      interestRate: number;
+      tenure: number;
+      emiAmount: number;
+      status: string;
+      loanType?: string;
+      company?: { id: string; name: string; code: string };
+      createdAt: string;
+    } | null = null;
+    
     if (mapping?.mirrorLoan) {
       const ml = mapping.mirrorLoan;
       mirrorLoanData = {
@@ -327,14 +363,18 @@ export default function ActiveLoansTab({
         customerName: ml.customer?.name,
         customerPhone: ml.customer?.phone,
         approvedAmount: ml.sessionForm?.approvedAmount || ml.disbursedAmount || 0,
-        disbursedAmount: ml.disbursedAmount,
-        interestRate: ml.interestRate,
-        tenure: ml.tenure,
-        emiAmount: ml.emiAmount || ml.sessionForm?.emiAmount,
-        status: ml.status,
+        disbursedAmount: ml.disbursedAmount || 0,
+        interestRate: ml.interestRate || 0,
+        tenure: ml.tenure || 0,
+        emiAmount: ml.emiAmount || ml.sessionForm?.emiAmount || 0,
+        status: ml.status || 'UNKNOWN',
         loanType: ml.loanType,
-        company: ml.company,
-        createdAt: ml.createdAt
+        company: ml.company ? {
+          id: ml.company.id || '',
+          name: ml.company.name,
+          code: ml.company.code || ''
+        } : undefined,
+        createdAt: ml.createdAt || new Date().toISOString()
       };
     }
     

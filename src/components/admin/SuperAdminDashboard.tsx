@@ -1288,11 +1288,6 @@ export default function SuperAdminDashboard() {
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}>
             <UsersSection
               users={users}
-              companyUsers={companyUsers}
-              agents={agents}
-              staff={staff}
-              cashiers={cashiers}
-              accountants={accountants}
               userRoleFilter={userRoleFilter}
               setUserRoleFilter={setUserRoleFilter}
               searchQuery={searchQuery}
