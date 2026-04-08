@@ -29,6 +29,19 @@ interface Loan {
   company?: { id?: string; name: string; code?: string };
   identifier?: string;
   nextEmi?: { dueDate: string; amount: number; status: string };
+  // Mirror loan fields from API
+  isMirrorLoan?: boolean;
+  isOriginalMirrorLoan?: boolean;
+  displayColor?: string;
+  mirrorMapping?: {
+    id: string;
+    originalLoanId: string;
+    mirrorLoanId?: string;
+    mirrorTenure?: number;
+    originalTenure?: number;
+    displayColor?: string;
+    isOfflineLoan?: boolean;
+  };
 }
 
 interface MirrorLoanData {
@@ -74,6 +87,33 @@ interface MirrorMapping {
   originalLoan: Loan | null;
   mirrorCompany: { id: string; name: string; code: string } | null;
   originalCompany: { id: string; name: string; code: string } | null;
+  // Offline loan specific fields
+  isOfflineLoan?: boolean;
+  offlineMirrorLoan?: {
+    id: string;
+    loanNumber: string;
+    status: string;
+    loanAmount: number;
+    interestRate: number;
+    tenure: number;
+    emiAmount: number;
+    displayColor?: string;
+    isMirrorLoan: boolean;
+    company?: { id: string; name: string; code: string };
+    customerName?: string;
+  } | null;
+  offlineOriginalLoan?: {
+    id: string;
+    loanNumber: string;
+    status: string;
+    loanAmount: number;
+    interestRate: number;
+    tenure: number;
+    emiAmount: number;
+    displayColor?: string;
+    company?: { id: string; name: string; code: string };
+    customerName?: string;
+  } | null;
 }
 
 interface Props {
@@ -137,10 +177,20 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
     }
     
     // Exclude mirror loans from being shown separately
+    // Check multiple sources to determine if this is a mirror loan:
+    // 1. The isMirrorLoan field from API (most reliable)
+    // 2. The mapping mirrorLoanId check (for backward compatibility)
     result = result.filter(loan => {
+      // Primary check: API-provided isMirrorLoan field
+      if (loan.isMirrorLoan === true) {
+        return false; // Exclude mirror loans
+      }
+      
+      // Secondary check: mapping-based check
       const mapping = mirrorMappings[loan.id];
-      const isMirror = mapping?.mirrorLoanId === loan.id;
-      return !isMirror;
+      const isMirrorFromMapping = mapping?.mirrorLoanId === loan.id;
+      
+      return !isMirrorFromMapping;
     });
     
     return result;
@@ -172,7 +222,35 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
   const convertMirrorToLoanData = (mirrorLoan: MirrorLoanData | null, mapping: MirrorMapping, originalLoan: Loan) => {
-    // If there's an actual mirror loan record, use it
+    // 1. Check for offline mirror loan first (from mapping.offlineMirrorLoan)
+    if (mapping.isOfflineLoan && mapping.offlineMirrorLoan) {
+      const offlineMirror = mapping.offlineMirrorLoan;
+      return {
+        id: offlineMirror.id,
+        identifier: offlineMirror.loanNumber,
+        applicationNo: offlineMirror.loanNumber,
+        customer: { name: offlineMirror.customerName },
+        customerName: offlineMirror.customerName,
+        customerPhone: '',
+        approvedAmount: offlineMirror.loanAmount,
+        interestRate: mapping.mirrorInterestRate || offlineMirror.interestRate,
+        tenure: mapping.mirrorTenure || offlineMirror.tenure,
+        emiAmount: offlineMirror.emiAmount,
+        status: offlineMirror.status,
+        loanType: 'OFFLINE',
+        disbursementDate: originalLoan.disbursementDate,
+        createdAt: originalLoan.createdAt,
+        company: offlineMirror.company || mapping.mirrorCompany ? {
+          id: offlineMirror.company?.id || mapping.mirrorCompany?.id || '',
+          name: offlineMirror.company?.name || mapping.mirrorCompany?.name || '',
+          code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
+        } : undefined,
+        nextEmi: undefined,
+        isMirrorLoan: true
+      };
+    }
+    
+    // 2. If there's an actual mirror loan record (for online loans), use it
     if (mirrorLoan) {
       return {
         id: mirrorLoan.id,
@@ -202,7 +280,7 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
       };
     }
     
-    // If no mirror loan record exists (offline loans), create a virtual mirror loan from mapping data
+    // 3. If no mirror loan record exists, create a virtual mirror loan from mapping data
     if (mapping && mapping.mirrorCompanyId) {
       return {
         id: `virtual-mirror-${mapping.id}`,
@@ -233,10 +311,38 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
 
   // Render each loan in parallel view format
   const renderLoanInParallelView = (loan: Loan, index: number) => {
-    const mapping = mirrorMappings[loan.id];
+    // Use both API-provided mapping and fetched mappings state
+    const mapping = mirrorMappings[loan.id] || (loan.mirrorMapping ? {
+      id: loan.mirrorMapping.id,
+      originalLoanId: loan.mirrorMapping.originalLoanId,
+      mirrorLoanId: loan.mirrorMapping.mirrorLoanId || null,
+      mirrorCompanyId: '',
+      originalCompanyId: '',
+      displayColor: loan.mirrorMapping.displayColor || null,
+      mirrorTenure: loan.mirrorMapping.mirrorTenure || null,
+      originalTenure: loan.mirrorMapping.originalTenure || null,
+      extraEMICount: null,
+      mirrorInterestRate: null,
+      mirrorEMIsPaid: null,
+      extraEMIsPaid: null,
+      originalEMIAmount: null,
+      mirrorLoan: null,
+      originalLoan: null,
+      mirrorCompany: null,
+      originalCompany: null,
+      isOfflineLoan: loan.mirrorMapping.isOfflineLoan,
+      offlineMirrorLoan: null,
+      offlineOriginalLoan: null
+    } as MirrorMapping : null);
     
-    // Get the actual mirror loan data from the mapping, or create virtual one from mapping data
-    const mirrorLoanData = mapping ? convertMirrorToLoanData(mapping.mirrorLoan, mapping, loan) : null;
+    // Get the actual mirror loan data from the mapping
+    // For offline loans, the mirror loan is in offlineMirrorLoan
+    // For online loans, the mirror loan is in mirrorLoan
+    const mirrorLoanSource = mapping?.isOfflineLoan ? null : mapping?.mirrorLoan;
+    const mirrorLoanData = mapping ? convertMirrorToLoanData(mirrorLoanSource, mapping, loan) : null;
+    
+    // Determine display color from mapping or loan object
+    const displayColor = mapping?.displayColor || loan.displayColor;
     
     return (
       <ParallelLoanView
@@ -244,7 +350,7 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
         originalLoan={convertToLoanData(loan)}
         mirrorLoan={mirrorLoanData}
         mirrorMapping={mapping ? {
-          displayColor: mapping.displayColor,
+          displayColor: displayColor,
           extraEMICount: mapping.extraEMICount ?? undefined,
           mirrorInterestRate: mapping.mirrorInterestRate ?? undefined,
           mirrorTenure: mapping.mirrorTenure ?? undefined,
@@ -258,6 +364,17 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           // If there's a mirror loan record, view it; otherwise view original
           if (mapping?.mirrorLoan) {
             onViewLoan(mapping.mirrorLoan as unknown as Loan);
+          } else if (mapping?.offlineMirrorLoan) {
+            // For offline mirror loans, create a minimal loan object for viewing
+            onViewLoan({
+              id: mapping.offlineMirrorLoan.id,
+              applicationNo: mapping.offlineMirrorLoan.loanNumber,
+              status: mapping.offlineMirrorLoan.status,
+              requestedAmount: mapping.offlineMirrorLoan.loanAmount,
+              loanType: 'OFFLINE',
+              createdAt: '',
+              customer: { id: '', name: mapping.offlineMirrorLoan.customerName || '', email: '', phone: '' }
+            });
           } else {
             onViewLoan(loan);
           }
