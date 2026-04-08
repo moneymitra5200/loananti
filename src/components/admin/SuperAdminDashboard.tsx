@@ -110,6 +110,7 @@ export default function SuperAdminDashboard() {
   const [selectedUser, setSelectedUser] = useState<UserItem | null>(null);
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
   const [showUserDialog, setShowUserDialog] = useState(false);
+  const [editingUser, setEditingUser] = useState<UserItem | null>(null); // Track user being edited
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
   
@@ -607,36 +608,51 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const handleCreateUser = async () => {
-    if (!userForm.name || !userForm.email || !userForm.password || !userForm.role) {
+  const handleSaveUser = async () => {
+    // For editing, password is optional
+    if (!userForm.name || !userForm.email || !userForm.role) {
       toast({ title: 'Validation Error', description: 'Please fill in all required fields', variant: 'destructive' });
       return;
     }
+    // For new users, password is required
+    if (!editingUser && !userForm.password) {
+      toast({ title: 'Validation Error', description: 'Password is required for new users', variant: 'destructive' });
+      return;
+    }
     setSavingUser(true);
-    console.log('[handleCreateUser] Creating user:', userForm);
+    
     try {
-      const response = await fetch('/api/user', {
-        method: 'POST',
+      const isEditing = !!editingUser;
+      const url = isEditing ? `/api/user/${editingUser.id}` : '/api/user';
+      const method = isEditing ? 'PUT' : 'POST';
+      
+      // Prepare the body - don't send password if editing and password is empty
+      const body = { 
+        ...userForm,
+        ...(isEditing && !userForm.password ? { password: undefined } : {})
+      };
+      
+      const response = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userForm)
+        body: JSON.stringify(body)
       });
       
-      console.log('[handleCreateUser] Response status:', response.status);
-      
-      // Check if response is JSON
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
-        console.error('[handleCreateUser] Non-JSON response:', text);
         throw new Error('Server returned an invalid response. Please try again.');
       }
       
       const data = await response.json();
-      console.log('[handleCreateUser] Response data:', data);
       
       if (response.ok) {
-        toast({ title: 'User Created', description: `${userForm.name} has been created successfully` });
+        toast({ 
+          title: isEditing ? 'User Updated' : 'User Created', 
+          description: `${userForm.name} has been ${isEditing ? 'updated' : 'created'} successfully` 
+        });
         setShowUserDialog(false);
+        setEditingUser(null);
         setUserForm({
           name: '', email: '', phone: '', password: '', role: 'COMPANY', companyId: '', agentId: '',
           code: '', address: '', city: '', state: '', pincode: '', gstNumber: '', panNumber: '', website: '',
@@ -645,19 +661,35 @@ export default function SuperAdminDashboard() {
           accountingType: 'FULL', defaultInterestRate: 12, defaultInterestType: 'FLAT'
         });
         fetchUsers();
-        fetchCompanies(); // Refresh companies list if a company user was created
+        if (!isEditing) fetchCompanies(); // Refresh companies list if a company user was created
       } else {
-        const errorMsg = data.error || data.details || 'Failed to create user';
-        console.error('[handleCreateUser] Error:', errorMsg);
+        const errorMsg = data.error || data.details || `Failed to ${isEditing ? 'update' : 'create'} user`;
         throw new Error(errorMsg);
       }
     } catch (error) {
-      console.error('[handleCreateUser] Exception:', error);
-      const message = (error as Error).message || 'Failed to create user';
+      const message = (error as Error).message || 'Failed to save user';
       toast({ title: 'Error', description: message, variant: 'destructive' });
     } finally {
       setSavingUser(false);
     }
+  };
+
+  // Legacy function name for backward compatibility
+  const handleCreateUser = handleSaveUser;
+
+  // Handle edit user - populate form with user data
+  const handleEditUser = (user: UserItem) => {
+    setEditingUser(user);
+    setUserForm({
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      password: '', // Don't populate password
+      role: user.role || 'COMPANY',
+      companyId: typeof user.company === 'object' ? user.company?.id || '' : user.companyId || '',
+      agentId: user.agentId || '',
+    });
+    setShowUserDialog(true);
   };
 
   const handleDeleteUser = async (userToDelete?: UserItem) => {
@@ -1266,6 +1298,7 @@ export default function SuperAdminDashboard() {
                   .finally(() => setLoadingUserDetails(false));
               }}
               onUnlockUser={handleUnlockUser}
+              onEditUser={handleEditUser}
               onDeleteUser={(user) => handleDeleteUser(user)}
             />
           </Suspense>
@@ -1672,6 +1705,7 @@ export default function SuperAdminDashboard() {
         savingUser={savingUser}
         handleCreateUser={handleCreateUser}
         agents={agents}
+        editingUser={editingUser}
       />
 
       {/* Comprehensive Loan Details Dialog */}

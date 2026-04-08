@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Users, Building2, User, ClipboardCheck, UserPlus, Eye, Shield, Trash2 } from 'lucide-react';
+import { Users, Building2, User, ClipboardCheck, UserPlus, Eye, Shield, Trash2, Edit } from 'lucide-react';
 
 interface UserItem {
   id: string;
@@ -44,6 +44,7 @@ interface Props {
   setSearchQuery: (query: string) => void;
   onAddUser: () => void;
   onViewUserDetails: (userId: string) => void;
+  onEditUser: (user: UserItem) => void;
   onUnlockUser: (userId: string) => void;
   onDeleteUser: (user: UserItem) => void;
 }
@@ -61,6 +62,7 @@ function UsersSection({
   setSearchQuery,
   onAddUser,
   onViewUserDetails,
+  onEditUser,
   onUnlockUser,
   onDeleteUser
 }: Props) {
@@ -252,6 +254,9 @@ function UsersSection({
                         <div className="flex gap-1">
                           <Button size="sm" variant="outline" onClick={() => onViewUserDetails(u.id)} title="View Details">
                             <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-blue-600 hover:bg-blue-50" onClick={() => onEditUser(u)} title="Edit">
+                            <Edit className="h-4 w-4" />
                           </Button>
                           {u.isLocked && (
                             <Button size="sm" variant="outline" className="text-orange-600 hover:bg-orange-50" onClick={() => onUnlockUser(u.id)} title="Unlock">

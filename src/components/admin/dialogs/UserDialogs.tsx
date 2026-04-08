@@ -55,6 +55,7 @@ interface UserDialogsProps {
   savingUser: boolean;
   handleCreateUser: () => void;
   agents: Agent[];
+  editingUser?: { id: string; name: string; email: string; role: string } | null;
 }
 
 export default function UserDialogs({
@@ -65,6 +66,7 @@ export default function UserDialogs({
   savingUser,
   handleCreateUser,
   agents,
+  editingUser,
 }: UserDialogsProps) {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
@@ -140,9 +142,9 @@ export default function UserDialogs({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Building2 className="h-6 w-6 text-blue-600" />
-              Create Company Account
+              {editingUser ? 'Edit Company Account' : 'Create Company Account'}
             </DialogTitle>
-            <DialogDescription>Create a new company - interest rate is set per loan, not per company</DialogDescription>
+            <DialogDescription>{editingUser ? 'Update company details' : 'Create a new company - interest rate is set per loan, not per company'}</DialogDescription>
           </DialogHeader>
           
           <div className="space-y-6 py-4">
@@ -165,7 +167,7 @@ export default function UserDialogs({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Password *</Label>
+                <Label className="text-sm font-medium">Password {editingUser ? '(leave blank to keep current)' : '*'}</Label>
                 <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
               </div>
             </div>
@@ -223,7 +225,7 @@ export default function UserDialogs({
           <DialogFooter className="mt-4">
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>
             <Button className="bg-blue-500 hover:bg-blue-600" onClick={handleCreateUser} disabled={savingUser}>
-              {savingUser ? 'Creating...' : 'Create Company'}
+              {savingUser ? 'Saving...' : editingUser ? 'Update Company' : 'Create Company'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -235,10 +237,10 @@ export default function UserDialogs({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <User className="h-6 w-6 text-cyan-600" />
-              Create Agent Account
+              {editingUser ? 'Edit Agent Account' : 'Create Agent Account'}
             </DialogTitle>
             <DialogDescription>
-              Create a new agent who can manage loan applications. Agents are common for all companies.
+              {editingUser ? 'Update agent details' : 'Create a new agent who can manage loan applications. Agents are common for all companies.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -260,14 +262,14 @@ export default function UserDialogs({
               </p>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Password *</Label>
+              <Label className="text-sm font-medium">Password {editingUser ? '(leave blank to keep current)' : '*'}</Label>
               <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>
             <Button className="bg-cyan-500 hover:bg-cyan-600" onClick={handleCreateUser} disabled={savingUser}>
-              {savingUser ? 'Creating...' : 'Create Agent'}
+              {savingUser ? 'Saving...' : editingUser ? 'Update Agent' : 'Create Agent'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -279,9 +281,9 @@ export default function UserDialogs({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Briefcase className="h-6 w-6 text-purple-600" />
-              Create Staff Account
+              {editingUser ? 'Edit Staff Account' : 'Create Staff Account'}
             </DialogTitle>
-            <DialogDescription>Create a staff member who will collect loan forms from customers.</DialogDescription>
+            <DialogDescription>{editingUser ? 'Update staff details' : 'Create a staff member who will collect loan forms from customers.'}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -306,14 +308,14 @@ export default function UserDialogs({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Password *</Label>
+              <Label className="text-sm font-medium">Password {editingUser ? '(leave blank to keep current)' : '*'}</Label>
               <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>
             <Button className="bg-purple-500 hover:bg-purple-600" onClick={handleCreateUser} disabled={savingUser}>
-              {savingUser ? 'Creating...' : 'Create Staff'}
+              {savingUser ? 'Saving...' : editingUser ? 'Update Staff' : 'Create Staff'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -325,10 +327,10 @@ export default function UserDialogs({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Banknote className="h-6 w-6 text-orange-600" />
-              Create Cashier Account
+              {editingUser ? 'Edit Cashier Account' : 'Create Cashier Account'}
             </DialogTitle>
             <DialogDescription>
-              Create an ecosystem-wide cashier who can handle payment collections across all companies.
+              {editingUser ? 'Update cashier details' : 'Create an ecosystem-wide cashier who can handle payment collections across all companies.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -354,14 +356,14 @@ export default function UserDialogs({
               <Input placeholder="+91 9876543210" value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Password *</Label>
+              <Label className="text-sm font-medium">Password {editingUser ? '(leave blank to keep current)' : '*'}</Label>
               <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>
             <Button className="bg-orange-500 hover:bg-orange-600" onClick={handleCreateUser} disabled={savingUser}>
-              {savingUser ? 'Creating...' : 'Create Cashier'}
+              {savingUser ? 'Saving...' : editingUser ? 'Update Cashier' : 'Create Cashier'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -373,10 +375,10 @@ export default function UserDialogs({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Calculator className="h-6 w-6 text-teal-600" />
-              Create Accountant Account
+              {editingUser ? 'Edit Accountant Account' : 'Create Accountant Account'}
             </DialogTitle>
             <DialogDescription>
-              Create an ecosystem-wide accountant who can manage financial records across all companies.
+              {editingUser ? 'Update accountant details' : 'Create an ecosystem-wide accountant who can manage financial records across all companies.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -402,14 +404,14 @@ export default function UserDialogs({
               <Input placeholder="+91 9876543210" value={userForm.phone} onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })} />
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Password *</Label>
+              <Label className="text-sm font-medium">Password {editingUser ? '(leave blank to keep current)' : '*'}</Label>
               <Input type="password" placeholder="Min 6 characters" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowUserDialog(false)}>Cancel</Button>
             <Button className="bg-teal-500 hover:bg-teal-600" onClick={handleCreateUser} disabled={savingUser}>
-              {savingUser ? 'Creating...' : 'Create Accountant'}
+              {savingUser ? 'Saving...' : editingUser ? 'Update Accountant' : 'Create Accountant'}
             </Button>
           </DialogFooter>
         </DialogContent>

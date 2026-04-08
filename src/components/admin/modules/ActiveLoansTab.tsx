@@ -315,21 +315,51 @@ export default function ActiveLoansTab({
     const mapping = mirrorMappings[loan.id] || loan.mirrorMapping;
     const isInterestOnly = loan.status === 'ACTIVE_INTEREST_ONLY';
     
+    // Extract mirror loan data from the mapping if it exists
+    let mirrorLoanData = null;
+    if (mapping?.mirrorLoan) {
+      const ml = mapping.mirrorLoan;
+      mirrorLoanData = {
+        id: ml.id,
+        identifier: ml.applicationNo,
+        applicationNo: ml.applicationNo,
+        customer: ml.customer,
+        customerName: ml.customer?.name,
+        customerPhone: ml.customer?.phone,
+        approvedAmount: ml.sessionForm?.approvedAmount || ml.disbursedAmount || 0,
+        disbursedAmount: ml.disbursedAmount,
+        interestRate: ml.interestRate,
+        tenure: ml.tenure,
+        emiAmount: ml.emiAmount || ml.sessionForm?.emiAmount,
+        status: ml.status,
+        loanType: ml.loanType,
+        company: ml.company,
+        createdAt: ml.createdAt
+      };
+    }
+    
     return (
       <div key={loan.id} className="relative">
         <ParallelLoanView
           originalLoan={convertToLoanData(loan)}
-          mirrorLoan={null}
+          mirrorLoan={mirrorLoanData}
           mirrorMapping={mapping ? {
             displayColor: mapping.displayColor || loan.displayColor,
             extraEMICount: mapping.extraEMICount,
             mirrorInterestRate: mapping.mirrorInterestRate,
             mirrorTenure: mapping.mirrorTenure,
             mirrorEMIsPaid: mapping.mirrorEMIsPaid,
-            extraEMIsPaid: mapping.extraEMIsPaid
+            extraEMIsPaid: mapping.extraEMIsPaid,
+            mirrorCompanyId: mapping.mirrorCompanyId,
+            originalCompanyId: mapping.originalCompanyId
           } : null}
           onViewOriginal={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
-          onViewMirror={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+          onViewMirror={() => { 
+            // If mirror loan exists, select it; otherwise select original
+            const mirrorId = mapping?.mirrorLoanId || loan.id;
+            setSelectedLoanId(mirrorId); 
+            setShowLoanDetailPanel(true); 
+          }}
           showPayButton={!isInterestOnly}
           showEmiProgress={true}
         />
