@@ -397,6 +397,16 @@ export default function CashierDashboard() {
         });
         return;
       }
+      
+      // Validate bank account selection for bank portion
+      if ((disbursementForm.bankAmount || 0) > 0 && !disbursementForm.splitBankAccountId) {
+        toast({ 
+          title: 'Bank Account Required', 
+          description: 'Please select a bank account for the bank portion of the split payment.', 
+          variant: 'destructive' 
+        });
+        return;
+      }
     }
     
     // Check CashBook balance for Company 3

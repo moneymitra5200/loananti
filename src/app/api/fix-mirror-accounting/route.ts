@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       where: { id: mirrorLoanId },
       include: {
         company: { select: { id: true, name: true, code: true } },
-        mirrorLoanMappingAsMirror: true
+        mirrorLoanMappings: true
       }
     });
     
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
     
     const mirrorCompanyId = mirrorLoan.companyId;
-    const disbursementAmount = mirrorLoan.disbursedAmount || mirrorMapping.principalAmount || mirrorLoan.requestedAmount;
+    const disbursementAmount = mirrorLoan.disbursedAmount || mirrorLoan.requestedAmount;
     
     console.log('[Fix Mirror Accounting] Mirror Company:', mirrorCompanyId);
     console.log('[Fix Mirror Accounting] Disbursement Amount:', disbursementAmount);
@@ -110,6 +110,10 @@ export async function POST(request: NextRequest) {
     
     // Handle Cash Portion
     if (cashAmount > 0) {
+      if (!mirrorCompanyId) {
+        return NextResponse.json({ error: 'Mirror company ID is required for cash disbursement' }, { status: 400 });
+      }
+      
       let cashBook = await db.cashBook.findUnique({
         where: { companyId: mirrorCompanyId }
       });
@@ -158,7 +162,7 @@ export async function POST(request: NextRequest) {
       where: { id: mirrorMapping.id },
       data: {
         disbursementBankAccountId: bankAccountId || null,
-        disbursementCompanyId: mirrorCompanyId
+        disbursementCompanyId: mirrorCompanyId || null
       }
     });
     
@@ -170,7 +174,8 @@ export async function POST(request: NextRequest) {
       mirrorLoan: {
         id: mirrorLoan.id,
         applicationNo: mirrorLoan.applicationNo,
-        company: mirrorLoan.company
+        companyId: mirrorLoan.companyId,
+        companyName: mirrorLoan.company?.name
       },
       results: {
         bankTransaction: results.bankTransaction ? {
@@ -203,15 +208,15 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     
-    // Get all mirror loans (loans that have a mirrorLoanMappingAsMirror)
+    // Get all mirror loans (loans that have mirrorLoanMappings)
     const mirrorLoans = await db.loanApplication.findMany({
       where: {
         status: 'ACTIVE',
-        mirrorLoanMappingAsMirror: { isNot: null }
+        mirrorLoanMappings: { some: {} }
       },
       include: {
         company: { select: { id: true, name: true, code: true } },
-        mirrorLoanMappingAsMirror: {
+        mirrorLoanMappings: {
           include: {
             originalLoan: {
               select: { applicationNo: true, company: { select: { id: true, name: true } } }
@@ -236,8 +241,9 @@ export async function GET(request: NextRequest) {
       return {
         id: loan.id,
         applicationNo: loan.applicationNo,
-        mirrorCompany: loan.company,
-        originalLoan: loan.mirrorLoanMappingAsMirror?.originalLoan,
+        mirrorCompanyId: loan.companyId,
+        mirrorCompanyName: loan.company?.name,
+        originalLoan: loan.mirrorLoanMappings[0]?.originalLoan,
         disbursedAmount: loan.disbursedAmount,
         disbursedAt: loan.disbursedAt,
         hasBankTransaction: bankTxns > 0,
@@ -248,7 +254,7 @@ export async function GET(request: NextRequest) {
     
     // Filter by company if specified
     const filtered = companyId 
-      ? loansWithStatus.filter(l => l.mirrorCompany.id === companyId)
+      ? loansWithStatus.filter(l => l.mirrorCompanyId === companyId)
       : loansWithStatus;
     
     return NextResponse.json({

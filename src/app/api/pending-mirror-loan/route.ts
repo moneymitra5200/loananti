@@ -543,10 +543,19 @@ export async function PUT(request: NextRequest) {
       // ============================================
       
       const principalAmount = pendingLoan.principalAmount;
-      const isSplitPayment = useSplitPayment && bankAmount && cashAmount;
+      const isSplitPayment = useSplitPayment && (bankAmount || 0) > 0 && (cashAmount || 0) > 0;
+      
+      console.log(`[Mirror Loan] Disbursement params:`, {
+        useSplitPayment,
+        bankAmount,
+        cashAmount,
+        disbursementBankAccountId,
+        isSplitPayment,
+        principalAmount
+      });
       
       if (isSplitPayment) {
-        console.log(`[Mirror Loan] Split Payment: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
+        console.log(`[Mirror Loan] Processing SPLIT PAYMENT: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
         
         // 1. Handle Bank Portion
         if (bankAmount > 0 && disbursementBankAccountId) {
@@ -581,7 +590,11 @@ export async function PUT(request: NextRequest) {
             });
             
             console.log(`[Mirror Loan] Bank deduction: ₹${bankAmount}, New Balance: ₹${newBalance}`);
+          } else {
+            console.error(`[Mirror Loan] ERROR: Bank account ${disbursementBankAccountId} not found!`);
           }
+        } else if (bankAmount > 0) {
+          console.error(`[Mirror Loan] ERROR: Bank amount ₹${bankAmount} provided but disbursementBankAccountId is missing!`);
         }
         
         // 2. Handle Cash Portion
