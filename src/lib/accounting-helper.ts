@@ -823,11 +823,35 @@ export async function syncExistingTransactions(companyId: string) {
   }
   
   // 3. Sync Offline Loans
+  // ============================================
+  // IMPORTANT: Skip mirror loans - their accounting goes to MIRROR company
+  // - Skip loans where isMirrorLoan = true (these are mirror loans)
+  // - Skip loans that have a mirror mapping as original loan (accounting in mirror company)
+  // ============================================
   const offlineLoans = await db.offlineLoan.findMany({
     where: { companyId }
   });
   
   for (const loan of offlineLoans) {
+    // SKIP: This is a mirror loan - accounting should be in mirror company
+    if (loan.isMirrorLoan) {
+      console.log(`[Accounting Sync] Skipping mirror loan ${loan.loanNumber} - accounting in mirror company`);
+      continue;
+    }
+    
+    // SKIP: This is an original loan with a mirror mapping - accounting in mirror company
+    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      where: { 
+        originalLoanId: loan.id,
+        isOfflineLoan: true 
+      }
+    });
+    
+    if (mirrorMapping) {
+      console.log(`[Accounting Sync] Skipping original loan ${loan.loanNumber} with mirror mapping - accounting in mirror company ${mirrorMapping.mirrorCompanyId}`);
+      continue;
+    }
+    
     // Check if already synced
     const existingEntry = await db.daybookEntry.findFirst({
       where: { 
@@ -853,6 +877,9 @@ export async function syncExistingTransactions(companyId: string) {
   }
   
   // 4. Sync Offline EMI Payments
+  // ============================================
+  // IMPORTANT: Skip EMI payments for mirror loans - accounting goes to MIRROR company
+  // ============================================
   const offlineEMIs = await db.offlineLoanEMI.findMany({
     where: {
       offlineLoan: { companyId },
@@ -864,6 +891,27 @@ export async function syncExistingTransactions(companyId: string) {
   });
   
   for (const emi of offlineEMIs) {
+    // SKIP: This EMI belongs to a mirror loan - accounting in mirror company
+    if (emi.offlineLoan?.isMirrorLoan) {
+      console.log(`[Accounting Sync] Skipping EMI #${emi.installmentNumber} for mirror loan ${emi.offlineLoan.loanNumber} - accounting in mirror company`);
+      continue;
+    }
+    
+    // SKIP: This EMI belongs to an original loan with mirror mapping - accounting in mirror company
+    if (emi.offlineLoan) {
+      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        where: { 
+          originalLoanId: emi.offlineLoanId,
+          isOfflineLoan: true 
+        }
+      });
+      
+      if (mirrorMapping) {
+        console.log(`[Accounting Sync] Skipping EMI #${emi.installmentNumber} for original loan ${emi.offlineLoan.loanNumber} with mirror mapping - accounting in mirror company`);
+        continue;
+      }
+    }
+    
     // Check if already synced
     const existingEntry = await db.daybookEntry.findFirst({
       where: { 

@@ -199,12 +199,12 @@ export async function POST(request: NextRequest) {
               narration: 'Mirror loan principal disbursed',
             },
             {
-              // Mirror loans are funded by owner's capital, not company cash
-              // (The actual cash came from Company 3, which is a cash-only company)
-              accountCode: ACCOUNT_CODES.OWNERS_CAPITAL,
+              // Credit Bank Account - money was actually deducted from mirror company's bank
+              // This matches the logic in offline loan creation route
+              accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
               debitAmount: 0,
               creditAmount: loan.loanAmount,
-              narration: 'Investment in mirror loan (funded by Company 3)',
+              narration: 'Bank account debited for mirror loan disbursement',
             },
           ],
           createdById,
