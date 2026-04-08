@@ -53,6 +53,7 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
       if (response.ok && data.success) {
         console.log('[StaffLogin] Login successful, user:', data.user?.email, data.user?.role);
         sessionStorage.setItem('demoUser', JSON.stringify(data.user));
+        localStorage.setItem('lastActivity', Date.now().toString()); // Set lastActivity BEFORE reload
         toast({ title: 'Success', description: 'Login successful!' });
         // Use timeout to ensure sessionStorage is set before reload
         setTimeout(() => {
