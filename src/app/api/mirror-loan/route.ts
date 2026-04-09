@@ -66,12 +66,7 @@ export async function GET(request: NextRequest) {
         where: { originalLoanId: loanId },
         include: {
           mirrorCompany: { select: { id: true, name: true, code: true } },
-          originalCompany: { select: { id: true, name: true, code: true } },
-          mirrorLoan: {
-            include: {
-              company: { select: { id: true, name: true, code: true } }
-            }
-          }
+          originalCompany: { select: { id: true, name: true, code: true } }
         }
       });
 
@@ -83,32 +78,45 @@ export async function GET(request: NextRequest) {
         });
       }
 
+      // Fetch mirror loan details separately for online loans
+      const mirrorLoanIds = mappings.filter(m => m.mirrorLoanId && !m.isOfflineLoan).map(m => m.mirrorLoanId as string);
+      const mirrorLoans = mirrorLoanIds.length > 0 ? await db.loanApplication.findMany({
+        where: { id: { in: mirrorLoanIds } },
+        include: { company: { select: { id: true, name: true, code: true } } }
+      }) : [];
+      
+      const mirrorLoanMap = new Map<string, typeof mirrorLoans[number]>();
+      mirrorLoans.forEach(l => mirrorLoanMap.set(l.id, l));
+
       // Format the response to match frontend expectations
-      const mirrorLoans = mappings.map(m => ({
-        id: m.id,
-        mirrorType: m.mirrorType,
-        extraEMICount: m.extraEMICount || 0,
-        leftoverAmount: m.leftoverAmount || 0,
-        mirrorInterestRate: m.mirrorInterestRate,
-        mirrorTenure: m.mirrorTenure,
-        originalTenure: m.originalTenure,
-        originalEMIAmount: m.originalEMIAmount,
-        mirrorEMIAmount: m.originalEMIAmount, // Same EMI amount
-        loanApplication: m.mirrorLoan ? {
-          id: m.mirrorLoan.id,
-          applicationNo: m.mirrorLoan.applicationNo,
-          companyId: m.mirrorLoan.companyId,
-          company: m.mirrorLoan.company
-        } : null,
-        mirrorCompany: m.mirrorCompany,
-        originalCompany: m.originalCompany,
-        mirrorEMIsPaid: m.mirrorEMIsPaid,
-        extraEMIsPaid: m.extraEMIsPaid
-      }));
+      const formattedMirrorLoans = mappings.map(m => {
+        const mirrorLoan = m.mirrorLoanId ? mirrorLoanMap.get(m.mirrorLoanId) : null;
+        return {
+          id: m.id,
+          mirrorType: m.mirrorType,
+          extraEMICount: m.extraEMICount || 0,
+          leftoverAmount: m.leftoverAmount || 0,
+          mirrorInterestRate: m.mirrorInterestRate,
+          mirrorTenure: m.mirrorTenure,
+          originalTenure: m.originalTenure,
+          originalEMIAmount: m.originalEMIAmount,
+          mirrorEMIAmount: m.originalEMIAmount, // Same EMI amount
+          loanApplication: mirrorLoan ? {
+            id: mirrorLoan.id,
+            applicationNo: mirrorLoan.applicationNo,
+            companyId: mirrorLoan.companyId,
+            company: mirrorLoan.company
+          } : null,
+          mirrorCompany: m.mirrorCompany,
+          originalCompany: m.originalCompany,
+          mirrorEMIsPaid: m.mirrorEMIsPaid,
+          extraEMIsPaid: m.extraEMIsPaid
+        };
+      });
 
       return NextResponse.json({ 
         success: true, 
-        mirrorLoans,
+        mirrorLoans: formattedMirrorLoans,
         mappings: mappings.map(m => ({
           id: m.id,
           mirrorType: m.mirrorType,
@@ -171,62 +179,6 @@ export async function GET(request: NextRequest) {
           originalTenure: true,
           isOfflineLoan: true,
           mirrorLoanNumber: true,
-          // Include the actual mirror loan details (for online loans)
-          mirrorLoan: {
-            select: {
-              id: true,
-              applicationNo: true,
-              status: true,
-              loanType: true,
-              disbursedAmount: true,
-              createdAt: true,
-              interestRate: true,
-              tenure: true,
-              emiAmount: true,
-              company: {
-                select: { id: true, name: true, code: true }
-              },
-              customer: {
-                select: { id: true, name: true, phone: true, email: true }
-              },
-              sessionForm: {
-                select: {
-                  approvedAmount: true,
-                  interestRate: true,
-                  tenure: true,
-                  emiAmount: true
-                }
-              }
-            }
-          },
-          // Also include original loan for reference (for online loans)
-          originalLoan: {
-            select: {
-              id: true,
-              applicationNo: true,
-              status: true,
-              loanType: true,
-              disbursedAmount: true,
-              createdAt: true,
-              interestRate: true,
-              tenure: true,
-              emiAmount: true,
-              company: {
-                select: { id: true, name: true, code: true }
-              },
-              customer: {
-                select: { id: true, name: true, phone: true, email: true }
-              },
-              sessionForm: {
-                select: {
-                  approvedAmount: true,
-                  interestRate: true,
-                  tenure: true,
-                  emiAmount: true
-                }
-              }
-            }
-          },
           mirrorCompany: {
             select: { id: true, name: true, code: true }
           },
@@ -236,8 +188,54 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      // For offline loans, we need to fetch the OfflineLoan records separately
-      // because the relations point to LoanApplication, not OfflineLoan
+      // Fetch online loan details separately
+      const onlineMirrorLoanIds = mappings.filter(m => m.mirrorLoanId && !m.isOfflineLoan).map(m => m.mirrorLoanId as string);
+      const onlineOriginalLoanIds = mappings.filter(m => !m.isOfflineLoan).map(m => m.originalLoanId);
+      
+      const [onlineMirrorLoans, onlineOriginalLoans] = await Promise.all([
+        onlineMirrorLoanIds.length > 0 ? db.loanApplication.findMany({
+          where: { id: { in: onlineMirrorLoanIds } },
+          select: {
+            id: true,
+            applicationNo: true,
+            status: true,
+            loanType: true,
+            disbursedAmount: true,
+            createdAt: true,
+            interestRate: true,
+            tenure: true,
+            emiAmount: true,
+            company: { select: { id: true, name: true, code: true } },
+            customer: { select: { id: true, name: true, phone: true, email: true } },
+            sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, emiAmount: true } }
+          }
+        }) : [],
+        onlineOriginalLoanIds.length > 0 ? db.loanApplication.findMany({
+          where: { id: { in: onlineOriginalLoanIds } },
+          select: {
+            id: true,
+            applicationNo: true,
+            status: true,
+            loanType: true,
+            disbursedAmount: true,
+            createdAt: true,
+            interestRate: true,
+            tenure: true,
+            emiAmount: true,
+            company: { select: { id: true, name: true, code: true } },
+            customer: { select: { id: true, name: true, phone: true, email: true } },
+            sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, emiAmount: true } }
+          }
+        }) : []
+      ]);
+
+      const mirrorLoanMap = new Map<string, typeof onlineMirrorLoans[number]>();
+      onlineMirrorLoans.forEach(l => mirrorLoanMap.set(l.id, l));
+      
+      const originalLoanMap = new Map<string, typeof onlineOriginalLoans[number]>();
+      onlineOriginalLoans.forEach(l => originalLoanMap.set(l.id, l));
+
+      // For offline loans, fetch OfflineLoan records
       const offlineLoanIds = new Set<string>();
       mappings.forEach(m => {
         if (m.isOfflineLoan) {
@@ -246,7 +244,7 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      let offlineLoansMap: Record<string, any> = {};
+      const offlineLoansMap: Record<string, any> = {};
       if (offlineLoanIds.size > 0) {
         const offlineLoans = await db.offlineLoan.findMany({
           where: { id: { in: Array.from(offlineLoanIds) } },
@@ -262,9 +260,7 @@ export async function GET(request: NextRequest) {
             displayColor: true,
             isMirrorLoan: true,
             originalLoanId: true,
-            company: {
-              select: { id: true, name: true, code: true }
-            },
+            company: { select: { id: true, name: true, code: true } },
             customerName: true
           }
         });
@@ -274,16 +270,24 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Enrich mappings with offline loan details
+      // Enrich mappings with loan details
       const enrichedMappings = mappings.map(m => {
         if (m.isOfflineLoan) {
           return {
             ...m,
             offlineOriginalLoan: m.originalLoanId ? offlineLoansMap[m.originalLoanId] : null,
-            offlineMirrorLoan: m.mirrorLoanId ? offlineLoansMap[m.mirrorLoanId] : null
+            offlineMirrorLoan: m.mirrorLoanId ? offlineLoansMap[m.mirrorLoanId] : null,
+            mirrorLoan: null,
+            originalLoan: null
           };
         }
-        return m;
+        return {
+          ...m,
+          mirrorLoan: m.mirrorLoanId ? mirrorLoanMap.get(m.mirrorLoanId) || null : null,
+          originalLoan: originalLoanMap.get(m.originalLoanId) || null,
+          offlineOriginalLoan: null,
+          offlineMirrorLoan: null
+        };
       });
 
       return NextResponse.json({ success: true, mappings: enrichedMappings });
@@ -330,13 +334,18 @@ export async function GET(request: NextRequest) {
     if (action === 'profit') {
       // Get all mirror loan mappings with extra EMIs
       const mirrorMappings = await db.mirrorLoanMapping.findMany({
-        where: { extraEMICount: { gt: 0 } },
-        include: {
-          originalLoan: {
-            select: { applicationNo: true, customerId: true }
-          }
-        }
+        where: { extraEMICount: { gt: 0 } }
       });
+
+      // Fetch original loan details separately
+      const onlineLoanIds = mirrorMappings.filter(m => !m.isOfflineLoan).map(m => m.originalLoanId);
+      const originalLoans = onlineLoanIds.length > 0 ? await db.loanApplication.findMany({
+        where: { id: { in: onlineLoanIds } },
+        select: { id: true, applicationNo: true, customerId: true }
+      }) : [];
+      
+      const originalLoanMap = new Map<string, typeof originalLoans[number]>();
+      originalLoans.forEach(l => originalLoanMap.set(l.id, l));
 
       let totalPotentialProfit = 0;
       let totalReceivedProfit = 0;
@@ -346,11 +355,13 @@ export async function GET(request: NextRequest) {
         const potentialProfit = mapping.extraEMICount * mapping.originalEMIAmount;
         totalPotentialProfit += potentialProfit;
         totalReceivedProfit += mapping.totalProfitReceived;
+        
+        const originalLoan = mapping.isOfflineLoan ? null : originalLoanMap.get(mapping.originalLoanId);
 
         profitDetails.push({
           id: mapping.id,
           originalLoanId: mapping.originalLoanId,
-          applicationNo: mapping.originalLoan?.applicationNo,
+          applicationNo: originalLoan?.applicationNo,
           extraEMICount: mapping.extraEMICount,
           extraEMIsPaid: mapping.extraEMIsPaid,
           emiAmount: mapping.originalEMIAmount,
@@ -687,14 +698,9 @@ export async function PUT(request: NextRequest) {
       
       console.log(`[Mirror Loan] Updating extra EMI payment page for mapping ${mappingId} to ${extraEMIPaymentPageId || 'default'}`);
       
-      // Get the mapping to find the original loan
+      // Get the mapping
       const mapping = await db.mirrorLoanMapping.findUnique({
-        where: { id: mappingId },
-        include: {
-          originalLoan: {
-            select: { id: true, applicationNo: true }
-          }
-        }
+        where: { id: mappingId }
       });
       
       if (!mapping) {

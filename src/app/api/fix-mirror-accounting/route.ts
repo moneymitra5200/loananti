@@ -17,8 +17,7 @@ export async function POST(request: NextRequest) {
     const mirrorLoan = await db.loanApplication.findUnique({
       where: { id: mirrorLoanId },
       include: {
-        company: { select: { id: true, name: true, code: true } },
-        mirrorLoanMappings: true
+        company: { select: { id: true, name: true, code: true } }
       }
     });
     
@@ -26,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Mirror loan not found' }, { status: 404 });
     }
     
-    // Get the mirror loan mapping
+    // Get the mirror loan mapping - query separately since it's not a relation
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
       where: { mirrorLoanId: mirrorLoanId }
     });
@@ -208,25 +207,54 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     
+    // Get all mirror loan mappings first
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: {
+        mirrorLoanId: { not: null }  // Only online loans have mirrorLoanId
+      },
+      select: {
+        id: true,
+        originalLoanId: true,
+        mirrorLoanId: true,
+        originalCompanyId: true,
+        mirrorCompanyId: true,
+        isOfflineLoan: true
+      }
+    });
+    
+    // Get the mirror loan IDs
+    const mirrorLoanIds = mirrorMappings
+      .filter(m => m.mirrorLoanId)
+      .map(m => m.mirrorLoanId as string);
+    
     // Get all mirror loans (loans that have mirrorLoanMappings)
     const mirrorLoans = await db.loanApplication.findMany({
       where: {
-        status: 'ACTIVE',
-        mirrorLoanMappings: { some: {} }
+        id: { in: mirrorLoanIds },
+        status: 'ACTIVE'
       },
       include: {
-        company: { select: { id: true, name: true, code: true } },
-        mirrorLoanMappings: {
-          include: {
-            originalLoan: {
-              select: { applicationNo: true, company: { select: { id: true, name: true } } }
-            }
-          }
-        }
+        company: { select: { id: true, name: true, code: true } }
       },
       orderBy: { disbursedAt: 'desc' },
       take: 20
     });
+    
+    // Create a map of mirrorLoanId -> mapping
+    const mappingByMirrorLoanId = new Map<string, typeof mirrorMappings[0]>();
+    mirrorMappings.forEach(m => {
+      if (m.mirrorLoanId) {
+        mappingByMirrorLoanId.set(m.mirrorLoanId, m);
+      }
+    });
+    
+    // Get original loan info for the mappings
+    const originalLoanIds = mirrorMappings.map(m => m.originalLoanId);
+    const originalLoans = await db.loanApplication.findMany({
+      where: { id: { in: originalLoanIds } },
+      select: { id: true, applicationNo: true, company: { select: { id: true, name: true } } }
+    });
+    const originalLoanMap = new Map(originalLoans.map(l => [l.id, l]));
     
     // Check which ones have missing accounting
     const loansWithStatus = await Promise.all(mirrorLoans.map(async (loan) => {
@@ -238,12 +266,18 @@ export async function GET(request: NextRequest) {
         where: { referenceId: loan.id, referenceType: 'LOAN_DISBURSEMENT' }
       });
       
+      const mapping = mappingByMirrorLoanId.get(loan.id);
+      const originalLoan = mapping ? originalLoanMap.get(mapping.originalLoanId) : null;
+      
       return {
         id: loan.id,
         applicationNo: loan.applicationNo,
         mirrorCompanyId: loan.companyId,
         mirrorCompanyName: loan.company?.name,
-        originalLoan: loan.mirrorLoanMappings[0]?.originalLoan,
+        originalLoan: originalLoan ? {
+          applicationNo: originalLoan.applicationNo,
+          company: originalLoan.company
+        } : null,
         disbursedAmount: loan.disbursedAmount,
         disbursedAt: loan.disbursedAt,
         hasBankTransaction: bankTxns > 0,

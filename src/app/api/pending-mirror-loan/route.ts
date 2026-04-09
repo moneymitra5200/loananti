@@ -16,13 +16,6 @@ export async function GET(request: NextRequest) {
       const pendingLoan = await db.pendingMirrorLoan.findUnique({
         where: { id },
         include: {
-          originalLoan: {
-            include: {
-              customer: { select: { id: true, name: true, email: true, phone: true } },
-              sessionForm: true,
-              company: { select: { id: true, name: true, code: true } }
-            }
-          },
           mirrorCompany: { select: { id: true, name: true, code: true } },
           originalCompany: { select: { id: true, name: true, code: true } }
         }
@@ -32,7 +25,26 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Pending mirror loan not found' }, { status: 404 });
       }
 
-      return NextResponse.json({ success: true, pendingLoan });
+      // Fetch the original loan separately
+      let originalLoan = null;
+      if (!pendingLoan.isOfflineLoan) {
+        originalLoan = await db.loanApplication.findUnique({
+          where: { id: pendingLoan.originalLoanId },
+          include: {
+            customer: { select: { id: true, name: true, email: true, phone: true } },
+            sessionForm: true,
+            company: { select: { id: true, name: true, code: true } }
+          }
+        });
+      }
+
+      return NextResponse.json({ 
+        success: true, 
+        pendingLoan: {
+          ...pendingLoan,
+          originalLoan
+        }
+      });
     }
 
     // Get pending mirror loans by status
@@ -44,18 +56,31 @@ export async function GET(request: NextRequest) {
     const pendingLoans = await db.pendingMirrorLoan.findMany({
       where: whereClause,
       include: {
-        originalLoan: {
-          include: {
-            customer: { select: { id: true, name: true, email: true, phone: true } },
-            sessionForm: true,
-            company: { select: { id: true, name: true, code: true } }
-          }
-        },
         mirrorCompany: { select: { id: true, name: true, code: true } },
         originalCompany: { select: { id: true, name: true, code: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
+
+    // Fetch original loan details separately for online loans
+    const onlineLoanIds = pendingLoans.filter(p => !p.isOfflineLoan).map(p => p.originalLoanId);
+    const originalLoans = onlineLoanIds.length > 0 ? await db.loanApplication.findMany({
+      where: { id: { in: onlineLoanIds } },
+      include: {
+        customer: { select: { id: true, name: true, email: true, phone: true } },
+        sessionForm: true,
+        company: { select: { id: true, name: true, code: true } }
+      }
+    }) : [];
+    
+    const originalLoanMap = new Map<string, typeof originalLoans[number]>();
+    originalLoans.forEach(l => originalLoanMap.set(l.id, l));
+
+    // Enrich pending loans with original loan data
+    const enrichedPendingLoans = pendingLoans.map(p => ({
+      ...p,
+      originalLoan: p.isOfflineLoan ? null : originalLoanMap.get(p.originalLoanId) || null
+    }));
 
     // Get counts by status
     const counts = await db.pendingMirrorLoan.groupBy({
@@ -76,7 +101,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      pendingLoans,
+      pendingLoans: enrichedPendingLoans,
       counts: statusCounts
     });
   } catch (error) {
@@ -188,11 +213,6 @@ export async function POST(request: NextRequest) {
         approvedAt
       },
       include: {
-        originalLoan: {
-          include: {
-            customer: { select: { id: true, name: true, email: true, phone: true } }
-          }
-        },
         mirrorCompany: { select: { id: true, name: true, code: true } },
         originalCompany: { select: { id: true, name: true, code: true } }
       }
@@ -202,7 +222,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      pendingLoan,
+      pendingLoan: {
+        ...pendingLoan,
+        originalLoan: {
+          customer: { id: originalLoan.customerId, name: originalLoan.customer?.name, email: originalLoan.customer?.email, phone: originalLoan.customer?.phone }
+        }
+      },
       calculation,
       message: status === 'APPROVED' 
         ? 'Mirror loan approved and scheduled. Ready for Cashier disbursement.'
@@ -229,10 +254,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const pendingLoan = await db.pendingMirrorLoan.findUnique({
-      where: { id },
-      include: {
-        originalLoan: { include: { sessionForm: true } }
-      }
+      where: { id }
     });
 
     if (!pendingLoan) {
