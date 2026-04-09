@@ -452,7 +452,11 @@ export class AccountingService {
    * Sync Bank/Cash account balance from actual BankAccount table
    * This ensures ChartOfAccount reflects the real bank balance
    *
-   * @param tx - Database transaction
+   * IMPORTANT: Uses `db` directly (not `tx`) to read BankAccount/CashBook
+   * because we need the LATEST committed balance, not the snapshot from
+   * when the transaction started.
+   *
+   * @param tx - Database transaction (for updating ChartOfAccount)
    * @param accountCode - Account code (1101 for Cash, 1102 for Bank)
    * @param companyId - Company ID
    */
@@ -462,7 +466,7 @@ export class AccountingService {
     companyId: string
   ): Promise<void> {
     try {
-      // Get the ChartOfAccount record
+      // Get the ChartOfAccount record using tx
       const chartAccount = await tx.chartOfAccount.findFirst({
         where: { companyId, accountCode },
       });
@@ -470,40 +474,41 @@ export class AccountingService {
       if (!chartAccount) return;
 
       if (accountCode === ACCOUNT_CODES.BANK_ACCOUNT) {
-        // For Bank Account: Sum all bank account balances for this company
-        const bankAccounts = await tx.bankAccount.findMany({
+        // CRITICAL: Use `db` directly (not `tx`) to get LATEST committed balance
+        // `tx` sees snapshot from transaction start, not latest committed data
+        const bankAccounts = await db.bankAccount.findMany({
           where: { companyId, isActive: true },
-          select: { currentBalance: true },
+          select: { currentBalance: true, accountName: true },
         });
 
         const totalBankBalance = bankAccounts.reduce(
-          (sum: number, acc: { currentBalance: number }) => sum + (acc.currentBalance || 0),
+          (sum: number, acc: { currentBalance: number; accountName: string }) => sum + (acc.currentBalance || 0),
           0
         );
 
-        // Update ChartOfAccount with actual bank balance
+        // Update ChartOfAccount with actual bank balance using tx
         await tx.chartOfAccount.update({
           where: { id: chartAccount.id },
           data: { currentBalance: totalBankBalance },
         });
 
-        console.log(`[Accounting] Synced Bank Account balance: ₹${totalBankBalance} (from ${bankAccounts.length} bank accounts)`);
+        console.log(`[Accounting] Synced Bank Account (1102) balance: ₹${totalBankBalance} (from ${bankAccounts.length} bank accounts: ${bankAccounts.map(b => `${b.accountName}: ₹${b.currentBalance}`).join(', ')})`);
       } else if (accountCode === ACCOUNT_CODES.CASH_IN_HAND) {
-        // For Cash in Hand: Get from CashBook
-        const cashBook = await tx.cashBook.findUnique({
+        // CRITICAL: Use `db` directly (not `tx`) to get LATEST committed balance
+        const cashBook = await db.cashBook.findUnique({
           where: { companyId },
           select: { currentBalance: true },
         });
 
         const cashBalance = cashBook?.currentBalance || 0;
 
-        // Update ChartOfAccount with actual cash balance
+        // Update ChartOfAccount with actual cash balance using tx
         await tx.chartOfAccount.update({
           where: { id: chartAccount.id },
           data: { currentBalance: cashBalance },
         });
 
-        console.log(`[Accounting] Synced Cash in Hand balance: ₹${cashBalance}`);
+        console.log(`[Accounting] Synced Cash in Hand (1101) balance: ₹${cashBalance}`);
       }
     } catch (error) {
       console.error('[Accounting] Failed to sync bank/cash balance:', error);
