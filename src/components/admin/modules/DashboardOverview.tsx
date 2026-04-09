@@ -60,6 +60,10 @@ function DashboardOverview({ loans, users, companies, offlineLoans = [], onViewL
     const totalOfflineDisbursed = activeOfflineLoans.reduce((sum, l) => sum + l.loanAmount, 0);
     const totalPending = pending.reduce((sum, l) => sum + l.requestedAmount, 0);
     
+    // Filter out potential system/customer users for the specific "Users" count
+    const PERMANENT_ADMIN_EMAILS = ['moneymitra@gmail.com'];
+    const nonCustomerUsers = users.filter(u => u.role !== 'CUSTOMER' && !PERMANENT_ADMIN_EMAILS.includes(u.email));
+    
     return { 
       pending, 
       finalApproval, 
@@ -70,9 +74,10 @@ function DashboardOverview({ loans, users, companies, offlineLoans = [], onViewL
       totalDisbursed, 
       totalOfflineDisbursed,
       totalPending,
-      totalActive: active.length + activeOfflineLoans.length
+      totalActive: active.length + activeOfflineLoans.length,
+      userCount: nonCustomerUsers.length
     };
-  }, [loans, offlineLoans]);
+  }, [loans, offlineLoans, users]);
 
   const recentLoans = useMemo(() => [...loans].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 5), [loans]);
 
@@ -145,7 +150,7 @@ function DashboardOverview({ loans, users, companies, offlineLoans = [], onViewL
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-purple-600">Total Users</p>
-                  <p className="text-2xl font-bold text-purple-700">{users.length}</p>
+                  <p className="text-2xl font-bold text-purple-700">{stats.userCount}</p>
                 </div>
                 <Users className="h-8 w-8 text-purple-500" />
               </div>

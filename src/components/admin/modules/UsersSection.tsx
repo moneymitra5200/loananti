@@ -195,7 +195,7 @@ function UsersSection({
 
   // Count by role
   const counts = {
-    total: visibleUsers.length,
+    total: nonCustomerUsers.length,
     companies: visibleUsers.filter(u => u.role === 'COMPANY').length,
     agents: visibleUsers.filter(u => u.role === 'AGENT').length,
     staff: visibleUsers.filter(u => u.role === 'STAFF').length,
