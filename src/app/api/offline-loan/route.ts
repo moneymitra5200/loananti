@@ -793,7 +793,7 @@ export async function POST(request: NextRequest) {
     
     // Handle Mirror Loan creation - Create ACTUAL mirror loan (SAME AS ONLINE LOANS)
     // Online loans create a separate LoanApplication for mirror - we do the same for offline
-    let mirrorLoanResult: { mirrorLoanId: string; mirrorLoanNumber: string; extraEMICount: number; disbursement?: { success: boolean; mode: string; newBalance: number } } | null = null;
+    let mirrorLoanResult: { mirrorLoanId: string; mirrorLoanNumber: string; extraEMICount: number; disbursement?: { success: boolean; mode: string; newBalance: number; bankAmount?: number; cashAmount?: number } } | null = null;
 
     if (isMirrorLoan && mirrorCompanyId && loan) {
       try {
@@ -997,18 +997,29 @@ export async function POST(request: NextRequest) {
 
         // ============================================
         // DEDUCT FROM MIRROR COMPANY'S BANK OR CASH
+        // SUPPORTS: Split Payment (Bank + Cash)
         // CRITICAL FIX: Always create journal entry regardless of disbursement success
-        // Bank/Cash transactions are created when funds are available
-        // If no funds available, journal entry still records the loan receivable
         // ============================================
         let disbursementSuccess = false;
-        let disbursementMode: 'BANK' | 'CASH' | 'PENDING' = 'PENDING';
+        let disbursementMode: 'BANK' | 'CASH' | 'SPLIT' | 'PENDING' = 'PENDING';
         let bankAccountIdUsed: string | null = null;
         let cashBookIdUsed: string | null = null;
         let newBalanceAfterDisbursement = 0;
+        let actualBankAmount = 0;
+        let actualCashAmount = 0;
 
-        // FIRST: Try bank deduction - check ANY active bank (don't require isDefault)
-        // CRITICAL FIX: Don't require isDefault: true, just use any active bank
+        // Check if split payment is requested
+        const isSplitPayment = useSplitPayment && (bankAmount > 0) && (cashAmount > 0);
+        
+        console.log(`[Mirror Loan] Disbursement params:`, {
+          useSplitPayment,
+          bankAmount,
+          cashAmount,
+          isSplitPayment,
+          loanAmount
+        });
+
+        // Get mirror company's bank account
         let mirrorBank = await db.bankAccount.findFirst({
           where: { companyId: mirrorCompanyId, isActive: true }
         });
@@ -1019,87 +1030,159 @@ export async function POST(request: NextRequest) {
           console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}`);
         }
 
-        if (mirrorBank) {
-          try {
-            // Get current balance
-            const currentBank = await db.bankAccount.findUnique({
-              where: { id: mirrorBank.id },
-              select: { currentBalance: true, accountName: true }
-            });
-
-            // Allow disbursement even if balance goes negative (overdraft)
-            // This ensures accounting entries are always created
-            if (currentBank) {
-              const newBalance = currentBank.currentBalance - loanAmount;
-              
-              console.log(`[Mirror Loan] Processing bank deduction: ₹${loanAmount} from '${currentBank.accountName}' (Current: ₹${currentBank.currentBalance})`);
-              
-              // Use transaction to ensure atomicity
-              await db.$transaction([
-                // Update bank balance
-                db.bankAccount.update({
-                  where: { id: mirrorBank.id },
-                  data: { currentBalance: newBalance }
-                }),
-                // Create bank transaction record
-                db.bankTransaction.create({
-                  data: {
-                    bankAccountId: mirrorBank.id,
-                    transactionType: 'DEBIT',
-                    amount: loanAmount,
-                    balanceAfter: newBalance,
-                    description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
-                    referenceType: 'MIRROR_LOAN_DISBURSEMENT',
-                    referenceId: mirrorLoan.id,
-                    createdById
-                  }
-                })
-              ]);
-
-              disbursementSuccess = true;
-              disbursementMode = 'BANK';
-              bankAccountIdUsed = mirrorBank.id;
-              newBalanceAfterDisbursement = newBalance;
-              console.log(`[Mirror Loan] ✓ Bank deduction SUCCESS: ₹${loanAmount} from '${currentBank.accountName}', New Balance: ₹${newBalance}`);
-            } else {
-              console.warn(`[Mirror Loan] Bank account found but could not get balance. Trying cash...`);
-            }
-          } catch (bankError) {
-            console.error(`[Mirror Loan] Bank deduction FAILED:`, bankError);
-            console.log(`[Mirror Loan] Falling back to cash...`);
-          }
-        } else {
-          console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}. Trying cash...`);
-        }
-
-        // SECOND: If bank failed, try cash deduction
-        if (!disbursementSuccess) {
-          try {
-            console.log(`[Mirror Loan] Attempting cash deduction for company ${mirrorCompanyId}...`);
-            const cashResult = await recordCashBookEntry({
-              companyId: mirrorCompanyId,
-              entryType: 'DEBIT',
-              amount: loanAmount,
-              description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
-              referenceType: 'MIRROR_LOAN_DISBURSEMENT',
-              referenceId: mirrorLoan.id,
-              createdById
-            });
-
-            disbursementSuccess = true;
-            disbursementMode = 'CASH';
-            cashBookIdUsed = cashResult.cashBookId;
-            newBalanceAfterDisbursement = cashResult.newBalance;
-            console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS: ₹${loanAmount}, New Cash Balance: ₹${newBalanceAfterDisbursement}`);
-          } catch (cashError) {
-            console.error(`[Mirror Loan] Cash deduction FAILED:`, cashError);
-            // Create cash book if it doesn't exist and retry
+        if (isSplitPayment) {
+          // ============================================
+          // SPLIT PAYMENT: Deduct from both Bank AND Cash
+          // ============================================
+          console.log(`[Mirror Loan] Processing SPLIT PAYMENT: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
+          
+          // 1. Handle Bank Portion
+          if (bankAmount > 0 && mirrorBank) {
             try {
-              console.log(`[Mirror Loan] Creating cash book for company ${mirrorCompanyId}...`);
-              const { getOrCreateCashBook } = await import('@/lib/simple-accounting');
-              await getOrCreateCashBook(mirrorCompanyId);
-              
-              // Retry cash deduction
+              const currentBank = await db.bankAccount.findUnique({
+                where: { id: mirrorBank.id },
+                select: { currentBalance: true, accountName: true }
+              });
+
+              if (currentBank) {
+                const newBalance = currentBank.currentBalance - bankAmount;
+                
+                await db.$transaction([
+                  db.bankAccount.update({
+                    where: { id: mirrorBank.id },
+                    data: { currentBalance: newBalance }
+                  }),
+                  db.bankTransaction.create({
+                    data: {
+                      bankAccountId: mirrorBank.id,
+                      transactionType: 'DEBIT',
+                      amount: bankAmount,
+                      balanceAfter: newBalance,
+                      description: `Mirror Loan Disbursement (Bank Portion) - ${mirrorLoanNumber}`,
+                      referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                      referenceId: mirrorLoan.id,
+                      createdById
+                    }
+                  })
+                ]);
+
+                actualBankAmount = bankAmount;
+                bankAccountIdUsed = mirrorBank.id;
+                newBalanceAfterDisbursement = newBalance;
+                console.log(`[Mirror Loan] ✓ Bank deduction SUCCESS: ₹${bankAmount}, New Balance: ₹${newBalance}`);
+              }
+            } catch (bankError) {
+              console.error(`[Mirror Loan] Bank deduction FAILED:`, bankError);
+            }
+          }
+
+          // 2. Handle Cash Portion
+          if (cashAmount > 0) {
+            try {
+              const cashResult = await recordCashBookEntry({
+                companyId: mirrorCompanyId,
+                entryType: 'DEBIT',
+                amount: cashAmount,
+                description: `Mirror Loan Disbursement (Cash Portion) - ${mirrorLoanNumber}`,
+                referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                referenceId: mirrorLoan.id,
+                createdById
+              });
+
+              actualCashAmount = cashAmount;
+              cashBookIdUsed = cashResult.cashBookId;
+              console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS: ₹${cashAmount}, New Cash Balance: ₹${cashResult.newBalance}`);
+            } catch (cashError) {
+              console.error(`[Mirror Loan] Cash deduction FAILED:`, cashError);
+              // Create cash book if needed and retry
+              try {
+                const { getOrCreateCashBook } = await import('@/lib/simple-accounting');
+                await getOrCreateCashBook(mirrorCompanyId);
+                
+                const cashResult = await recordCashBookEntry({
+                  companyId: mirrorCompanyId,
+                  entryType: 'DEBIT',
+                  amount: cashAmount,
+                  description: `Mirror Loan Disbursement (Cash Portion) - ${mirrorLoanNumber}`,
+                  referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                  referenceId: mirrorLoan.id,
+                  createdById
+                });
+
+                actualCashAmount = cashAmount;
+                cashBookIdUsed = cashResult.cashBookId;
+                console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS after creating cash book: ₹${cashAmount}`);
+              } catch (retryError) {
+                console.error(`[Mirror Loan] Cash retry FAILED:`, retryError);
+              }
+            }
+          }
+
+          // Check if split was successful
+          if (actualBankAmount > 0 || actualCashAmount > 0) {
+            disbursementSuccess = true;
+            disbursementMode = 'SPLIT';
+            console.log(`[Mirror Loan] ✓ SPLIT PAYMENT SUCCESS: Bank ₹${actualBankAmount}, Cash ₹${actualCashAmount}`);
+          }
+
+        } else {
+          // ============================================
+          // SINGLE PAYMENT: Full Bank OR Full Cash
+          // ============================================
+          
+          // FIRST: Try bank deduction
+          if (mirrorBank) {
+            try {
+              const currentBank = await db.bankAccount.findUnique({
+                where: { id: mirrorBank.id },
+                select: { currentBalance: true, accountName: true }
+              });
+
+              if (currentBank) {
+                const newBalance = currentBank.currentBalance - loanAmount;
+                
+                console.log(`[Mirror Loan] Processing bank deduction: ₹${loanAmount} from '${currentBank.accountName}' (Current: ₹${currentBank.currentBalance})`);
+                
+                await db.$transaction([
+                  db.bankAccount.update({
+                    where: { id: mirrorBank.id },
+                    data: { currentBalance: newBalance }
+                  }),
+                  db.bankTransaction.create({
+                    data: {
+                      bankAccountId: mirrorBank.id,
+                      transactionType: 'DEBIT',
+                      amount: loanAmount,
+                      balanceAfter: newBalance,
+                      description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
+                      referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                      referenceId: mirrorLoan.id,
+                      createdById
+                    }
+                  })
+                ]);
+
+                disbursementSuccess = true;
+                disbursementMode = 'BANK';
+                bankAccountIdUsed = mirrorBank.id;
+                actualBankAmount = loanAmount;
+                newBalanceAfterDisbursement = newBalance;
+                console.log(`[Mirror Loan] ✓ Bank deduction SUCCESS: ₹${loanAmount}, New Balance: ₹${newBalance}`);
+              } else {
+                console.warn(`[Mirror Loan] Bank account found but could not get balance. Trying cash...`);
+              }
+            } catch (bankError) {
+              console.error(`[Mirror Loan] Bank deduction FAILED:`, bankError);
+              console.log(`[Mirror Loan] Falling back to cash...`);
+            }
+          } else {
+            console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}. Trying cash...`);
+          }
+
+          // SECOND: If bank failed, try cash deduction
+          if (!disbursementSuccess) {
+            try {
+              console.log(`[Mirror Loan] Attempting cash deduction for company ${mirrorCompanyId}...`);
               const cashResult = await recordCashBookEntry({
                 companyId: mirrorCompanyId,
                 entryType: 'DEBIT',
@@ -1109,14 +1192,39 @@ export async function POST(request: NextRequest) {
                 referenceId: mirrorLoan.id,
                 createdById
               });
-              
+
               disbursementSuccess = true;
               disbursementMode = 'CASH';
               cashBookIdUsed = cashResult.cashBookId;
+              actualCashAmount = loanAmount;
               newBalanceAfterDisbursement = cashResult.newBalance;
-              console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS after creating cash book: ₹${loanAmount}`);
-            } catch (retryError) {
-              console.error(`[Mirror Loan] Cash deduction FAILED after retry:`, retryError);
+              console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS: ₹${loanAmount}, New Cash Balance: ₹${newBalanceAfterDisbursement}`);
+            } catch (cashError) {
+              console.error(`[Mirror Loan] Cash deduction FAILED:`, cashError);
+              try {
+                console.log(`[Mirror Loan] Creating cash book for company ${mirrorCompanyId}...`);
+                const { getOrCreateCashBook } = await import('@/lib/simple-accounting');
+                await getOrCreateCashBook(mirrorCompanyId);
+                
+                const cashResult = await recordCashBookEntry({
+                  companyId: mirrorCompanyId,
+                  entryType: 'DEBIT',
+                  amount: loanAmount,
+                  description: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber})`,
+                  referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                  referenceId: mirrorLoan.id,
+                  createdById
+                });
+                
+                disbursementSuccess = true;
+                disbursementMode = 'CASH';
+                cashBookIdUsed = cashResult.cashBookId;
+                actualCashAmount = loanAmount;
+                newBalanceAfterDisbursement = cashResult.newBalance;
+                console.log(`[Mirror Loan] ✓ Cash deduction SUCCESS after creating cash book: ₹${loanAmount}`);
+              } catch (retryError) {
+                console.error(`[Mirror Loan] Cash deduction FAILED after retry:`, retryError);
+              }
             }
           }
         }
@@ -1124,15 +1232,13 @@ export async function POST(request: NextRequest) {
         // ============================================
         // CREATE ACCOUNTING ENTRY FOR MIRROR COMPANY
         // CRITICAL FIX: ALWAYS create journal entry regardless of disbursement success
-        // If disbursement succeeded: Credit Bank/Cash
-        // If disbursement failed: Credit Borrowed Funds (liability) - money needs to be added
-        // This ensures accounting is ALWAYS recorded and balanced
+        // Supports: BANK, CASH, SPLIT payment modes
         // ============================================
         
         // 1. Create Daybook Entry for Mirror Loan Disbursement
         try {
           const effectivePaymentMode = disbursementSuccess 
-            ? (disbursementMode === 'BANK' ? 'BANK_TRANSFER' : 'CASH')
+            ? (disbursementMode === 'SPLIT' ? 'SPLIT' : disbursementMode === 'BANK' ? 'BANK_TRANSFER' : 'CASH')
             : 'PENDING';
             
           await recordDaybookDisbursement({
@@ -1157,50 +1263,75 @@ export async function POST(request: NextRequest) {
           const accountingService = new AccountingService(mirrorCompanyId);
           await accountingService.initializeChartOfAccounts();
 
-          // Determine the correct credit account based on actual disbursement mode
-          let creditAccountCode: string;
-          let creditNarration: string;
-          
-          if (disbursementSuccess && disbursementMode === 'BANK') {
-            creditAccountCode = ACCOUNT_CODES.BANK_ACCOUNT;
-            creditNarration = 'Bank account debited for mirror loan disbursement';
+          // Build journal entry lines based on disbursement mode
+          const journalLines: Array<{
+            accountCode: string;
+            debitAmount: number;
+            creditAmount: number;
+            loanId?: string;
+            narration: string;
+          }> = [];
+
+          // Debit: Loans Receivable (Asset increases)
+          journalLines.push({
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+            debitAmount: loanAmount,
+            creditAmount: 0,
+            loanId: mirrorLoan.id,
+            narration: 'Mirror loan principal disbursed',
+          });
+
+          // Credit lines based on disbursement mode
+          if (disbursementMode === 'SPLIT' && actualBankAmount > 0 && actualCashAmount > 0) {
+            // SPLIT: Credit both Bank and Cash
+            journalLines.push({
+              accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+              debitAmount: 0,
+              creditAmount: actualBankAmount,
+              narration: `Bank portion (₹${actualBankAmount}) for mirror loan`,
+            });
+            journalLines.push({
+              accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+              debitAmount: 0,
+              creditAmount: actualCashAmount,
+              narration: `Cash portion (₹${actualCashAmount}) for mirror loan`,
+            });
+            console.log(`[Mirror Loan Accounting] SPLIT journal entry: Bank ₹${actualBankAmount}, Cash ₹${actualCashAmount}`);
+          } else if (disbursementSuccess && disbursementMode === 'BANK') {
+            journalLines.push({
+              accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+              debitAmount: 0,
+              creditAmount: loanAmount,
+              narration: 'Bank account debited for mirror loan disbursement',
+            });
           } else if (disbursementSuccess && disbursementMode === 'CASH') {
-            creditAccountCode = ACCOUNT_CODES.CASH_IN_HAND;
-            creditNarration = 'Cash account debited for mirror loan disbursement';
+            journalLines.push({
+              accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+              debitAmount: 0,
+              creditAmount: loanAmount,
+              narration: 'Cash account debited for mirror loan disbursement',
+            });
           } else {
             // Disbursement pending - record as borrowed funds (liability)
-            // This means the mirror company needs to receive funds from somewhere
-            creditAccountCode = ACCOUNT_CODES.BORROWED_FUNDS;
-            creditNarration = 'Pending disbursement - funds to be received';
+            journalLines.push({
+              accountCode: ACCOUNT_CODES.BORROWED_FUNDS,
+              debitAmount: 0,
+              creditAmount: loanAmount,
+              narration: 'Pending disbursement - funds to be received',
+            });
             disbursementMode = 'PENDING';
             console.log(`[Mirror Loan Accounting] Disbursement PENDING - recording as borrowed funds liability`);
           }
 
-          // Create journal entry for mirror loan disbursement
-          // Debit: Loans Receivable (Asset increases)
-          // Credit: Bank/Cash/BorrowedFunds (money left or to be received)
+          // Create journal entry
           await accountingService.createJournalEntry({
             entryDate: new Date(disbursementDate),
             referenceType: 'MIRROR_LOAN_DISBURSEMENT',
             referenceId: mirrorLoan.id,
             narration: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber}) - Principal: ₹${loanAmount.toLocaleString()} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING FUNDS)'}`,
-            lines: [
-              {
-                accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-                debitAmount: loanAmount,
-                creditAmount: 0,
-                loanId: mirrorLoan.id,
-                narration: 'Mirror loan principal disbursed',
-              },
-              {
-                accountCode: creditAccountCode,
-                debitAmount: 0,
-                creditAmount: loanAmount,
-                narration: creditNarration,
-              },
-            ],
+            lines: journalLines,
             createdById: createdById,
-            paymentMode: disbursementMode === 'BANK' ? 'BANK_TRANSFER' : disbursementMode === 'CASH' ? 'CASH' : 'PENDING',
+            paymentMode: disbursementMode === 'SPLIT' ? 'SPLIT' : disbursementMode === 'BANK' ? 'BANK_TRANSFER' : disbursementMode === 'CASH' ? 'CASH' : 'PENDING',
             bankAccountId: bankAccountIdUsed || undefined,
             isAutoEntry: true,
           });
@@ -1208,7 +1339,6 @@ export async function POST(request: NextRequest) {
           console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING)'}`);
         } catch (accountingError) {
           console.error('[Mirror Loan Accounting] Failed to create journal entry:', accountingError);
-          // Don't fail the loan creation, but log prominently
         }
 
         mirrorLoanResult = {
@@ -1218,7 +1348,9 @@ export async function POST(request: NextRequest) {
           disbursement: {
             success: disbursementSuccess,
             mode: disbursementMode,
-            newBalance: newBalanceAfterDisbursement
+            newBalance: newBalanceAfterDisbursement,
+            bankAmount: actualBankAmount,
+            cashAmount: actualCashAmount
           }
         };
 

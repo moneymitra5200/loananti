@@ -784,7 +784,7 @@ export async function PUT(request: NextRequest) {
           where: { companyId: pendingLoan.mirrorCompanyId, accountCode: '1101' }
         });
         
-        // Find or create bank account in Chart of Accounts
+        // Find or create bank account in Chart of Accounts (Use 1102 - Bank Account)
         let bankCOAAccount: Awaited<ReturnType<typeof db.chartOfAccount.findFirst>> = null;
         if (disbursementBankAccountId) {
           const bankAccount = await db.bankAccount.findUnique({
@@ -792,22 +792,23 @@ export async function PUT(request: NextRequest) {
           });
           
           if (bankAccount) {
+            // Use standard bank account code 1102
             bankCOAAccount = await db.chartOfAccount.findFirst({
               where: {
                 companyId: pendingLoan.mirrorCompanyId,
-                accountCode: { startsWith: '14' }
+                accountCode: '1102'
               }
             });
             
             if (!bankCOAAccount) {
-              // Create bank account in Chart of Accounts
+              // Create bank account in Chart of Accounts with code 1102
               bankCOAAccount = await db.chartOfAccount.create({
                 data: {
                   companyId: pendingLoan.mirrorCompanyId,
-                  accountCode: '1401',
-                  accountName: `${bankAccount.bankName} - ${bankAccount.accountNumber.slice(-4)}`,
+                  accountCode: '1102',
+                  accountName: 'Bank Account',
                   accountType: 'ASSET',
-                  description: `Bank Account: ${bankAccount.bankName}`,
+                  description: 'Bank Account for disbursements',
                   openingBalance: 0,
                   currentBalance: bankAccount.currentBalance,
                   isActive: true,
