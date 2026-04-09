@@ -30,6 +30,17 @@ export interface MirrorLoanCalculation {
   extraEMICount: number;
   leftoverAmount: number;
   adjustmentType: 'REDUCE_EMI' | 'LEFTOVER_AMOUNT';
+  /**
+   * Auto-calculated processing fee = originalEMIAmount - lastMirrorEMI.emi
+   * Recorded as income when EMI #1 is paid (only for MIRROR loans).
+   */
+  processingFee: number;
+  /**
+   * Mirror schedule SHIFTED so the last (smallest) EMI is moved to position 1.
+   * New EMI 1 = last mirror EMI (smallest). New EMI 2..N = the remaining regular EMIs.
+   * installmentNumber is re-assigned 1..N after shifting.
+   */
+  shiftedSchedule: EMIScheduleItem[];
 }
 
 export type InterestType = 'FLAT' | 'REDUCING';
@@ -243,12 +254,35 @@ export function calculateMirrorLoan(
     schedule
   };
   
+  // ---- Processing Fee Calculation ----
+  // processingFee = originalEMIAmount - lastMirrorEMI.emi
+  // The last EMI of the mirror schedule is the smallest (reduced due to lower interest).
+  const lastMirrorEMI = schedule[schedule.length - 1];
+  const processingFee = lastMirrorEMI
+    ? Math.max(0, Math.round((emiAmount - lastMirrorEMI.emi) * 100) / 100)
+    : 0;
+
+  // ---- Shifted Schedule ----
+  // Move the last (smallest) EMI to position 1, shift all others down by one.
+  // Re-assign installmentNumbers 1..N.
+  let shiftedSchedule: EMIScheduleItem[] = [];
+  if (schedule.length > 0) {
+    const lastItem = schedule[schedule.length - 1];
+    const rest = schedule.slice(0, schedule.length - 1);
+    shiftedSchedule = [lastItem, ...rest].map((item, idx) => ({
+      ...item,
+      installmentNumber: idx + 1
+    }));
+  }
+
   return {
     originalLoan,
     mirrorLoan,
     extraEMICount: Math.max(0, extraEMICount),
     leftoverAmount,
-    adjustmentType: extraEMICount > 0 ? 'REDUCE_EMI' : 'LEFTOVER_AMOUNT'
+    adjustmentType: extraEMICount > 0 ? 'REDUCE_EMI' : 'LEFTOVER_AMOUNT',
+    processingFee,
+    shiftedSchedule
   };
 }
 

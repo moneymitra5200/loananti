@@ -809,6 +809,47 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ============================================
+    // PROCESSING FEE INCOME — Only for EMI #1 on mirror loans (online)
+    // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
+    // Recorded as income for the original company when EMI #1 is paid
+    // ============================================
+    if (mirrorMapping && newEmiStatus === 'PAID' && emi.installmentNumber === 1) {
+      try {
+        const fullMapping = await db.mirrorLoanMapping.findFirst({
+          where: { id: mirrorMapping.id },
+          select: { mirrorProcessingFee: true, processingFeeRecorded: true, originalCompanyId: true }
+        });
+        if (fullMapping && !fullMapping.processingFeeRecorded && (fullMapping.mirrorProcessingFee ?? 0) > 0) {
+          const procFee = fullMapping.mirrorProcessingFee!;
+          const origCompanyId = fullMapping.originalCompanyId;
+          // Record as cashbook credit in original company
+          let origCashBook = await db.cashBook.findUnique({ where: { companyId: origCompanyId } });
+          if (!origCashBook) {
+            origCashBook = await db.cashBook.create({ data: { companyId: origCompanyId, currentBalance: 0 } });
+          }
+          const newPFBalance = origCashBook.currentBalance + procFee;
+          await db.cashBookEntry.create({
+            data: {
+              cashBookId: origCashBook.id,
+              entryType: 'CREDIT',
+              amount: procFee,
+              balanceAfter: newPFBalance,
+              description: `Mirror Loan Processing Fee - ${emi.loanApplication?.applicationNo} (EMI #1)`,
+              referenceType: 'PROCESSING_FEE',
+              referenceId: loanId,
+              createdById: paidBy
+            }
+          });
+          await db.cashBook.update({ where: { id: origCashBook.id }, data: { currentBalance: newPFBalance } });
+          await db.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
+          console.log(`[Processing Fee] ₹${procFee} income recorded for original company on EMI#1 of ${emi.loanApplication?.applicationNo}`);
+        }
+      } catch (pfErr) {
+        console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);
+      }
+    }
+
     // ============ MIRROR LOAN SYNC FOR FULL EMI PAYMENT ============
     if (mirrorMapping && paymentType === 'FULL_EMI') {
       const installmentNumber = emi.installmentNumber;

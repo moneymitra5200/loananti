@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateMirrorLoan } from '@/lib/mirror-loan';
-import { EMIPaymentStatus } from '@prisma/client';
 
 // GET - Fetch pending mirror loans
 export async function GET(request: NextRequest) {
@@ -483,12 +482,18 @@ export async function PUT(request: NextRequest) {
         }
       });
 
-      // Create EMI schedules for mirror loan
-      const mirrorEMISchedules = calculation.mirrorLoan.schedule.map((emi, index) => {
+      // Create EMI schedules for mirror loan — use SHIFTED schedule
+      // Shifted: last (smallest) EMI moves to position 1; all others shift +1
+      // This is required so EMI #1 triggers the processing fee income recording
+      const scheduleToUse = calculation.shiftedSchedule && calculation.shiftedSchedule.length > 0
+        ? calculation.shiftedSchedule
+        : calculation.mirrorLoan.schedule;
+
+      const mirrorEMISchedules = scheduleToUse.map((emi, index) => {
         const dueDate = new Date();
         dueDate.setMonth(dueDate.getMonth() + index + 1);
         dueDate.setDate(5);
-        
+
         return {
           loanApplicationId: mirrorLoan.id,
           installmentNumber: emi.installmentNumber,
@@ -499,7 +504,7 @@ export async function PUT(request: NextRequest) {
           totalAmount: emi.emi,
           outstandingPrincipal: emi.outstandingPrincipal,
           outstandingInterest: 0,
-          paymentStatus: EMIPaymentStatus.PENDING,
+          paymentStatus: 'PENDING' as const,
         };
       });
 
@@ -541,7 +546,7 @@ export async function PUT(request: NextRequest) {
       console.log(`[Mirror Loan] Created ${originalLoanEMIs.length} EMI Payment Settings`);
       console.log(`[Mirror Loan] ${(originalLoanEMIs.length - mirrorTenure)} EMIs marked as Extra EMIs with secondary payment page`);
 
-      // Create the mirror loan mapping
+      // Create the mirror loan mapping — include processingFee & processingFeeRecorded
       const mirrorMapping = await db.mirrorLoanMapping.create({
         data: {
           originalLoanId: pendingLoan.originalLoanId,
@@ -563,7 +568,10 @@ export async function PUT(request: NextRequest) {
           disbursementCompanyId: pendingLoan.mirrorCompanyId,
           disbursementBankAccountId: disbursementBankAccountId || null,
           extraEMIPaymentPageId: extraEMIPaymentPageId || null,
-          createdBy: userId
+          createdBy: userId,
+          // Processing fee = originalEMI - lastMirrorEMI (recorded as income on EMI#1 payment)
+          mirrorProcessingFee: calculation.processingFee || 0,
+          processingFeeRecorded: false,
         }
       });
 

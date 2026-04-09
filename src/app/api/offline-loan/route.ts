@@ -661,14 +661,8 @@ export async function POST(request: NextRequest) {
     
     // Calculate EMI using the proper helper function that supports both FLAT and REDUCING
     let calculatedEmiAmount: number;
-    let emiSchedule: Array<{
-      installmentNumber: number;
-      dueDate: Date;
-      principal: number;
-      interest: number;
-      totalAmount: number;
-      outstandingPrincipal: number;
-    }> = [];
+    // Uses EMIScheduleItem from @/utils/helpers (totalAmount, no 'emi' field)
+    let emiSchedule: import('@/utils/helpers').EMIScheduleItem[] = [];
     
     if (isInterestOnlyLoan) {
       calculatedEmiAmount = monthlyInterestAmount;
@@ -756,7 +750,7 @@ export async function POST(request: NextRequest) {
           interestAmount: monthlyInterestAmount,
           totalAmount: monthlyInterestAmount,
           outstandingPrincipal: loanAmount, // Principal remains outstanding
-          paymentStatus: EMIPaymentStatus.PENDING,
+          paymentStatus: 'PENDING' as const,
           isInterestOnly: true,
           interestOnlyAmount: monthlyInterestAmount
         }
@@ -779,9 +773,9 @@ export async function POST(request: NextRequest) {
           dueDate,
           principalAmount: item.principal,
           interestAmount: item.interest,
-          totalAmount: item.totalAmount,
+          totalAmount: item.totalAmount, // utils/helpers EMIScheduleItem has .totalAmount
           outstandingPrincipal: item.outstandingPrincipal,
-          paymentStatus: EMIPaymentStatus.PENDING
+          paymentStatus: 'PENDING' as const
         };
       });
 
@@ -818,53 +812,28 @@ export async function POST(request: NextRequest) {
         const mirrorRate = mirrorInterestRate ? parseFloat(mirrorInterestRate) : (isCompany1 ? 15 : 24);
         const mirrorTypeInterest = 'REDUCING'; // Always REDUCING for mirror loans
 
-        // Calculate EMI schedule for mirror loan using SAME EMI amount as original
-        // This is the key to mirror loan logic - same EMI, different interest calculation
+        // Calculate EMI schedule for mirror loan using shared library (supports shifted schedule)
         const originalEmiAmount = calculatedEmiAmount;
+        const { calculateMirrorLoan: calcMirror } = await import('@/lib/mirror-loan');
+        const mirrorCalc = calcMirror(
+          loanAmount,
+          interestRate,
+          tenure || 12,
+          actualInterestType,
+          mirrorRate,
+          mirrorTypeInterest as 'FLAT' | 'REDUCING'
+        );
 
-        // Recalculate mirror schedule with same EMI as original
-        // This ensures the customer pays the same EMI amount
-        const mirrorSchedule: Array<{
-          installmentNumber: number;
-          principal: number;
-          interest: number;
-          totalAmount: number;
-          outstandingPrincipal: number;
-        }> = [];
-
-        const monthlyRate = mirrorRate / 100 / 12;
-        let outstandingPrincipal = loanAmount;
-        let installmentNumber = 1;
-
-        while (outstandingPrincipal > 0.01 && installmentNumber <= 100) {
-          const interest = outstandingPrincipal * monthlyRate;
-          let principalPaid = originalEmiAmount - interest;
-          let emiAmount = originalEmiAmount;
-
-          if (principalPaid >= outstandingPrincipal) {
-            principalPaid = outstandingPrincipal;
-            emiAmount = principalPaid + interest;
-            outstandingPrincipal = 0;
-          } else {
-            outstandingPrincipal = Math.max(0, outstandingPrincipal - principalPaid);
-          }
-
-          mirrorSchedule.push({
-            installmentNumber,
-            principal: principalPaid,
-            interest,
-            totalAmount: emiAmount,
-            outstandingPrincipal
-          });
-
-          installmentNumber++;
-        }
+        // Use the SHIFTED schedule: last (smallest) EMI is moved to EMI #1
+        const mirrorSchedule = mirrorCalc.shiftedSchedule;
+        // Processing fee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
+        const mirrorProcessingFee = mirrorCalc.processingFee;
 
         // Calculate extra EMIs
         const originalTenure = tenure || 12;
-        const mirrorTenure = mirrorSchedule.length;
+        const mirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
         const extraEMICount = Math.max(0, originalTenure - mirrorTenure);
-        const leftoverAmount = 0; // Leftover is handled within the schedule
+        const leftoverAmount = mirrorCalc.leftoverAmount;
 
         // Generate mirror loan number: Company Code + Product Code + Global Sequence (00001)
         const mirrorLoanNumber = await generateMirrorLoanNumber(
@@ -946,9 +915,9 @@ export async function POST(request: NextRequest) {
             dueDate,
             principalAmount: item.principal,
             interestAmount: item.interest,
-            totalAmount: item.totalAmount,
+            totalAmount: item.emi, // EMIScheduleItem uses .emi
             outstandingPrincipal: item.outstandingPrincipal,
-            paymentStatus: EMIPaymentStatus.PENDING
+            paymentStatus: 'PENDING' as const
           };
         });
 
@@ -968,16 +937,16 @@ export async function POST(request: NextRequest) {
         // Calculate total mirror interest
         const totalMirrorInterest = mirrorSchedule.reduce((sum, item) => sum + item.interest, 0);
 
-        // CREATE MIRROR LOAN MAPPING - Link original and mirror
+        // CREATE MIRROR LOAN MAPPING - Link original and mirror with processing fee
         await db.mirrorLoanMapping.create({
           data: {
             originalLoanId: loan.id,
-            mirrorLoanId: mirrorLoan.id, // NOW WE HAVE THE MIRROR LOAN ID
+            mirrorLoanId: mirrorLoan.id,
             originalCompanyId: companyId,
             mirrorCompanyId,
             mirrorType,
-            isOfflineLoan: true, // Mark as offline loan mapping
-            mirrorLoanNumber, // Store the mirror loan number
+            isOfflineLoan: true,
+            mirrorLoanNumber,
             displayColor,
             originalInterestRate: interestRate,
             originalInterestType: interestType || 'FLAT',
@@ -991,6 +960,9 @@ export async function POST(request: NextRequest) {
             disbursementCompanyId: mirrorCompanyId,
             totalMirrorInterest,
             extraEMIPaymentPageId: extraEmiPaymentPageId || null,
+            // Processing fee auto-calculated from shared library
+            mirrorProcessingFee,
+            processingFeeRecorded: false,
             createdBy: createdById
           }
         });
@@ -2425,6 +2397,51 @@ export async function PUT(request: NextRequest) {
       //    - Full EMI amount is profit for Company 3
       // ============================================
       
+
+      // ============================================
+      // PROCESSING FEE INCOME — Only for EMI #1 on mirror loans
+      // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
+      // Recorded as income for the original company when EMI #1 is paid
+      // ============================================
+      if (paymentStatus === 'PAID' && emi.installmentNumber === 1 && mirrorLoanMapping) {
+        try {
+          const fullMapping = await db.mirrorLoanMapping.findFirst({
+            where: { id: mirrorLoanMapping.id },
+            select: { mirrorProcessingFee: true, processingFeeRecorded: true, originalCompanyId: true }
+          });
+
+          if (fullMapping && !fullMapping.processingFeeRecorded && (fullMapping.mirrorProcessingFee ?? 0) > 0) {
+            const procFee = fullMapping.mirrorProcessingFee;
+            const origCompanyId = fullMapping.originalCompanyId;
+
+            try {
+              await recordCashBookEntry({
+                companyId: origCompanyId,
+                entryType: 'CREDIT',
+                amount: procFee,
+                description: `Mirror Loan Processing Fee - ${emi.offlineLoan.loanNumber} (EMI #1)`,
+                referenceType: 'PROCESSING_FEE',
+                referenceId: emi.offlineLoanId,
+                createdById: userId
+              });
+            } catch (cbErr) {
+              console.warn('[Processing Fee] Cashbook entry failed (non-critical):', cbErr);
+            }
+
+            // Mark as recorded to prevent double-booking
+            await db.mirrorLoanMapping.update({
+              where: { id: mirrorLoanMapping.id },
+              data: { processingFeeRecorded: true }
+            });
+
+            console.log(`[Processing Fee] ₹${procFee} income recorded for company ${origCompanyId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
+          }
+        } catch (pfErr) {
+          console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);
+        }
+      }
+
+
       try {
         const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
         const targetCompanyId = isMirrorLoan 

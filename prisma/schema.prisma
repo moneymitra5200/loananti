@@ -2702,6 +2702,8 @@ model MirrorLoanMapping {
   totalMirrorInterest   Float    @default(0)  // Interest that goes to Company 1
   totalExtraEMIProfit   Float    @default(0)  // Profit from extra EMIs for Company 3
   totalProfitReceived   Float    @default(0)  // Actual profit received so far
+  mirrorProcessingFee   Float    @default(0)  // Auto-calc: originalEMI - lastMirrorEMI. Income on EMI#1 payment.
+  processingFeeRecorded Boolean  @default(false) // Set to true once booked as income
   
   // Sync Settings
   mirrorSyncEnabled     Boolean  @default(true)

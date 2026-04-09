@@ -62,14 +62,22 @@ export async function GET(request: NextRequest) {
       // Super admin sees all loans
     } else if (role === 'CUSTOMER' && customerId) {
       // Customer should only see ORIGINAL loans, not mirror loans
-      // Mirror loans are loans where this loan's ID exists as mirrorLoanId in MirrorLoanMapping
-      where.NOT = {
-        mirrorLoanMappings: {
-          some: {}  // Exclude loans that have mirrorLoanMappings (meaning this is a mirror loan)
+      // Fetch mirror loan IDs first
+      try {
+        const mirrorMappings = await db.mirrorLoanMapping.findMany({
+          select: { mirrorLoanId: true }
+        });
+        const mirrorLoanIds = mirrorMappings
+          .map(m => m.mirrorLoanId)
+          .filter(id => id !== null) as string[];
+          
+        if (mirrorLoanIds.length > 0) {
+          where.id = { notIn: mirrorLoanIds };
         }
-      };
-      // Alternative: Check if this loan is a mirror loan (exists as mirrorLoanId)
-      // We need to exclude loans that ARE mirror loans
+      } catch (err) {
+        // If mirrorLoanMapping doesn't exist or fails, just continue without filtering
+        console.warn("Could not filter mirror loans", err);
+      }
     } else if (role === 'COMPANY') {
       if (companyId) where.companyId = companyId;
     } else if (role === 'AGENT' && agentId) {

@@ -1134,7 +1134,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     }
                   </p>
                 </div>
-                <div className="space-y-2"><Label>Processing Fee</Label><Input type="number" value={formData.processingFee} onChange={(e) => handleInputChange('processingFee', e.target.value)} /></div>
+                {/* Processing Fee: hidden for mirror loans - auto-calculated from EMI diff */}
+                {!isMirrorLoan && (
+                  <div className="space-y-2"><Label>Processing Fee</Label><Input type="number" value={formData.processingFee} onChange={(e) => handleInputChange('processingFee', e.target.value)} /></div>
+                )}
               </div>
             </div>
 
@@ -1255,6 +1258,26 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                               </div>
                             </div>
 
+                            {/* Processing Fee Banner - Auto-calculated, Read-only */}
+                            {(() => {
+                              const originalEMI = originalEmiSchedule.length > 0 ? originalEmiSchedule[0].emi : 0;
+                              const lastMirrorEMI = mirrorEmiSchedule.length > 0 ? mirrorEmiSchedule[mirrorEmiSchedule.length - 1].emi : 0;
+                              const procFee = Math.max(0, Math.round((originalEMI - lastMirrorEMI) * 100) / 100);
+                              if (procFee <= 0) return null;
+                              return (
+                                <div className="p-3 bg-orange-50 rounded-lg border border-orange-300 flex items-center gap-3">
+                                  <div className="flex-1">
+                                    <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Auto Processing Fee (Read-only)</p>
+                                    <p className="text-xs text-orange-600 mt-0.5">= Original EMI ({formatCurrency(originalEMI)})  Mirror Last EMI ({formatCurrency(lastMirrorEMI)})</p>
+                                    <p className="text-xs text-orange-500 mt-0.5">Recorded as income when EMI #1 is paid from original loan</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <p className="text-xl font-bold text-orange-700">{formatCurrency(procFee)}</p>
+                                    <p className="text-xs text-orange-500">Processing Fee</p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {/* EMI Schedule Table */}
                             <div className="border rounded-lg overflow-hidden">
                               <div className="bg-gray-100 p-2 border-b">

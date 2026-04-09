@@ -54,9 +54,20 @@ export async function POST(request: NextRequest) {
     const processingFeeMin = product?.processingFeeMin || 500;
     const processingFeeMax = product?.processingFeeMax || 10000;
     
+    // Check if this loan has a mirror mapping — if so processing fee = 0
+    // (the fee is auto-calculated as originalEMI - mirrorLastEMI and tracked in MirrorLoanMapping)
+    const existingMirrorMapping = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanApplicationId }
+    });
+    
     // Calculate processing fee (percentage of approved amount, with min/max limits)
-    let processingFee = (approvedAmount * processingFeePercent) / 100;
-    processingFee = Math.max(processingFeeMin, Math.min(processingFeeMax, processingFee));
+    // For mirror loans: always 0 — fee is tracked in MirrorLoanMapping separately
+    let processingFee = existingMirrorMapping
+      ? 0
+      : (approvedAmount * processingFeePercent) / 100;
+    if (!existingMirrorMapping) {
+      processingFee = Math.max(processingFeeMin, Math.min(processingFeeMax, processingFee));
+    }
 
     // For INTEREST_ONLY loans: only calculate monthly interest
     // For regular loans: calculate full EMI
@@ -113,6 +124,34 @@ export async function POST(request: NextRequest) {
         requestedInterestRate: loan.requestedInterestRate
       }
     });
+
+    // For mirror loans: update the MirrorLoanMapping with the auto-calculated processing fee
+    // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
+    if (existingMirrorMapping && !isInterestOnlyLoan) {
+      try {
+        const { calculateMirrorLoan } = await import('@/lib/mirror-loan');
+        const calc = calculateMirrorLoan(
+          approvedAmount,
+          interestRate,
+          tenure || 10,
+          (interestType || 'FLAT') as 'FLAT' | 'REDUCING',
+          existingMirrorMapping.mirrorInterestRate,
+          existingMirrorMapping.mirrorInterestType as 'FLAT' | 'REDUCING'
+        );
+        if (calc.processingFee > 0) {
+          await db.mirrorLoanMapping.update({
+            where: { id: existingMirrorMapping.id },
+            data: {
+              mirrorProcessingFee: calc.processingFee,
+              processingFeeRecorded: false
+            }
+          });
+          console.log(`[Session] Mirror processing fee set: ₹${calc.processingFee} for loan ${loanApplicationId}`);
+        }
+      } catch (mpfErr) {
+        console.warn('[Session] Could not update mirrorProcessingFee (non-critical):', mpfErr);
+      }
+    }
 
     // Update loan status
     await db.loanApplication.update({
