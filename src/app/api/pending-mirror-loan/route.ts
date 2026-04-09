@@ -26,9 +26,14 @@ export async function GET(request: NextRequest) {
       }
 
       // Fetch the original loan separately
-      let originalLoan = null;
+      type OriginalLoanType = Awaited<ReturnType<typeof db.loanApplication.findUnique>> & {
+        customer: { id: string; name: string; email: string; phone: string } | null;
+        sessionForm: NonNullable<Awaited<ReturnType<typeof db.sessionForm.findFirst>>> | null;
+        company: { id: string; name: string; code: string } | null;
+      };
+      let originalLoan: OriginalLoanType | null = null;
       if (!pendingLoan.isOfflineLoan) {
-        originalLoan = await db.loanApplication.findUnique({
+        const loanData = await db.loanApplication.findUnique({
           where: { id: pendingLoan.originalLoanId },
           include: {
             customer: { select: { id: true, name: true, email: true, phone: true } },
@@ -36,6 +41,9 @@ export async function GET(request: NextRequest) {
             company: { select: { id: true, name: true, code: true } }
           }
         });
+        if (loanData) {
+          originalLoan = loanData as OriginalLoanType;
+        }
       }
 
       return NextResponse.json({ 
@@ -153,7 +161,8 @@ export async function POST(request: NextRequest) {
       where: { id: originalLoanId },
       include: {
         sessionForm: true,
-        company: true
+        company: true,
+        customer: { select: { id: true, name: true, email: true, phone: true } }
       }
     });
 

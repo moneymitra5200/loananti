@@ -303,9 +303,6 @@ export class RulesEngine {
           where: {
             isOfflineLoan: true,
             mirrorLoanId: { not: null }
-          },
-          include: {
-            originalLoan: { select: { id: true, applicationNo: true, companyId: true } }
           }
         });
 
