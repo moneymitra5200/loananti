@@ -46,10 +46,9 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  output: 'standalone', // Creates self-contained build for Hostinger
   turbopack: {},
   images: {
-    unoptimized: true, // Required for shared hosting (no image optimization server)
+    unoptimized: true,
   },
 };
 
