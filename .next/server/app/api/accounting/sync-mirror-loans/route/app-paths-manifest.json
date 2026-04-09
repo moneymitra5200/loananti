@@ -1,0 +1,3 @@
+{
+  "/api/accounting/sync-mirror-loans/route": "app/api/accounting/sync-mirror-loans/route.js"
+}

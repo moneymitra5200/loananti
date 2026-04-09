@@ -1,0 +1,3 @@
+{
+  "/api/admin/cleanup-seed-data/route": "app/api/admin/cleanup-seed-data/route.js"
+}

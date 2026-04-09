@@ -1,0 +1,3 @@
+{
+  "/api/accounting/trial-balance/route": "app/api/accounting/trial-balance/route.js"
+}

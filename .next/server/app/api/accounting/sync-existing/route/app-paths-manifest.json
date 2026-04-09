@@ -1,0 +1,3 @@
+{
+  "/api/accounting/sync-existing/route": "app/api/accounting/sync-existing/route.js"
+}

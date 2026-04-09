@@ -1,0 +1,3 @@
+{
+  "/api/admin/ensure-super-admin/route": "app/api/admin/ensure-super-admin/route.js"
+}

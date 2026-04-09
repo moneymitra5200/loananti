@@ -13,8 +13,8 @@ node_modules
 # testing
 /coverage
 
-# next.js
-/.next/
+# next.js build - included for Hostinger deployment (server can't build due to resource limits)
+# /.next/
 /out/
 
 # production

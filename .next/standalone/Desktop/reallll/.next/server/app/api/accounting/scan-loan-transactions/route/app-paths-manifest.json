@@ -1,0 +1,3 @@
+{
+  "/api/accounting/scan-loan-transactions/route": "app/api/accounting/scan-loan-transactions/route.js"
+}

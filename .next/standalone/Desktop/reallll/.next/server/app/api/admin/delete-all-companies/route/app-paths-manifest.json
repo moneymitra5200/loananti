@@ -1,0 +1,3 @@
+{
+  "/api/admin/delete-all-companies/route": "app/api/admin/delete-all-companies/route.js"
+}
