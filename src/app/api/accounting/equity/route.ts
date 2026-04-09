@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 
-// GET - Fetch all equity entries for a company
+/**
+ * EQUITY API (Correct implementation using ChartOfAccount)
+ *
+ * When owner adds equity:
+ *   Dr Cash in Hand (1101)     → cashAmount
+ *   Dr Bank Account (1102)     → bankAmount
+ *   Cr Owner's Capital (3002)  → totalAmount
+ *
+ * Also syncs CashBook and BankAccount tables for actual balance tracking.
+ */
+
+// GET - Fetch equity data
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
@@ -11,176 +23,255 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    const equityEntries = await db.equityEntry.findMany({
-      where: { companyId },
-      orderBy: { entryDate: 'desc' }
+    // Get Owner's Capital account (3002)
+    const equityAccount = await db.chartOfAccount.findFirst({
+      where: { companyId, accountCode: ACCOUNT_CODES.OWNERS_CAPITAL },
     });
 
-    // Calculate total equity
-    const totalEquity = equityEntries.reduce((sum, entry) => {
-      if (entry.entryType === 'WITHDRAWAL') {
-        return sum - entry.amount;
-      }
-      return sum + entry.amount;
-    }, 0);
+    // Get Cash in Hand account (1101)
+    const cashAccount = await db.chartOfAccount.findFirst({
+      where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND },
+    });
+
+    // Get Bank Account (1102 – aggregated total of real bank accounts)
+    const bankAccounts = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+    });
+    const totalBankBalance = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
+
+    // Get all equity journal entries
+    const equityEntries = await db.journalEntry.findMany({
+      where: { companyId, referenceType: 'EQUITY_INVESTMENT' },
+      include: { lines: { include: { account: true } } },
+      orderBy: { entryDate: 'desc' },
+    });
+
+    // Also get EquityEntry records (legacy helper table)
+    const equityEntryRecords = await db.equityEntry.findMany({
+      where: { companyId },
+      orderBy: { entryDate: 'desc' },
+    });
+
+    const totalEquity = equityAccount?.currentBalance ?? 0;
 
     return NextResponse.json({
-      equityEntries,
-      totalEquity,
-      openingEquity: equityEntries.find(e => e.entryType === 'OPENING')?.amount || 0,
-      additionalEquity: equityEntries
-        .filter(e => e.entryType === 'ADDITIONAL')
-        .reduce((sum, e) => sum + e.amount, 0),
-      withdrawals: equityEntries
-        .filter(e => e.entryType === 'WITHDRAWAL')
-        .reduce((sum, e) => sum + e.amount, 0)
+      equity: totalEquity,
+      cashInHand: cashAccount?.currentBalance || 0,
+      bankBalance: totalBankBalance,
+      accounts: {
+        equity: equityAccount,
+        cash:   cashAccount,
+      },
+      entries:            equityEntries,
+      equityEntryRecords,
     });
   } catch (error) {
-    console.error('Error fetching equity entries:', error);
-    return NextResponse.json({ error: 'Failed to fetch equity entries' }, { status: 500 });
+    console.error('Error fetching equity:', error);
+    return NextResponse.json({ error: 'Failed to fetch equity' }, { status: 500 });
   }
 }
 
-// POST - Add new equity entry
+// POST - Add new equity
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, entryType, amount, description, entryDate, createdById } = body;
+    const {
+      companyId,
+      cashAmount = 0,
+      bankAmount = 0,
+      description,
+      createdById,
+      // Legacy single-amount support
+      entryType,
+      amount,
+      entryDate,
+    } = body;
 
-    if (!companyId || !entryType || !amount || !createdById) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    // Support both new (cashAmount/bankAmount) and old (entryType/amount) format
+    let effectiveCash = cashAmount;
+    let effectiveBank = bankAmount;
+
+    if (amount && (cashAmount === 0 && bankAmount === 0)) {
+      // Legacy call – treat entire amount as bank if entryType is provided
+      effectiveCash = 0;
+      effectiveBank = parseFloat(amount);
     }
 
-    // Create equity entry
-    const equityEntry = await db.equityEntry.create({
-      data: {
-        companyId,
-        entryType,
-        amount: parseFloat(amount),
-        description,
-        entryDate: entryDate ? new Date(entryDate) : new Date(),
-        createdById
+    const totalAmount = effectiveCash + effectiveBank;
+
+    if (!companyId || totalAmount <= 0) {
+      return NextResponse.json({
+        error: 'Invalid request. Company ID and at least one amount (cash or bank) are required.',
+      }, { status: 400 });
+    }
+
+    // Initialize chart of accounts for this company if needed
+    const accountingService = new AccountingService(companyId);
+    await accountingService.initializeChartOfAccounts();
+
+    const result = await db.$transaction(async (tx) => {
+      // ─── 1. Get accounts ─────────────────────────────────────────────
+      const equityAcc = await tx.chartOfAccount.findFirst({
+        where: { companyId, accountCode: ACCOUNT_CODES.OWNERS_CAPITAL },
+      });
+      const cashAcc = effectiveCash > 0
+        ? await tx.chartOfAccount.findFirst({ where: { companyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND } })
+        : null;
+      const bankAcc = effectiveBank > 0
+        ? await tx.chartOfAccount.findFirst({ where: { companyId, accountCode: ACCOUNT_CODES.BANK_ACCOUNT } })
+        : null;
+
+      if (!equityAcc) throw new Error('Owner\'s Capital (3002) account not found. Please initialize chart of accounts.');
+
+      // ─── 2. Build journal lines ────────────────────────────────────
+      const journalLines: Array<{ accountId: string; debitAmount: number; creditAmount: number; narration: string }> = [];
+
+      if (effectiveCash > 0 && cashAcc) {
+        journalLines.push({
+          accountId:    cashAcc.id,
+          debitAmount:  effectiveCash,
+          creditAmount: 0,
+          narration:    'Owner equity - Cash',
+        });
+
+        // Update ChartOfAccount balance
+        await tx.chartOfAccount.update({
+          where: { id: cashAcc.id },
+          data: { currentBalance: cashAcc.currentBalance + effectiveCash },
+        });
+
+        // Update CashBook
+        let cashBook = await tx.cashBook.findUnique({ where: { companyId } });
+        if (!cashBook) {
+          cashBook = await tx.cashBook.create({
+            data: { companyId, openingBalance: 0, currentBalance: 0 },
+          });
+        }
+        const newCashBalance = cashBook.currentBalance + effectiveCash;
+        await tx.cashBook.update({
+          where: { id: cashBook.id },
+          data: { currentBalance: newCashBalance, lastUpdatedAt: new Date() },
+        });
+        await tx.cashBookEntry.create({
+          data: {
+            cashBookId:    cashBook.id,
+            entryType:     'CREDIT',
+            amount:        effectiveCash,
+            balanceAfter:  newCashBalance,
+            description:   description || 'Owner equity investment – Cash',
+            referenceType: 'EQUITY_INVESTMENT',
+            createdById:   createdById || 'system',
+            entryDate:     entryDate ? new Date(entryDate) : new Date(),
+          },
+        });
       }
-    });
 
-    // Create journal entry for this equity
-    const entryNumber = `JE-EQ-${Date.now()}`;
-    
-    // Get or create Equity account head
-    let equityAccount = await db.accountHead.findFirst({
-      where: { companyId, headCode: 'EQUITY-001' }
-    });
+      if (effectiveBank > 0 && bankAcc) {
+        journalLines.push({
+          accountId:    bankAcc.id,
+          debitAmount:  effectiveBank,
+          creditAmount: 0,
+          narration:    'Owner equity - Bank',
+        });
 
-    if (!equityAccount) {
-      equityAccount = await db.accountHead.create({
-        data: {
-          companyId,
-          headCode: 'EQUITY-001',
-          headName: 'Owner\'s Equity',
-          headType: 'EQUITY',
-          isSystemHead: true
-        }
-      });
-    }
+        // Update ChartOfAccount balance for bank (1102)
+        await tx.chartOfAccount.update({
+          where: { id: bankAcc.id },
+          data: { currentBalance: bankAcc.currentBalance + effectiveBank },
+        });
 
-    // Get or create Cash/Bank account head
-    let bankAccount = await db.accountHead.findFirst({
-      where: { companyId, headCode: 'ASSET-001' }
-    });
-
-    if (!bankAccount) {
-      bankAccount = await db.accountHead.create({
-        data: {
-          companyId,
-          headCode: 'ASSET-001',
-          headName: 'Bank Account',
-          headType: 'ASSET',
-          isSystemHead: true
-        }
-      });
-    }
-
-    // Create journal entry
-    const journalEntry = await db.journalEntry.create({
-      data: {
-        companyId,
-        entryNumber,
-        entryDate: equityEntry.entryDate,
-        referenceType: 'EQUITY_ENTRY',
-        referenceId: equityEntry.id,
-        narration: description || `${entryType} Equity Entry`,
-        totalDebit: amount,
-        totalCredit: amount,
-        isAutoEntry: true,
-        createdById,
-        lines: {
-          create: [
-            {
-              accountId: bankAccount.id,
-              debitAmount: parseFloat(amount),
-              creditAmount: 0
+        // Update actual BankAccount table
+        const defaultBank = await tx.bankAccount.findFirst({
+          where: { companyId, isDefault: true, isActive: true },
+        });
+        if (defaultBank) {
+          const newBankBalance = defaultBank.currentBalance + effectiveBank;
+          await tx.bankAccount.update({
+            where: { id: defaultBank.id },
+            data: { currentBalance: newBankBalance },
+          });
+          await tx.bankTransaction.create({
+            data: {
+              bankAccountId:   defaultBank.id,
+              transactionType: 'CREDIT',
+              amount:          effectiveBank,
+              balanceAfter:    newBankBalance,
+              description:     description || 'Owner equity investment – Bank',
+              referenceType:   'EQUITY_INVESTMENT',
+              transactionDate: entryDate ? new Date(entryDate) : new Date(),
+              createdById:     createdById || 'system',
             },
-            {
-              accountId: equityAccount.id,
-              debitAmount: 0,
-              creditAmount: parseFloat(amount)
-            }
-          ]
+          });
         }
       }
-    });
 
-    // Create daybook entries
-    await db.daybookEntry.createMany({
-      data: [
-        {
+      // ─── 3. Credit Owner's Capital ────────────────────────────────
+      journalLines.push({
+        accountId:    equityAcc.id,
+        debitAmount:  0,
+        creditAmount: totalAmount,
+        narration:    description || "Owner's capital investment",
+      });
+
+      await tx.chartOfAccount.update({
+        where: { id: equityAcc.id },
+        data: { currentBalance: equityAcc.currentBalance + totalAmount },
+      });
+
+      // ─── 4. Create journal entry ───────────────────────────────────
+      const count = await tx.journalEntry.count({ where: { companyId } });
+      const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
+
+      const journalEntry = await tx.journalEntry.create({
+        data: {
           companyId,
-          entryNumber: `DB-${Date.now()}-1`,
-          entryDate: equityEntry.entryDate,
-          accountHeadId: bankAccount.id,
-          accountHeadName: bankAccount.headName,
-          accountType: 'ASSET',
-          particular: description || `${entryType} Equity Entry`,
-          referenceType: 'EQUITY_ENTRY',
-          referenceId: equityEntry.id,
-          debit: parseFloat(amount),
-          credit: 0,
-          sourceType: 'JOURNAL_ENTRY',
-          sourceId: journalEntry.id,
-          createdById
+          entryNumber,
+          entryDate: entryDate ? new Date(entryDate) : new Date(),
+          referenceType: 'EQUITY_INVESTMENT',
+          narration: description || `Owner's capital investment – Cash: ₹${effectiveCash}, Bank: ₹${effectiveBank}`,
+          totalDebit:  totalAmount,
+          totalCredit: totalAmount,
+          isAutoEntry: false,
+          isApproved:  true,
+          createdById: createdById || 'system',
+          lines: { create: journalLines },
         },
-        {
-          companyId,
-          entryNumber: `DB-${Date.now()}-2`,
-          entryDate: equityEntry.entryDate,
-          accountHeadId: equityAccount.id,
-          accountHeadName: equityAccount.headName,
-          accountType: 'EQUITY',
-          particular: description || `${entryType} Equity Entry`,
-          referenceType: 'EQUITY_ENTRY',
-          referenceId: equityEntry.id,
-          debit: 0,
-          credit: parseFloat(amount),
-          sourceType: 'JOURNAL_ENTRY',
-          sourceId: journalEntry.id,
-          createdById
-        }
-      ]
-    });
+        include: { lines: { include: { account: true } } },
+      });
 
-    // Update equity entry with journal reference
-    await db.equityEntry.update({
-      where: { id: equityEntry.id },
-      data: { journalEntryId: journalEntry.id }
-    });
+      // ─── 5. Also create EquityEntry record for history ────────────
+      const equityEntryRecord = await tx.equityEntry.create({
+        data: {
+          companyId,
+          entryType:      entryType || 'ADDITIONAL',
+          amount:         totalAmount,
+          description:    description || 'Owner equity investment',
+          entryDate:      entryDate ? new Date(entryDate) : new Date(),
+          createdById:    createdById || 'system',
+          journalEntryId: journalEntry.id,
+        },
+      }).catch(() => null); // Don't fail if EquityEntry creation fails
+
+      return { journalEntry, equityBalance: equityAcc.currentBalance + totalAmount, equityEntryRecord };
+    }, { maxWait: 30000, timeout: 60000 });
 
     return NextResponse.json({
       success: true,
-      equityEntry,
-      journalEntry
+      message: 'Equity added successfully',
+      entryNumber:    result.journalEntry.entryNumber,
+      journalEntry:   result.journalEntry,
+      summary: {
+        cashAdded:       effectiveCash,
+        bankAdded:       effectiveBank,
+        totalEquity:     totalAmount,
+        newEquityBalance: result.equityBalance,
+      },
     });
   } catch (error) {
-    console.error('Error creating equity entry:', error);
-    return NextResponse.json({ error: 'Failed to create equity entry' }, { status: 500 });
+    console.error('Error adding equity:', error);
+    return NextResponse.json({
+      error:   'Failed to add equity',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    }, { status: 500 });
   }
 }

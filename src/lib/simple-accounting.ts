@@ -144,21 +144,18 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
   }
 
   if (!targetBankId) {
-    // Create default bank account if none exists
-    const newBank = await db.bankAccount.create({
-      data: {
-        companyId,
-        bankName: 'Default Bank Account',
-        accountNumber: `${companyId.slice(0, 8).toUpperCase()}-001`,
-        accountName: 'Operating Account',
-        accountType: 'CURRENT',
-        openingBalance: 0,
-        currentBalance: 0,
-        isDefault: true,
-        isActive: true
-      }
+    // No bank account configured – fall back to CashBook so money is not lost
+    console.warn(`[Bank] No bank account found for company ${companyId}. Falling back to CashBook.`);
+    const cashResult = await recordCashBookEntry({
+      companyId,
+      entryType: transactionType === 'CREDIT' ? 'CREDIT' : 'DEBIT',
+      amount,
+      description: `[Bank Fallback] ${description}`,
+      referenceType,
+      referenceId,
+      createdById,
     });
-    targetBankId = newBank.id;
+    return { success: true, bankAccountId: 'CASHBOOK', newBalance: cashResult.newBalance };
   }
 
   // Get current balance

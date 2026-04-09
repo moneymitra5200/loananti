@@ -532,8 +532,9 @@ export class AccountingService {
 
   /**
    * LOAN DISBURSEMENT
-   * Debit: Loans Receivable (Asset)
-   * Credit: Bank Account (Asset)
+   * Debit: Loans Receivable (Asset) — loan goes out
+   * Credit: Bank Account (1102) for online/bank transfers
+   * Credit: Cash in Hand (1101) for cash disbursements
    */
   async recordLoanDisbursement(params: {
     loanId: string;
@@ -545,11 +546,19 @@ export class AccountingService {
     paymentMode: string;
     reference?: string;
   }): Promise<string> {
+    // Determine which account is being emptied to fund the loan
+    const isOnlinePayment = ['ONLINE', 'BANK_TRANSFER', 'UPI', 'NEFT', 'RTGS', 'IMPS'].includes(
+      (params.paymentMode || '').toUpperCase()
+    );
+    const creditAccountCode = isOnlinePayment
+      ? ACCOUNT_CODES.BANK_ACCOUNT
+      : ACCOUNT_CODES.CASH_IN_HAND;
+
     return this.createJournalEntry({
       entryDate: params.disbursementDate,
       referenceType: 'LOAN_DISBURSEMENT',
       referenceId: params.loanId,
-      narration: `Loan disbursement - Principal: ₹${params.amount.toLocaleString()}`,
+      narration: `Loan disbursement - Principal: ₹${params.amount.toLocaleString()} (${params.paymentMode})`,
       lines: [
         {
           accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
@@ -560,10 +569,12 @@ export class AccountingService {
           narration: 'Loan principal disbursed',
         },
         {
-          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+          accountCode: creditAccountCode,
           debitAmount: 0,
           creditAmount: params.amount,
-          narration: 'Payment from bank',
+          narration: isOnlinePayment
+            ? 'Bank payment for loan disbursement'
+            : 'Cash payment for loan disbursement',
         },
       ],
       createdById: params.createdById,
@@ -605,12 +616,20 @@ export class AccountingService {
       narration?: string;
     }> = [];
 
-    // Debit Bank Account (total received)
+    // Determine which account receives the cash (Bank for online, Cash for walk-in)
+    const isOnlinePayment = ['ONLINE', 'BANK_TRANSFER', 'UPI', 'NEFT', 'RTGS', 'IMPS'].includes(
+      (params.paymentMode || '').toUpperCase()
+    );
+    const debitAccountCode = isOnlinePayment
+      ? ACCOUNT_CODES.BANK_ACCOUNT
+      : ACCOUNT_CODES.CASH_IN_HAND;
+
+    // Debit Bank or Cash (total received)
     lines.push({
-      accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+      accountCode: debitAccountCode,
       debitAmount: params.totalAmount,
       creditAmount: 0,
-      narration: `EMI received - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`,
+      narration: `EMI received (${params.paymentMode}) - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`,
     });
 
     // Credit Loans Receivable (reduces asset)
