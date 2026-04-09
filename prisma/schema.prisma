@@ -394,11 +394,9 @@ model LoanApplication {
   // Loan Type Specific Details
   goldLoanDetail        GoldLoanDetail?
   vehicleLoanDetail     VehicleLoanDetail?
-  // Mirror Loan Relations
-  originalLoanMappings  MirrorLoanMapping[] @relation("OriginalLoan")
-  mirrorLoanMappings    MirrorLoanMapping[] @relation("MirrorLoan")
-  // Pending Mirror Loan Relations
-  pendingMirrorLoans    PendingMirrorLoan[] @relation("PendingMirrorOriginalLoan")
+  // Mirror Loan Relations - Note: MirrorLoanMapping now supports both online and offline loans
+  // Relations removed to support offline loan IDs without foreign key constraints
+  // Pending Mirror Loan Relations - Also removed for same reason
   @@index([applicationNo])
   @@index([customerId])
   @@index([status])
@@ -2717,8 +2715,9 @@ model MirrorLoanMapping {
   updatedAt             DateTime @updatedAt
   
   // Relations
-  originalLoan          LoanApplication @relation("OriginalLoan", fields: [originalLoanId], references: [id])
-  mirrorLoan            LoanApplication? @relation("MirrorLoan", fields: [mirrorLoanId], references: [id])
+  // NOTE: For offline loans (isOfflineLoan=true), the IDs refer to OfflineLoan table
+  // For online loans (isOfflineLoan=false), the IDs refer to LoanApplication table
+  // We don't use foreign key constraints here to support both tables
   mirrorCompany         Company @relation(fields: [mirrorCompanyId], references: [id])
   originalCompany       Company @relation("OriginalCompany", fields: [originalCompanyId], references: [id])
   
@@ -2739,6 +2738,9 @@ model PendingMirrorLoan {
   
   // Mirror Type
   mirrorType            String   // COMPANY_1_15_PERCENT or COMPANY_2_SAME_RATE
+  
+  // Offline Loan Support
+  isOfflineLoan         Boolean  @default(false)  // TRUE if this mapping is for an offline loan
   
   // Interest Configuration
   originalInterestRate  Float    // e.g., 24%
@@ -2779,8 +2781,8 @@ model PendingMirrorLoan {
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   
-  // Relations
-  originalLoan          LoanApplication @relation("PendingMirrorOriginalLoan", fields: [originalLoanId], references: [id])
+  // Relations - Note: For offline loans (isOfflineLoan=true), originalLoanId refers to OfflineLoan table
+  // We don't use foreign key constraints here to support both tables
   mirrorCompany         Company @relation(fields: [mirrorCompanyId], references: [id])
   originalCompany       Company @relation("PendingMirrorOriginalCompany", fields: [originalCompanyId], references: [id])
   
