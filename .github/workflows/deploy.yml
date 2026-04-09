@@ -1,0 +1,45 @@
+name: Deploy to Hostinger VPS
+
+on:
+  push:
+    branches:
+      - main   # Every push to main → auto deploy to live server
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd /var/www/loananti
+            
+            # Pull latest code
+            git pull origin main
+            
+            # Install dependencies
+            npm install --frozen-lockfile
+            
+            # Generate Prisma client
+            npx prisma generate
+            
+            # Push any schema changes to DB
+            npx prisma db push --accept-data-loss
+            
+            # Build the app
+            npm run build
+            
+            # Restart app with PM2 (zero downtime)
+            pm2 restart loananti || pm2 start npm --name "loananti" -- start
+            pm2 save
+            
+            echo "✅ Deployment complete!"
