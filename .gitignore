@@ -60,9 +60,9 @@ db/*.db-journal
 *.sqlite
 *.sqlite3
 
-# Upload folder (keep structure but ignore content)
-upload/*
-!upload/.gitkeep
+# Upload folder - NEVER commit customer documents to GitHub (privacy/security!)
+public/uploads/
+!public/uploads/.gitkeep
 
 # Logs
 *.log
