@@ -363,6 +363,10 @@ export class AccountingService {
 
   /**
    * Update account balance (with debit/credit rules)
+   *
+   * IMPORTANT: For Bank Account (1102) and Cash in Hand (1101),
+   * we sync the balance from BankAccount table instead of updating separately.
+   * This prevents double deduction since BankAccount table is the source of truth.
    */
   private async updateAccountBalance(
     tx: any,
@@ -377,24 +381,39 @@ export class AccountingService {
 
     if (!account) return;
 
+    // ============================================
+    // CRITICAL FIX: Skip balance update for Bank/Cash accounts
+    // BankAccount table is the source of truth for these accounts
+    // ChartOfAccount balance will be synced from BankAccount
+    // ============================================
+    const isBankOrCashAccount = account.accountCode === ACCOUNT_CODES.BANK_ACCOUNT ||
+                                 account.accountCode === ACCOUNT_CODES.CASH_IN_HAND;
+
     // Balance calculation based on account type
     // Assets & Expenses: Debit increases, Credit decreases
     // Liabilities, Income & Equity: Credit increases, Debit decreases
     let balanceChange = 0;
-    
+
     if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
       balanceChange = debitAmount - creditAmount;
     } else {
       balanceChange = creditAmount - debitAmount;
     }
 
-    // Update current balance
-    await tx.chartOfAccount.update({
-      where: { id: accountId },
-      data: {
-        currentBalance: account.currentBalance + balanceChange,
-      },
-    });
+    // Update current balance - BUT skip for bank/cash accounts
+    // Their balance comes from BankAccount table (actual bank balance)
+    if (!isBankOrCashAccount) {
+      await tx.chartOfAccount.update({
+        where: { id: accountId },
+        data: {
+          currentBalance: account.currentBalance + balanceChange,
+        },
+      });
+    } else {
+      // For bank/cash accounts, sync from actual BankAccount table
+      // This ensures ChartOfAccount reflects the real bank balance
+      await this.syncBankCashBalance(tx, account.accountCode, this.companyId);
+    }
 
     // Update ledger balance for the financial year
     const ledgerBalance = await tx.ledgerBalance.findUnique({
@@ -427,6 +446,79 @@ export class AccountingService {
         },
       });
     }
+  }
+
+  /**
+   * Sync Bank/Cash account balance from actual BankAccount table
+   * This ensures ChartOfAccount reflects the real bank balance
+   *
+   * @param tx - Database transaction
+   * @param accountCode - Account code (1101 for Cash, 1102 for Bank)
+   * @param companyId - Company ID
+   */
+  private async syncBankCashBalance(
+    tx: any,
+    accountCode: string,
+    companyId: string
+  ): Promise<void> {
+    try {
+      // Get the ChartOfAccount record
+      const chartAccount = await tx.chartOfAccount.findFirst({
+        where: { companyId, accountCode },
+      });
+
+      if (!chartAccount) return;
+
+      if (accountCode === ACCOUNT_CODES.BANK_ACCOUNT) {
+        // For Bank Account: Sum all bank account balances for this company
+        const bankAccounts = await tx.bankAccount.findMany({
+          where: { companyId, isActive: true },
+          select: { currentBalance: true },
+        });
+
+        const totalBankBalance = bankAccounts.reduce(
+          (sum: number, acc: { currentBalance: number }) => sum + (acc.currentBalance || 0),
+          0
+        );
+
+        // Update ChartOfAccount with actual bank balance
+        await tx.chartOfAccount.update({
+          where: { id: chartAccount.id },
+          data: { currentBalance: totalBankBalance },
+        });
+
+        console.log(`[Accounting] Synced Bank Account balance: ₹${totalBankBalance} (from ${bankAccounts.length} bank accounts)`);
+      } else if (accountCode === ACCOUNT_CODES.CASH_IN_HAND) {
+        // For Cash in Hand: Get from CashBook
+        const cashBook = await tx.cashBook.findUnique({
+          where: { companyId },
+          select: { currentBalance: true },
+        });
+
+        const cashBalance = cashBook?.currentBalance || 0;
+
+        // Update ChartOfAccount with actual cash balance
+        await tx.chartOfAccount.update({
+          where: { id: chartAccount.id },
+          data: { currentBalance: cashBalance },
+        });
+
+        console.log(`[Accounting] Synced Cash in Hand balance: ₹${cashBalance}`);
+      }
+    } catch (error) {
+      console.error('[Accounting] Failed to sync bank/cash balance:', error);
+    }
+  }
+
+  /**
+   * Public method to sync all bank/cash balances for a company
+   * Call this when you need to ensure ChartOfAccount reflects actual balances
+   */
+  async syncAllBankCashBalances(): Promise<void> {
+    const tx = db; // Use db directly for non-transaction context
+
+    await this.syncBankCashBalance(tx, ACCOUNT_CODES.BANK_ACCOUNT, this.companyId);
+    await this.syncBankCashBalance(tx, ACCOUNT_CODES.CASH_IN_HAND, this.companyId);
   }
 
   // ============================================
