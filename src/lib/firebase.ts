@@ -12,6 +12,7 @@ import {
   RecaptchaVerifier,
   signInWithCredential
 } from 'firebase/auth';
+import { getAnalytics, isSupported } from "firebase/analytics";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -28,10 +29,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Initialize Analytics safely (it only works on the browser/client-side)
-let analytics;
 if (typeof window !== "undefined") {
-  const { getAnalytics } = require("firebase/analytics");
-  analytics = getAnalytics(app);
+  isSupported().then((supported) => {
+    if (supported) getAnalytics(app);
+  });
 }
 
 export const auth = getAuth(app);
