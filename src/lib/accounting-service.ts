@@ -902,6 +902,140 @@ export class AccountingService {
     });
   }
 
+  /**
+   * EXTERNAL BORROWING (Loan from Bank/Outside)
+   * When the company borrows money from external sources (bank, financial institution, person)
+   * 
+   * Debit: Bank Account (Asset increases - money received)
+   * Credit: Bank Loans or Borrowed Funds (Liability increases - money owed)
+   * 
+   * IMPORTANT: This is NOT income! The borrowed amount must be repaid.
+   */
+  async recordExternalBorrowing(params: {
+    amount: number;
+    source: string; // e.g., "HDFC Bank", "Personal Loan from XYZ"
+    loanType: 'BANK_LOAN' | 'BORROWED_FUNDS' | 'INVESTOR_CAPITAL';
+    borrowingDate: Date;
+    createdById: string;
+    bankAccountId?: string;
+    reference?: string;
+    interestRate?: number;
+    dueDate?: Date;
+    description?: string;
+  }): Promise<string> {
+    // Determine which liability account to use
+    const liabilityAccountCode = params.loanType === 'BANK_LOAN' 
+      ? ACCOUNT_CODES.BANK_LOANS 
+      : params.loanType === 'INVESTOR_CAPITAL'
+        ? ACCOUNT_CODES.INVESTOR_CAPITAL
+        : ACCOUNT_CODES.BORROWED_FUNDS;
+
+    const narration = params.description || `Loan received from ${params.source} - Principal: ₹${params.amount.toLocaleString()}`;
+
+    return this.createJournalEntry({
+      entryDate: params.borrowingDate,
+      referenceType: 'MANUAL_ENTRY',
+      narration,
+      lines: [
+        {
+          // Debit: Bank Account (Asset increases - money IN)
+          accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+          debitAmount: params.amount,
+          creditAmount: 0,
+          narration: `Loan received from ${params.source}`,
+        },
+        {
+          // Credit: Liability Account (Liability increases - money OWED)
+          accountCode: liabilityAccountCode,
+          debitAmount: 0,
+          creditAmount: params.amount,
+          narration: `Loan payable to ${params.source}`,
+        },
+      ],
+      createdById: params.createdById,
+      paymentMode: 'BANK_TRANSFER',
+      bankAccountId: params.bankAccountId,
+      bankRefNumber: params.reference,
+      isAutoEntry: true,
+    });
+  }
+
+  /**
+   * LOAN REPAYMENT (Paying back external borrowing)
+   * When the company repays the borrowed money
+   * 
+   * Debit: Bank Loans or Borrowed Funds (Liability decreases)
+   * Debit: Interest Expense (Interest paid)
+   * Credit: Bank Account (Asset decreases - money OUT)
+   */
+  async recordLoanRepayment(params: {
+    amount: number;
+    principalComponent: number;
+    interestComponent: number;
+    source: string;
+    loanType: 'BANK_LOAN' | 'BORROWED_FUNDS' | 'INVESTOR_CAPITAL';
+    repaymentDate: Date;
+    createdById: string;
+    bankAccountId?: string;
+    reference?: string;
+    description?: string;
+  }): Promise<string> {
+    const liabilityAccountCode = params.loanType === 'BANK_LOAN' 
+      ? ACCOUNT_CODES.BANK_LOAN 
+      : params.loanType === 'INVESTOR_CAPITAL'
+        ? ACCOUNT_CODES.INVESTOR_CAPITAL
+        : ACCOUNT_CODES.BORROWED_FUNDS;
+
+    const lines: Array<{
+      accountCode: string;
+      debitAmount: number;
+      creditAmount: number;
+      narration?: string;
+    }> = [];
+
+    // Debit: Liability Account (reduces what we owe)
+    if (params.principalComponent > 0) {
+      lines.push({
+        accountCode: liabilityAccountCode,
+        debitAmount: params.principalComponent,
+        creditAmount: 0,
+        narration: `Principal repayment to ${params.source}`,
+      });
+    }
+
+    // Debit: Interest Expense (cost of borrowing)
+    if (params.interestComponent > 0) {
+      lines.push({
+        accountCode: ACCOUNT_CODES.INTEREST_EXPENSE,
+        debitAmount: params.interestComponent,
+        creditAmount: 0,
+        narration: `Interest paid to ${params.source}`,
+      });
+    }
+
+    // Credit: Bank Account (money OUT)
+    lines.push({
+      accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+      debitAmount: 0,
+      creditAmount: params.amount,
+      narration: `Payment to ${params.source}`,
+    });
+
+    const narration = params.description || `Loan repayment to ${params.source} - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`;
+
+    return this.createJournalEntry({
+      entryDate: params.repaymentDate,
+      referenceType: 'MANUAL_ENTRY',
+      narration,
+      lines,
+      createdById: params.createdById,
+      paymentMode: 'BANK_TRANSFER',
+      bankAccountId: params.bankAccountId,
+      bankRefNumber: params.reference,
+      isAutoEntry: true,
+    });
+  }
+
   // ============================================
   // REPORTING METHODS
   // ============================================

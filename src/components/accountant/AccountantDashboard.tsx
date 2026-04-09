@@ -663,6 +663,7 @@ function BankSection({
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showEquityDialog, setShowEquityDialog] = useState(false);
+  const [showBorrowDialog, setShowBorrowDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [selectedBankForEdit, setSelectedBankForEdit] = useState<BankAccount | null>(null);
   const [uploadingQr, setUploadingQr] = useState(false);
@@ -683,6 +684,15 @@ function BankSection({
     cashAmount: '',
     bankAmount: '',
     description: 'Initial Capital Investment',
+    bankAccountId: ''
+  });
+  const [borrowForm, setBorrowForm] = useState({
+    sourceType: 'BANK_LOAN',
+    sourceName: '',
+    amount: '',
+    interestRate: '',
+    dueDate: '',
+    description: '',
     bankAccountId: ''
   });
   const [saving, setSaving] = useState(false);
@@ -891,6 +901,68 @@ function BankSection({
     }
   };
 
+  const handleBorrow = async () => {
+    const amount = parseFloat(borrowForm.amount);
+    
+    if (!amount || amount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    
+    if (!borrowForm.sourceName.trim()) {
+      toast.error('Please enter the source name (e.g., HDFC Bank)');
+      return;
+    }
+
+    // Check if bank account exists
+    if (bankAccounts.length === 0) {
+      toast.error('Please add a bank account first before recording borrowing');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/accounting/borrowed-money', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          sourceType: borrowForm.sourceType,
+          sourceName: borrowForm.sourceName,
+          amount: borrowForm.amount,
+          interestRate: borrowForm.interestRate || null,
+          dueDate: borrowForm.dueDate || null,
+          description: borrowForm.description || `Loan received from ${borrowForm.sourceName}`,
+          bankAccountId: borrowForm.bankAccountId || (bankAccounts.find(b => b.isDefault)?.id || bankAccounts[0].id),
+          createdById: 'system'
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(data.message || `Successfully recorded borrowing of ${formatCurrency(amount)}`);
+        setShowBorrowDialog(false);
+        setBorrowForm({
+          sourceType: 'BANK_LOAN',
+          sourceName: '',
+          amount: '',
+          interestRate: '',
+          dueDate: '',
+          description: '',
+          bankAccountId: ''
+        });
+        loadData();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to record borrowing');
+      }
+    } catch (error) {
+      toast.error('Failed to record borrowing');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const totalBankBalance = bankAccounts.reduce((s, b) => s + b.currentBalance, 0);
 
   // Group transactions by date
@@ -908,7 +980,11 @@ function BankSection({
           <Landmark className="h-5 w-5" />
           Bank Accounts
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" onClick={() => setShowBorrowDialog(true)} className="border-orange-500 text-orange-600">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Borrow Money
+          </Button>
           <Button variant="outline" onClick={() => setShowEquityDialog(true)} className="border-purple-500 text-purple-600">
             <PiggyBank className="h-4 w-4 mr-2" />
             Add Equity
@@ -1317,6 +1393,150 @@ function BankSection({
             <Button onClick={handleAddEquity} disabled={saving} className="bg-purple-600 hover:bg-purple-700">
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PiggyBank className="h-4 w-4 mr-2" />}
               Add Equity
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Borrow Money Dialog */}
+      <Dialog open={showBorrowDialog} onOpenChange={setShowBorrowDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-orange-600" />
+              Borrow Money from External Source
+            </DialogTitle>
+            <DialogDescription>
+              Record a loan received from bank, financial institution, or person
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-orange-50 p-4 rounded-lg text-sm text-orange-800">
+              <p className="font-medium mb-1">Double-Entry Accounting</p>
+              <p>This will properly record the borrowing:</p>
+              <ul className="mt-2 list-disc list-inside text-orange-700">
+                <li>Debit: Bank Account (money IN)</li>
+                <li>Credit: Liability Account (money OWED)</li>
+              </ul>
+              <p className="mt-2 text-orange-600 font-medium">⚠️ This is NOT income - you must repay this!</p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Loan Type *</Label>
+              <Select
+                value={borrowForm.sourceType}
+                onValueChange={(value) => setBorrowForm({ ...borrowForm, sourceType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BANK_LOAN">Bank Loan</SelectItem>
+                  <SelectItem value="BORROWED_FUNDS">Borrowed Funds (Personal/Other)</SelectItem>
+                  <SelectItem value="INVESTOR_CAPITAL">Investor Capital</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">
+                {borrowForm.sourceType === 'BANK_LOAN' && 'Select for loans from banks (HDFC, SBI, ICICI, etc.)'}
+                {borrowForm.sourceType === 'BORROWED_FUNDS' && 'Select for personal loans from individuals or other sources'}
+                {borrowForm.sourceType === 'INVESTOR_CAPITAL' && 'Select for capital received from investors'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Source Name *</Label>
+              <Input
+                value={borrowForm.sourceName}
+                onChange={(e) => setBorrowForm({ ...borrowForm, sourceName: e.target.value })}
+                placeholder="e.g., HDFC Bank, Personal loan from Mr. Sharma"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Amount *</Label>
+              <Input
+                type="number"
+                value={borrowForm.amount}
+                onChange={(e) => setBorrowForm({ ...borrowForm, amount: e.target.value })}
+                placeholder="Enter amount"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Interest Rate (% p.a.)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={borrowForm.interestRate}
+                  onChange={(e) => setBorrowForm({ ...borrowForm, interestRate: e.target.value })}
+                  placeholder="e.g., 12"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Due Date</Label>
+                <Input
+                  type="date"
+                  value={borrowForm.dueDate}
+                  onChange={(e) => setBorrowForm({ ...borrowForm, dueDate: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {bankAccounts.length > 1 && (
+              <div className="space-y-2">
+                <Label>Deposit to Bank Account</Label>
+                <Select
+                  value={borrowForm.bankAccountId}
+                  onValueChange={(value) => setBorrowForm({ ...borrowForm, bankAccountId: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select bank account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bankAccounts.map((bank) => (
+                      <SelectItem key={bank.id} value={bank.id}>
+                        {bank.bankName} - ****{bank.accountNumber.slice(-4)} ({formatCurrency(bank.currentBalance)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Input
+                value={borrowForm.description}
+                onChange={(e) => setBorrowForm({ ...borrowForm, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </div>
+
+            <Card className="bg-orange-50">
+              <CardContent className="p-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-semibold">Amount to Receive:</span>
+                  <span className="text-xl font-bold text-orange-700">
+                    {formatCurrency(parseFloat(borrowForm.amount) || 0)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mt-2 text-sm">
+                  <span className="text-gray-600">Liability Created:</span>
+                  <span className="text-orange-600 font-medium">
+                    {borrowForm.sourceType === 'BANK_LOAN' ? 'Bank Loans (2101)' : 
+                     borrowForm.sourceType === 'INVESTOR_CAPITAL' ? 'Investor Capital (2110)' : 
+                     'Borrowed Funds (2120)'}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBorrowDialog(false)}>Cancel</Button>
+            <Button onClick={handleBorrow} disabled={saving} className="bg-orange-600 hover:bg-orange-700">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CreditCard className="h-4 w-4 mr-2" />}
+              Record Borrowing
             </Button>
           </DialogFooter>
         </DialogContent>
