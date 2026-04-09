@@ -26,6 +26,14 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
+
+// Initialize Analytics safely (it only works on the browser/client-side)
+let analytics;
+if (typeof window !== "undefined") {
+  const { getAnalytics } = require("firebase/analytics");
+  analytics = getAnalytics(app);
+}
+
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
