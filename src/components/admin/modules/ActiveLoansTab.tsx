@@ -376,6 +376,27 @@ export default function ActiveLoansTab({
         } : undefined,
         createdAt: ml.createdAt || new Date().toISOString()
       };
+    } else if (mapping?.offlineMirrorLoan) {
+      const oml = mapping.offlineMirrorLoan;
+      mirrorLoanData = {
+        id: oml.id,
+        identifier: oml.loanNumber,
+        applicationNo: oml.loanNumber,
+        customerName: oml.customerName,
+        approvedAmount: oml.loanAmount || 0,
+        disbursedAmount: oml.loanAmount || 0,
+        interestRate: oml.interestRate || 0,
+        tenure: oml.tenure || 0,
+        emiAmount: oml.emiAmount || 0,
+        status: oml.status || 'UNKNOWN',
+        loanType: 'OFFLINE',
+        company: oml.company ? {
+          id: oml.company.id || '',
+          name: oml.company.name,
+          code: oml.company.code || ''
+        } : undefined,
+        createdAt: oml.createdAt || new Date().toISOString()
+      };
     }
     
     return (

@@ -61,6 +61,21 @@ interface MirrorMapping {
   originalLoan: ActiveLoan | null;
   mirrorCompany: { id: string; name: string; code: string } | null;
   originalCompany: { id: string; name: string; code: string } | null;
+  // Offline loan specific fields
+  isOfflineLoan?: boolean;
+  offlineMirrorLoan?: {
+    id: string;
+    loanNumber: string;
+    status: string;
+    loanAmount: number;
+    interestRate: number;
+    tenure: number;
+    emiAmount: number;
+    displayColor?: string;
+    isMirrorLoan: boolean;
+    company?: { id: string; name: string; code: string };
+    customerName?: string;
+  } | null;
 }
 
 function ActiveLoansTabComponent({
@@ -126,7 +141,34 @@ function ActiveLoansTabComponent({
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
   const convertMirrorToLoanData = (mirrorLoan: MirrorLoanData | null, mapping: MirrorMapping, originalLoan: ActiveLoan) => {
-    // If there's an actual mirror loan record, use it
+    // 1. Check for offline mirror loan first
+    if (mapping.isOfflineLoan && mapping.offlineMirrorLoan) {
+      const offlineMirror = mapping.offlineMirrorLoan;
+      return {
+        id: offlineMirror.id,
+        identifier: offlineMirror.loanNumber,
+        applicationNo: offlineMirror.loanNumber,
+        customer: { name: offlineMirror.customerName },
+        customerName: offlineMirror.customerName,
+        customerPhone: '',
+        approvedAmount: offlineMirror.loanAmount,
+        interestRate: mapping.mirrorInterestRate || offlineMirror.interestRate,
+        tenure: mapping.mirrorTenure || offlineMirror.tenure,
+        emiAmount: offlineMirror.emiAmount,
+        status: offlineMirror.status,
+        loanType: 'OFFLINE',
+        disbursementDate: originalLoan.disbursementDate ? new Date(originalLoan.disbursementDate).toISOString() : undefined,
+        createdAt: originalLoan.createdAt ? new Date(originalLoan.createdAt).toISOString() : new Date().toISOString(),
+        company: offlineMirror.company || mapping.mirrorCompany ? {
+          id: offlineMirror.company?.id || mapping.mirrorCompany?.id || '',
+          name: offlineMirror.company?.name || mapping.mirrorCompany?.name || '',
+          code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
+        } : undefined,
+        nextEmi: undefined
+      };
+    }
+
+    // 2. If there's an actual mirror loan record, use it
     if (mirrorLoan) {
       return {
         id: mirrorLoan.id,
