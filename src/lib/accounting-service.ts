@@ -363,10 +363,6 @@ export class AccountingService {
 
   /**
    * Update account balance (with debit/credit rules)
-   * 
-   * IMPORTANT: Skip balance updates for Bank Account (1102) and Cash in Hand (1101)
-   * These accounts are tracked separately in BankAccount and CashBook tables
-   * to avoid double-counting. The ChartOfAccount balance should sync from those tables.
    */
   private async updateAccountBalance(
     tx: any,
@@ -380,36 +376,6 @@ export class AccountingService {
     });
 
     if (!account) return;
-
-    // Skip balance updates for Bank Account (1102) and Cash in Hand (1101)
-    // These are tracked in BankAccount and CashBook tables to avoid double-counting
-    const SKIP_BALANCE_UPDATE_CODES = ['1101', '1102'];
-    if (SKIP_BALANCE_UPDATE_CODES.includes(account.accountCode)) {
-      console.log(`[Accounting] Skipping ChartOfAccount balance update for ${account.accountCode} (${account.accountName}) - tracked separately`);
-      
-      // Still update ledger balance for audit trail, but don't change ChartOfAccount.currentBalance
-      const ledgerBalance = await tx.ledgerBalance.findUnique({
-        where: {
-          accountId_financialYearId: {
-            accountId,
-            financialYearId,
-          },
-        },
-      });
-
-      // Just track the transaction in ledger, don't update balance
-      if (ledgerBalance) {
-        await tx.ledgerBalance.update({
-          where: { id: ledgerBalance.id },
-          data: {
-            totalDebits: ledgerBalance.totalDebits + debitAmount,
-            totalCredits: ledgerBalance.totalCredits + creditAmount,
-            // Keep closing balance as is - it syncs from BankAccount/CashBook
-          },
-        });
-      }
-      return;
-    }
 
     // Balance calculation based on account type
     // Assets & Expenses: Debit increases, Credit decreases

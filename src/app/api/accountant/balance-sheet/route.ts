@@ -4,8 +4,9 @@ import { db } from '@/lib/db';
 /**
  * GNUCASH-STYLE BALANCE SHEET API
  * 
- * Uses Chart of Accounts as the SINGLE SOURCE OF TRUTH.
- * No longer references old bankAccount/cashBook tables directly.
+ * IMPORTANT: For Bank Account (1102) and Cash in Hand (1101),
+ * we use the ACTUAL balances from BankAccount and CashBook tables
+ * as the source of truth, NOT ChartOfAccount.
  * 
  * BALANCE SHEET STRUCTURE:
  * 
@@ -18,8 +19,8 @@ import { db } from '@/lib/db';
  * - Borrowed Funds (Account Code 2120)
  * 
  * RIGHT SIDE (Assets - How Funds Are Used):
- * - Cash in Hand (Account Code 1101)
- * - Bank Accounts (Account Code 1102/1103)
+ * - Cash in Hand (Account Code 1101) - From CashBook table
+ * - Bank Accounts (Account Code 1102) - From BankAccount table
  * - Loans Receivable (Account Code 1200/1201/1210)
  * - Interest Receivable (Account Code 1301)
  * 
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
 
     // ============================================
     // GET ALL ACCOUNTS FROM CHART OF ACCOUNTS
-    // This is the SINGLE SOURCE OF TRUTH
+    // This is the SINGLE SOURCE OF TRUTH (except for Bank/Cash)
     // ============================================
     
     const accounts = await db.chartOfAccount.findMany({
@@ -123,8 +124,41 @@ export async function GET(request: NextRequest) {
       orderBy: { accountCode: 'asc' }
     });
 
+    // ============================================
+    // GET ACTUAL BANK AND CASH BALANCES
+    // These are the source of truth for accounts 1101 and 1102
+    // ============================================
+    
+    // Get ACTUAL bank balance from BankAccount table
+    const bankAccountsData = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+      select: { 
+        id: true,
+        bankName: true,
+        accountNumber: true,
+        currentBalance: true, 
+        openingBalance: true 
+      }
+    });
+    const actualBankBalance = bankAccountsData.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+    const actualBankOpening = bankAccountsData.reduce((sum, b) => sum + (b.openingBalance || 0), 0);
+    
+    // Get ACTUAL cash balance from CashBook table
+    const cashBookData = await db.cashBook.findUnique({
+      where: { companyId },
+      select: { currentBalance: true, openingBalance: true }
+    });
+    const actualCashBalance = cashBookData?.currentBalance || 0;
+    const actualCashOpening = cashBookData?.openingBalance || 0;
+
+    console.log(`[Balance Sheet] Bank Balance: ${actualBankBalance}, Cash Balance: ${actualCashBalance}`);
+
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {
+      // For Bank Account (1102) and Cash in Hand (1101), use actual balances
+      if (code === '1101') return actualCashBalance;
+      if (code === '1102') return actualBankBalance;
+      
       const account = accounts.find(a => a.accountCode === code);
       return account?.currentBalance || 0;
     };
@@ -249,16 +283,20 @@ export async function GET(request: NextRequest) {
         amount: cashInHand,
         type: 'ASSET',
         accountCode: ACCOUNT_CODES.CASH_IN_HAND,
-        description: 'Physical cash on hand'
+        description: 'Physical cash on hand (from CashBook)',
+        isActualBalance: true
       },
       {
         name: 'Bank Balance',
-        amount: totalBankBalance,
+        amount: actualBankBalance,
         type: 'ASSET',
-        details: bankAccounts.map(acc => ({
-          accountName: acc.accountName,
-          accountCode: acc.accountCode,
-          balance: acc.currentBalance
+        accountCode: ACCOUNT_CODES.BANK_MAIN,
+        isActualBalance: true,
+        description: 'Bank account balance (from BankAccount table)',
+        details: bankAccountsData.map(acc => ({
+          accountName: `${acc.bankName} - ${acc.accountNumber?.slice(-4) || 'N/A'}`,
+          accountCode: acc.id,
+          balance: acc.currentBalance || 0
         }))
       },
       {
