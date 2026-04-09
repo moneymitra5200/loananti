@@ -890,28 +890,19 @@ export async function PUT(request: NextRequest) {
             }
           });
           
-          // Update account balances
+          // Update account balances - ONLY for Loans Receivable
+          // Bank Account (1102) and Cash in Hand (1101) are tracked in BankAccount/CashBook tables
+          // to avoid double-counting. Journal entry is for audit trail only for these accounts.
+          
           // Loans Receivable increases (debit)
           await db.chartOfAccount.update({
             where: { id: loansReceivableAccount.id },
             data: { currentBalance: loansReceivableAccount.currentBalance + principalAmount }
           });
           
-          // Bank Account decreases (credit)
-          if (effectiveBankAmount > 0 && bankCOAAccount) {
-            await db.chartOfAccount.update({
-              where: { id: bankCOAAccount.id },
-              data: { currentBalance: bankCOAAccount.currentBalance - effectiveBankAmount }
-            });
-          }
-          
-          // Cash in Hand decreases (credit)
-          if (effectiveCashAmount > 0 && cashInHandAccount) {
-            await db.chartOfAccount.update({
-              where: { id: cashInHandAccount.id },
-              data: { currentBalance: cashInHandAccount.currentBalance - effectiveCashAmount }
-            });
-          }
+          // NOTE: Bank Account and Cash in Hand ChartOfAccount balances are NOT updated here
+          // They are managed by BankAccount and CashBook tables respectively
+          // This prevents double deduction (once from BankAccount table, once from ChartOfAccount)
           
           console.log(`[Mirror Loan] Journal entry ${entryNumber} created for disbursement`);
         } else {
