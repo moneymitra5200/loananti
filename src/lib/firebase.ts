@@ -15,12 +15,13 @@ import {
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBK3su2PKeL3YnC9r63Fr50edqO1XUGjM0",
-  authDomain: "loancustomerapp.firebaseapp.com",
-  projectId: "loancustomerapp",
-  storageBucket: "loancustomerapp.firebasestorage.app",
-  messagingSenderId: "504278935777",
-  appId: "1:504278935777:web:c0acba2fe42fc02451afa0"
+  apiKey: "AIzaSyCF4gb2yUKlONY4MzUzZkP3pHQKPWmirmM",
+  authDomain: "moneymitra-70b76.firebaseapp.com",
+  projectId: "moneymitra-70b76",
+  storageBucket: "moneymitra-70b76.firebasestorage.app",
+  messagingSenderId: "134001766587",
+  appId: "1:134001766587:web:f9912f485295b51b93f99e",
+  measurementId: "G-HEY81VX5T1"
 };
 
 // Initialize Firebase
