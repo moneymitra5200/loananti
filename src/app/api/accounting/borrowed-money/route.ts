@@ -162,7 +162,8 @@ export async function POST(request: NextRequest) {
             description: description || `Loan received from ${sourceName}`,
             referenceType: 'BORROWED_MONEY',
             referenceId: borrowedEntry.id,
-            transactionDate: borrowedEntry.borrowedDate
+            transactionDate: borrowedEntry.borrowedDate,
+            createdById
           }
         });
       }
@@ -241,8 +242,7 @@ export async function PUT(request: NextRequest) {
       where: { id: borrowedMoneyId },
       data: {
         amountRepaid: newAmountRepaid,
-        status: newStatus,
-        lastPaymentDate: new Date()
+        status: newStatus
       }
     });
 
@@ -270,7 +270,8 @@ export async function PUT(request: NextRequest) {
             description: description || `Loan repayment to ${borrowedEntry.sourceName}`,
             referenceType: 'LOAN_REPAYMENT',
             referenceId: borrowedMoneyId,
-            transactionDate: repaymentDate ? new Date(repaymentDate) : new Date()
+            transactionDate: repaymentDate ? new Date(repaymentDate) : new Date(),
+            createdById
           }
         });
       }

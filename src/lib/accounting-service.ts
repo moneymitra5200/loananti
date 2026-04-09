@@ -981,7 +981,7 @@ export class AccountingService {
     description?: string;
   }): Promise<string> {
     const liabilityAccountCode = params.loanType === 'BANK_LOAN' 
-      ? ACCOUNT_CODES.BANK_LOAN 
+      ? ACCOUNT_CODES.BANK_LOANS 
       : params.loanType === 'INVESTOR_CAPITAL'
         ? ACCOUNT_CODES.INVESTOR_CAPITAL
         : ACCOUNT_CODES.BORROWED_FUNDS;
