@@ -46,8 +46,11 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Add empty turbopack config to silence the warning
+  output: 'standalone', // Creates self-contained build for Hostinger
   turbopack: {},
+  images: {
+    unoptimized: true, // Required for shared hosting (no image optimization server)
+  },
 };
 
 export default withPWA(nextConfig);
