@@ -20,7 +20,6 @@ export async function POST(request: NextRequest) {
     const proofFile = formData.get('proof') as File | null;
     const isAdvancePayment = formData.get('isAdvancePayment') === 'true'; // Advance payment flag
     
-    // Payment type - FULL_EMI, PARTIAL_PAYMENT, INTEREST_ONLY, ADVANCE
     const paymentType = (formData.get('paymentType') as string) || 'FULL_EMI';
     
     console.log(`[EMI Pay] ========== PAYMENT REQUEST ==========`);
@@ -35,6 +34,24 @@ export async function POST(request: NextRequest) {
     const partialAmount = formData.get('partialAmount') ? parseFloat(formData.get('partialAmount') as string) : null;
     const nextPaymentDate = formData.get('nextPaymentDate') as string | null;
     const penaltyWaiver = formData.get('penaltyWaiver') ? parseFloat(formData.get('penaltyWaiver') as string) : 0;
+
+    // ── PENALTY FIELDS ─────────────────────────────────────────────────
+    // penaltyAmount: total penalty charged BEFORE waiver
+    // penaltyWaiver: amount waived (already declared above)
+    // penaltyPaymentMode: where the collected penalty goes (CASH | BANK)
+    const penaltyAmount = formData.get('penaltyAmount') ? parseFloat(formData.get('penaltyAmount') as string) : 0;
+    const penaltyPaymentMode = (formData.get('penaltyPaymentMode') as string) || 'CASH'; // 'CASH' | 'BANK'
+    const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver); // Amount actually collected
+
+    // ── SPLIT / MULTI-MODE PAYMENT FIELDS ──────────────────────────────
+    // If paymentMode === 'SPLIT', customer pays part cash + part online
+    const isSplitPayment = paymentMode === 'SPLIT';
+    const splitCashAmount = formData.get('splitCashAmount') ? parseFloat(formData.get('splitCashAmount') as string) : 0;
+    const splitOnlineAmount = formData.get('splitOnlineAmount') ? parseFloat(formData.get('splitOnlineAmount') as string) : 0;
+
+    console.log(`[EMI Pay] Penalty: ₹${penaltyAmount} - Waiver: ₹${penaltyWaiver} - Net Penalty: ₹${netPenalty} - Mode: ${penaltyPaymentMode}`);
+    if (isSplitPayment) console.log(`[EMI Pay] SPLIT — Cash: ₹${splitCashAmount} | Online: ₹${splitOnlineAmount}`);
+
 
     if (!emiId || !loanId || !paidBy) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -1079,7 +1096,37 @@ export async function POST(request: NextRequest) {
         const accountingService = new AccountingService(companyIdToUse);
         await accountingService.initializeChartOfAccounts();
         
-        // Record the main EMI payment
+        // ── SPLIT PAYMENT: record cash & bank portions separately ────────
+        if (isSplitPayment && splitCashAmount > 0 && splitOnlineAmount > 0) {
+          const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+
+          // Cash portion → CashBook CREDIT
+          await recordCashBookEntry({
+            companyId: companyIdToUse,
+            entryType: 'CREDIT',
+            amount: splitCashAmount,
+            description: `EMI #${emi.installmentNumber} Cash Portion - ${emi.loanApplication?.applicationNo}`,
+            referenceType: 'EMI_PAYMENT',
+            referenceId: `${payment.id}-CASH`,
+            createdById: paidBy,
+          });
+
+          // Online portion → BankTransaction CREDIT
+          await recordBankTransaction({
+            companyId: companyIdToUse,
+            transactionType: 'CREDIT',
+            amount: splitOnlineAmount,
+            description: `EMI #${emi.installmentNumber} Online Portion - ${emi.loanApplication?.applicationNo}`,
+            referenceType: 'EMI_PAYMENT',
+            referenceId: `${payment.id}-ONLINE`,
+            createdById: paidBy,
+          });
+
+          console.log(`[EMI Split] Cash ₹${splitCashAmount} → CashBook | Online ₹${splitOnlineAmount} → Bank`);
+        }
+
+        // ── EMI PAYMENT JOURNAL ENTRY ────────────────────────────────────
+        // Record the main EMI payment (principal + interest journal entry)
         await accountingService.recordEMIPayment({
           loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
           customerId: emi.loanApplication?.customerId || '',
@@ -1089,11 +1136,71 @@ export async function POST(request: NextRequest) {
           interestComponent: paidInterest,
           paymentDate: new Date(),
           createdById: paidBy || 'SYSTEM',
-          paymentMode: paymentMode as any,
+          paymentMode: isSplitPayment ? 'CASH' : (paymentMode as any), // use CASH as fallback for split
           reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
         });
         
         console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse}`);
+
+        // ── PENALTY INCOME ACCOUNTING ────────────────────────────────────
+        // Record net penalty (after waiver) as Penalty Income
+        if (netPenalty > 0) {
+          try {
+            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+
+            if (penaltyPaymentMode === 'BANK') {
+              // Penalty goes to bank
+              await recordBankTransaction({
+                companyId: companyIdToUse,
+                transactionType: 'CREDIT',
+                amount: netPenalty,
+                description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'PENALTY_INCOME',
+                referenceId: `${payment.id}-PENALTY`,
+                createdById: paidBy,
+              });
+            } else {
+              // Penalty goes to cash book
+              await recordCashBookEntry({
+                companyId: companyIdToUse,
+                entryType: 'CREDIT',
+                amount: netPenalty,
+                description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'PENALTY_INCOME',
+                referenceId: `${payment.id}-PENALTY`,
+                createdById: paidBy,
+              });
+            }
+
+            // Journal Entry for Penalty Income:
+            // DR Cash/Bank → CR Penalty Income (1302)
+            await accountingService.createJournalEntry({
+              entryDate: new Date(),
+              referenceType: 'EMI_PAYMENT',
+              referenceId: `${payment.id}-PENALTY-JE`,
+              narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo} (Charged ₹${penaltyAmount}, Waived ₹${penaltyWaiver}, Collected ₹${netPenalty})`,
+              createdById: paidBy,
+              lines: [
+                {
+                  accountCode: penaltyPaymentMode === 'BANK' ? '1102' : '1101', // Bank or Cash
+                  debitAmount: netPenalty,
+                  creditAmount: 0,
+                  narration: `Penalty collected - ${penaltyPaymentMode}`,
+                },
+                {
+                  accountCode: '1302', // Penalty Income
+                  debitAmount: 0,
+                  creditAmount: netPenalty,
+                  narration: `Penalty income after waiver of ₹${penaltyWaiver}`,
+                },
+              ],
+            });
+
+            console.log(`[Penalty] Net ₹${netPenalty} recorded as Penalty Income via ${penaltyPaymentMode}`);
+          } catch (penaltyErr) {
+            console.error('[Penalty] Penalty accounting failed (non-critical):', penaltyErr);
+          }
+        }
 
         // If this is a mirror payment, the profit margin stays in the original company
         if (isMirrorPayment && calculatedMirrorInterest !== undefined) {
@@ -1120,6 +1227,7 @@ export async function POST(request: NextRequest) {
     } catch (accError) {
       console.error('[Accounting] EMI payment journal failed:', accError);
     }
+
 
     return NextResponse.json({ 
       success: true, 

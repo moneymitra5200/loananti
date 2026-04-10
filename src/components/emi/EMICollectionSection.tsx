@@ -90,6 +90,12 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const [paying, setPaying] = useState(false);
   const [payingAmount, setPayingAmount] = useState<number>(0);
   const [penaltyWaiver, setPenaltyWaiver] = useState<number>(0);
+  // Penalty destination (only for non-split modes)
+  const [penaltyPaymentMode, setPenaltyPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
+  // Split payment
+  const [splitCashAmount, setSplitCashAmount] = useState<number>(0);
+  const [splitOnlineAmount, setSplitOnlineAmount] = useState<number>(0);
+
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -128,8 +134,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       setRemarks('');
       setCreditType('COMPANY');
       setPaymentMode('CASH');
-      setPayingAmount(0);
       setPenaltyWaiver(0);
+      setPenaltyPaymentMode('CASH');
+      setSplitCashAmount(0);
+      setSplitOnlineAmount(0);
+      setPayingAmount(0);
 
       fetchEmisByDate();
       onPaymentComplete?.();
@@ -284,6 +293,18 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         if (penaltyWaiver > 0) {
           formData.append('penaltyWaiver', penaltyWaiver.toString());
         }
+        // Penalty gross amount + destination
+        if (selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0) {
+          formData.append('penaltyAmount', selectedEmi.penaltyAmount.toString());
+          // In split mode, penalty is already inside the split totals — no separate mode needed
+          formData.append('penaltyPaymentMode', paymentMode === 'SPLIT' ? 'CASH' : penaltyPaymentMode);
+        }
+        // Split payment amounts
+        if (paymentMode === 'SPLIT') {
+          formData.append('splitCashAmount', splitCashAmount.toString());
+          formData.append('splitOnlineAmount', splitOnlineAmount.toString());
+        }
+
 
         if (proofFile) {
           formData.append('proof', proofFile);
@@ -341,7 +362,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     const balanceDue = (emi.totalAmount + (emi.penaltyAmount || 0)) - (emi.paidAmount || 0);
     setPayingAmount(balanceDue > 0 ? balanceDue : 0);
     setPenaltyWaiver(0);
+    setPenaltyPaymentMode('CASH');
+    setSplitCashAmount(0);
+    setSplitOnlineAmount(0);
     setPaymentDialogOpen(true);
+
   };
 
   const getCreditInfo = () => {
@@ -657,7 +682,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
               {/* Payment Mode Selection */}
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-700">Payment Mode</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <Button
                     type="button"
                     variant={paymentMode === 'CASH' ? 'default' : 'outline'}
@@ -685,8 +710,102 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                     <Receipt className="h-4 w-4 mr-1" />
                     Cheque
                   </Button>
+                  <Button
+                    type="button"
+                    variant={paymentMode === 'SPLIT' ? 'default' : 'outline'}
+                    className={paymentMode === 'SPLIT' ? 'bg-orange-500 hover:bg-orange-600 text-white' : 'border-orange-300 text-orange-600'}
+                    onClick={() => setPaymentMode('SPLIT')}
+                  >
+                    <Wallet className="h-4 w-4 mr-1" />
+                    Split
+                  </Button>
                 </div>
               </div>
+
+              {/* SPLIT MODE: Cash + Online breakdown */}
+              {paymentMode === 'SPLIT' && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-3">
+                  <p className="text-xs text-orange-700 font-semibold">
+                    💡 Split Mode — Enter how much cash and how much online.
+                    Total must equal ₹{(payingAmount - penaltyWaiver).toFixed(0)}
+                    {selectedEmi.penaltyAmount ? ` (EMI + Penalty after waiver)` : ''}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-emerald-700">💵 Cash Amount</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={splitCashAmount || ''}
+                        onChange={(e) => {
+                          const cash = parseFloat(e.target.value) || 0;
+                          setSplitCashAmount(cash);
+                          setSplitOnlineAmount(Math.max(0, payingAmount - penaltyWaiver - cash));
+                        }}
+                        className="border-emerald-300 focus:ring-emerald-400"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-purple-700">📱 Online Amount</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={splitOnlineAmount || ''}
+                        onChange={(e) => {
+                          const online = parseFloat(e.target.value) || 0;
+                          setSplitOnlineAmount(online);
+                          setSplitCashAmount(Math.max(0, payingAmount - penaltyWaiver - online));
+                        }}
+                        className="border-purple-300 focus:ring-purple-400"
+                      />
+                    </div>
+                  </div>
+                  <div className={`text-xs font-medium flex justify-between px-1 ${
+                    Math.abs((splitCashAmount + splitOnlineAmount) - (payingAmount - penaltyWaiver)) < 1
+                      ? 'text-emerald-600' : 'text-red-600'
+                  }`}>
+                    <span>Total Split: ₹{(splitCashAmount + splitOnlineAmount).toFixed(0)}</span>
+                    <span>Required: ₹{(payingAmount - penaltyWaiver).toFixed(0)}</span>
+                  </div>
+                  {/* Penalty note in split mode */}
+                  {selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0 && (
+                    <p className="text-xs text-orange-600 bg-orange-100 rounded p-2">
+                      ⚠️ Penalty ₹{selectedEmi.penaltyAmount} (after waiver ₹{penaltyWaiver}: net ₹{Math.max(0, selectedEmi.penaltyAmount - penaltyWaiver).toFixed(0)}) is included in the split total above.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Penalty Destination — only for single-mode when penalty exists */}
+              {paymentMode !== 'SPLIT' && selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0 && penaltyWaiver < selectedEmi.penaltyAmount && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-red-700">Penalty collected via</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={penaltyPaymentMode === 'CASH' ? 'default' : 'outline'}
+                      className={penaltyPaymentMode === 'CASH' ? 'bg-emerald-500 hover:bg-emerald-600' : 'border-emerald-300'}
+                      onClick={() => setPenaltyPaymentMode('CASH')}
+                    >
+                      <Banknote className="h-4 w-4 mr-1" />
+                      Cash
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={penaltyPaymentMode === 'BANK' ? 'default' : 'outline'}
+                      className={penaltyPaymentMode === 'BANK' ? 'bg-blue-500 hover:bg-blue-600' : 'border-blue-300'}
+                      onClick={() => setPenaltyPaymentMode('BANK')}
+                    >
+                      <CreditCard className="h-4 w-4 mr-1" />
+                      Bank
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Net penalty after waiver: <strong>₹{Math.max(0, (selectedEmi.penaltyAmount || 0) - penaltyWaiver).toFixed(0)}</strong> → goes to {penaltyPaymentMode === 'BANK' ? 'Bank Account' : 'Cash Book'}
+                  </p>
+                </div>
+              )}
+
 
               {/* Credit Type Selection - Only for CASH payments */}
               {paymentMode === 'CASH' && (
