@@ -1103,25 +1103,43 @@ export default function CustomerDashboard() {
               </div>
             )}
 
-            {/* Overdue Alert */}
-            {overdueEMIs.length > 0 && (
-              <Card className="border-red-200 bg-red-50 shadow-sm cursor-pointer hover:shadow-md transition-all" onClick={() => router.push(`/customer/loan/${activeLoans[0]?.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
-                      <AlertTriangle className="h-5 w-5 text-red-600" />
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-red-800">{overdueEMIs.length} Overdue EMI(s)</p>
-                      <p className="text-sm text-red-600">Total overdue: {formatCurrency(overdueEMIs.reduce((s, e) => s + e.totalAmount, 0))}</p>
-                    </div>
-                    <Button size="sm" variant="destructive">
-                      Pay Now
-                    </Button>
+            {/* ── Overdue + Penalty Alert ── */}
+            {overdueEMIs.length > 0 && (() => {
+              const totalPenalty = overdueEMIs.reduce((s, e) => s + ((e as any).lateFee || (e as any).penaltyAmount || 0), 0);
+              const totalDue = overdueEMIs.reduce((s, e) => s + e.totalAmount - (e.paidAmount || 0), 0);
+              return (
+                <div className="rounded-xl border-2 border-red-400 bg-gradient-to-r from-red-50 to-orange-50 shadow-md overflow-hidden">
+                  <div className="bg-red-500 px-4 py-2 flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-white" />
+                    </span>
+                    <p className="text-white font-bold text-sm">⚠️ URGENT — Overdue EMI with Daily Penalty</p>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-red-900 text-lg">{overdueEMIs.length} EMI(s) Overdue</p>
+                        <p className="text-sm text-red-700">EMI Due: <span className="font-semibold">{formatCurrency(totalDue)}</span></p>
+                      </div>
+                      {totalPenalty > 0 && (
+                        <div className="text-right bg-red-100 border border-red-300 rounded-lg px-3 py-2">
+                          <p className="text-xs text-red-600 font-medium">Penalty Accrued</p>
+                          <p className="font-black text-red-700 text-xl">+{formatCurrency(totalPenalty)}</p>
+                          <p className="text-xs text-red-500">₹100/day per EMI</p>
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => router.push(`/customer/loan/${activeLoans[0]?.id}`)}
+                      className="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2.5 rounded-lg transition-colors"
+                    >
+                      Pay Now to Stop Penalty
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Next EMI Due */}
             {nextEMI && (

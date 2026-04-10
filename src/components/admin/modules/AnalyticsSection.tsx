@@ -144,6 +144,30 @@ function AnalyticsSection({
 }: Props) {
   const [tab, setTab] = useState('overview');
 
+  // ── Live EMI Collection Data (fetched from API) ───────────
+  const [emiCollection, setEmiCollection] = useState<any[]>([]);
+  const [emiLoading, setEmiLoading] = useState(false);
+  const [emiSummary, setEmiSummary] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchEmiCollection = async () => {
+      setEmiLoading(true);
+      try {
+        const res = await fetch('/api/analytics/emi-collection');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setEmiCollection(data.monthly || []);
+            setEmiSummary(data.summary || null);
+          }
+        }
+      } catch { /* non-critical */ } finally {
+        setEmiLoading(false);
+      }
+    };
+    fetchEmiCollection();
+  }, []);
+
   // ── Global KPIs ──────────────────────────────────────────
   const conversionRate  = parseFloat(pct(activeLoans.length, loans.length));
   const approvalRate    = parseFloat(pct(activeLoans.length + inProgressLoans.length, loans.length));
@@ -287,6 +311,7 @@ function AnalyticsSection({
           {[
             { v: 'overview',     label: '📊 Overview' },
             { v: 'monthly',      label: '📅 Monthly Drill' },
+            { v: 'emi',          label: '💰 EMI Collection' },
             { v: 'yearly',       label: '📈 Yearly' },
             { v: 'distribution', label: '🥧 Distribution' },
             { v: 'risk',         label: '⚠️ Risk & Health' },
@@ -556,6 +581,160 @@ function AnalyticsSection({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ══════════════════════════════════════════════════════════
+            TAB — EMI COLLECTION (LIVE DATA)
+        ══════════════════════════════════════════════════════════ */}
+        <TabsContent value="emi" className="space-y-5 mt-4">
+          {emiLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full" />
+              <span className="ml-3 text-gray-500">Loading collection data...</span>
+            </div>
+          ) : (
+          <>
+            {/* EMI Summary KPIs */}
+            {emiSummary && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Total Collected', value: fmt(emiSummary.totalCollected || 0), color: 'text-emerald-600', bg: 'bg-emerald-50', icon: Wallet },
+                  { label: 'Cash Collections', value: fmt(emiSummary.totalCash || 0), color: 'text-blue-600', bg: 'bg-blue-50', icon: Activity },
+                  { label: 'Online Collections', value: fmt(emiSummary.totalOnline || 0), color: 'text-violet-600', bg: 'bg-violet-50', icon: Zap },
+                  { label: 'Cheque Collections', value: fmt(emiSummary.totalCheque || 0), color: 'text-amber-600', bg: 'bg-amber-50', icon: FileText },
+                ].map(k => (
+                  <KPICard key={k.label} label={k.label} value={k.value} icon={k.icon} color={k.color} bg={k.bg} />
+                ))}
+              </div>
+            )}
+
+            {/* Month-wise Collection Bar Chart — Cash / Online / Cheque */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <IndianRupee className="h-4 w-4 text-emerald-600" />
+                  Month-wise EMI Collection — By Payment Mode (₹)
+                </CardTitle>
+                <CardDescription>Cash vs Online vs Cheque collections over the last 12 months</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {emiCollection.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={emiCollection} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={fmt} />
+                      <Tooltip content={<CT />} />
+                      <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="cash" name="Cash" stackId="a" fill={P.green} />
+                      <Bar dataKey="online" name="Online" stackId="a" fill={P.blue} />
+                      <Bar dataKey="cheque" name="Cheque" stackId="a" fill={P.amber} radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center py-12 text-gray-400">
+                    <IndianRupee className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p>No EMI payment data yet. Collections will appear here once payments are recorded.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Collection Trend — Area Chart */}
+            <div className="grid lg:grid-cols-2 gap-5">
+              <Card className="border border-gray-100 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-blue-600" />
+                    Monthly Collection Trend
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={emiCollection} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gEmiTotal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={P.green} stopOpacity={0.3} />
+                          <stop offset="95%" stopColor={P.green} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={fmt} />
+                      <Tooltip content={<CT />} />
+                      <Area type="monotone" dataKey="total" name="Total Collected" stroke={P.green}
+                        fill="url(#gEmiTotal)" strokeWidth={2.5} dot={{ r: 3 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card className="border border-gray-100 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Percent className="h-4 w-4 text-violet-600" />
+                    Collection by Mode (%)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={emiCollection} margin={{ top: 5, right: 10, left: 0, bottom: 0 }} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmt} />
+                      <YAxis dataKey="month" type="category" tick={{ fontSize: 10 }} width={50} />
+                      <Tooltip content={<CT />} />
+                      <Bar dataKey="cash" name="Cash" fill={P.green} stackId="b" />
+                      <Bar dataKey="online" name="Online" fill={P.blue} stackId="b" />
+                      <Bar dataKey="cheque" name="Cheque" fill={P.amber} stackId="b" radius={[0,4,4,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* EMI Collection Detail Table */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-gray-600" />
+                  Month-wise EMI Collection Table
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                {emiCollection.length > 0 ? (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="py-2 px-3 text-left font-semibold text-gray-600">Month</th>
+                        <th className="py-2 px-3 text-right font-semibold text-blue-600">EMIs Paid</th>
+                        <th className="py-2 px-3 text-right font-semibold text-green-600">Cash (₹)</th>
+                        <th className="py-2 px-3 text-right font-semibold text-violet-600">Online (₹)</th>
+                        <th className="py-2 px-3 text-right font-semibold text-amber-600">Cheque (₹)</th>
+                        <th className="py-2 px-3 text-right font-semibold text-emerald-600">Total (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...emiCollection].reverse().map((r, i) => (
+                        <tr key={r.month} className={`border-b last:border-0 hover:bg-gray-50 ${i === 0 ? 'bg-indigo-50/30' : ''}`}>
+                          <td className="py-2 px-3 font-semibold text-gray-700">
+                            {r.month} {i === 0 && <Badge className="ml-1 text-[9px] bg-indigo-100 text-indigo-600">Current</Badge>}
+                          </td>
+                          <td className="py-2 px-3 text-right font-medium text-blue-600">{r.count || 0}</td>
+                          <td className="py-2 px-3 text-right text-green-600">{fmt(r.cash || 0)}</td>
+                          <td className="py-2 px-3 text-right text-violet-600">{fmt(r.online || 0)}</td>
+                          <td className="py-2 px-3 text-right text-amber-600">{fmt(r.cheque || 0)}</td>
+                          <td className="py-2 px-3 text-right font-bold text-emerald-700">{fmt(r.total || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-center text-gray-400 py-8 text-sm">No payment records found yet.</p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+          )}
         </TabsContent>
 
         {/* ══════════════════════════════════════════════════════════

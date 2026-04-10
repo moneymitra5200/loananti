@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   IndianRupee, CheckCircle, Receipt, Percent, Upload, 
   FileCheck, User, Building, Wallet, AlertCircle, Loader2,
-  Banknote, Landmark
+  Banknote, Landmark, ShieldMinus
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import type { EMISchedule, EMIPaymentForm } from './types';
@@ -216,6 +216,48 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                 You are paying only the interest portion: ₹{formatCurrency(remainingInterest)}. 
                 The principal portion (₹{formatCurrency(remainingPrincipal)}) will be added to next month's EMI.
               </p>
+            </div>
+          )}
+
+          {/* ── Penalty Waiver Section ───────────────────────────── */}
+          {(selectedEMI?.lateFee || 0) > 0 && (
+            <div className="p-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200">
+              <Label className="text-red-800 font-semibold mb-3 block flex items-center gap-2">
+                <ShieldMinus className="h-4 w-4" />
+                Penalty Management
+              </Label>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-red-700">Total Penalty Accrued:</span>
+                  <span className="font-bold text-red-800">₹{(selectedEMI?.lateFee || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div>
+                  <Label className="text-xs text-red-700 mb-1 block">Penalty to Waive (₹) — Leave 0 to charge full penalty</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={selectedEMI?.lateFee || 0}
+                    value={emiPaymentForm.penaltyWaiver}
+                    onChange={e => {
+                      const w = Math.min(parseFloat(e.target.value) || 0, selectedEMI?.lateFee || 0);
+                      setEmiPaymentForm({ ...emiPaymentForm, penaltyWaiver: w });
+                    }}
+                    className="border-red-300 focus:border-red-500"
+                    placeholder="0"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t border-red-200">
+                  <span className="text-gray-600">Penalty Customer Pays:</span>
+                  <span className="font-bold text-orange-700">
+                    ₹{Math.max(0, (selectedEMI?.lateFee || 0) - emiPaymentForm.penaltyWaiver).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                {emiPaymentForm.penaltyWaiver > 0 && (
+                  <p className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded p-2">
+                    ⚠️ Super Admin will be notified of the ₹{emiPaymentForm.penaltyWaiver.toLocaleString('en-IN')} penalty waiver.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 

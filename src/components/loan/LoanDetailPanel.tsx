@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle
+  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -72,7 +72,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     paymentType: 'FULL',
     remainingAmount: 0,
     remainingPaymentDate: '',
-    newDueDate: ''
+    newDueDate: '',
+    penaltyWaiver: 0
   });
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [payingEMI, setPayingEMI] = useState(false);
@@ -93,6 +94,11 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   const [hasMirrorLoan, setHasMirrorLoan] = useState(false); // Whether this loan has a mirror loan attached
   const [mirrorCompanyInfo, setMirrorCompanyInfo] = useState<{id: string; name: string; code: string} | null>(null);
 
+  // Delete Loan State (SUPER_ADMIN only)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deletingLoan, setDeletingLoan] = useState(false);
+
   // Start Loan State
   const [showStartLoanDialog, setShowStartLoanDialog] = useState(false);
   const [startLoanForm, setStartLoanForm] = useState({
@@ -106,6 +112,31 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
+
+  // Handle Delete Loan
+  const handleDeleteLoan = async () => {
+    if (!loanDetails?.id || !deleteReason.trim()) return;
+    setDeletingLoan(true);
+    try {
+      const res = await fetch(
+        `/api/loan/delete?loanId=${loanDetails.id}&userId=${currentUserId}&reason=${encodeURIComponent(deleteReason)}&loanType=ONLINE`,
+        { method: 'DELETE' }
+      );
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: '🗑️ Loan Deleted', description: data.message });
+        setShowDeleteDialog(false);
+        if (onClose) onClose();
+        if (onPaymentSuccess) onPaymentSuccess();
+      } else {
+        throw new Error(data.error || 'Failed to delete loan');
+      }
+    } catch (err) {
+      toast({ title: 'Delete Failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setDeletingLoan(false);
+    }
+  };
 
   // Helper function for clipboard copy
   const handleCopy = async (text: string) => {
@@ -387,7 +418,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       paymentType: 'FULL',
       remainingAmount: 0,
       remainingPaymentDate: '',
-      newDueDate: ''
+      newDueDate: '',
+      penaltyWaiver: 0
     });
     setProofPreview(null);
     setShowEMIPaymentDialog(true);
@@ -409,7 +441,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       paymentType: 'FULL',
       remainingAmount: 0,
       remainingPaymentDate: '',
-      newDueDate: ''
+      newDueDate: '',
+      penaltyWaiver: 0
     });
     setProofPreview(null);
     setShowEMIPaymentDialog(true);
@@ -573,7 +606,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           paymentType: emiPaymentForm.paymentType,
           remainingAmount: emiPaymentForm.remainingAmount,
           remainingPaymentDate: emiPaymentForm.remainingPaymentDate,
-          interestAmount: emiPaymentForm.paymentType === 'INTEREST_ONLY' ? selectedEMI.interestAmount : 0
+          interestAmount: emiPaymentForm.paymentType === 'INTEREST_ONLY' ? selectedEMI.interestAmount : 0,
+          penaltyWaiver: emiPaymentForm.penaltyWaiver || 0
         })
       });
 
@@ -692,6 +726,17 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
               >
                 <PlayCircle className="h-4 w-4 mr-1" />
                 Start Loan
+              </Button>
+            )}
+            {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
+            {currentUserRole === 'SUPER_ADMIN' && !isMirrorLoan && loanDetails && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="bg-red-500/20 text-white hover:bg-red-500/40 border border-red-300/30"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-1" /> Delete
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
@@ -993,6 +1038,55 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 Start Loan
               </>
             )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* ── Delete Loan Confirmation Dialog (SUPER_ADMIN only) ──────────────── */}
+    <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-700">
+            <Trash2 className="h-5 w-5" /> Permanently Delete Loan
+          </DialogTitle>
+          <DialogDescription className="text-gray-600">
+            This will permanently delete <strong>{loanDetails?.applicationNo}</strong> for{' '}
+            <strong>{loanDetails?.customer?.name || 'this customer'}</strong>, along with ALL EMIs,
+            payments, accounting entries, and mirror loans. This <strong>cannot be undone</strong>.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-xs text-red-800 font-medium">⚠️ What will be deleted:</p>
+            <ul className="text-xs text-red-700 mt-1 space-y-0.5 list-disc list-inside">
+              <li>All EMI schedules &amp; payment records</li>
+              <li>All accounting entries (cashbook, bank)</li>
+              <li>Mirror loan (if any)</li>
+              <li>Documents, workflow logs, audit trail</li>
+            </ul>
+          </div>
+          <div>
+            <Label htmlFor="deleteReason" className="text-sm font-medium">Reason for Deletion *</Label>
+            <Input
+              id="deleteReason"
+              className="mt-1"
+              placeholder="Enter reason (required)..."
+              value={deleteReason}
+              onChange={e => setDeleteReason(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => { setShowDeleteDialog(false); setDeleteReason(''); }}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleDeleteLoan}
+            disabled={!deleteReason.trim() || deletingLoan}
+          >
+            {deletingLoan ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Deleting...</> : <><Trash2 className="h-4 w-4 mr-2" />Confirm Delete</>}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -45,6 +45,7 @@ const LoanDetailPanel = lazy(() => import('@/components/loan/LoanDetailPanel'));
 const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 const SecondaryPaymentPageSection = lazy(() => import('@/components/shared/SecondaryPaymentPageSection'));
 const EnquirySection = lazy(() => import('@/components/shared/EnquirySection'));
+const TicketManagement = lazy(() => import('@/components/support/TicketManagement'));
 
 // Lazy load optimized sections
 const DashboardOverview = lazy(() => import('./modules/DashboardOverview'));
@@ -1498,6 +1499,30 @@ export default function SuperAdminDashboard() {
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}>
             <EnquirySection role="SUPER_ADMIN" userId={user?.id || ''} />
           </Suspense>
+        );
+
+      case 'tickets':
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><span className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"/></div>}>
+            <div className="space-y-4">
+              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <span>🎫</span> Support Tickets
+              </h2>
+              <TicketManagement userId={user?.id || ''} userRole={user?.role || 'SUPER_ADMIN'} />
+            </div>
+          </Suspense>
+        );
+
+      case 'messages':
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <span>💬</span> Messages
+            </h2>
+            <div className="p-6 bg-white rounded-xl border border-gray-200 text-center text-gray-500">
+              <p>Internal messaging via the notification system. Use Support Tickets tab for customer queries.</p>
+            </div>
+          </div>
         );
 
       case 'secondary-payment-pages':

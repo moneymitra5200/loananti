@@ -5,10 +5,10 @@ import { db } from '@/lib/db';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, email, phone, message } = body;
+    const { name, email, phone, message, subject } = body;
 
-    if (!name || !email || !phone || !message) {
-      return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
+    if (!name || !email || !message) {
+      return NextResponse.json({ error: 'Name, email and message are required' }, { status: 400 });
     }
 
     // Create enquiry record
@@ -16,8 +16,8 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         email,
-        phone,
-        message,
+        phone: phone || '',
+        message: subject ? `[${subject}] ${message}` : message,
         status: 'PENDING'
       }
     });

@@ -285,4 +285,7 @@ export interface EMIPaymentForm {
   remainingAmount: number;
   remainingPaymentDate: string;
   newDueDate: string;
+  /** Amount of penalty waived by the role — passed to /api/emi/pay as penaltyWaiver */
+  penaltyWaiver: number;
 }
+

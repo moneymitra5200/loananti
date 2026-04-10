@@ -21,6 +21,7 @@ import ProfileSection from '@/components/shared/ProfileSection';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
 import EnquirySection from '@/components/shared/EnquirySection';
+import TicketManagement from '@/components/support/TicketManagement';
 import { DisbursementDialog, LoanDetailPanel, InterestPaymentDialog } from './modules';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections } from './tabs/types';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -959,6 +960,28 @@ export default function CashierDashboard() {
 
       case 'enquiry':
         return <EnquirySection role="CASHIER" userId={user?.id || ''} />;
+
+      case 'tickets':
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <span>🎫</span> Support Tickets
+            </h2>
+            <TicketManagement userId={user?.id || ''} userRole={user?.role || 'CASHIER'} />
+          </div>
+        );
+
+      case 'messages':
+        return (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <span>💬</span> Internal Messages
+            </h2>
+            <div className="p-6 bg-white rounded-xl border border-gray-200 text-center text-gray-500">
+              <p>Direct messaging between roles is available via the notification system. Ticket-based support is in the Tickets tab.</p>
+            </div>
+          </div>
+        );
 
       case 'profile':
         return <ProfileSection />;

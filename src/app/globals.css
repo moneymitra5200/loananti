@@ -331,3 +331,18 @@ input, textarea, select {
   animation: blink-green 2.5s ease-in-out infinite;
   background-color: rgba(34, 197, 94, 0.1) !important;
 }
+
+/*  Premium Dialog Borders & Shadows  */
+[role='dialog'] > div,
+.dialog-border-fix {
+  border: 1.5px solid rgba(0,0,0,0.10) !important;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08) !important;
+  border-radius: 16px !important;
+}
+
+/* Sheet panel borders */
+[data-radix-dialog-content],
+[data-radix-sheet-content] {
+  border: 1.5px solid rgba(0,0,0,0.10);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.20), 0 2px 8px rgba(0,0,0,0.08);
+}

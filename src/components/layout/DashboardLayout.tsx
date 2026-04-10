@@ -438,6 +438,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'creditManagement', label: 'Credit Management', icon: CreditCard },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
+    { id: 'tickets', label: 'Support Tickets', icon: MessageCircle },
     { id: 'messages', label: 'Messages', icon: MessageCircle },
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'customers', label: 'Customers', icon: User },
@@ -497,6 +498,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'history', label: 'Recent', icon: Receipt },
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
     { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
+    { id: 'tickets', label: 'Support Tickets', icon: MessageCircle },
     { id: 'messages', label: 'Messages', icon: MessageCircle },
     { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],

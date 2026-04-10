@@ -342,7 +342,7 @@ export async function PUT(request: NextRequest) {
     const { 
       emiId, action, data, loanId, paidAmount, paymentMode, paymentRef, 
       creditType, remarks, proofUrl, userId, paymentType, remainingAmount, 
-      remainingPaymentDate, interestAmount, mirrorCompanyId
+      remainingPaymentDate, interestAmount, mirrorCompanyId, penaltyWaiver
     } = body;
 
     // Pay EMI - This INCREASES the user's credit
@@ -494,7 +494,12 @@ export async function PUT(request: NextRequest) {
           paymentMode: actualPaymentMode,
           paymentReference: paymentRef,
           proofUrl: proofUrl,
-          notes: emiNotes
+          notes: emiNotes,
+          // Apply penalty waiver — reduce stored penalty by waived amount
+          ...(penaltyWaiver > 0 && {
+            penaltyAmount: Math.max(0, (emi.penaltyAmount || 0) - (penaltyWaiver || 0)),
+            waivedAmount: penaltyWaiver
+          })
         };
 
         // Add INTEREST_ONLY specific fields
