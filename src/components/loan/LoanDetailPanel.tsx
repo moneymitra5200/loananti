@@ -607,9 +607,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           remainingAmount: emiPaymentForm.remainingAmount,
           remainingPaymentDate: emiPaymentForm.remainingPaymentDate,
           interestAmount: emiPaymentForm.paymentType === 'INTEREST_ONLY' ? selectedEMI.interestAmount : 0,
-          penaltyWaiver: emiPaymentForm.penaltyWaiver || 0
+          penaltyWaiver: emiPaymentForm.penaltyWaiver || 0,
+          // Penalty accounting
+          penaltyAmount: selectedEMI.lateFee || 0,
+          penaltyPaymentMode: emiPaymentForm.paymentMode === 'SPLIT' ? 'CASH' : (emiPaymentForm.penaltyPaymentMode || 'CASH'),
+          // Split payment
+          splitCashAmount: emiPaymentForm.splitCashAmount || 0,
+          splitOnlineAmount: emiPaymentForm.splitOnlineAmount || 0,
         })
       });
+
 
       const data = await response.json();
       

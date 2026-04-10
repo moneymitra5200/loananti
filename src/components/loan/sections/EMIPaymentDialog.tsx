@@ -12,6 +12,7 @@ import {
   FileCheck, User, Building, Wallet, AlertCircle, Loader2,
   Banknote, Landmark, ShieldMinus
 } from 'lucide-react';
+
 import { formatCurrency } from '@/utils/helpers';
 import type { EMISchedule, EMIPaymentForm } from './types';
 
@@ -386,7 +387,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
               <div className="grid grid-cols-2 gap-3">
-                {/* ONLINE Option */}
+              {/* ONLINE Option */}
                 <button
                   type="button"
                   onClick={() => setEmiPaymentForm({ ...emiPaymentForm, paymentMode: 'ONLINE' })}
@@ -427,7 +428,114 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     Entry: Loan Company's Cashbook
                   </p>
                 </button>
+
+                {/* SPLIT Option */}
+                <button
+                  type="button"
+                  onClick={() => setEmiPaymentForm({ ...emiPaymentForm, paymentMode: 'SPLIT', splitCashAmount: 0, splitOnlineAmount: 0 })}
+                  className={`p-3 rounded-lg border-2 text-left transition-all col-span-2 ${
+                    emiPaymentForm.paymentMode === 'SPLIT' 
+                      ? 'border-orange-500 bg-orange-50' 
+                      : 'border-orange-200 bg-white hover:border-orange-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Wallet className={`h-4 w-4 ${emiPaymentForm.paymentMode === 'SPLIT' ? 'text-orange-600' : 'text-gray-400'}`} />
+                    <span className={`font-medium ${emiPaymentForm.paymentMode === 'SPLIT' ? 'text-orange-800' : 'text-gray-600'}`}>
+                      SPLIT (Part Cash + Part Online)
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500">Penalty is included in the split total</p>
+                </button>
               </div>
+
+              {/* SPLIT: Cash + Online inputs */}
+              {emiPaymentForm.paymentMode === 'SPLIT' && (
+                <div className="mt-3 p-3 bg-orange-50 border border-orange-200 rounded-lg space-y-3">
+                  <p className="text-xs font-semibold text-orange-700">
+                    💡 Total to split: ₹{formatCurrency(emiPaymentForm.amount)} — enter cash and online portions.
+                    {(selectedEMI?.lateFee || 0) > 0 && ` (includes net penalty ₹${Math.max(0, (selectedEMI?.lateFee || 0) - emiPaymentForm.penaltyWaiver).toLocaleString('en-IN')})`}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-emerald-700">💵 Cash Amount</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={emiPaymentForm.splitCashAmount || ''}
+                        onChange={(e) => {
+                          const cash = parseFloat(e.target.value) || 0;
+                          setEmiPaymentForm({
+                            ...emiPaymentForm,
+                            splitCashAmount: cash,
+                            splitOnlineAmount: Math.max(0, emiPaymentForm.amount - cash)
+                          });
+                        }}
+                        className="border-emerald-300 mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-blue-700">📱 Online Amount</Label>
+                      <Input
+                        type="number"
+                        placeholder="0"
+                        value={emiPaymentForm.splitOnlineAmount || ''}
+                        onChange={(e) => {
+                          const online = parseFloat(e.target.value) || 0;
+                          setEmiPaymentForm({
+                            ...emiPaymentForm,
+                            splitOnlineAmount: online,
+                            splitCashAmount: Math.max(0, emiPaymentForm.amount - online)
+                          });
+                        }}
+                        className="border-blue-300 mt-1"
+                      />
+                    </div>
+                  </div>
+                  <div className={`text-xs font-medium flex justify-between px-1 ${
+                    Math.abs(((emiPaymentForm.splitCashAmount || 0) + (emiPaymentForm.splitOnlineAmount || 0)) - emiPaymentForm.amount) < 1
+                      ? 'text-emerald-600' : 'text-red-600'
+                  }`}>
+                    <span>Split Total: ₹{formatCurrency((emiPaymentForm.splitCashAmount || 0) + (emiPaymentForm.splitOnlineAmount || 0))}</span>
+                    <span>Required: ₹{formatCurrency(emiPaymentForm.amount)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Penalty Destination — only for non-SPLIT mode when penalty exists */}
+              {emiPaymentForm.paymentMode !== 'SPLIT' && (selectedEMI?.lateFee || 0) > 0 && emiPaymentForm.penaltyWaiver < (selectedEMI?.lateFee || 0) && (
+                <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <Label className="text-xs text-red-700 font-semibold block mb-2">Penalty collected via</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEmiPaymentForm({ ...emiPaymentForm, penaltyPaymentMode: 'CASH' })}
+                      className={`p-2 rounded border-2 text-sm font-medium transition-all ${
+                        (emiPaymentForm.penaltyPaymentMode || 'CASH') === 'CASH'
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                          : 'border-gray-200 bg-white text-gray-600'
+                      }`}
+                    >
+                      <Banknote className="h-3 w-3 inline mr-1" />Cash
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEmiPaymentForm({ ...emiPaymentForm, penaltyPaymentMode: 'BANK' })}
+                      className={`p-2 rounded border-2 text-sm font-medium transition-all ${
+                        emiPaymentForm.penaltyPaymentMode === 'BANK'
+                          ? 'border-blue-500 bg-blue-50 text-blue-800'
+                          : 'border-gray-200 bg-white text-gray-600'
+                      }`}
+                    >
+                      <Landmark className="h-3 w-3 inline mr-1" />Bank
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Net penalty ₹{Math.max(0, (selectedEMI?.lateFee || 0) - emiPaymentForm.penaltyWaiver).toLocaleString('en-IN')} → {(emiPaymentForm.penaltyPaymentMode || 'CASH') === 'BANK' ? 'Bank Account' : 'Cash Book'}
+                  </p>
+                </div>
+              )}
+
               <div className="mt-3 p-3 bg-blue-100 rounded-lg">
                 <p className="text-xs text-blue-700">
                   <strong>Entry will be recorded in:</strong> {' '}

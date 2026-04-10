@@ -287,5 +287,11 @@ export interface EMIPaymentForm {
   newDueDate: string;
   /** Amount of penalty waived by the role — passed to /api/emi/pay as penaltyWaiver */
   penaltyWaiver: number;
+  /** Where the net penalty (after waiver) goes — CASH or BANK (ignored in SPLIT mode) */
+  penaltyPaymentMode?: 'CASH' | 'BANK';
+  /** Cash portion for split payment mode */
+  splitCashAmount?: number;
+  /** Online portion for split payment mode */
+  splitOnlineAmount?: number;
 }
 
