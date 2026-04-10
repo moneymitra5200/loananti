@@ -74,6 +74,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
     { code: '4122', name: 'Late Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Late payment fees collected' },
     { code: '4123', name: 'Bounce Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Cheque/ECS bounce charges' },
     { code: '4124', name: 'Foreclosure Charges Income', type: 'INCOME', isSystemAccount: true, description: 'Foreclosure/prepayment charges' },
+    { code: '4125', name: 'Penalty Income', type: 'INCOME', isSystemAccount: true, description: 'Net penalty collected (after waiver) — records in CashBook or Bank based on collection mode' },
     // Other Income (4300-4399)
     { code: '4300', name: 'Other Income', type: 'INCOME', isSystemAccount: false, description: 'Other miscellaneous income' },
     { code: '4301', name: 'Commission Income', type: 'INCOME', isSystemAccount: false, description: 'Commission received' },
@@ -140,6 +141,7 @@ export const ACCOUNT_CODES = {
   LATE_FEE_INCOME: '4122',
   BOUNCE_CHARGES_INCOME: '4123',
   FORECLOSURE_INCOME: '4124',
+  PENALTY_INCOME: '4125',          // Net penalty income (after waiver)
   OTHER_INCOME: '4300',
   
   // Expenses

@@ -20,6 +20,8 @@ interface EMIReceiptProps {
   paymentDate: string;
   principalAmount: number;
   interestAmount: number;
+  penaltyAmount?: number;
+  penaltyWaived?: number;
   totalAmount: number;
   paymentMode: string;
   referenceNo: string;
@@ -47,6 +49,8 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>(({
   paymentDate,
   principalAmount,
   interestAmount,
+  penaltyAmount = 0,
+  penaltyWaived = 0,
   totalAmount,
   paymentMode,
   referenceNo,
@@ -229,6 +233,24 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>(({
             <span style={{ fontWeight: 'bold' }}>Interest Amount (Rate Of Interest):</span>
             <span>{formatCurrency(interestAmount)}</span>
           </div>
+          {penaltyAmount > 0 && (
+            <div style={{ marginBottom: '1.5mm', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 'bold', color: '#dc2626' }}>Penalty Charged:</span>
+              <span style={{ color: '#dc2626' }}>{formatCurrency(penaltyAmount)}</span>
+            </div>
+          )}
+          {penaltyWaived > 0 && (
+            <div style={{ marginBottom: '1.5mm', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 'bold', color: '#d97706' }}>Penalty Waived:</span>
+              <span style={{ color: '#d97706' }}>− {formatCurrency(penaltyWaived)}</span>
+            </div>
+          )}
+          {penaltyAmount > 0 && (
+            <div style={{ marginBottom: '2mm', display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontWeight: 'bold', color: '#b91c1c' }}>Net Penalty:</span>
+              <span style={{ color: '#b91c1c' }}>{formatCurrency(Math.max(0, penaltyAmount - penaltyWaived))}</span>
+            </div>
+          )}
           <div style={{ marginBottom: '2mm', display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontWeight: 'bold' }}>Service Charge:</span>
             <span>₹0</span>

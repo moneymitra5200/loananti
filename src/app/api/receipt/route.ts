@@ -388,13 +388,27 @@ export async function GET(request: NextRequest) {
       displayInterestAmount = Math.round((emi.outstandingPrincipal || emi.principalAmount) * mirrorMonthlyRate * 100) / 100;
     }
 
+    // Penalty info from EMI schedule
+    const penaltyAmount = emi?.penaltyAmount || 0;
+    const waivedAmount = emi?.waivedAmount || 0;
+
+    // Fallback: if principalComponent is 0 (wasn't stored), use schedule values
+    const finalPrincipal = payment.principalComponent && payment.principalComponent > 0
+      ? payment.principalComponent
+      : (emi?.paidPrincipal || emi?.principalAmount || 0);
+
+    const finalTotal = payment.amount && payment.amount > 0
+      ? payment.amount
+      : (emi?.paidAmount || emi?.totalAmount || 0);
+
     const receiptData = {
       receiptNo: payment.receiptNumber || `RCP-${company?.code || 'MM'}-1`,
       date: payment.createdAt.toISOString(),
-      customerName: `${loan?.firstName || ''} ${loan?.lastName || ''}`.trim() || customer?.name || '',
-      fatherName: fatherName,
+      // Use firstName/lastName from LoanApplication first, fallback to customer.name
+      customerName: (`${loan?.firstName || ''} ${loan?.lastName || ''}`).trim() || customer?.name || '',
+      fatherName: fatherName || (loan as any)?.fatherName || '',
       phone: customer?.phone || loan?.phone || '',
-      address: [customer?.address, customer?.city, customer?.state, customer?.pincode].filter(Boolean).join(', ') || loan?.address || '',
+      address: [customer?.address || loan?.address, customer?.city || loan?.city, customer?.state || loan?.state, customer?.pincode || loan?.pincode].filter(Boolean).join(', '),
       loanAccountNo: loan?.applicationNo || '',
       loanAmount: totalLoanAmount,
       interestRate: sessionForm?.interestRate || 0,
@@ -404,15 +418,17 @@ export async function GET(request: NextRequest) {
       totalEmis: totalEmis,
       dueDate: emi?.dueDate?.toISOString() || '',
       paymentDate: emi?.paidDate?.toISOString() || payment.createdAt.toISOString(),
-      principalAmount: payment.principalComponent || emi?.principalAmount || 0,
+      principalAmount: finalPrincipal,
       interestAmount: displayInterestAmount,
-      totalAmount: payment.amount || emi?.totalAmount || 0,
-      paymentMode: payment.paymentMode || 'CASH',
-      referenceNo: loan?.applicationNo || '',
-      balanceDue: balanceDue,
+      penaltyAmount,
+      penaltyWaived: waivedAmount,
+      totalAmount: finalTotal,
+      paymentMode: payment.paymentMode || emi?.paymentMode || 'CASH',
+      referenceNo: payment.utrNumber || payment.transactionId || loan?.applicationNo || '',
+      balanceDue: Math.max(0, balanceDue),
       companyName: company?.name || 'Money Mitra',
       companyCode: company?.code || 'MM',
-      isInterestOnly: payment.paymentType === 'INTEREST_ONLY' || emi?.paymentStatus === 'INTEREST_ONLY_PAID'
+      isInterestOnly: payment.paymentType === 'INTEREST_ONLY' || emi?.paymentStatus === 'INTEREST_ONLY_PAID',
     };
 
     return NextResponse.json({

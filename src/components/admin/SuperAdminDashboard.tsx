@@ -34,6 +34,8 @@ import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 const AuditLogViewer = lazy(() => import('@/components/audit/AuditLogViewer'));
 const LocationHistoryViewer = lazy(() => import('@/components/admin/LocationHistoryViewer'));
 const EMICollectionSection = lazy(() => import('@/components/emi/EMICollectionSection'));
+import EmiTodayReport from '@/components/admin/modules/EmiTodayReport';
+
 const EMICalendar = lazy(() => import('@/components/emi/EMICalendar'));
 const OfflineLoanForm = lazy(() => import('@/components/offline-loan/OfflineLoanForm'));
 const OfflineLoansList = lazy(() => import('@/components/offline-loan/OfflineLoansList'));
@@ -1409,8 +1411,12 @@ export default function SuperAdminDashboard() {
                 toast({ title: 'Payment Collected', description: 'EMI payment collected and credit updated' });
               }}
             />
+            {/* EMI Today Report - SuperAdmin only */}
+            <EmiTodayReport userRole={user?.role || 'SUPER_ADMIN'} />
+
           </div>
         );
+
 
       case 'emi-calendar':
         return (
