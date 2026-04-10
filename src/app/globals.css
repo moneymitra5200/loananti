@@ -96,6 +96,30 @@ body {
   scrollbar-width: none; /* Firefox */
 }
 
+/* EMI Due Date Alert Animations */
+@keyframes pulse-red {
+  0%, 100% { background-color: rgb(254 242 242); border-color: rgb(239 68 68); }
+  50% { background-color: rgb(254 202 202); border-color: rgb(220 38 38); }
+}
+@keyframes pulse-yellow {
+  0%, 100% { background-color: rgb(254 252 232); border-color: rgb(234 179 8); }
+  50% { background-color: rgb(254 240 138); border-color: rgb(202 138 4); }
+}
+@keyframes pulse-green {
+  0%, 100% { background-color: rgb(240 253 244); border-color: rgb(74 222 128); }
+  50% { background-color: rgb(187 247 208); border-color: rgb(34 197 94); }
+}
+.animate-pulse-red {
+  animation: pulse-red 1.5s ease-in-out infinite;
+}
+.animate-pulse-yellow {
+  animation: pulse-yellow 2s ease-in-out infinite;
+}
+.animate-pulse-green {
+  animation: pulse-green 2.5s ease-in-out infinite;
+}
+
+
 /* Focus styles */
 *:focus-visible {
   outline: 2px solid hsl(var(--ring));

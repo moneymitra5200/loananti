@@ -17,6 +17,7 @@ import {
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from '@/hooks/use-toast';
+import { getEMIDueStatus, getEMIRowClass, getEMIBadgeConfig } from '@/utils/emi-due-utils';
 import {
   Dialog,
   DialogContent,
@@ -724,15 +725,15 @@ export function ActiveLoansSection({
                   );
                 }
 
-                // Regular loan card for non-mirrored loans
+                // --- EMI Due Date Blink Logic ---
+                const emiDueStatus = getEMIDueStatus(loan.nextEmi?.dueDate);
+                const emiRowClass = getEMIRowClass(emiDueStatus);
+                const emiBadge = getEMIBadgeConfig(emiDueStatus);
 
                 return (
-                  <motion.div
+                  <div
                     key={`${loan.loanType}-${loan.id}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className={`border rounded-xl hover:shadow-md transition-all ${bgColor}`}
+                    className={`border rounded-xl hover:shadow-md transition-all ${emiDueStatus !== 'normal' ? emiRowClass : bgColor}`}
                   >
                     <div className="p-4">
                       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -751,8 +752,8 @@ export function ActiveLoansSection({
                               {loan.status && (
                                 <Badge className="bg-green-100 text-green-700">{loan.status}</Badge>
                               )}
-                              {loan.nextEmi && loan.nextEmi.status === 'OVERDUE' && (
-                                <Badge className="bg-red-100 text-red-700">EMI Overdue</Badge>
+                              {emiBadge && (
+                                <Badge className={emiBadge.className}>{emiBadge.label}</Badge>
                               )}
                             </div>
                             <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.phone || loan.customer?.email}</p>
@@ -1287,12 +1288,12 @@ export function ActiveLoansSection({
                               </TabsContent>
                             </Tabs>
                           </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
-                );
-              })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
             </div>
           )}
         </CardContent>
