@@ -568,33 +568,51 @@ function CashBookSection({
             <ScrollArea className="h-96">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Balance</TableHead>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="text-xs font-semibold uppercase tracking-wide">Date</TableHead>
+                    <TableHead className="text-xs font-semibold uppercase tracking-wide">Description</TableHead>
+                    <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-emerald-700">Credit (IN)</TableHead>
+                    <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-red-700">Debit (OUT)</TableHead>
+                    <TableHead className="text-right text-xs font-semibold uppercase tracking-wide text-blue-700">Balance</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {entries.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell>{formatDateShort(entry.createdAt)}</TableCell>
-                      <TableCell className="max-w-xs truncate">{entry.description}</TableCell>
-                      <TableCell>
-                        <Badge variant={entry.entryType === 'CREDIT' ? 'default' : 'destructive'}>
-                          {entry.entryType === 'CREDIT' ? 'IN' : 'OUT'}
-                        </Badge>
+                  {entries.map((entry, idx) => (
+                    <TableRow key={entry.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50/30 transition-colors`}>
+                      <TableCell className="font-mono text-sm text-gray-600">{formatDateShort(entry.createdAt)}</TableCell>
+                      <TableCell className="max-w-xs">
+                        <p className="truncate text-sm font-medium">{entry.description}</p>
+                        {entry.referenceType && (
+                          <span className="text-xs text-gray-400">{entry.referenceType.replace(/_/g, ' ')}</span>
+                        )}
                       </TableCell>
-                      <TableCell className={`text-right font-medium ${entry.entryType === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
-                        {entry.entryType === 'CREDIT' ? '+' : '-'}{formatCurrency(entry.amount)}
+                      <TableCell className="text-right">
+                        {entry.entryType === 'CREDIT' ? (
+                          <span className="font-semibold text-emerald-600">
+                            +{formatCurrency(entry.amount)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </TableCell>
-                      <TableCell className="text-right">{formatCurrency(entry.balanceAfter)}</TableCell>
+                      <TableCell className="text-right">
+                        {entry.entryType === 'DEBIT' ? (
+                          <span className="font-semibold text-red-600">
+                            {formatCurrency(entry.amount)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className={`text-right font-bold ${(entry.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                        {formatCurrency(entry.balanceAfter || 0)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </ScrollArea>
+
           )}
         </CardContent>
       </Card>
@@ -1084,10 +1102,9 @@ function BankSection({
             ))}
           </div>
 
-          {/* Transactions */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Bank Transactions</CardTitle>
+              <CardTitle className="text-lg">Bank Transactions — Passbook</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-96">
@@ -1098,24 +1115,44 @@ function BankSection({
                     .sort((a, b) => b[0].localeCompare(a[0]))
                     .map(([date, txns]) => (
                       <div key={date} className="mb-4">
-                        <div className="sticky top-0 bg-gray-50 px-2 py-1 text-sm font-medium text-gray-600 border-b">
-                          {format(new Date(date), 'EEEE, dd MMMM yyyy')}
+                        <div className="sticky top-0 bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-800 border-b border-blue-100 flex items-center justify-between">
+                          <span>{format(new Date(date), 'EEEE, dd MMMM yyyy')}</span>
+                          <span className="text-xs font-normal text-blue-600">{txns.length} transactions</span>
                         </div>
                         <Table>
+                          <TableHeader>
+                            <TableRow className="bg-gray-50 text-xs">
+                              <TableHead className="text-xs uppercase tracking-wide">Time</TableHead>
+                              <TableHead className="text-xs uppercase tracking-wide">Description</TableHead>
+                              <TableHead className="text-right text-xs uppercase tracking-wide text-emerald-700">Credit (IN)</TableHead>
+                              <TableHead className="text-right text-xs uppercase tracking-wide text-red-700">Debit (OUT)</TableHead>
+                              <TableHead className="text-right text-xs uppercase tracking-wide text-blue-700">Balance</TableHead>
+                            </TableRow>
+                          </TableHeader>
                           <TableBody>
-                            {txns.map((txn) => (
-                              <TableRow key={txn.id}>
-                                <TableCell>{format(new Date(txn.transactionDate), 'HH:mm')}</TableCell>
-                                <TableCell className="max-w-[200px] truncate">{txn.description}</TableCell>
-                                <TableCell>
-                                  <Badge variant={txn.transactionType === 'CREDIT' ? 'default' : 'destructive'}>
-                                    {txn.transactionType === 'CREDIT' ? 'IN' : 'OUT'}
-                                  </Badge>
+                            {txns.map((txn, idx) => (
+                              <TableRow key={txn.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-blue-50/30 transition-colors`}>
+                                <TableCell className="font-mono text-sm text-gray-500">{format(new Date(txn.transactionDate), 'HH:mm')}</TableCell>
+                                <TableCell className="max-w-[200px]">
+                                  <p className="truncate text-sm font-medium">{txn.description}</p>
                                 </TableCell>
-                                <TableCell className={`text-right font-medium ${txn.transactionType === 'CREDIT' ? 'text-green-600' : 'text-red-600'}`}>
-                                  {txn.transactionType === 'CREDIT' ? '+' : '-'}{formatCurrency(txn.amount)}
+                                <TableCell className="text-right">
+                                  {txn.transactionType === 'CREDIT' ? (
+                                    <span className="font-semibold text-emerald-600">+{formatCurrency(txn.amount)}</span>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
+                                  )}
                                 </TableCell>
-                                <TableCell className="text-right">{formatCurrency(txn.balanceAfter)}</TableCell>
+                                <TableCell className="text-right">
+                                  {txn.transactionType === 'DEBIT' ? (
+                                    <span className="font-semibold text-red-600">{formatCurrency(txn.amount)}</span>
+                                  ) : (
+                                    <span className="text-gray-300">—</span>
+                                  )}
+                                </TableCell>
+                                <TableCell className={`text-right font-bold ${(txn.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-blue-700'}`}>
+                                  {formatCurrency(txn.balanceAfter || 0)}
+                                </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -1126,6 +1163,7 @@ function BankSection({
               </ScrollArea>
             </CardContent>
           </Card>
+
         </>
       )}
 

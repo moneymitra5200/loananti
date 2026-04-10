@@ -65,12 +65,31 @@ export async function getOrCreateCashBook(companyId: string): Promise<string> {
 
 /**
  * Record a cashbook entry
+ * IDEMPOTENCY: If a DEBIT entry for the same referenceId already exists, skip to prevent double-deduction
  */
 export async function recordCashBookEntry(params: CashbookEntryParams): Promise<{ success: boolean; cashBookId: string; newBalance: number }> {
   const { companyId, entryType, amount, description, referenceType, referenceId, createdById } = params;
 
   // Get or create cashbook
   const cashBookId = await getOrCreateCashBook(companyId);
+
+  // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
+  // Prevent duplicate DEBIT entries for the same loan/disbursement referenceId
+  if (referenceId && entryType === 'DEBIT') {
+    const existing = await db.cashBookEntry.findFirst({
+      where: {
+        cashBookId,
+        referenceId,
+        referenceType,
+        entryType: 'DEBIT',
+      },
+    });
+    if (existing) {
+      console.warn(`[CashBook] DUPLICATE DEBIT BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
+      const cashBook = await db.cashBook.findUnique({ where: { id: cashBookId } });
+      return { success: true, cashBookId, newBalance: cashBook?.currentBalance || 0 };
+    }
+  }
 
   // Get current balance
   const cashBook = await db.cashBook.findUnique({
@@ -115,6 +134,7 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
 
   return { success: true, cashBookId, newBalance };
 }
+
 
 // ============================================
 // BANK OPERATIONS
