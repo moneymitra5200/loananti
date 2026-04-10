@@ -31,7 +31,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ accounts, initialized: true });
     }
 
-    // ── Compute LIVE balances from journal entry lines ───────────────
+    // ── Real bank accounts from BankAccount table ─────────────────────
+    const realBankAccounts = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const hasRealBankAccounts = realBankAccounts.length > 0;
+
+    // ── Compute LIVE balances from journal entry lines ─────────────────
     const lineAgg = await db.journalEntryLine.groupBy({
       by: ['accountId'],
       where: {
@@ -52,25 +59,85 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Enrich accounts with live balance
-    const enriched = accounts.map(account => {
+    // Total journal activity on the generic 1102 account (sum used for bank accounts)
+    const genericBank1102 = accounts.find(a => a.accountCode === '1102');
+    const bank1102Txn = genericBank1102 ? (txnMap[genericBank1102.id] || { totalDebit: 0, totalCredit: 0 }) : { totalDebit: 0, totalCredit: 0 };
+    const bank1102Opening = genericBank1102?.openingBalance || 0;
+    // Total bank movement recorded in journal entries
+    const totalBankJournalBalance = bank1102Opening + bank1102Txn.totalDebit - bank1102Txn.totalCredit;
+
+    // ── Build enriched list ────────────────────────────────────────────
+    const enrichedRaw = accounts.map(account => {
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
       const opening = account.openingBalance || 0;
 
-      const liveBalance = isDebitNormal
+      let liveBalance = isDebitNormal
         ? opening + txn.totalDebit - txn.totalCredit
         : opening + txn.totalCredit - txn.totalDebit;
 
+      // ── BANK ACCOUNT LOGIC ──────────────────────────────────────────
+      // If this is the generic "Bank Account (1102)" system account AND
+      // the company has real bank accounts → HIDE it (will be replaced)
+      if (account.accountCode === '1102' && hasRealBankAccounts) {
+        return null; // skip generic - replaced by real banks below
+      }
+
+      // If this is a user-created bank ChartOfAccount (non-1102, non-system, ASSET type)
+      // that maps to an actual BankAccount record → show actual balance
+      const matchingRealBank = realBankAccounts.find(rb =>
+        rb.accountName?.toLowerCase() === account.accountName?.toLowerCase() ||
+        rb.bankName?.toLowerCase().includes(account.accountName?.toLowerCase() || '') ||
+        account.accountName?.toLowerCase().includes(rb.bankName?.toLowerCase() || '') ||
+        account.accountName?.toLowerCase().includes(rb.accountNumber?.slice(-4) || '')
+      );
+      if (matchingRealBank) {
+        liveBalance = matchingRealBank.currentBalance || 0;
+      }
+
       return {
         ...account,
-        currentBalance: liveBalance,   // override with live value
+        currentBalance: liveBalance,
         totalDebit: txn.totalDebit,
         totalCredit: txn.totalCredit,
       };
-    });
+    }).filter(Boolean);
 
-    return NextResponse.json({ accounts: enriched });
+    // ── If company has real banks, inject them as proper account rows ──
+    // Only if the company doesn't ALREADY have them as ChartOfAccount entries
+    if (hasRealBankAccounts) {
+      for (const bank of realBankAccounts) {
+        // Check if this bank already appears in ChartOfAccount
+        const alreadyListed = enrichedRaw.some(a =>
+          a?.accountName?.toLowerCase() === bank.accountName?.toLowerCase() ||
+          a?.accountName?.toLowerCase().includes(bank.bankName?.toLowerCase() || '') ||
+          bank.bankName?.toLowerCase().includes(a?.accountName?.toLowerCase() || '')
+        );
+
+        if (!alreadyListed) {
+          // Inject a virtual row for this bank
+          enrichedRaw.push({
+            id: `bank-${bank.id}`,
+            companyId,
+            accountCode: `BANK-${bank.id.slice(-4).toUpperCase()}`,
+            accountName: `${bank.bankName} - ${bank.accountName}`,
+            accountType: 'ASSET' as any,
+            description: `Bank Account: ${bank.accountNumber}`,
+            isSystemAccount: false,
+            isActive: true,
+            openingBalance: bank.openingBalance || 0,
+            currentBalance: bank.currentBalance || 0,
+            totalDebit: bank1102Txn.totalDebit,   // journal debits tracked via 1102
+            totalCredit: bank1102Txn.totalCredit,  // journal credits tracked via 1102
+            parentAccountId: null,
+            createdAt: bank.createdAt,
+            updatedAt: bank.updatedAt,
+          } as any);
+        }
+      }
+    }
+
+    return NextResponse.json({ accounts: enrichedRaw });
   } catch (error) {
     console.error('Error fetching chart of accounts:', error);
     return NextResponse.json({
@@ -79,7 +146,6 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 }
-
 
 // Helper function to initialize default accounts
 async function initializeDefaultAccounts(companyId: string) {

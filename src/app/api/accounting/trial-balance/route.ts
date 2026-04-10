@@ -4,8 +4,9 @@ import { db } from '@/lib/db';
 /**
  * TRIAL BALANCE API — LIVE COMPUTED
  *
- * Balances are computed LIVE from JournalEntryLines,
- * not from the stale currentBalance field.
+ * Balances are computed LIVE from JournalEntryLines.
+ * The generic "Bank Account (1102)" is HIDDEN when the company has real bank accounts.
+ * Instead, each actual BankAccount is shown as an ASSET row with its real balance.
  *
  * ASSET / EXPENSE  → normal balance = DEBIT   → balance = totalDebit - totalCredit
  * LIABILITY / EQUITY / INCOME → normal balance = CREDIT → balance = totalCredit - totalDebit
@@ -27,6 +28,13 @@ export async function GET(request: NextRequest) {
       where: { companyId, isActive: true },
       orderBy: [{ accountType: 'asc' }, { accountCode: 'asc' }],
     });
+
+    // ── 1b. Get real bank accounts ────────────────────────────────────
+    const realBankAccounts = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const hasRealBankAccounts = realBankAccounts.length > 0;
 
     if (accounts.length === 0) {
       return NextResponse.json({
@@ -61,23 +69,29 @@ export async function GET(request: NextRequest) {
       };
     }
 
+    // Journal activity for the generic 1102 account (tracked internally)
+    const genericBank1102 = accounts.find(a => a.accountCode === '1102');
+    const bank1102Txn = genericBank1102
+      ? (txnMap[genericBank1102.id] || { totalDebit: 0, totalCredit: 0 })
+      : { totalDebit: 0, totalCredit: 0 };
+
     // ── 3. Build trial balance ────────────────────────────────────────
     const trialBalance: any[] = [];
     let totalDebitBalance = 0;
     let totalCreditBalance = 0;
 
     for (const account of accounts) {
+      // HIDE generic Bank Account (1102) if real banks exist
+      if (account.accountCode === '1102' && hasRealBankAccounts) continue;
+
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
       const openingBalance = account.openingBalance || 0;
 
-      // Compute closing balance from journal entries + opening balance
       let closingBalance: number;
       if (isDebitNormal) {
-        // For assets/expenses: opening is a debit balance
         closingBalance = openingBalance + txn.totalDebit - txn.totalCredit;
       } else {
-        // For liabilities/equity/income: opening is a credit balance
         closingBalance = openingBalance + txn.totalCredit - txn.totalDebit;
       }
 
@@ -116,6 +130,31 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ── 3b. Inject real bank accounts into trial balance ──────────────
+    if (hasRealBankAccounts) {
+      for (const bank of realBankAccounts) {
+        const bankBalance = bank.currentBalance || 0;
+        const debitBalance = bankBalance >= 0 ? bankBalance : 0;
+        const creditBalance = bankBalance < 0 ? Math.abs(bankBalance) : 0;
+        totalDebitBalance += debitBalance;
+        totalCreditBalance += creditBalance;
+
+        trialBalance.push({
+          accountId: `bank-${bank.id}`,
+          accountCode: `BANK-${bank.id.slice(-4).toUpperCase()}`,
+          accountName: `${bank.bankName} - ${bank.accountName}`,
+          accountType: 'ASSET',
+          openingBalance: bank.openingBalance || 0,
+          totalDebit: bank1102Txn.totalDebit,
+          totalCredit: bank1102Txn.totalCredit,
+          closingBalance: bankBalance,
+          debitBalance,
+          creditBalance,
+          isRealBank: true,
+        });
+      }
+    }
+
     // ── 4. Group by type ─────────────────────────────────────────────
     const groupedByType: Record<string, typeof trialBalance> = {
       ASSET: [], LIABILITY: [], EQUITY: [], INCOME: [], EXPENSE: [],
@@ -130,7 +169,7 @@ export async function GET(request: NextRequest) {
         trialBalance,
         groupedByType,
         summary: {
-          totalAccounts: accounts.length,
+          totalAccounts: trialBalance.length,
           totalDebitBalance,
           totalCreditBalance,
           isBalanced: Math.abs(totalDebitBalance - totalCreditBalance) < 0.01,
@@ -145,3 +184,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch trial balance', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
   }
 }
+
+
+
