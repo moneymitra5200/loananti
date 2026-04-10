@@ -7,12 +7,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, email, phone, subject, message } = body;
 
-    if (!name || !email || !subject || !message) {
-      return NextResponse.json({ error: 'Name, email, subject and message are required' }, { status: 400 });
+    if (!name || !email || !message) {
+      return NextResponse.json({ error: 'Name, email and message are required' }, { status: 400 });
     }
 
     const enquiry = await (db as any).enquiry.create({
-      data: { name, email, phone, subject, message }
+      data: { name, email, phone: phone || '', subject: subject || 'General Enquiry', message }
     });
 
     return NextResponse.json({ success: true, enquiry });

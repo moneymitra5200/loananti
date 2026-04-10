@@ -29,7 +29,7 @@ export default function ContactUsPage() {
     setSending(true);
     setError('');
     try {
-      const res = await fetch('/api/contact-enquiry', {
+      const res = await fetch('/api/enquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
