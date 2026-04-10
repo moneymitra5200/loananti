@@ -180,24 +180,15 @@ export default function CompanyDashboard() {
       });
       if (response.ok) {
         const actionText = approvalAction === 'approve' ? 'Approved' : approvalAction === 'reject' ? 'Rejected' : 'Sent Back';
-        // Show success dialog for approval
-        if (approvalAction === 'approve') {
-          setSuccessDialogData({
-            title: 'Loan Approved Successfully!',
-            description: `Application ${selectedLoan.applicationNo} has been approved and sent to the Agent for further processing.`
-          });
-          setShowSuccessDialog(true);
-        } else {
-          toast({ 
-            title: `Loan ${actionText}`, 
-            description: `Application ${selectedLoan.applicationNo} has been ${actionText.toLowerCase()}.` 
-          });
-        }
+        toast({ 
+          title: `Loan ${actionText}`, 
+          description: `Application ${selectedLoan.applicationNo} has been ${actionText.toLowerCase()}.` 
+        });
         setShowApprovalDialog(false);
         setShowConfirmDialog(false);
         setRemarks('');
         setSelectedAgentId('');
-        fetchData();
+        fetchData(true);
       } else {
         const data = await response.json();
         toast({ title: 'Error', description: data.error || 'Failed to process', variant: 'destructive' });
@@ -296,7 +287,7 @@ export default function CompanyDashboard() {
         });
         setShowBulkApprovalDialog(false);
         clearSelection();
-        fetchData();
+        fetchData(true);
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to process bulk approval', variant: 'destructive' });
       }
@@ -1336,7 +1327,7 @@ export default function CompanyDashboard() {
             )}
             <Button 
               className={approvalAction === 'approve' ? 'bg-emerald-500 hover:bg-emerald-600' : approvalAction === 'send_back' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600'} 
-              onClick={() => setShowConfirmDialog(true)}
+              onClick={handleApproval}
               disabled={saving}
             >
               {saving ? 'Processing...' : approvalAction === 'approve' ? 'Approve' : approvalAction === 'send_back' ? 'Confirm Send Back' : 'Reject'}
@@ -1345,43 +1336,6 @@ export default function CompanyDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog */}
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {approvalAction === 'approve' ? 'Confirm Approval' : approvalAction === 'send_back' ? 'Confirm Send Back' : 'Confirm Rejection'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {approvalAction === 'approve' 
-                ? `Are you sure you want to APPROVE loan ${selectedLoan?.applicationNo}? This will move it to the next stage.`
-                : approvalAction === 'send_back'
-                ? `Are you sure you want to SEND BACK loan ${selectedLoan?.applicationNo}? It will return to Super Admin for review.`
-                : `Are you sure you want to REJECT loan ${selectedLoan?.applicationNo}? This action cannot be undone.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleApproval();
-              }}
-              disabled={saving}
-              className={approvalAction === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700' : approvalAction === 'send_back' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-red-600 hover:bg-red-700'}
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                `Yes, ${approvalAction === 'approve' ? 'Approve' : approvalAction === 'send_back' ? 'Send Back' : 'Reject'}`
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Loan Details Dialog */}
       <Dialog open={showLoanDetailsDialog} onOpenChange={setShowLoanDetailsDialog}>

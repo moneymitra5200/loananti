@@ -23,10 +23,11 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap, Edit
+  Wrench, Zap, Edit, BookCheck
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
+import ManualJournalEntryDialog from '@/components/accounting/ManualJournalEntryDialog';
 
 // ============================================
 // TYPES
@@ -603,7 +604,7 @@ function CashBookSection({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Cash Entry</DialogTitle>
-            <DialogDescription>Record a cash transaction</DialogDescription>
+            <DialogDescription>Record a manual cash receipt or payment in the cash book.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -1310,6 +1311,7 @@ function BankSection({
               <PiggyBank className="h-5 w-5 text-purple-600" />
               Add Owner's Equity / Capital
             </DialogTitle>
+            <DialogDescription>Add new capital investment into the business.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
@@ -2000,63 +2002,69 @@ function TrialBalanceSection({
             </CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[500px]">
-              <Table>
-                <TableHeader className="sticky top-0 bg-white z-10">
-                  <TableRow>
-                    <TableHead className="w-24">Code</TableHead>
-                    <TableHead>Account Name</TableHead>
-                    <TableHead className="w-28">Type</TableHead>
-                    <TableHead className="text-right w-36">Debit (₹)</TableHead>
-                    <TableHead className="text-right w-36">Credit (₹)</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {trialBalance.groupedByType && Object.entries(trialBalance.groupedByType).map(([type, accounts]: [string, any]) => (
-                    <React.Fragment key={type}>
-                      <TableRow className="bg-gray-100">
-                        <TableCell colSpan={5} className="font-bold text-gray-700">
-                          {type}
+            <div className="overflow-x-auto">
+              <ScrollArea className="w-full h-[600px]">
+                <Table>
+                  <TableHeader className="bg-gray-50 sticky top-0 z-10">
+                    <TableRow>
+                      <TableHead className="w-24">Code</TableHead>
+                      <TableHead className="min-w-[200px]">Account Name</TableHead>
+                      <TableHead className="w-32">Type</TableHead>
+                      <TableHead className="text-right w-40">Debit (₹)</TableHead>
+                      <TableHead className="text-right w-40">Credit (₹)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {trialBalance.rows.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-gray-500 italic">
+                          No accounts found for the current filter.
                         </TableCell>
                       </TableRow>
-                      {(accounts as any[]).map((acc: any) => (
-                        <TableRow key={acc.accountId} className="hover:bg-gray-50">
-                          <TableCell className="font-mono text-sm">{acc.accountCode}</TableCell>
-                          <TableCell>{acc.accountName}</TableCell>
+                    ) : (
+                      trialBalance.rows.map((row: any) => (
+                        <TableRow key={row.accountCode} className="hover:bg-gray-50/50 transition-colors">
+                          <TableCell className="font-mono text-xs">{row.accountCode}</TableCell>
+                          <TableCell className="font-medium text-gray-800">{row.accountName}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="text-xs">{acc.accountType}</Badge>
+                            <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-tight">
+                              {row.accountType.replace('_', ' ')}
+                            </Badge>
                           </TableCell>
-                          <TableCell className="text-right text-blue-600 font-medium">
-                            {acc.debitBalance > 0 ? formatCurrency(acc.debitBalance) : '-'}
+                          <TableCell className="text-right font-mono text-blue-600 font-medium text-sm">
+                            {row.debitBalance > 0 ? formatCurrency(row.debitBalance) : '-'}
                           </TableCell>
-                          <TableCell className="text-right text-green-600 font-medium">
-                            {acc.creditBalance > 0 ? formatCurrency(acc.creditBalance) : '-'}
+                          <TableCell className="text-right font-mono text-green-600 font-medium text-sm">
+                            {row.creditBalance > 0 ? formatCurrency(row.creditBalance) : '-'}
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                  {/* Grand Total */}
-                  <TableRow className="bg-emerald-50 font-bold">
-                    <TableCell colSpan={3} className="text-lg">GRAND TOTAL</TableCell>
-                    <TableCell className="text-right text-blue-700 text-lg">
-                      {formatCurrency(trialBalance.summary?.totalDebitBalance || 0)}
-                    </TableCell>
-                    <TableCell className="text-right text-green-700 text-lg">
-                      {formatCurrency(trialBalance.summary?.totalCreditBalance || 0)}
-                    </TableCell>
-                  </TableRow>
-                  {!trialBalance.summary?.isBalanced && (
-                    <TableRow className="bg-red-100">
-                      <TableCell colSpan={3} className="text-red-700">Difference (Unbalanced)</TableCell>
-                      <TableCell colSpan={2} className="text-right text-red-700 font-bold">
-                        {formatCurrency(trialBalance.summary?.difference || 0)}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+                      ))
+                    )}
+                    
+                    {trialBalance.rows.length > 0 && (
+                      <TableRow className="bg-emerald-50/50 font-bold border-t-2 border-emerald-100 sticky bottom-0 z-10">
+                        <TableCell colSpan={3} className="text-base text-emerald-900 uppercase tracking-wider">GRAND TOTAL</TableCell>
+                        <TableCell className="text-right text-blue-800 text-lg decoration-double underline underline-offset-4">
+                          {formatCurrency(trialBalance.summary?.totalDebitBalance || 0)}
+                        </TableCell>
+                        <TableCell className="text-right text-green-800 text-lg decoration-double underline underline-offset-4">
+                          {formatCurrency(trialBalance.summary?.totalCreditBalance || 0)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+
+                    {!trialBalance.summary?.isBalanced && trialBalance.rows.length > 0 && (
+                      <TableRow className="bg-red-50">
+                        <TableCell colSpan={3} className="text-red-700 font-bold">Difference (Unbalanced)</TableCell>
+                        <TableCell colSpan={2} className="text-right text-red-700 font-bold text-lg">
+                          {formatCurrency(trialBalance.summary?.difference || 0)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -2501,6 +2509,7 @@ export default function UnifiedAccountantDashboard() {
   const [loading, setLoading] = useState(true);
   const [companiesLoading, setCompaniesLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('day-book');
+  const [showManualEntryDialog, setShowManualEntryDialog] = useState(false);
   
   // Company
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -2760,6 +2769,18 @@ export default function UnifiedAccountantDashboard() {
                 </SelectContent>
               </Select>
 
+              {/* Manual Entry Button */}
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={() => setShowManualEntryDialog(true)}
+                className="h-8 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                title="Post Manual Journal Entry"
+              >
+                <BookCheck className="h-4 w-4 mr-1" />
+                Journal Entry
+              </Button>
+
               {/* Auto-Fix Button */}
               <Button 
                 variant="ghost" 
@@ -2857,6 +2878,22 @@ export default function UnifiedAccountantDashboard() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Manual Entry Dialog */}
+      <ManualJournalEntryDialog
+        open={showManualEntryDialog}
+        onOpenChange={setShowManualEntryDialog}
+        companyId={selectedCompanyId}
+        onSuccess={() => {
+          // Refresh data based on active section
+          if (activeSection === 'day-book' || activeSection === 'trial-balance' || activeSection === 'chart-of-accounts') {
+            // This is a bit hacky but it works to trigger re-renders
+            const current = activeSection;
+            setActiveSection('none');
+            setTimeout(() => setActiveSection(current), 10);
+          }
+        }}
+      />
     </div>
   );
 }

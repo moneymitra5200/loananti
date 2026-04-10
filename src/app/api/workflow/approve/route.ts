@@ -101,8 +101,9 @@ const ALLOWED_ACTIONS: Record<string, Record<string, {
     send_back: { nextStatus: LoanStatus.AGENT_APPROVED_STAGE1, roles: ['AGENT', 'SUPER_ADMIN'] }
   },
   SESSION_CREATED: {
-    approve_session: { nextStatus: LoanStatus.CUSTOMER_SESSION_APPROVED, roles: ['CUSTOMER'] },
-    reject_session: { nextStatus: LoanStatus.SESSION_REJECTED, roles: ['CUSTOMER'] },
+    approve_session: { nextStatus: LoanStatus.CUSTOMER_SESSION_APPROVED, roles: ['CUSTOMER', 'SUPER_ADMIN'] },
+    fast_approve: { nextStatus: LoanStatus.FINAL_APPROVED, roles: ['SUPER_ADMIN'] },
+    reject_session: { nextStatus: LoanStatus.SESSION_REJECTED, roles: ['CUSTOMER', 'SUPER_ADMIN'] },
     send_back: { nextStatus: LoanStatus.LOAN_FORM_COMPLETED, roles: ['AGENT', 'SUPER_ADMIN'] }
   },
   CUSTOMER_SESSION_APPROVED: {
@@ -633,97 +634,33 @@ async function processSingleApproval({
         }
       }
       
-      // ============ CHART OF ACCOUNTS JOURNAL ENTRY ============
-      // Create journal entry for loan disbursement in Chart of Accounts
-      // Debit: Loans Receivable (Asset increases)
-      // Credit: Cash/Bank (Asset decreases)
+      // ============ UNIFIED ACCOUNTING - LOAN DISBURSEMENT ============
       const targetCompanyId = loan.companyId || companyId;
       if (targetCompanyId && disbursementData.amount > 0) {
         try {
           const accountingService = new AccountingService(targetCompanyId);
           await accountingService.initializeChartOfAccounts();
           
-          // Get Loans Receivable account
-          const loansReceivableAccount = await tx.chartOfAccount.findFirst({
-            where: { companyId: targetCompanyId, accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE }
-          });
+          // Determine accounts based on disbursement mode
+          const disbursementAccountCode = (disbursementData.mode === 'BANK_TRANSFER' || (disbursementData.useSplitPayment && (disbursementData.bankAmount || 0) > 0))
+            ? ACCOUNT_CODES.BANK_ACCOUNT
+            : ACCOUNT_CODES.CASH_IN_HAND;
+
+          await accountingService.recordLoanDisbursement({
+            loanId,
+            customerId: loan.customerId,
+            amount: disbursementData.amount,
+            disbursementDate: new Date(),
+            createdById: userId || 'SYSTEM',
+            bankAccountId: disbursementData.bankAccountId,
+            paymentMode: disbursementData.mode || (disbursementData.isCashPayment ? 'CASH' : 'BANK_TRANSFER'),
+            reference: `Workflow Approval: ${loan.applicationNo}`
+          }, tx);
           
-          // Get Cash/Bank account
-          let cashAccount = await tx.chartOfAccount.findFirst({
-            where: { companyId: targetCompanyId, accountCode: ACCOUNT_CODES.CASH_IN_HAND }
-          });
-          
-          // If bank transfer, find bank account
-          if (disbursementData.bankAccountId) {
-            const bankChartAccount = await tx.chartOfAccount.findFirst({
-              where: { 
-                companyId: targetCompanyId, 
-                accountCode: { startsWith: '14' } 
-              }
-            });
-            if (bankChartAccount) {
-              cashAccount = bankChartAccount;
-            }
-          }
-          
-          if (loansReceivableAccount && cashAccount) {
-            const entryNumber = await accountingService.generateEntryNumber();
-            
-            // Create journal entry
-            await tx.journalEntry.create({
-              data: {
-                companyId: targetCompanyId,
-                entryNumber,
-                entryDate: new Date(),
-                referenceType: 'LOAN_DISBURSEMENT',
-                referenceId: loanId,
-                narration: `Loan Disbursement - ${loan.applicationNo}`,
-                totalDebit: disbursementData.amount,
-                totalCredit: disbursementData.amount,
-                isAutoEntry: true,
-                isApproved: true,
-                createdById: userId || 'SYSTEM',
-                lines: {
-                  create: [
-                    {
-                      accountId: loansReceivableAccount.id,
-                      debitAmount: disbursementData.amount,
-                      creditAmount: 0,
-                      loanId: loanId,
-                      customerId: loan.customerId,
-                      narration: 'Loan principal disbursed'
-                    },
-                    {
-                      accountId: cashAccount.id,
-                      debitAmount: 0,
-                      creditAmount: disbursementData.amount,
-                      narration: disbursementData.mode === 'BANK_TRANSFER' 
-                        ? 'Bank transfer for loan disbursement' 
-                        : 'Cash paid out for loan'
-                    }
-                  ]
-                }
-              }
-            });
-            
-            // Update account balances
-            await tx.chartOfAccount.update({
-              where: { id: loansReceivableAccount.id },
-              data: { currentBalance: { increment: disbursementData.amount } }
-            });
-            
-            await tx.chartOfAccount.update({
-              where: { id: cashAccount.id },
-              data: { currentBalance: { decrement: disbursementData.amount } }
-            });
-            
-            console.log(`[Disbursement] Journal Entry created: Loans Receivable +${disbursementData.amount}, Cash/Bank -${disbursementData.amount}`);
-          } else {
-            console.log(`[Disbursement] WARNING: Chart of Accounts not found for company ${targetCompanyId}`);
-          }
+          console.log(`[Disbursement] Journal Entry created via AccountingService for ${loan.applicationNo}`);
         } catch (accError) {
           console.error(`[Disbursement] Error creating journal entry:`, accError);
-          // Don't fail the disbursement if accounting fails
+          // Don't fail the disbursement if accounting fails, but log it heavily
         }
       }
       } // End of else block (no pending mirror loan)

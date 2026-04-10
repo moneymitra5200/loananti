@@ -519,6 +519,8 @@ export async function POST(request: NextRequest) {
       reference2Name,
       reference2Phone,
       reference2Relation,
+      // Location
+      customerLocation,
       // Loan details
       loanType,
       productId,
@@ -632,8 +634,13 @@ export async function POST(request: NextRequest) {
 
     // Extract document URLs from uploadedDocs
     const docUrls: Record<string, string> = {};
+    
+    // Accounting tracking variables
+    let bankAccountIdUsed: string | null = bankAccountId || null;
+    let cashBookIdUsed: string | null = null;
+
     if (documents) {
-      // Map document types to schema fields
+      // Mapping documents to schema fields
       const docMapping: Record<string, string> = {
         'pan_card': 'panCardDoc',
         'aadhaar_front': 'aadhaarFrontDoc',
@@ -725,6 +732,8 @@ export async function POST(request: NextRequest) {
         interestOnlyStartDate: isInterestOnlyLoan ? new Date(disbursementDate) : null,
         interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
         partialPaymentEnabled: !isInterestOnlyLoan,
+        // Location
+        applicationLocation: customerLocation,
         // Documents
         ...docUrls
       }
@@ -974,8 +983,7 @@ export async function POST(request: NextRequest) {
         // ============================================
         let disbursementSuccess = false;
         let disbursementMode: 'BANK' | 'CASH' | 'SPLIT' | 'PENDING' = 'PENDING';
-        let bankAccountIdUsed: string | null = null;
-        let cashBookIdUsed: string | null = null;
+        let cashBookIdUsedMirror: string | null = null;
         let newBalanceAfterDisbursement = 0;
         let actualBankAmount = 0;
         let actualCashAmount = 0;
@@ -997,8 +1005,6 @@ export async function POST(request: NextRequest) {
         });
 
         if (mirrorBank) {
-          console.log(`[Mirror Loan] Found bank account: ${mirrorBank.accountName} (Default: ${mirrorBank.isDefault})`);
-        } else {
           console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}`);
         }
 
@@ -1705,40 +1711,47 @@ export async function POST(request: NextRequest) {
         
         console.log(`[Accounting] Creating journal entry for company: ${companyId}`);
         
-        // Create accounting entry for the company that actually disbursed the money
         const accountingService = new AccountingService(companyId);
         await accountingService.initializeChartOfAccounts();
+
+        const disbursementAccountCode = effectiveDisbursementMode === 'CASH'
+          ? ACCOUNT_CODES.CASH_IN_HAND
+          : ACCOUNT_CODES.BANK_ACCOUNT;
         
-        // Create journal entry: Debit Loans Receivable, Credit Cash/Bank
-        await accountingService.createJournalEntry({
-          entryDate: new Date(disbursementDate),
-          referenceType: 'LOAN_DISBURSEMENT',
-          referenceId: loan.id,
-          narration: `Loan Disbursement - ${loanNumber} - ${customerName}`,
-          lines: [
-            {
-              accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-              debitAmount: loanAmount,
-              creditAmount: 0,
-              loanId: loan.id,
-              narration: 'Loan principal disbursed'
-            },
-            {
-              accountCode: effectiveDisbursementMode === 'CASH' ? ACCOUNT_CODES.CASH_IN_HAND : ACCOUNT_CODES.BANK_ACCOUNT,
-              debitAmount: 0,
-              creditAmount: loanAmount,
-              narration: `${effectiveDisbursementMode === 'CASH' ? 'Cash' : 'Bank'} paid out for loan`
-            }
-          ],
+        // ============ UNIFIED ACCOUNTING - LOAN DISBURSEMENT ============
+        await accountingService.recordLoanDisbursement({
+          loanId: loan.id,
+          customerId: customerId,
+          amount: loanAmount,
+          disbursementDate: new Date(disbursementDate),
           createdById,
           paymentMode: effectiveDisbursementMode,
-          isAutoEntry: true
+          bankAccountId: bankAccountIdUsed || undefined,
+          reference: `Offline Loan: ${loanNumber}`
         });
         
-        console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}, Amount: ₹${loanAmount}, Company: ${companyId}`);
+        console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}`);
+
+        // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
+        if (processingFee && processingFee > 0) {
+          try {
+            await accountingService.recordProcessingFee({
+              loanId: loan.id,
+              customerId: customerId,
+              amount: processingFee,
+              collectionDate: new Date(disbursementDate),
+              createdById,
+              paymentMode: effectiveDisbursementMode,
+              bankAccountId: bankAccountIdUsed || undefined,
+              reference: `Processing Fee: ${loanNumber}`
+            });
+            console.log(`[Accounting] ✓ Processing fee journal: ₹${processingFee} for ${loanNumber}`);
+          } catch (pfError) {
+            console.error('[Accounting] Processing fee journal failed:', pfError);
+          }
+        }
       } catch (accountingError) {
         console.error('Journal entry creation failed:', accountingError);
-        // Don't fail the loan creation if accounting fails
       }
     }
 
@@ -2020,8 +2033,8 @@ export async function PUT(request: NextRequest) {
             sourceId: loan.id,
             description: `Interest EMI #${currentEMI!.installmentNumber} payment for ${loan.loanNumber} (${creditTypeUsed} credit)`,
             loanApplicationNo: loan.loanNumber,
-            collectedFrom: loan.customerName,
-            collectedFromPhone: loan.customerPhone
+            customerName: loan.customerName,
+            customerPhone: loan.customerPhone
           }
         });
 
@@ -2266,8 +2279,8 @@ export async function PUT(request: NextRequest) {
             emiAmount: emi.totalAmount,
             principalComponent: paidPrincipal,
             interestComponent: paidInterest,
-            collectedFrom: emi.offlineLoan.customerName,
-            collectedFromPhone: emi.offlineLoan.customerPhone
+            customerName: emi.offlineLoan.customerName,
+            customerPhone: emi.offlineLoan.customerPhone
           }
         });
 

@@ -32,7 +32,7 @@ import {
 import {
   User, Phone, IndianRupee, Percent, Calendar,
   FileText, Plus, Save, X, ChevronDown, ChevronUp, Building2,
-  Upload, CheckCircle, Info, AlertCircle, Loader2, Sparkles, Car,
+  Upload, CheckCircle, Info, AlertCircle, Loader2, Sparkles, Car, MapPin,
   RefreshCw, Calculator, TrendingUp, Wallet, Landmark, Banknote
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -164,6 +164,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     customerDOB: '',
     customerOccupation: '',
     customerMonthlyIncome: '',
+    customerLocation: '',
     reference1Name: '',
     reference1Phone: '',
     reference1Relation: '',
@@ -905,7 +906,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       productId: '', loanAmount: '', interestRate: '12', interestType: 'FLAT', tenure: '12', emiAmount: '', processingFee: '0',
       disbursementDate: new Date().toISOString().slice(0, 10), disbursementMode: 'CASH',
       disbursementRef: '', startDate: new Date().toISOString().slice(0, 10), notes: '', internalNotes: '',
-      companyId: '', bankAccountId: '', isInterestOnly: false
+      companyId: '', bankAccountId: '', isInterestOnly: false, customerLocation: ''
     });
     // Reset Interest Only and Mirror Loan states
     setIsInterestOnly(false);
@@ -1050,6 +1051,12 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2"><Label>Customer Name *</Label><Input value={formData.customerName} onChange={(e) => handleInputChange('customerName', e.target.value)} placeholder="Full name" /></div>
                 <div className="space-y-2"><Label>Phone Number *</Label><Input value={formData.customerPhone} onChange={(e) => handleInputChange('customerPhone', e.target.value)} placeholder="10-digit number" /></div>
+                <div className="space-y-2 lg:col-span-2">
+                  <Label className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-emerald-500" /> Location *
+                  </Label>
+                  <Input value={formData.customerLocation} onChange={(e) => handleInputChange('customerLocation', e.target.value)} placeholder="e.g. Indiranagar, Bangalore" />
+                </div>
                 <div className="space-y-2"><Label>Email</Label><Input type="email" value={formData.customerEmail} onChange={(e) => handleInputChange('customerEmail', e.target.value)} /></div>
                 <div className="space-y-2"><Label>PAN Number</Label><Input value={formData.customerPan} onChange={(e) => handleInputChange('customerPan', e.target.value.toUpperCase())} maxLength={10} /></div>
                 <div className="space-y-2"><Label>Aadhaar Number</Label><Input value={formData.customerAadhaar} onChange={(e) => handleInputChange('customerAadhaar', e.target.value)} maxLength={12} /></div>

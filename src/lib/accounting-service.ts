@@ -228,7 +228,8 @@ export class AccountingService {
   /**
    * Get or create current financial year
    */
-  async getCurrentFinancialYear(): Promise<string> {
+  async getCurrentFinancialYear(tx?: any): Promise<string> {
+    const transaction = tx || db;
     if (this.financialYearId) return this.financialYearId;
 
     const now = new Date();
@@ -237,12 +238,12 @@ export class AccountingService {
     const startDate = new Date(currentYear, 3, 1); // April 1
     const endDate = new Date(currentYear + 1, 2, 31); // March 31
 
-    let financialYear = await db.financialYear.findFirst({
+    let financialYear = await transaction.financialYear.findFirst({
       where: { companyId: this.companyId, name: yearName },
     });
 
     if (!financialYear) {
-      financialYear = await db.financialYear.create({
+      financialYear = await transaction.financialYear.create({
         data: {
           companyId: this.companyId,
           name: yearName,
@@ -260,8 +261,9 @@ export class AccountingService {
   /**
    * Get account by code
    */
-  async getAccountByCode(code: string): Promise<string> {
-    const account = await db.chartOfAccount.findFirst({
+  async getAccountByCode(code: string, tx?: any): Promise<string> {
+    const transaction = tx || db;
+    const account = await transaction.chartOfAccount.findFirst({
       where: { companyId: this.companyId, accountCode: code },
     });
     if (!account) throw new Error(`Account with code ${code} not found`);
@@ -271,8 +273,9 @@ export class AccountingService {
   /**
    * Generate next journal entry number
    */
-  async generateEntryNumber(): Promise<string> {
-    const count = await db.journalEntry.count({
+  async generateEntryNumber(tx?: any): Promise<string> {
+    const transaction = tx || db;
+    const count = await transaction.journalEntry.count({
       where: { companyId: this.companyId },
     });
     const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
@@ -301,7 +304,7 @@ export class AccountingService {
     chequeNumber?: string;
     bankRefNumber?: string;
     isAutoEntry?: boolean;
-  }): Promise<string> {
+  }, tx?: any): Promise<string> {
     // Validate double-entry (total debit = total credit)
     const totalDebit = params.lines.reduce((sum, line) => sum + line.debitAmount, 0);
     const totalCredit = params.lines.reduce((sum, line) => sum + line.creditAmount, 0);
@@ -310,12 +313,11 @@ export class AccountingService {
       throw new Error(`Journal entry not balanced. Debit: ${totalDebit}, Credit: ${totalCredit}`);
     }
 
-    const entryNumber = await this.generateEntryNumber();
-    const financialYearId = await this.getCurrentFinancialYear();
+    const entryNumber = await this.generateEntryNumber(tx);
+    const financialYearId = await this.getCurrentFinancialYear(tx);
 
-    // Create journal entry with lines in a transaction (60 second timeout for complex operations)
-    const journalEntry = await db.$transaction(async (tx) => {
-      const entry = await tx.journalEntry.create({
+    const executeEntry = async (transaction: any) => {
+      const entry = await transaction.journalEntry.create({
         data: {
           companyId: this.companyId,
           entryNumber,
@@ -337,9 +339,9 @@ export class AccountingService {
 
       // Create journal entry lines
       for (const line of params.lines) {
-        const accountId = await this.getAccountByCode(line.accountCode);
+        const accountId = await this.getAccountByCode(line.accountCode, transaction);
         
-        await tx.journalEntryLine.create({
+        await transaction.journalEntryLine.create({
           data: {
             journalEntryId: entry.id,
             accountId,
@@ -352,13 +354,21 @@ export class AccountingService {
         });
 
         // Update account balance
-        await this.updateAccountBalance(tx, accountId, line.debitAmount, line.creditAmount, financialYearId);
+        await this.updateAccountBalance(transaction, accountId, line.debitAmount, line.creditAmount, financialYearId);
       }
 
       return entry;
-    }, { maxWait: 60000, timeout: 60000 }); // 60 second timeout for accounting entries
+    };
 
-    return journalEntry.id;
+    if (tx) {
+      const entry = await executeEntry(tx);
+      return entry.id;
+    } else {
+      const journalEntry = await db.$transaction(async (newTx) => {
+        return await executeEntry(newTx);
+      }, { maxWait: 60000, timeout: 60000 });
+      return journalEntry.id;
+    }
   }
 
   /**
@@ -545,7 +555,7 @@ export class AccountingService {
     bankAccountId?: string;
     paymentMode: string;
     reference?: string;
-  }): Promise<string> {
+  }, tx?: any): Promise<string> {
     // Determine which account is being emptied to fund the loan
     const isOnlinePayment = ['ONLINE', 'BANK_TRANSFER', 'UPI', 'NEFT', 'RTGS', 'IMPS'].includes(
       (params.paymentMode || '').toUpperCase()
@@ -593,6 +603,14 @@ export class AccountingService {
    * Credit: Loans Receivable (Asset) - Principal part
    * Credit: Interest Income (Income) - Interest part
    */
+  /**
+   * EMI PAYMENT
+   * Splits EMI into Principal and Interest components
+   * 
+   * Debit: Bank Account (Asset)
+   * Credit: Loans Receivable (Asset) - Principal part
+   * Credit: Interest Income (Income) - Interest part
+   */
   async recordEMIPayment(params: {
     loanId: string;
     customerId: string;
@@ -606,80 +624,55 @@ export class AccountingService {
     paymentMode: string;
     bankAccountId?: string;
     reference?: string;
-  }): Promise<string> {
-    const lines: Array<{
-      accountCode: string;
-      debitAmount: number;
-      creditAmount: number;
-      loanId?: string;
-      customerId?: string;
-      narration?: string;
-    }> = [];
-
-    // Determine which account receives the cash (Bank for online, Cash for walk-in)
-    const isOnlinePayment = ['ONLINE', 'BANK_TRANSFER', 'UPI', 'NEFT', 'RTGS', 'IMPS'].includes(
+  }, tx?: any): Promise<string> {
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes(
       (params.paymentMode || '').toUpperCase()
     );
-    const debitAccountCode = isOnlinePayment
-      ? ACCOUNT_CODES.BANK_ACCOUNT
-      : ACCOUNT_CODES.CASH_IN_HAND;
-
-    // Debit Bank or Cash (total received)
-    lines.push({
-      accountCode: debitAccountCode,
-      debitAmount: params.totalAmount,
-      creditAmount: 0,
-      narration: `EMI received (${params.paymentMode}) - Principal: ₹${params.principalComponent.toLocaleString()}, Interest: ₹${params.interestComponent.toLocaleString()}`,
-    });
-
-    // Credit Loans Receivable (reduces asset)
-    if (params.principalComponent > 0) {
-      lines.push({
-        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-        debitAmount: 0,
-        creditAmount: params.principalComponent,
-        loanId: params.loanId,
-        customerId: params.customerId,
-        narration: 'Principal repayment',
-      });
-    }
-
-    // Credit Interest Income (this is income!)
-    if (params.interestComponent > 0) {
-      lines.push({
-        accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-        debitAmount: 0,
-        creditAmount: params.interestComponent,
-        loanId: params.loanId,
-        customerId: params.customerId,
-        narration: 'Interest income earned',
-      });
-    }
-
-    // Credit Late Fee Income (if penalty)
-    if (params.penaltyComponent && params.penaltyComponent > 0) {
-      lines.push({
-        accountCode: ACCOUNT_CODES.LATE_FEE_INCOME,
-        debitAmount: 0,
-        creditAmount: params.penaltyComponent,
-        loanId: params.loanId,
-        customerId: params.customerId,
-        narration: 'Late payment penalty',
-      });
-    }
+    const debitAccount = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
 
     return this.createJournalEntry({
       entryDate: params.paymentDate,
       referenceType: 'EMI_PAYMENT',
       referenceId: params.paymentId,
       narration: `EMI Payment - Loan: ${params.loanId}`,
-      lines,
+      lines: [
+        {
+          accountCode: debitAccount,
+          debitAmount: params.totalAmount,
+          creditAmount: 0,
+          narration: `EMI payment received via ${params.paymentMode}`,
+        },
+        {
+          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+          debitAmount: 0,
+          creditAmount: params.principalComponent,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Principal repayment',
+        },
+        ...(params.interestComponent > 0 ? [{
+          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+          debitAmount: 0,
+          creditAmount: params.interestComponent,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Interest income earned'
+        }] : []),
+        ...(params.penaltyComponent && params.penaltyComponent > 0 ? [{
+          accountCode: ACCOUNT_CODES.LATE_FEE_INCOME,
+          debitAmount: 0,
+          creditAmount: params.penaltyComponent,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Late payment penalty'
+        }] : [])
+      ],
       createdById: params.createdById,
       paymentMode: params.paymentMode,
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
       isAutoEntry: true,
-    });
+    }, tx);
   }
 
   /**
@@ -696,7 +689,10 @@ export class AccountingService {
     paymentMode: string;
     bankAccountId?: string;
     reference?: string;
-  }): Promise<string> {
+  }, tx?: any): Promise<string> {
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].includes((params.paymentMode || '').toUpperCase());
+    const debitAccount = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
+
     return this.createJournalEntry({
       entryDate: params.collectionDate,
       referenceType: 'PROCESSING_FEE_COLLECTION',
@@ -704,10 +700,10 @@ export class AccountingService {
       narration: `Processing fee collected: ₹${params.amount.toLocaleString()}`,
       lines: [
         {
-          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+          accountCode: debitAccount,
           debitAmount: params.amount,
           creditAmount: 0,
-          narration: 'Processing fee received',
+          narration: `Processing fee received via ${params.paymentMode}`,
         },
         {
           accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME,
@@ -723,7 +719,52 @@ export class AccountingService {
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
       isAutoEntry: true,
-    });
+    }, tx);
+  }
+
+  /**
+   * MIRROR INTEREST INCOME (Profit Margin)
+   * Debit: Cash/Bank Account
+   * Credit: Mirror Interest Income
+   */
+  async recordMirrorInterestIncome(params: {
+    loanId: string;
+    customerId: string;
+    amount: number;
+    paymentId: string;
+    createdById: string;
+    paymentMode: string;
+    bankAccountId?: string;
+  }, tx?: any): Promise<string> {
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER'].includes((params.paymentMode || '').toUpperCase());
+    const debitAccount = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
+
+    return this.createJournalEntry({
+      entryDate: new Date(),
+      referenceType: 'MIRROR_INTEREST_INCOME',
+      referenceId: params.paymentId,
+      narration: `Mirror Interest Margin - Loan: ${params.loanId}`,
+      lines: [
+        {
+          accountCode: debitAccount,
+          debitAmount: params.amount,
+          creditAmount: 0,
+          narration: `Mirror interest profit received via ${params.paymentMode}`,
+        },
+        {
+          accountCode: ACCOUNT_CODES.INTEREST_INCOME_MIRROR,
+          debitAmount: 0,
+          creditAmount: params.amount,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Mirror interest margin (profit)',
+        },
+      ],
+      createdById: params.createdById,
+      paymentMode: params.paymentMode,
+      bankAccountId: params.bankAccountId,
+      isAutoEntry: true,
+    }, tx);
   }
 
   /**

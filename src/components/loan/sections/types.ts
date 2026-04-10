@@ -3,6 +3,7 @@
 export interface LoanDetails {
   id: string;
   applicationNo: string;
+  applicationLocation?: string;
   status: string;
   requestedAmount: number;
   requestedTenure?: number;

@@ -80,8 +80,6 @@ export async function GET(request: NextRequest) {
           chequeNumber: t.chequeNumber,
           utrNumber: t.utrNumber,
           bankRefNumber: t.bankRefNumber,
-          collectedFrom: t.collectedFrom,
-          collectionLocation: t.collectionLocation,
           transactionDate: t.transactionDate,
           createdAt: t.createdAt,
           createdBy: t.user

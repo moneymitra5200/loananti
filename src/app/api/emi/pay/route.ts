@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
-import { recordEMIPaymentAccounting, getCompany3Id } from '@/lib/simple-accounting';
+import { getCompany3Id } from '@/lib/simple-accounting';
+import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -1048,80 +1049,74 @@ export async function POST(request: NextRequest) {
     // RECORD ACCOUNTING ENTRIES
     // ============================================
     try {
-      // Get Company 3 ID for personal credit
-      const company3Id = await getCompany3Id();
+      // 1. Identify mirror settings for accounting
+      const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId }
+      });
+      const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
+      const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI;
       
-      if (company3Id) {
-        // Get loan company ID
-        const loanCompanyId = emi.loanApplication?.companyId || companyId;
-        
-        // Check for mirror loan
-        const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: loanId }
-        });
-        
-        // Check if this is an extra EMI (beyond mirror tenure)
-        const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
-        
-        // Record accounting entries based on credit type and payment mode
-        // IMPORTANT: When loan has mirror AND it's NOT an extra EMI, payment goes to MIRROR COMPANY's books
-        // For EXTRA EMIs, payment goes to ORIGINAL COMPANY's books (Company 3)
-        const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI;
-        
-        // Calculate mirror interest if this is a mirror payment
-        let calculatedMirrorInterest: number | undefined = undefined;
-        if (isMirrorPayment && mirrorMappingForAccounting?.mirrorLoanId) {
-          const mirrorEMIForCalc = await db.eMISchedule.findFirst({
-            where: {
-              loanApplicationId: mirrorMappingForAccounting.mirrorLoanId,
-              installmentNumber: emi.installmentNumber
-            }
-          });
-          if (mirrorEMIForCalc) {
-            const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
-            calculatedMirrorInterest = Math.round(mirrorEMIForCalc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+      let calculatedMirrorInterest: number | undefined = undefined;
+      if (isMirrorPayment && mirrorMappingForAccounting?.mirrorLoanId) {
+        const mirrorEMIForCalc = await db.eMISchedule.findFirst({
+          where: {
+            loanApplicationId: mirrorMappingForAccounting.mirrorLoanId,
+            installmentNumber: emi.installmentNumber
           }
+        });
+        if (mirrorEMIForCalc) {
+          const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
+          calculatedMirrorInterest = Math.round(mirrorEMIForCalc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
         }
+      }
+
+      const { AccountingService } = await import('@/lib/accounting-service');
+      const companyIdToUse = isMirrorPayment ? mirrorMappingForAccounting.mirrorCompanyId : (emi.loanApplication?.companyId || companyId);
+      
+      if (companyIdToUse) {
+        const accountingService = new AccountingService(companyIdToUse);
+        await accountingService.initializeChartOfAccounts();
         
-        await recordEMIPaymentAccounting({
-          amount: paidAmount,
+        // Record the main EMI payment
+        await accountingService.recordEMIPayment({
+          loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
+          customerId: emi.loanApplication?.customerId || '',
+          paymentId: payment.id,
+          totalAmount: paidAmount,
           principalComponent: paidPrincipal,
           interestComponent: paidInterest,
-          paymentMode: paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
-          paymentType: paymentType === 'FULL_EMI' ? 'FULL' : 
-                       paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL' : 
-                       paymentType === 'INTEREST_ONLY' ? 'INTEREST_ONLY' : 'ADVANCE',
-          creditType: creditType as 'PERSONAL' | 'COMPANY' || 'COMPANY',
-          loanCompanyId: loanCompanyId || company3Id,
-          company3Id,
-          loanId,
-          emiId,
-          paymentId: payment.id,
-          loanNumber: emi.loanApplication?.applicationNo || loanId,
-          installmentNumber: emi.installmentNumber,
-          userId: paidBy,
-          customerId: emi.loanApplication?.customerId,
-          // Mirror loan details if applicable
-          mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
-          mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
-          mirrorInterest: calculatedMirrorInterest,  // Pass the calculated mirror interest
-          // Flag to indicate this payment should go to mirror company's books
-          // FALSE for extra EMIs - they go to original company (C3)
-          isMirrorPayment: isMirrorPayment
+          paymentDate: new Date(),
+          createdById: paidBy || 'SYSTEM',
+          paymentMode: paymentMode as any,
+          reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
         });
         
-        console.log(`[Accounting] Recorded EMI payment accounting:`);
-        console.log(`  - Credit: ${creditType}, Mode: ${paymentMode}`);
-        console.log(`  - HasMirror: ${!!mirrorMappingForAccounting}, IsExtraEMI: ${!!isExtraEMI}`);
-        console.log(`  - IsMirrorPayment: ${isMirrorPayment}`);
-        console.log(`  - MirrorInterest: ${calculatedMirrorInterest || 'N/A'}`);
-        console.log(`  - Target: ${isMirrorPayment ? 'MIRROR COMPANY' : (isExtraEMI ? 'ORIGINAL COMPANY (Extra EMI)' : 'LOAN COMPANY')}`);
-      } else {
-        console.warn('[Accounting] Company 3 not found - skipping personal credit accounting');
+        console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse}`);
+
+        // If this is a mirror payment, the profit margin stays in the original company
+        if (isMirrorPayment && calculatedMirrorInterest !== undefined) {
+          const originalCompanyId = emi.loanApplication?.companyId || companyId;
+          const profitAmount = paidInterest - calculatedMirrorInterest;
+          
+          if (profitAmount > 0) {
+            const originalAccountingService = new AccountingService(originalCompanyId);
+            await originalAccountingService.initializeChartOfAccounts();
+            
+            await originalAccountingService.recordMirrorInterestIncome({
+              loanId,
+              customerId: emi.loanApplication?.customerId || '',
+              amount: profitAmount,
+              paymentId: payment.id,
+              createdById: paidBy || 'SYSTEM',
+              paymentMode: paymentMode as string
+            });
+            
+            console.log(`[Accounting] Mirror Profit (₹${profitAmount}) recorded for Company ${originalCompanyId}`);
+          }
+        }
       }
-    } catch (accountingError) {
-      // Log but don't fail the payment
-      console.error('[Accounting] Failed to record accounting entry:', accountingError);
+    } catch (accError) {
+      console.error('[Accounting] EMI payment journal failed:', accError);
     }
 
     return NextResponse.json({ 

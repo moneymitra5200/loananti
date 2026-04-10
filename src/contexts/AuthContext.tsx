@@ -90,9 +90,9 @@ function getInitialLoading(): boolean {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Use lazy initializers to read from sessionStorage during initial render
-  const [user, setUser] = useState<User | null>(getInitialUser);
+  const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState<boolean>(getInitialLoading);
+  const [loading, setLoading] = useState<boolean>(true);
   const initializedRef = useRef(false);
 
   const fetchUserData = useCallback(async (fbUser: FirebaseUser) => {
@@ -127,12 +127,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
-    // If we already have a user from sessionStorage, nothing more to do
-    if (user) {
+    // 1. Try to restore from sessionStorage FIRST (fastest)
+    const storedUser = getInitialUser();
+    if (storedUser) {
+      setUser(storedUser);
+      setLoading(false);
       return;
     }
 
-    // No cached user, check Firebase auth
+    // 2. No cached user, check Firebase auth
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
@@ -144,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchUserData, user]);
+  }, [fetchUserData]);
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);

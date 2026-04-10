@@ -114,6 +114,7 @@ interface LoanDetail {
   mirrorCompanyName?: string | null; // Mirror company name for UI display
   mirrorCompanyCode?: string | null; // Mirror company code for UI display
   mirrorInterestRate?: number | null; // Mirror interest rate
+  applicationLocation?: string | null; // Location captured during application
 }
 
 interface EMI {
@@ -895,14 +896,16 @@ export default function OfflineLoanDetailPanel({
             ) : loan ? (
               <div className="flex-1 overflow-y-auto flex flex-col">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-                  <TabsList className="grid grid-cols-6 mx-4 mt-2 flex-shrink-0 bg-gray-100 p-1 rounded-lg">
-                    <TabsTrigger value="overview" className="text-xs data-[state=active]:bg-white">Overview</TabsTrigger>
-                    <TabsTrigger value="customer" className="text-xs data-[state=active]:bg-white">Customer</TabsTrigger>
-                    <TabsTrigger value="documents" className="text-xs data-[state=active]:bg-white">Documents</TabsTrigger>
-                    <TabsTrigger value="emi" className="text-xs data-[state=active]:bg-white">EMI</TabsTrigger>
-                    <TabsTrigger value="receipt" className="text-xs data-[state=active]:bg-white">Receipt</TabsTrigger>
-                    <TabsTrigger value="history" className="text-xs data-[state=active]:bg-white">History</TabsTrigger>
-                  </TabsList>
+                  <div className="mx-4 mt-2 overflow-x-auto no-scrollbar">
+                    <TabsList className="inline-flex min-w-full bg-gray-100 p-1 rounded-lg">
+                      <TabsTrigger value="overview" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">Overview</TabsTrigger>
+                      <TabsTrigger value="customer" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">Customer</TabsTrigger>
+                      <TabsTrigger value="documents" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">Documents</TabsTrigger>
+                      <TabsTrigger value="emi" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">EMI</TabsTrigger>
+                      <TabsTrigger value="receipt" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">Receipt</TabsTrigger>
+                      <TabsTrigger value="history" className="flex-1 text-xs data-[state=active]:bg-white whitespace-nowrap">History</TabsTrigger>
+                    </TabsList>
+                  </div>
 
                   <div className="flex-1 overflow-y-auto mt-2 p-4 space-y-4">
                     {/* Overview Tab */}
@@ -968,6 +971,14 @@ export default function OfflineLoanDetailPanel({
                               <p className="text-xs text-gray-500">Company</p>
                               <p className="font-medium">{loan.company?.name || 'N/A'}</p>
                             </div>
+                            {loan.applicationLocation && (
+                              <div className="col-span-2 md:col-span-3">
+                                <p className="text-xs text-gray-500 flex items-center gap-1">
+                                  <MapPin className="h-3 w-3 text-emerald-500" /> Application Location
+                                </p>
+                                <p className="font-medium text-emerald-700">{loan.applicationLocation}</p>
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>

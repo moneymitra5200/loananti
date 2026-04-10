@@ -2080,6 +2080,7 @@ model OfflineLoan {
   electionCardDoc       String?
   housePhotoDoc         String?
   otherDocs             String?
+  applicationLocation   String?
   // Product reference
   productId             String?             // Reference to CMSService (loan product)
   // Bank account for disbursement

@@ -182,6 +182,15 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
                 </p>
               </div>
             </div>
+            {loanDetails?.applicationLocation && (
+              <div className="flex items-start gap-3">
+                <MapPin className="h-4 w-4 text-emerald-500 mt-1" />
+                <div>
+                  <p className="text-xs text-gray-500 font-medium text-emerald-600">Application Location</p>
+                  <p className="font-semibold text-emerald-700">{loanDetails.applicationLocation}</p>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

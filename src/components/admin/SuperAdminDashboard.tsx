@@ -596,7 +596,7 @@ export default function SuperAdminDashboard() {
         setLoanToDelete(null);
         setDeleteReason('');
         // Refresh both loan lists
-        fetchLoans();
+        fetchLoans(true);
         fetchAllActiveLoans();
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to delete loan', variant: 'destructive' });
@@ -661,7 +661,7 @@ export default function SuperAdminDashboard() {
           isMirrorCompany: true, mirrorInterestRate: undefined, mirrorInterestType: 'REDUCING',
           accountingType: 'FULL', defaultInterestRate: 12, defaultInterestType: 'FLAT'
         });
-        fetchUsers();
+        fetchUsers(true);
         if (!isEditing) fetchCompanies(); // Refresh companies list if a company user was created
       } else {
         const errorMsg = data.error || data.details || `Failed to ${isEditing ? 'update' : 'create'} user`;
@@ -718,7 +718,7 @@ export default function SuperAdminDashboard() {
           description: `${user.name} and all related records have been permanently deleted from the database.` 
         });
         setSelectedUser(null);
-        fetchUsers();
+        fetchUsers(true);
         fetchCompanies(); // Refresh companies list too
       } else {
         toast({ 
@@ -743,7 +743,7 @@ export default function SuperAdminDashboard() {
       const data = await response.json();
       if (response.ok && data.success) {
         toast({ title: 'Account Unlocked', description: 'User account has been unlocked successfully' });
-        fetchUsers();
+        fetchUsers(true);
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to unlock user', variant: 'destructive' });
       }
@@ -873,8 +873,8 @@ export default function SuperAdminDashboard() {
         });
         setShowResetDialog(false);
         // Refresh all data
-        fetchLoans();
-        fetchUsers();
+        fetchLoans(true);
+        fetchUsers(true);
         fetchCompanies();
         fetchAllActiveLoans();
         fetchProducts();
@@ -897,7 +897,7 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const handleApproval = async () => {
+  const handleApproval = async (isFastApprove?: boolean) => {
     if (!selectedLoan) return;
     if (selectedLoan.status === 'SUBMITTED' && approvalAction === 'approve' && !selectedCompanyId) {
       toast({ title: 'Company Required', description: 'Please select a company to assign this loan.', variant: 'destructive' });
@@ -914,8 +914,6 @@ export default function SuperAdminDashboard() {
     
     try {
       // If approving with mirror loan - create APPROVED pending mirror loan
-      // This happens BEFORE the workflow approval
-      // Mirror loan will be activated when cashier disburses the original loan
       if (selectedLoan.status === 'CUSTOMER_SESSION_APPROVED' && approvalAction === 'approve' && mirrorLoanConfig.enabled && mirrorLoanConfig.mirrorCompanyId) {
         const mirrorResponse = await fetch('/api/pending-mirror-loan', {
           method: 'POST',
@@ -924,18 +922,19 @@ export default function SuperAdminDashboard() {
             originalLoanId: selectedLoan.id,
             mirrorCompanyId: mirrorLoanConfig.mirrorCompanyId,
             mirrorType: mirrorLoanConfig.mirrorType,
-            mirrorInterestRate: mirrorLoanConfig.mirrorInterestRate,  // Custom rate per loan
-            mirrorInterestType: mirrorLoanConfig.mirrorInterestType,  // FLAT or REDUCING
+            mirrorInterestRate: mirrorLoanConfig.mirrorInterestRate,
+            mirrorInterestType: mirrorLoanConfig.mirrorInterestType,
             createdBy: user?.id || 'system',
-            initialStatus: 'APPROVED' // Ready for cashier disbursement
+            initialStatus: 'APPROVED'
           })
         });
         
-        const mirrorData = await mirrorResponse.json();
-        
-        if (!mirrorResponse.ok && !mirrorData.alreadyExists) {
-          toast({ title: 'Error', description: mirrorData.error || 'Failed to create mirror loan request', variant: 'destructive' });
-          return;
+        if (!mirrorResponse.ok) {
+          const mirrorData = await mirrorResponse.json();
+          if (!mirrorData.alreadyExists) {
+            toast({ title: 'Error', description: mirrorData.error || 'Failed to create mirror loan request', variant: 'destructive' });
+            return;
+          }
         }
       }
       
@@ -943,8 +942,12 @@ export default function SuperAdminDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          loanId: selectedLoan.id, action: approvalAction, remarks, role: 'SUPER_ADMIN',
-          userId: user?.id || 'system', companyId: selectedLoan.status === 'SUBMITTED' ? selectedCompanyId : undefined
+          loanId: selectedLoan.id, 
+          action: isFastApprove ? 'fast_approve' : approvalAction, 
+          remarks, 
+          role: 'SUPER_ADMIN',
+          userId: user?.id || 'system', 
+          companyId: selectedLoan.status === 'SUBMITTED' ? selectedCompanyId : undefined
         })
       });
       const data = await response.json();
@@ -962,7 +965,7 @@ export default function SuperAdminDashboard() {
         // Reset mirror loan config
         setMirrorLoanConfig({ enabled: false, mirrorCompanyId: '', mirrorType: 'NONE' });
         setMirrorPreview(null);
-        fetchLoans();
+        fetchLoans(true);
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to process approval', variant: 'destructive' });
       }
@@ -1061,7 +1064,7 @@ export default function SuperAdminDashboard() {
         });
         setShowBulkApprovalDialog(false);
         clearSelection();
-        fetchLoans();
+        fetchLoans(true);
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to process bulk approval', variant: 'destructive' });
       }

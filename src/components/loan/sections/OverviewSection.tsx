@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   FileText, DollarSign, CreditCard, CheckCircle, XCircle, 
-  Banknote, Building, AlertCircle 
+  Banknote, Building, AlertCircle, MapPin
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { LoanDetails } from './types';
@@ -43,6 +43,14 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
               <p className="text-xs text-gray-500">Purpose</p>
               <p className="font-semibold">{loanDetails?.purpose || 'N/A'}</p>
             </div>
+            {loanDetails?.applicationLocation && (
+              <div className="col-span-2">
+                <p className="text-xs text-gray-500 flex items-center gap-1">
+                  <MapPin className="h-3 w-3 text-blue-500" /> Application Location
+                </p>
+                <p className="font-semibold text-blue-700">{loanDetails.applicationLocation}</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -343,3 +351,5 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
 });
 
 export default OverviewSection;
+
+
