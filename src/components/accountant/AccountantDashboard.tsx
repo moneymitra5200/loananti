@@ -2053,14 +2053,14 @@ function TrialBalanceSection({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {trialBalance.rows.length === 0 ? (
+                    {(trialBalance.trialBalance || []).length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-8 text-gray-500 italic">
                           No accounts found for the current filter.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      trialBalance.rows.map((row: any) => (
+                      (trialBalance.trialBalance || []).map((row: any) => (
                         <TableRow key={row.accountCode} className="hover:bg-gray-50/50 transition-colors">
                           <TableCell className="font-mono text-xs">{row.accountCode}</TableCell>
                           <TableCell className="font-medium text-gray-800">{row.accountName}</TableCell>
@@ -2079,7 +2079,7 @@ function TrialBalanceSection({
                       ))
                     )}
                     
-                    {trialBalance.rows.length > 0 && (
+                    {(trialBalance.trialBalance || []).length > 0 && (
                       <TableRow className="bg-emerald-50/50 font-bold border-t-2 border-emerald-100 sticky bottom-0 z-10">
                         <TableCell colSpan={3} className="text-base text-emerald-900 uppercase tracking-wider">GRAND TOTAL</TableCell>
                         <TableCell className="text-right text-blue-800 text-lg decoration-double underline underline-offset-4">
@@ -2091,7 +2091,7 @@ function TrialBalanceSection({
                       </TableRow>
                     )}
 
-                    {!trialBalance.summary?.isBalanced && trialBalance.rows.length > 0 && (
+                    {!trialBalance.summary?.isBalanced && (trialBalance.trialBalance || []).length > 0 && (
                       <TableRow className="bg-red-50">
                         <TableCell colSpan={3} className="text-red-700 font-bold">Difference (Unbalanced)</TableCell>
                         <TableCell colSpan={2} className="text-right text-red-700 font-bold text-lg">
