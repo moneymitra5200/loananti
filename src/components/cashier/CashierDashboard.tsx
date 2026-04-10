@@ -598,6 +598,11 @@ export default function CashierDashboard() {
   const totalDisbursedToday = disbursedToday.reduce((sum, l) => sum + (l.disbursedAmount || l.sessionForm?.approvedAmount || 0), 0);
   const totalDisbursedAll = allDisbursed.reduce((sum, l) => sum + (l.disbursedAmount || l.sessionForm?.approvedAmount || 0), 0);
 
+  // For active loans: exclude mirror loans from COUNT (they are internal accounting entries)
+  // Mirror loans are visible in the list but labeled "Mirror - internal"
+  const originalActiveLoans = (activeLoans as any[]).filter(l => !l.isMirrorLoan);
+  const mirrorActiveLoans = (activeLoans as any[]).filter(l => l.isMirrorLoan);
+
   const stats = [
     { label: 'Ready for Disbursement', value: readyForDisbursement.length, icon: CreditCard, color: 'text-green-600', bg: 'bg-green-50', onClick: () => setActiveTab('pending') },
     { label: 'Today\'s Disbursement', value: formatCurrency(totalDisbursedToday), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -610,7 +615,8 @@ export default function CashierDashboard() {
     count: item.id === 'pending' ? readyForDisbursement.length : 
            item.id === 'history' ? allDisbursed.length : 
            item.id === 'audit' ? allDisbursed.length :
-           item.id === 'activeLoans' ? activeLoans.length : undefined
+           // Show only ORIGINAL active loans count (no mirror loans to avoid double-count)
+           item.id === 'activeLoans' ? originalActiveLoans.length : undefined
   }));
 
   const renderLoanCard = (loan: Loan, index: number, actions?: React.ReactNode) => (
@@ -780,92 +786,141 @@ export default function CashierDashboard() {
 
       case 'activeLoans':
         return (
-          <Card className="bg-white shadow-sm border-0">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Banknote className="h-5 w-5 text-emerald-600" />
-                Active Loans
-              </CardTitle>
-              <CardDescription>All active loans with EMI details</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activeLoans.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Banknote className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>No active loans found</p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                  {activeLoans.map((loan: any, index: number) => (
-                    <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }}
-                      className="p-4 border border-gray-100 rounded-xl bg-white hover:shadow-md transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar className="h-12 w-12 bg-gradient-to-br from-emerald-400 to-teal-500">
-                          <AvatarFallback className="bg-transparent text-white font-semibold">
-                            {loan.customer?.name?.charAt(0) || 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
-                            {loan.status === 'ACTIVE_INTEREST_ONLY' && (
-                              <Badge className="bg-purple-100 text-purple-700 text-xs">
-                                <Percent className="h-3 w-3 mr-1" />
-                                Interest Only
-                              </Badge>
-                            )}
-                            {loan.isMirrorLoan && (
-                              <Badge className="bg-blue-100 text-blue-700 text-xs">Mirror</Badge>
+          <div className="space-y-4">
+            {/* Summary row */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                <p className="text-xs text-emerald-600">Original Active Loans</p>
+                <p className="text-xl font-bold text-emerald-700">{originalActiveLoans.length}</p>
+                <p className="text-xs text-emerald-500">{formatCurrency(originalActiveLoans.reduce((s: number, l: any) => s + (l.approvedAmount || 0), 0))}</p>
+              </div>
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                <p className="text-xs text-blue-600">Mirror Loans (Internal)</p>
+                <p className="text-xl font-bold text-blue-700">{mirrorActiveLoans.length}</p>
+                <p className="text-xs text-blue-500">Accounting entries only</p>
+              </div>
+              <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                <p className="text-xs text-gray-500">Total Portfolio</p>
+                <p className="text-xl font-bold text-gray-700">{originalActiveLoans.length + mirrorActiveLoans.length}</p>
+                <p className="text-xs text-gray-400">{formatCurrency(originalActiveLoans.reduce((s: number, l: any) => s + (l.approvedAmount || 0), 0))}</p>
+              </div>
+            </div>
+
+            {/* Original Loans */}
+            <Card className="bg-white shadow-sm border-0">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Banknote className="h-5 w-5 text-emerald-600" />
+                  Active Loans ({originalActiveLoans.length})
+                </CardTitle>
+                <CardDescription>Original loans disbursed to customers</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {originalActiveLoans.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Banknote className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p>No active loans found</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                    {originalActiveLoans.map((loan: any, index: number) => (
+                      <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }}
+                        className="p-4 border border-gray-100 rounded-xl bg-white hover:shadow-md transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <Avatar className="h-12 w-12 bg-gradient-to-br from-emerald-400 to-teal-500">
+                            <AvatarFallback className="bg-transparent text-white font-semibold">
+                              {loan.customer?.name?.charAt(0) || 'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
+                              <Badge className="bg-emerald-100 text-emerald-700 text-xs">{loan.loanType}</Badge>
+                              {loan.status === 'ACTIVE_INTEREST_ONLY' && (
+                                <Badge className="bg-purple-100 text-purple-700 text-xs">
+                                  <Percent className="h-3 w-3 mr-1" />Interest Only
+                                </Badge>
+                              )}
+                              {loan.isOriginalMirrorLoan && (
+                                <Badge className="bg-orange-100 text-orange-700 text-xs">Has Mirror</Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.phone || loan.customer?.email}</p>
+                            {loan.company && <p className="text-xs text-gray-400">Company: {loan.company.name}</p>}
+                            {loan.nextEmi && (
+                              <p className="text-xs text-amber-600 mt-1">
+                                Next EMI: {formatCurrency(loan.nextEmi.amount)} due {new Date(loan.nextEmi.dueDate).toLocaleDateString('en-IN')}
+                              </p>
                             )}
                           </div>
-                          <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.phone || loan.customer?.email}</p>
-                          {loan.company && <p className="text-xs text-gray-400">Company: {loan.company.name}</p>}
-                          {loan.isInterestOnlyLoan && loan.totalInterestOnlyPaid !== undefined && (
-                            <p className="text-xs text-purple-600 mt-1">
-                              Interest Collected: {formatCurrency(loan.totalInterestOnlyPaid)}
-                            </p>
-                          )}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.approvedAmount)}</p>
-                          <p className="text-xs text-gray-500">{loan.interestRate}% • {loan.tenure} months</p>
-                          {loan.emiAmount > 0 && <p className="text-xs text-emerald-600">EMI: {formatCurrency(loan.emiAmount)}/mo</p>}
-                          {loan.isInterestOnlyLoan && (
-                            <p className="text-xs text-purple-600">Monthly Interest: {formatCurrency((loan.approvedAmount * loan.interestRate / 100) / 12)}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {loan.status === 'ACTIVE_INTEREST_ONLY' && (
-                            <Button
-                              size="sm"
-                              className="bg-purple-500 hover:bg-purple-600"
-                              onClick={() => { 
-                                setInterestOnlyLoan(loan); 
-                                setShowInterestPaymentDialog(true); 
-                              }}
-                            >
-                              <Percent className="h-4 w-4 mr-1" />
-                              Collect Interest
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.approvedAmount)}</p>
+                            <p className="text-xs text-gray-500">{loan.interestRate}% • {loan.tenure} months</p>
+                            {loan.emiAmount > 0 && <p className="text-xs text-emerald-600">EMI: {formatCurrency(loan.emiAmount)}/mo</p>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {loan.status === 'ACTIVE_INTEREST_ONLY' && (
+                              <Button size="sm" className="bg-purple-500 hover:bg-purple-600"
+                                onClick={() => { setInterestOnlyLoan(loan); setShowInterestPaymentDialog(true); }}>
+                                <Percent className="h-4 w-4 mr-1" />Interest
+                              </Button>
+                            )}
+                            <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600"
+                              onClick={() => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}>
+                              <Eye className="h-4 w-4 mr-1" />View
                             </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            className="bg-emerald-500 hover:bg-emerald-600"
-                            onClick={() => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />View
-                          </Button>
+                          </div>
                         </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Mirror Loans — Accounting entries only */}
+            {mirrorActiveLoans.length > 0 && (
+              <Card className="bg-blue-50/40 border border-blue-100 shadow-sm">
+                <CardHeader className="pb-2">
+                  <CardTitle className="flex items-center gap-2 text-base text-blue-700">
+                    <span className="text-blue-500">🔄</span>
+                    Mirror Loans — Internal ({mirrorActiveLoans.length})
+                  </CardTitle>
+                  <CardDescription className="text-blue-600">
+                    These are internal accounting mirror entries. Amounts are NOT added to your portfolio total.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    {mirrorActiveLoans.map((loan: any, index: number) => (
+                      <div key={loan.id}
+                        className="p-3 border border-blue-100 rounded-lg bg-white/70 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-sm text-blue-800">{loan.identifier}</h4>
+                            <Badge className="bg-blue-100 text-blue-700 text-xs">Mirror</Badge>
+                          </div>
+                          <p className="text-xs text-gray-500">{loan.customer?.name} • {loan.company?.name}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-semibold text-blue-700">{formatCurrency(loan.approvedAmount)}</p>
+                          <p className="text-xs text-blue-500">{loan.interestRate}% • {loan.tenure}mo</p>
+                        </div>
+                        <Button size="sm" variant="outline" className="border-blue-200 text-blue-700"
+                          onClick={() => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         );
+
 
       case 'paymentRequests':
         return <PaymentRequestsSection cashierId={user?.id || ''} />;

@@ -635,16 +635,14 @@ async function processSingleApproval({
       }
       
       // ============ UNIFIED ACCOUNTING - LOAN DISBURSEMENT ============
+      // NOTE: Skip for split payments — raw bankTransaction + cashBookEntry already created above,
+      // running AccountingService here too would create DUPLICATE journal entries.
       const targetCompanyId = loan.companyId || companyId;
-      if (targetCompanyId && disbursementData.amount > 0) {
+      const isSplitPayment = !!(disbursementData.useSplitPayment && disbursementData.bankAmount && disbursementData.cashAmount);
+      if (targetCompanyId && disbursementData.amount > 0 && !isSplitPayment) {
         try {
           const accountingService = new AccountingService(targetCompanyId);
           await accountingService.initializeChartOfAccounts();
-          
-          // Determine accounts based on disbursement mode
-          const disbursementAccountCode = (disbursementData.mode === 'BANK_TRANSFER' || (disbursementData.useSplitPayment && (disbursementData.bankAmount || 0) > 0))
-            ? ACCOUNT_CODES.BANK_ACCOUNT
-            : ACCOUNT_CODES.CASH_IN_HAND;
 
           await accountingService.recordLoanDisbursement({
             loanId,
@@ -660,8 +658,9 @@ async function processSingleApproval({
           console.log(`[Disbursement] Journal Entry created via AccountingService for ${loan.applicationNo}`);
         } catch (accError) {
           console.error(`[Disbursement] Error creating journal entry:`, accError);
-          // Don't fail the disbursement if accounting fails, but log it heavily
         }
+      } else if (isSplitPayment) {
+        console.log(`[Disbursement] SPLIT PAYMENT — skipping AccountingService (raw entries already created). Bank: ₹${disbursementData.bankAmount}, Cash: ₹${disbursementData.cashAmount}`);
       }
       } // End of else block (no pending mirror loan)
     }

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///C:/Users/bscom/Desktop/reallll/src/app/loading.tsx"],"sourcesContent":["export default function Loading() {\n  return (\n    <div className=\"fixed inset-0 z-[9999] flex items-center justify-center bg-white\">\n      <div className=\"flex flex-col items-center gap-4\">\n        <div className=\"w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin\" />\n        <p className=\"text-gray-500 text-sm\">Loading...</p>\n      </div>\n    </div>\n  );\n}\n"],"names":[],"mappings":";;;;;;AAAe,SAAS;IACtB,qBACE,oQAAC;QAAI,WAAU;kBACb,cAAA,oQAAC;YAAI,WAAU;;8BACb,oQAAC;oBAAI,WAAU;;;;;;8BACf,oQAAC;oBAAE,WAAU;8BAAwB;;;;;;;;;;;;;;;;;AAI7C"}}]
+}
