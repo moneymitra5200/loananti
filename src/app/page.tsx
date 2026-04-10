@@ -57,7 +57,7 @@ function AppContent() {
   return (
     <SettingsProvider>
       {renderDashboard()}
-      {user && <AIChatbot />}
+      {user?.role === 'CUSTOMER' && <AIChatbot />}
     </SettingsProvider>
   );
 }

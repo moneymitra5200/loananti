@@ -49,9 +49,12 @@ interface ChatSession {
 }
 
 const QUICK_ACTIONS: SuggestedAction[] = [
-  { label: 'EMI Status', action: 'Check my EMI due dates and payment history', type: 'query' },
-  { label: 'Loan Status', action: 'Check my loan application status', type: 'query' },
-  { label: 'Payment Help', action: 'I need help with making a payment', type: 'query' },
+  { label: '📅 EMI Due Dates', action: 'When is my next EMI due?', type: 'query' },
+  { label: '⚠️ Overdue Status', action: 'Do I have any overdue EMIs?', type: 'query' },
+  { label: '💰 Penalty Info', action: 'How much penalty do I have?', type: 'query' },
+  { label: '🏦 Loan Status', action: 'What is my loan status?', type: 'query' },
+  { label: '📊 Outstanding Balance', action: 'What is my outstanding balance?', type: 'query' },
+  { label: '💳 How to Pay', action: 'How can I pay my EMI?', type: 'query' },
 ];
 
 const INTENT_ICONS: Record<string, React.ReactNode> = {
@@ -70,6 +73,7 @@ export default function AIChatbot() {
   const [inputValue, setInputValue] = useState('');
   const [session, setSession] = useState<ChatSession | null>(null);
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
+  const [aiFailCount, setAiFailCount] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -103,13 +107,12 @@ export default function AIChatbot() {
         if (data.session) {
           setSession(data.session);
         } else {
-          // Create new session
           setSession({
             id: 'new',
             messages: [{
               id: '1',
               role: 'assistant',
-              content: 'Hello! I\'m your AI assistant. How can I help you today? You can ask me about your EMI status, loan application, or payment-related queries.',
+              content: '👋 Hi! I\'m **MitraBot** — your AI loan assistant from MoneyMitra Finance!\n\nI can help you with:\n• EMI due dates & payment history\n• Overdue EMIs & penalty details\n• Loan status & outstanding balance\n• Interest rates & foreclosure\n• How to make payments\n• Documents needed for loans\n\nAsk me anything! 🤖',
               timestamp: new Date(),
             }],
             status: 'ACTIVE',
@@ -118,13 +121,12 @@ export default function AIChatbot() {
       }
     } catch (error) {
       console.error('Failed to fetch history:', error);
-      // Create default session
       setSession({
         id: 'new',
         messages: [{
           id: '1',
           role: 'assistant',
-          content: 'Hello! I\'m your AI assistant. How can I help you today?',
+          content: '👋 Hi! I\'m **MitraBot** — your AI loan assistant. Ask me about your EMI, loan status, penalties, payments, or anything loan-related! 🤖',
           timestamp: new Date(),
         }],
         status: 'ACTIVE',
@@ -172,10 +174,18 @@ export default function AIChatbot() {
           message,
           sessionId: session.id === 'new' ? null : session.id,
           userId: user.id,
+          aiFailCount,
+          conversationHistory: session.messages
+            .filter(m => !m.isTyping)
+            .slice(-8)
+            .map(m => ({ role: m.role, content: m.content })),
         }),
       });
 
       const data = await response.json();
+
+      // Track AI fail count
+      if (typeof data.aiFailCount === 'number') setAiFailCount(data.aiFailCount);
 
       // Remove typing indicator and add actual response
       setSession(prev => {
@@ -320,8 +330,8 @@ export default function AIChatbot() {
             <Bot className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h3 className="font-semibold text-white">AI Assistant</h3>
-            <p className="text-xs text-white/80">Always here to help</p>
+            <h3 className="font-semibold text-white">MitraBot 🤖</h3>
+              <p className="text-xs text-white/80">AI Loan Assistant • Always here</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
