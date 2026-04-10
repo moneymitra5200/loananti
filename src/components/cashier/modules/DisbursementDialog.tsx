@@ -195,7 +195,7 @@ export default function DisbursementDialog({
                         </Badge>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg mt-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg mt-3">
                       <div>
                         <p className="text-gray-500">Mirror Company Bank Accounts</p>
                         <p className="font-medium text-lg text-green-600">{bankAccounts.length} available</p>
@@ -236,7 +236,7 @@ export default function DisbursementDialog({
                     
                     {/* Company 3: Show CashBook */}
                     {isCompany3 ? (
-                      <div className="grid grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg">
                         <div>
                           <p className="text-gray-500">Cash Book Balance</p>
                           <p className={`font-medium text-lg ${cashBook && cashBook.currentBalance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -254,7 +254,7 @@ export default function DisbursementDialog({
                       </div>
                     ) : (
                       /* Other companies: Show Bank Accounts */
-                      <div className="grid grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg">
                         <div>
                           <p className="text-gray-500">Company Bank Accounts</p>
                           <p className="font-medium text-lg text-green-600">{bankAccounts.length} available</p>
@@ -361,7 +361,7 @@ export default function DisbursementDialog({
                           <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                             <IdCard className="h-4 w-4" /> Personal Details
                           </h4>
-                          <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div className="p-3 bg-gray-50 rounded-lg">
                               <p className="text-xs text-gray-500">PAN Number</p>
                               <p className="font-medium">{selectedLoan.panNumber || 'N/A'}</p>
@@ -398,7 +398,7 @@ export default function DisbursementDialog({
                           <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                             <Briefcase className="h-4 w-4" /> Employment Details
                           </h4>
-                          <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div className="p-3 bg-blue-50 rounded-lg">
                               <p className="text-xs text-gray-500">Employment Type</p>
                               <p className="font-medium">{selectedLoan.employmentType || 'N/A'}</p>
@@ -439,7 +439,7 @@ export default function DisbursementDialog({
                           <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                             <Landmark className="h-4 w-4" /> Customer Bank Account (For Disbursement)
                           </h4>
-                          <div className="grid grid-cols-4 gap-4 text-sm">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div className="p-3 bg-purple-50 rounded-lg">
                               <p className="text-xs text-gray-500">Account Holder</p>
                               <p className="font-medium">{selectedLoan.accountHolderName || selectedLoan.customer?.name || 'N/A'}</p>
@@ -538,7 +538,7 @@ export default function DisbursementDialog({
                       transition={{ duration: 0.2 }}
                     >
                       <CardContent className="pt-0 border-t">
-                        <div className="grid grid-cols-4 gap-3 py-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 py-4">
                           {[
                             { label: 'Photo', value: selectedLoan.photoDoc, icon: User },
                             { label: 'PAN Card', value: selectedLoan.panCardDoc, icon: IdCard },
@@ -581,7 +581,7 @@ export default function DisbursementDialog({
                       <Gem className="h-6 w-6 text-yellow-600" />
                       <h4 className="font-semibold text-yellow-800">Gold Loan Details</h4>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div className="p-3 bg-white rounded-lg">
                         <p className="text-xs text-gray-500">Gross Weight</p>
                         <p className="font-medium">{selectedLoan.goldLoanDetail.grossWeight}g</p>
@@ -627,7 +627,7 @@ export default function DisbursementDialog({
                       <Car className="h-6 w-6 text-slate-600" />
                       <h4 className="font-semibold text-slate-800">Vehicle Loan Details</h4>
                     </div>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div className="p-3 bg-white rounded-lg">
                         <p className="text-xs text-gray-500">Vehicle Type</p>
                         <p className="font-medium">{selectedLoan.vehicleLoanDetail.vehicleType}</p>
@@ -702,7 +702,7 @@ export default function DisbursementDialog({
                       transition={{ duration: 0.2 }}
                     >
                       <CardContent className="pt-0 border-t">
-                        <div className="grid grid-cols-4 gap-4 py-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 py-4">
                           <div className="p-4 bg-gray-50 rounded-lg text-center">
                             <p className="text-xs text-gray-500 mb-1">Requested</p>
                             <p className="text-xl font-bold">{formatCurrency(selectedLoan.requestedAmount)}</p>
@@ -724,7 +724,7 @@ export default function DisbursementDialog({
                             <p className="text-xs text-purple-500">{selectedLoan.loanType}</p>
                           </div>
                         </div>
-                        <div className="grid grid-cols-4 gap-4 py-4 border-t">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 py-4 border-t">
                           <div>
                             <p className="text-gray-500 text-sm">Purpose</p>
                             <p className="font-medium">{selectedLoan.purpose || 'N/A'}</p>
@@ -1131,7 +1131,7 @@ export default function DisbursementDialog({
                     </div>
 
                     {/* Extra EMI Info */}
-                    <div className="grid grid-cols-3 gap-3 mb-4 p-3 bg-white/70 rounded-lg">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4 p-3 bg-white/70 rounded-lg">
                       <div className="text-center">
                         <p className="text-xs text-gray-500">Original Tenure</p>
                         <p className="font-bold text-gray-800">{mirrorLoanInfo.originalTenure || selectedLoan.sessionForm?.tenure} EMIs</p>

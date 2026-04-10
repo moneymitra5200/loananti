@@ -246,8 +246,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
       </div>
 
       {/* Form Content */}
-      <Card className="border-0 shadow-lg" ref={printRef}>
-        <div className="p-8 bg-white">
+      <Card className="border md:border-0 shadow-sm md:shadow-lg overflow-hidden" ref={printRef}>
+        <div className="p-4 md:p-8 bg-white">
           {/* Header with Company Info */}
           <div className="text-center border-b-2 border-emerald-600 pb-4 mb-6">
             {companyLogo && (
@@ -279,8 +279,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <CreditCard className="h-4 w-4" /> APPLICATION DETAILS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-gray-500">Application Date</p>
                   <p className="font-medium">{formatDate(loanData.createdAt)}</p>
@@ -314,8 +314,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <User className="h-4 w-4" /> PERSONAL DETAILS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="col-span-2">
                   <p className="text-xs text-gray-500">Full Name</p>
                   <p className="font-medium text-lg">{getApplicantName()}</p>
@@ -353,8 +353,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <MapPin className="h-4 w-4" /> CONTACT & ADDRESS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="col-span-3">
                   <p className="text-xs text-gray-500">Full Address</p>
                   <p className="font-medium">{loanData.address || 'N/A'}</p>
@@ -388,8 +388,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <FileText className="h-4 w-4" /> KYC DOCUMENTS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-2 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-xs text-gray-500">PAN Number</p>
                   <p className="font-bold text-lg">{loanData.panNumber || 'N/A'}</p>
@@ -407,8 +407,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <Briefcase className="h-4 w-4" /> EMPLOYMENT DETAILS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-gray-500">Employment Type</p>
                   <p className="font-bold text-emerald-700">{loanData.employmentType || 'N/A'}</p>
@@ -488,8 +488,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <Banknote className="h-4 w-4" /> BANK DETAILS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-3 gap-4">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                   <p className="text-xs text-gray-500">Account Number</p>
                   <p className="font-medium">{loanData.bankAccountNumber ? `XXXX-XXXX-${loanData.bankAccountNumber.slice(-4)}` : 'N/A'}</p>
@@ -515,8 +515,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <Users className="h-4 w-4" /> REFERENCES / GUARDIANS
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-2 gap-6">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <h4 className="font-medium mb-2 text-emerald-700">Reference 1</h4>
                   <div className="space-y-1 text-sm">
@@ -544,8 +544,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
               <CheckCircle className="h-4 w-4" /> DOCUMENTS CHECKLIST
             </h3>
-            <div className="border border-gray-200 rounded-b-lg p-4">
-              <div className="grid grid-cols-4 gap-3">
+            <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                 {[
                   { label: 'PAN Card', value: loanData.panCardDoc },
                   { label: 'Aadhaar Front', value: loanData.aadhaarFrontDoc },
@@ -571,8 +571,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
               <h3 className="text-sm font-bold text-white bg-purple-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
                 <CreditCard className="h-4 w-4" /> SANCTION DETAILS
               </h3>
-              <div className="border border-gray-200 rounded-b-lg p-4 bg-purple-50">
-                <div className="grid grid-cols-3 gap-4">
+              <div className="border border-gray-200 rounded-b-lg p-3 md:p-4 bg-purple-50">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   <div>
                     <p className="text-xs text-gray-500">Approved Amount</p>
                     <p className="font-bold text-lg text-purple-700">{formatCurrency(loanData.sessionForm.approvedAmount)}</p>
@@ -614,7 +614,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
           </div>
 
           {/* Signature Section */}
-          <div className="grid grid-cols-2 gap-10 mt-8 pt-6 border-t">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-10 mt-6 md:mt-8 pt-6 border-t border-gray-200">
             <div className="text-center">
               {loanData.applicantSignature ? (
                 <img src={loanData.applicantSignature} alt="Applicant Signature" className="h-16 mx-auto" />
