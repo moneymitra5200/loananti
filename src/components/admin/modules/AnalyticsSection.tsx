@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   TrendingUp, DollarSign, CheckCircle, Wallet, BarChart3,
-  PieChart, Activity, FileText, Users, Calendar, ArrowUpRight, ArrowDownRight, Target, Zap
+  PieChart, Activity, FileText, Users, Calendar, ArrowUpRight, ArrowDownRight, Target, Zap, Building2
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import {
@@ -124,6 +124,16 @@ function AnalyticsSection({
     const byType: Record<string, number> = {};
     loans.forEach(l => { const t = l.loanType || 'Other'; byType[t] = (byType[t] || 0) + 1; });
     return Object.entries(byType).map(([name, value]) => ({ name, value }));
+  }, [loans]);
+
+  // Company distribution
+  const companyData = useMemo(() => {
+    const byCompany: Record<string, number> = {};
+    loans.forEach(l => { 
+      const c = (l as any).company?.name || l.sessionForm?.company?.name || 'MoneyMitra'; 
+      byCompany[c] = (byCompany[c] || 0) + 1; 
+    });
+    return Object.entries(byCompany).map(([name, value]) => ({ name, value }));
   }, [loans]);
 
   // Status funnel
@@ -376,12 +386,47 @@ function AnalyticsSection({
                             <td className="py-2 text-right text-red-500">{row.rejected}</td>
                             <td className="py-2 text-right text-purple-600">{row.customers}</td>
                             <td className="py-2 text-right font-medium">{formatCurrency(row.amount)}</td>
-                            <td className="py-2 text-right text-emerald-600">{row.applications > 0 ? ((row.disbursed / row.applications) * 100).toFixed(1) : 0}%</td>
+<td className="py-2 text-right text-emerald-600">{row.applications > 0 ? ((row.disbursed / row.applications) * 100).toFixed(1) : 0}%</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Strategy / How to Increase Customers */}
+            <Card className="border-0 shadow-sm bg-gradient-to-r from-blue-500 to-indigo-600 text-white lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Target className="h-5 w-5 text-white" />
+                  Marketing Insights: How to Increase Customers
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="bg-white/10 p-4 rounded-xl border border-white/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="h-4 w-4" />
+                      <h4 className="font-bold">Referral Programs</h4>
+                    </div>
+                    <p className="text-xs text-blue-50">Activate your existing {activeLoans.length} active customers. Offer a small EMI discount for every new successful loan application they refer.</p>
+                  </div>
+                  <div className="bg-white/10 p-4 rounded-xl border border-white/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BarChart3 className="h-4 w-4" />
+                      <h4 className="font-bold">Targeted Campaigns</h4>
+                    </div>
+                    <p className="text-xs text-blue-50">Based on your best month ({[...monthlyData].sort((a,b) => b.applications - a.applications)[0]?.month || 'N/A'}), plan seasonal marketing campaigns focusing on the specific demographics of that period.</p>
+                  </div>
+                  <div className="bg-white/10 p-4 rounded-xl border border-white/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="h-4 w-4" />
+                      <h4 className="font-bold">Reduce Drop-offs</h4>
+                    </div>
+                    <p className="text-xs text-blue-50">You have {inProgressLoans.length} loans in progress. Improving the approval time can immediately boost conversion rates by up to 15%.</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -404,6 +449,27 @@ function AnalyticsSection({
                   <RePieChart>
                     <Pie data={loanTypeData} cx="50%" cy="50%" outerRadius={80} innerRadius={40} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
                       {loanTypeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                  </RePieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Company Distribution */}
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-emerald-600" />
+                  Company Growth & Distribution
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={220}>
+                  <RePieChart>
+                    <Pie data={companyData} cx="50%" cy="50%" outerRadius={80} innerRadius={40} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                      {companyData.map((_, i) => <Cell key={i} fill={COLORS[(i + 2) % COLORS.length]} />)}
                     </Pie>
                     <Tooltip content={<CustomTooltip />} />
                     <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />

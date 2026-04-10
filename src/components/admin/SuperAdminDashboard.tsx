@@ -44,6 +44,7 @@ const SuperAdminMyCredit = lazy(() => import('@/components/credit/SuperAdminMyCr
 const LoanDetailPanel = lazy(() => import('@/components/loan/LoanDetailPanel'));
 const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 const SecondaryPaymentPageSection = lazy(() => import('@/components/shared/SecondaryPaymentPageSection'));
+const EnquirySection = lazy(() => import('@/components/shared/EnquirySection'));
 
 // Lazy load optimized sections
 const DashboardOverview = lazy(() => import('./modules/DashboardOverview'));
@@ -1488,7 +1489,14 @@ export default function SuperAdminDashboard() {
       case 'notifications':
         return (
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}>
-            <NotificationManagementSection />
+            <NotificationManagementSection userId={user?.id || ''} />
+          </Suspense>
+        );
+
+      case 'enquiry':
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}>
+            <EnquirySection role="SUPER_ADMIN" userId={user?.id || ''} />
           </Suspense>
         );
 

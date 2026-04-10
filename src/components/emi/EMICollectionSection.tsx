@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import EMISettingsButton from '@/components/shared/EMISettingsButton';
+import { useSystemSettings } from '@/hooks/useSystemSettings';
 
 interface EMIItem {
   id: string;
@@ -34,6 +35,8 @@ interface EMIItem {
   dueDate: string;
   paymentStatus: string;
   paidAmount: number;
+  penaltyAmount?: number;
+  daysOverdue?: number;
   loanApplicationId?: string;
   loanApplication?: {
     id: string;
@@ -61,6 +64,7 @@ interface EMICollectionSectionProps {
 }
 
 export default function EMICollectionSection({ userId, userRole, onPaymentComplete }: EMICollectionSectionProps) {
+  const { settings } = useSystemSettings();
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const today = new Date();
@@ -84,6 +88,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const [utrNumber, setUtrNumber] = useState('');
   const [remarks, setRemarks] = useState('');
   const [paying, setPaying] = useState(false);
+  const [payingAmount, setPayingAmount] = useState<number>(0);
+  const [penaltyWaiver, setPenaltyWaiver] = useState<number>(0);
 
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,6 +118,27 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
 
   const handlePayEmi = async () => {
     if (!selectedEmi) return;
+
+    const handlePaymentSuccess = () => {
+      // Reset form
+      setPaymentDialogOpen(false);
+      setProofFile(null);
+      setChequeNumber('');
+      setUtrNumber('');
+      setRemarks('');
+      setCreditType('COMPANY');
+      setPaymentMode('CASH');
+      setPayingAmount(0);
+      setPenaltyWaiver(0);
+
+      fetchEmisByDate();
+      onPaymentComplete?.();
+
+      toast({
+        title: 'Payment Collected',
+        description: `EMI collected successfully.`,
+      });
+    };
 
     // Validate proof requirement
     const requiresProof = paymentMode !== 'CASH' || creditType === 'PERSONAL';
@@ -181,7 +208,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
-          amount: selectedEmi.totalAmount,
+          amount: payingAmount,
           paymentMode,
           creditType,
           sourceType: 'EMI_PAYMENT',
@@ -193,7 +220,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           customerPhone,
           loanApplicationNo: loanNo,
           emiDueDate: selectedEmi.dueDate,
-          emiAmount: selectedEmi.totalAmount,
+          emiAmount: payingAmount,
           chequeNumber: paymentMode === 'CHEQUE' ? chequeNumber : null,
           utrNumber: ['ONLINE', 'UPI', 'BANK_TRANSFER'].includes(paymentMode) ? utrNumber : null,
           proofDocument: proofDocumentPath,
@@ -209,53 +236,79 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         throw new Error(creditData.error || 'Failed to update credit');
       }
 
-      // Update EMI status
-      const endpoint = selectedType === 'offline' ? '/api/offline-loan' : '/api/customer/payment';
+      if (selectedType === 'offline') {
+        const res = await fetch('/api/offline-loan', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'pay-emi',
+            emiId: selectedEmi.id,
+            userId,
+            paymentMode,
+            paymentType: payingAmount < selectedEmi.totalAmount ? 'PARTIAL' : 'FULL',
+            amount: payingAmount,
+            penaltyWaiver
+          })
+        });
 
-      const body = selectedType === 'offline' ? {
-        action: 'pay-emi',
-        emiId: selectedEmi.id,
-        userId,
-        paymentMode,
-        amount: selectedEmi.totalAmount
-      } : {
-        loanId: selectedEmi.loanApplication?.id,
-        emiScheduleId: selectedEmi.id,
-        customerId: selectedEmi.loanApplication?.id,
-        amount: selectedEmi.totalAmount,
-        paidById: userId,
-        paymentMode
-      };
-
-      const res = await fetch(endpoint, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success) {
-          // Reset form
-          setPaymentDialogOpen(false);
-          setProofFile(null);
-          setChequeNumber('');
-          setUtrNumber('');
-          setRemarks('');
-          setCreditType('COMPANY');
-          setPaymentMode('CASH');
-
-          fetchEmisByDate();
-          onPaymentComplete?.();
-
-          toast({
-            title: 'Payment Collected',
-            description: `EMI collected successfully. ${creditType === 'COMPANY' && paymentMode === 'CASH' ? 'Company credit' : 'Personal credit'} increased by ${formatCurrency(selectedEmi.totalAmount)}`,
-          });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            handlePaymentSuccess();
+          }
+        } else {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to process payment');
         }
       } else {
-        const error = await res.json();
-        throw new Error(error.error || 'Failed to process payment');
+        // Online Loan
+        const formData = new FormData();
+        formData.append('emiId', selectedEmi.id);
+        if (selectedEmi.loanApplication?.id) {
+          formData.append('loanId', selectedEmi.loanApplication.id);
+        }
+        formData.append('amount', payingAmount.toString());
+        if (payingAmount < selectedEmi.totalAmount) {
+          formData.append('paymentType', 'PARTIAL_PAYMENT');
+          formData.append('partialAmount', payingAmount.toString());
+          const nextDate = new Date();
+          nextDate.setDate(nextDate.getDate() + 7);
+          formData.append('nextPaymentDate', nextDate.toISOString()); // Default padding for partial
+        } else {
+          formData.append('paymentType', 'FULL_EMI');
+        }
+        formData.append('paymentMode', paymentMode);
+        formData.append('paidBy', userId);
+        formData.append('creditType', creditType);
+        formData.append('remarks', remarks);
+        if (penaltyWaiver > 0) {
+          formData.append('penaltyWaiver', penaltyWaiver.toString());
+        }
+
+        if (proofFile) {
+          formData.append('proof', proofFile);
+        }
+        if (chequeNumber) {
+          formData.append('paymentReference', chequeNumber);
+        }
+        if (utrNumber) {
+          formData.append('paymentReference', utrNumber);
+        }
+
+        const res = await fetch('/api/emi/pay', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            handlePaymentSuccess();
+          }
+        } else {
+          const error = await res.json();
+          throw new Error(error.error || 'Failed to process payment');
+        }
       }
     } catch (error: any) {
       console.error('Payment error:', error);
@@ -285,6 +338,9 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const openPaymentDialog = (emi: EMIItem, type: 'online' | 'offline') => {
     setSelectedEmi(emi);
     setSelectedType(type);
+    const balanceDue = (emi.totalAmount + (emi.penaltyAmount || 0)) - (emi.paidAmount || 0);
+    setPayingAmount(balanceDue > 0 ? balanceDue : 0);
+    setPenaltyWaiver(0);
     setPaymentDialogOpen(true);
   };
 
@@ -320,12 +376,31 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       ? emi.offlineLoan?.customerAddress
       : emi.loanApplication?.address;
 
+    // Calculate EMI Due Proximity Logic
+    const emiDueDate = new Date(emi.dueDate);
+    const today = new Date();
+    // Reset time to avoid hours difference
+    emiDueDate.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    
+    const diffTime = emiDueDate.getTime() - today.getTime();
+    const daysToDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    let alertClass = "border border-gray-100 bg-white hover:shadow-md transition-shadow";
+    if (daysToDue <= settings.colorRedDaysOverdue) {
+      alertClass = "border-2 border-red-500 bg-red-50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse";
+    } else if (daysToDue <= settings.colorYellowDays) {
+      alertClass = "border-2 border-yellow-500 bg-yellow-50 shadow-[0_0_15px_rgba(234,179,8,0.4)] animate-pulse";
+    } else if (daysToDue <= settings.colorGreenDays) {
+      alertClass = "border-2 border-green-500 bg-green-50 shadow-[0_0_15px_rgba(34,197,94,0.4)] animate-pulse";
+    }
+
     return (
       <motion.div
         key={emi.id}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="p-4 rounded-lg border border-gray-100 bg-white hover:shadow-md transition-shadow"
+        className={`p-4 rounded-lg ${alertClass}`}
       >
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -368,7 +443,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           </div>
 
           <div className="text-right">
-            <p className="text-lg font-bold text-gray-900">{formatCurrency(emi.totalAmount)}</p>
+            <p className="text-lg font-bold text-gray-900">{formatCurrency(emi.totalAmount + (emi.penaltyAmount || 0) - (emi.paidAmount || 0))}</p>
+            {emi.penaltyAmount ? (
+              <p className="text-xs text-red-500 font-medium">+ {formatCurrency(emi.penaltyAmount)} Penalty</p>
+            ) : null}
             <p className="text-xs text-gray-500">Due: {formatDate(emi.dueDate)}</p>
             <div className="flex gap-2 mt-2 justify-end">
               {type === 'online' && emi.loanApplication?.companyId && (
@@ -519,27 +597,61 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           {selectedEmi && (
             <div className="space-y-4 pt-4">
               {/* EMI Details */}
-              <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+              <div className="bg-gray-50 p-4 rounded-lg space-y-2 border border-blue-100">
                 <div className="flex justify-between">
                   <span className="text-gray-500">EMI Number</span>
-                  <span className="font-medium">#{selectedEmi.installmentNumber}</span>
+                  <span className="font-medium text-blue-700">#{selectedEmi.installmentNumber}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Principal</span>
-                  <span className="font-medium">{formatCurrency(selectedEmi.principalAmount)}</span>
+                  <span className="text-gray-500">Original EMI Amount</span>
+                  <span className="font-medium">{formatCurrency(selectedEmi.totalAmount)}</span>
+                </div>
+                {selectedEmi.penaltyAmount ? (
+                  <div className="flex justify-between text-red-600">
+                    <span className="font-medium">Penalty Amount ({selectedEmi.daysOverdue || 0} days)</span>
+                    <span className="font-medium">+{formatCurrency(selectedEmi.penaltyAmount)}</span>
+                  </div>
+                ) : null}
+                {selectedEmi.paidAmount ? (
+                  <div className="flex justify-between text-emerald-600">
+                    <span className="font-medium">Already Paid</span>
+                    <span className="font-medium">-{formatCurrency(selectedEmi.paidAmount)}</span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between border-t pt-2 mt-2">
+                  <span className="text-gray-700 font-bold">Remaining Due</span>
+                  <span className="font-bold text-lg text-rose-600">
+                    {formatCurrency((selectedEmi.totalAmount + (selectedEmi.penaltyAmount || 0)) - (selectedEmi.paidAmount || 0))}
+                  </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Interest</span>
-                  <span className="font-medium">{formatCurrency(selectedEmi.interestAmount)}</span>
+                  <span className="text-gray-500 text-xs">Due Date</span>
+                  <span className="font-medium text-xs bg-gray-200 px-2 py-0.5 rounded">{formatDate(selectedEmi.dueDate)}</span>
                 </div>
-                <div className="flex justify-between border-t pt-2">
-                  <span className="text-gray-500 font-medium">Total Amount</span>
-                  <span className="font-bold text-lg">{formatCurrency(selectedEmi.totalAmount)}</span>
+              </div>
+
+              {/* Paying Amount */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Paying Amount *</Label>
+                  <Input
+                    type="number"
+                    value={payingAmount}
+                    onChange={(e) => setPayingAmount(parseFloat(e.target.value) || 0)}
+                    className="font-bold text-lg h-12"
+                  />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Due Date</span>
-                  <span className="font-medium">{formatDate(selectedEmi.dueDate)}</span>
-                </div>
+                {selectedEmi.penaltyAmount ? (
+                  <div className="space-y-2">
+                    <Label className="text-red-600">Waiver (Penalty Discount)</Label>
+                    <Input
+                      type="number"
+                      value={penaltyWaiver}
+                      onChange={(e) => setPenaltyWaiver(parseFloat(e.target.value) || 0)}
+                      className="font-bold text-lg h-12 text-red-600 border-red-200"
+                    />
+                  </div>
+                ) : null}
               </div>
 
               {/* Payment Mode Selection */}
@@ -703,7 +815,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                       {creditInfo.description}
                     </p>
                     <p className="text-sm font-bold mt-1">
-                      Amount: {formatCurrency(selectedEmi.totalAmount)}
+                      Amount: {formatCurrency(payingAmount)}
                     </p>
                   </div>
                 </div>

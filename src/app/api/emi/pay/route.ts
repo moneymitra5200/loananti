@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     // For partial payment
     const partialAmount = formData.get('partialAmount') ? parseFloat(formData.get('partialAmount') as string) : null;
     const nextPaymentDate = formData.get('nextPaymentDate') as string | null;
+    const penaltyWaiver = formData.get('penaltyWaiver') ? parseFloat(formData.get('penaltyWaiver') as string) : 0;
 
     if (!emiId || !loanId || !paidBy) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -285,6 +286,7 @@ export async function POST(request: NextRequest) {
       paymentMode: paymentMode,
       proofUrl: proofUrl,
       notes: remarks,
+      waivedAmount: penaltyWaiver,
       isPartialPayment,
       isInterestOnly,
       principalDeferred,
@@ -1155,3 +1157,4 @@ function getPaymentSuccessMessage(paymentType: string, paidAmount: number, defer
       return 'EMI paid successfully';
   }
 }
+

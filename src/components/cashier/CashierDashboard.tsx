@@ -20,11 +20,14 @@ import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPag
 import ProfileSection from '@/components/shared/ProfileSection';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
+import EnquirySection from '@/components/shared/EnquirySection';
 import { DisbursementDialog, LoanDetailPanel, InterestPaymentDialog } from './modules';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections } from './tabs/types';
 import { useRealtime } from '@/hooks/useRealtime';
-import { useLoansStore } from '@/stores/loansStore';
 import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
+import { useSettings } from '@/contexts/SettingsContext';
+import { useSystemSettings } from '@/hooks/useSystemSettings';
+import { useLoansStore } from '@/stores/loansStore';
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -40,6 +43,8 @@ export default function CashierDashboard() {
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const { settings } = useSettings();
+  const { settings: systemSettings } = useSystemSettings();
   
   // CashBook state for Company 3
   const [cashBook, setCashBook] = useState<{ currentBalance: number; company?: { id: string; name: string; code: string } } | null>(null);
@@ -823,9 +828,27 @@ export default function CashierDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {originalActiveLoans.map((loan: any, index: number) => (
+                    {originalActiveLoans.map((loan: any, index: number) => {
+                      let alertClass = "border border-gray-100 bg-white hover:shadow-md transition-all";
+                      if (loan.nextEmi?.dueDate) {
+                        const emiDueDate = new Date(loan.nextEmi.dueDate);
+                        const today = new Date();
+                        emiDueDate.setHours(0, 0, 0, 0);
+                        today.setHours(0, 0, 0, 0);
+                        const daysToDue = Math.ceil((emiDueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                        
+                        if (daysToDue <= systemSettings.colorRedDaysOverdue) {
+                          alertClass = "border-2 border-red-500 bg-red-50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse";
+                        } else if (daysToDue <= systemSettings.colorYellowDays) {
+                          alertClass = "border-2 border-yellow-500 bg-yellow-50 shadow-[0_0_15px_rgba(234,179,8,0.4)] animate-pulse";
+                        } else if (daysToDue <= systemSettings.colorGreenDays) {
+                          alertClass = "border-2 border-green-500 bg-green-50 shadow-[0_0_15px_rgba(34,197,94,0.4)] animate-pulse";
+                        }
+                      }
+                      
+                      return (
                       <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }}
-                        className="p-4 border border-gray-100 rounded-xl bg-white hover:shadow-md transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        className={`p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${alertClass}`}>
                         <div className="flex items-center gap-4">
                           <Avatar className="h-12 w-12 bg-gradient-to-br from-emerald-400 to-teal-500">
                             <AvatarFallback className="bg-transparent text-white font-semibold">
@@ -874,7 +897,8 @@ export default function CashierDashboard() {
                           </div>
                         </div>
                       </motion.div>
-                    ))}
+                    );
+                  })}
                   </div>
                 )}
               </CardContent>
@@ -932,6 +956,9 @@ export default function CashierDashboard() {
             companyId={user?.companyId || ''}
           />
         );
+
+      case 'enquiry':
+        return <EnquirySection role="CASHIER" userId={user?.id || ''} />;
 
       case 'profile':
         return <ProfileSection />;

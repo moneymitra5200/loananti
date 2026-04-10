@@ -14,7 +14,7 @@ import {
   Settings, LogOut, Menu, Search, Edit, Calculator, MapPin, AlertTriangle, PieChart,
   CreditCard, Banknote, User, ClipboardCheck, Calendar, Receipt, TrendingUp,
   Target, FileCheck, Activity, Briefcase, BookOpen, IndianRupee, Landmark, Percent,
-  FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles
+  FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles, MessageSquare, MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
@@ -437,6 +437,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'creditManagement', label: 'Credit Management', icon: CreditCard },
     { id: 'notifications', label: 'Notifications', icon: Bell },
+    { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
+    { id: 'messages', label: 'Messages', icon: MessageCircle },
     { id: 'users', label: 'User Management', icon: Users },
     { id: 'customers', label: 'Customers', icon: User },
     { id: 'companies', label: 'Companies', icon: Building2 },
@@ -494,6 +496,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'offline-loans', label: 'Offline Loans', icon: FileText },
     { id: 'history', label: 'Recent', icon: Receipt },
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
+    { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
+    { id: 'messages', label: 'Messages', icon: MessageCircle },
     { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],
   CUSTOMER: [

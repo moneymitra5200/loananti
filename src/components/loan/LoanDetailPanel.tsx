@@ -34,7 +34,8 @@ import {
   EMISection,
   HistorySection,
   EMIPaymentDialog,
-  EMIDateChangeDialog
+  EMIDateChangeDialog,
+  FormSection
 } from './sections';
 import ReceiptSection from '@/components/receipt/ReceiptSection';
 
@@ -806,12 +807,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                   </TabsContent>
                 )}
 
-                {/* Form Tab - Placeholder */}
+                {/* Form Tab - Displays Raw Application Data & Signatures */}
                 <TabsContent value="form" className="p-4 m-0">
-                  <div className="text-center py-8 text-gray-500">
-                    <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
-                    <p>Form details coming soon...</p>
-                  </div>
+                  <FormSection loanDetails={loanDetails} />
                 </TabsContent>
 
                 {/* History Tab */}
