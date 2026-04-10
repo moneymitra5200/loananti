@@ -119,6 +119,8 @@ export default function StaffDashboard() {
     creditScore: 0,
     // Signature
     applicantSignature: '',
+    // GPS
+    gpsLatitude: '', gpsLongitude: '', gpsAddress: '', gpsAccuracy: '', gpsCapturedAt: '',
   });
 
   // Document upload state
@@ -308,6 +310,8 @@ export default function StaffDashboard() {
       ref2Name: '', ref2Phone: '', ref2Relation: '', ref2Address: '',
       creditScore: 0,
       applicantSignature: '',
+      // GPS - reset on each new loan
+      gpsLatitude: '', gpsLongitude: '', gpsAddress: '', gpsAccuracy: '', gpsCapturedAt: '',
     });
     setUploadedDocs({});
     setCurrentStep(1);

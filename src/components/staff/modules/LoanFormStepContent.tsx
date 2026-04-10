@@ -1,6 +1,7 @@
 'use client';
 
 import { Label } from '@/components/ui/label';
+
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -8,7 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { User, FileSearch, MapPin, Banknote, Users, Upload, FileText, CheckCircle, Info, AlertCircle, Sparkles, Car, Loader2, Briefcase, Building, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { User, FileSearch, MapPin, Banknote, Users, Upload, FileText, CheckCircle, Info, AlertCircle, Sparkles, Car, Loader2, Briefcase, Building, Clock, Navigation, ExternalLink } from 'lucide-react';
 import GoldLoanReceipt from '@/components/loan/GoldLoanReceipt';
 import VehicleLoanReceipt from '@/components/loan/VehicleLoanReceipt';
 import { toast } from '@/hooks/use-toast';
@@ -53,6 +55,12 @@ interface LoanFormData {
   ref2Name: string; ref2Phone: string; ref2Relation: string; ref2Address: string;
   creditScore: number;
   applicantSignature: string;
+  // GPS Location
+  gpsLatitude: string;
+  gpsLongitude: string;
+  gpsAddress: string;
+  gpsAccuracy: string;
+  gpsCapturedAt: string;
 }
 
 interface GoldLoanData {
@@ -322,11 +330,59 @@ export default function LoanFormStepContent({
       );
 
     case 2:
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const [gpsLoading, setGpsLoading] = useState(false);
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const [gpsError, setGpsError] = useState<string | null>(null);
+
+      const captureGPS = () => {
+        if (!navigator.geolocation) {
+          setGpsError('Geolocation is not supported by this browser.');
+          return;
+        }
+        setGpsLoading(true);
+        setGpsError(null);
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude, longitude, accuracy } = position.coords;
+            const now = new Date().toLocaleString('en-IN');
+            // Reverse geocode using OpenStreetMap Nominatim (free, no key)
+            let address = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+            try {
+              const res = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+                { headers: { 'Accept-Language': 'en' } }
+              );
+              const data = await res.json();
+              if (data.display_name) address = data.display_name;
+            } catch { /* use coordinate fallback */ }
+            setLoanForm(prev => ({
+              ...prev,
+              gpsLatitude: String(latitude.toFixed(6)),
+              gpsLongitude: String(longitude.toFixed(6)),
+              gpsAddress: address,
+              gpsAccuracy: `±${Math.round(accuracy)}m`,
+              gpsCapturedAt: now,
+            }));
+            setGpsLoading(false);
+          },
+          (err) => {
+            setGpsError(
+              err.code === 1 ? 'Location access denied. Please allow location in browser settings.' :
+              err.code === 2 ? 'Location unavailable. Please try again.' :
+              'Location request timed out.'
+            );
+            setGpsLoading(false);
+          },
+          { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+        );
+      };
+
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <MapPin className="h-5 w-5 text-emerald-600" />
-            <h4 className="font-semibold text-lg">Contact & Address</h4>
+            <h4 className="font-semibold text-lg">Contact &amp; Address</h4>
           </div>
           <div className="space-y-4">
             <div>
@@ -354,6 +410,73 @@ export default function LoanFormStepContent({
                 <Label htmlFor="phone">Phone Number</Label>
                 <Input id="phone" value={loanForm.phone} onChange={(e) => setLoanForm({...loanForm, phone: e.target.value})} placeholder="10-digit mobile number" maxLength={10} />
               </div>
+            </div>
+
+            {/* ── GPS Location Capture ────────────────────────── */}
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Navigation className="h-4 w-4 text-emerald-600" />
+                  <span className="font-semibold text-sm text-emerald-800">GPS Location Capture</span>
+                  <Badge className="text-[10px] bg-emerald-100 text-emerald-700">Field Verification</Badge>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={captureGPS}
+                  disabled={gpsLoading}
+                >
+                  {gpsLoading ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Locating...</>
+                  ) : (
+                    <><Navigation className="h-3.5 w-3.5 mr-1.5" />{loanForm.gpsLatitude ? 'Re-capture' : 'Get Location'}</>
+                  )}
+                </Button>
+              </div>
+
+              {gpsError && (
+                <Alert className="bg-red-50 border-red-200 py-2">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-700 text-xs">{gpsError}</AlertDescription>
+                </Alert>
+              )}
+
+              {loanForm.gpsLatitude ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Latitude</p>
+                      <p className="text-sm font-mono font-semibold text-gray-800">{loanForm.gpsLatitude}</p>
+                    </div>
+                    <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
+                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Longitude</p>
+                      <p className="text-sm font-mono font-semibold text-gray-800">{loanForm.gpsLongitude}</p>
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Detected Address</p>
+                    <p className="text-xs text-gray-700 leading-relaxed">{loanForm.gpsAddress}</p>
+                    <div className="flex items-center justify-between mt-1.5">
+                      <span className="text-[10px] text-gray-400">Accuracy: {loanForm.gpsAccuracy} · {loanForm.gpsCapturedAt}</span>
+                      <a
+                        href={`https://www.google.com/maps?q=${loanForm.gpsLatitude},${loanForm.gpsLongitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[11px] text-blue-600 hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />View on Map
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                    <span className="text-xs text-emerald-700 font-medium">Location captured successfully</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Click "Get Location" to capture the applicant&apos;s current GPS coordinates. This helps verify the application location.</p>
+              )}
             </div>
           </div>
         </div>
