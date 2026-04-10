@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { AccountingService, DEFAULT_CHART_OF_ACCOUNTS } from '@/lib/accounting-service';
 import { AccountType } from '@prisma/client';
 
-// GET - Fetch chart of accounts
+// GET - Fetch chart of accounts with LIVE computed balances
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -12,47 +12,74 @@ export async function GET(request: NextRequest) {
     const isActive = searchParams.get('isActive');
 
     const where: any = { companyId };
-    if (accountType && accountType !== 'all') {
-      where.accountType = accountType;
-    }
-    if (isActive !== null && isActive !== undefined) {
-      where.isActive = isActive === 'true';
-    }
+    if (accountType && accountType !== 'all') where.accountType = accountType;
+    if (isActive !== null && isActive !== undefined) where.isActive = isActive === 'true';
 
-    const accounts = await db.chartOfAccount.findMany({
+    let accounts = await db.chartOfAccount.findMany({
       where,
-      orderBy: [
-        { accountType: 'asc' },
-        { accountCode: 'asc' },
-      ],
+      orderBy: [{ accountType: 'asc' }, { accountCode: 'asc' }],
     });
 
-    // If no accounts exist, auto-initialize default chart of accounts
+    // Auto-initialize if empty
     if (accounts.length === 0) {
-      console.log(`[ChartOfAccounts] No accounts found for company ${companyId}, auto-initializing...`);
+      console.log(`[ChartOfAccounts] No accounts for ${companyId}, auto-initializing...`);
       await initializeDefaultAccounts(companyId);
-      
-      // Fetch again after initialization
-      const newAccounts = await db.chartOfAccount.findMany({
+      accounts = await db.chartOfAccount.findMany({
         where: { companyId },
-        orderBy: [
-          { accountType: 'asc' },
-          { accountCode: 'asc' },
-        ],
+        orderBy: [{ accountType: 'asc' }, { accountCode: 'asc' }],
       });
-      
-      return NextResponse.json({ accounts: newAccounts, initialized: true });
+      return NextResponse.json({ accounts, initialized: true });
     }
 
-    return NextResponse.json({ accounts });
+    // ── Compute LIVE balances from journal entry lines ───────────────
+    const lineAgg = await db.journalEntryLine.groupBy({
+      by: ['accountId'],
+      where: {
+        journalEntry: {
+          companyId,
+          isApproved: true,
+          isReversed: false,
+        },
+      },
+      _sum: { debitAmount: true, creditAmount: true },
+    });
+
+    const txnMap: Record<string, { totalDebit: number; totalCredit: number }> = {};
+    for (const row of lineAgg) {
+      txnMap[row.accountId] = {
+        totalDebit: row._sum.debitAmount || 0,
+        totalCredit: row._sum.creditAmount || 0,
+      };
+    }
+
+    // Enrich accounts with live balance
+    const enriched = accounts.map(account => {
+      const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
+      const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
+      const opening = account.openingBalance || 0;
+
+      const liveBalance = isDebitNormal
+        ? opening + txn.totalDebit - txn.totalCredit
+        : opening + txn.totalCredit - txn.totalDebit;
+
+      return {
+        ...account,
+        currentBalance: liveBalance,   // override with live value
+        totalDebit: txn.totalDebit,
+        totalCredit: txn.totalCredit,
+      };
+    });
+
+    return NextResponse.json({ accounts: enriched });
   } catch (error) {
     console.error('Error fetching chart of accounts:', error);
-    return NextResponse.json({ 
-      error: 'Failed to fetch accounts', 
-      details: error instanceof Error ? error.message : 'Unknown error' 
+    return NextResponse.json({
+      error: 'Failed to fetch accounts',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
 }
+
 
 // Helper function to initialize default accounts
 async function initializeDefaultAccounts(companyId: string) {
