@@ -153,6 +153,7 @@ export async function getDefaultBankAccount(companyId: string): Promise<string |
 
 /**
  * Record a bank transaction
+ * IDEMPOTENCY: If a DEBIT transaction for the same referenceId already exists, skip it.
  */
 export async function recordBankTransaction(params: BankEntryParams): Promise<{ success: boolean; bankAccountId: string; newBalance: number }> {
   const { companyId, bankAccountId, transactionType, amount, description, referenceType, referenceId, createdById } = params;
@@ -176,6 +177,20 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
       createdById,
     });
     return { success: true, bankAccountId: 'CASHBOOK', newBalance: cashResult.newBalance };
+  }
+
+  // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────
+  // Prevent duplicate DEBIT transactions for the same referenceId
+  if (referenceId && transactionType === 'DEBIT') {
+    const existing = await db.bankTransaction.findFirst({
+      where: { bankAccountId: targetBankId, referenceId, referenceType, transactionType: 'DEBIT' },
+      select: { id: true, balanceAfter: true },
+    });
+    if (existing) {
+      console.warn(`[Bank] DUPLICATE DEBIT BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
+      const bank = await db.bankAccount.findUnique({ where: { id: targetBankId }, select: { currentBalance: true } });
+      return { success: true, bankAccountId: targetBankId, newBalance: bank?.currentBalance || 0 };
+    }
   }
 
   // Get current balance
@@ -221,6 +236,7 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
 // ============================================
 // EMI PAYMENT ACCOUNTING
 // ============================================
+
 
 export interface EMIPaymentAccountingParams {
   // Payment details

@@ -305,6 +305,28 @@ export class AccountingService {
     bankRefNumber?: string;
     isAutoEntry?: boolean;
   }, tx?: any): Promise<string> {
+
+    // ── IDEMPOTENCY GUARD ─────────────────────────────────────────────
+    // If a journal entry already exists for the same referenceId + referenceType,
+    // return its ID instead of creating a duplicate. Prevents double-accounting.
+    if (params.referenceId) {
+      const existing = await db.journalEntry.findFirst({
+        where: {
+          companyId: this.companyId,
+          referenceId: params.referenceId,
+          referenceType: params.referenceType,
+          isReversed: false,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        console.warn(
+          `[Journal] DUPLICATE BLOCKED — referenceId: ${params.referenceId}, type: ${params.referenceType}. Returning existing entry.`
+        );
+        return existing.id;
+      }
+    }
+
     // Validate double-entry (total debit = total credit)
     const totalDebit = params.lines.reduce((sum, line) => sum + line.debitAmount, 0);
     const totalCredit = params.lines.reduce((sum, line) => sum + line.creditAmount, 0);
@@ -370,6 +392,7 @@ export class AccountingService {
       return journalEntry.id;
     }
   }
+
 
   /**
    * Update account balance (with debit/credit rules)
