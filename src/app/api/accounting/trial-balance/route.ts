@@ -4,12 +4,13 @@ import { db } from '@/lib/db';
 /**
  * TRIAL BALANCE API — LIVE COMPUTED
  *
- * Balances are computed LIVE from JournalEntryLines.
- * The generic "Bank Account (1102)" is HIDDEN when the company has real bank accounts.
- * Instead, each actual BankAccount is shown as an ASSET row with its real balance.
+ * Strategy for bank accounts:
+ *  - KEEP 1102 "Bank Account" in trial balance (journal-computed) → keeps it balanced.
+ *  - RENAME 1102 to the real bank name (e.g. "HDFC Bank - My Account").
+ *  - HIDE user-created duplicate ChartOfAccount rows (e.g. 1401) that have no journal entries.
  *
- * ASSET / EXPENSE  → normal balance = DEBIT   → balance = totalDebit - totalCredit
- * LIABILITY / EQUITY / INCOME → normal balance = CREDIT → balance = totalCredit - totalDebit
+ * ASSET / EXPENSE → normal balance = DEBIT  → opening + totalDebit - totalCredit
+ * LIABILITY / EQUITY / INCOME → CREDIT      → opening + totalCredit - totalDebit
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,18 +24,38 @@ export async function GET(request: NextRequest) {
 
     const dateFilter = asOfDate ? new Date(asOfDate) : new Date();
 
-    // ── 1. Get all active accounts for this company ─────────────────
+    // ── 1. ChartOfAccount rows ────────────────────────────────────────
     const accounts = await db.chartOfAccount.findMany({
       where: { companyId, isActive: true },
       orderBy: [{ accountType: 'asc' }, { accountCode: 'asc' }],
     });
 
-    // ── 1b. Get real bank accounts ────────────────────────────────────
+    // ── 1b. Real BankAccount records for display name ─────────────────
     const realBankAccounts = await db.bankAccount.findMany({
       where: { companyId, isActive: true },
       orderBy: { createdAt: 'asc' },
     });
     const hasRealBankAccounts = realBankAccounts.length > 0;
+
+    // Display name for 1102 row
+    const bankDisplayName = hasRealBankAccounts
+      ? realBankAccounts.map(b => `${b.bankName} - ${b.accountName}`).join(' / ')
+      : 'Bank Account';
+
+    // Identify user-added ChartOfAccount codes that duplicate actual bank accounts (hide these)
+    const userBankDuplicateCodes = new Set<string>();
+    if (hasRealBankAccounts) {
+      for (const coa of accounts) {
+        if (coa.accountCode === '1102') continue;
+        const isDuplicate = realBankAccounts.some(rb =>
+          rb.accountName?.toLowerCase() === coa.accountName?.toLowerCase() ||
+          rb.bankName?.toLowerCase().includes(coa.accountName?.toLowerCase() || '') ||
+          coa.accountName?.toLowerCase().includes(rb.bankName?.toLowerCase() || '') ||
+          coa.accountName?.toLowerCase().includes(rb.accountNumber?.slice(-4) || '')
+        );
+        if (isDuplicate) userBankDuplicateCodes.add(coa.accountCode);
+      }
+    }
 
     if (accounts.length === 0) {
       return NextResponse.json({
@@ -42,12 +63,15 @@ export async function GET(request: NextRequest) {
         data: {
           trialBalance: [],
           groupedByType: { ASSET: [], LIABILITY: [], EQUITY: [], INCOME: [], EXPENSE: [] },
-          summary: { totalAccounts: 0, totalDebitBalance: 0, totalCreditBalance: 0, isBalanced: true, difference: 0, totalTransactions: 0, asOfDate: dateFilter },
+          summary: {
+            totalAccounts: 0, totalDebitBalance: 0, totalCreditBalance: 0,
+            isBalanced: true, difference: 0, totalTransactions: 0, asOfDate: dateFilter,
+          },
         },
       });
     }
 
-    // ── 2. Aggregate journal entry lines per account (LIVE) ──────────
+    // ── 2. Live journal entry aggregation ────────────────────────────
     const lineAgg = await db.journalEntryLine.groupBy({
       by: ['accountId'],
       where: {
@@ -69,57 +93,40 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Journal activity for the generic 1102 account (tracked internally)
-    const genericBank1102 = accounts.find(a => a.accountCode === '1102');
-    const bank1102Txn = genericBank1102
-      ? (txnMap[genericBank1102.id] || { totalDebit: 0, totalCredit: 0 })
-      : { totalDebit: 0, totalCredit: 0 };
-
-    // ── 3. Build trial balance ────────────────────────────────────────
+    // ── 3. Build trial balance rows ───────────────────────────────────
     const trialBalance: any[] = [];
     let totalDebitBalance = 0;
     let totalCreditBalance = 0;
 
     for (const account of accounts) {
-      // HIDE generic Bank Account (1102) if real banks exist
-      if (account.accountCode === '1102' && hasRealBankAccounts) continue;
+      // Skip user-created bank duplicates (e.g. 1401) — no journal entries → always ₹0
+      if (userBankDuplicateCodes.has(account.accountCode)) continue;
 
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
       const openingBalance = account.openingBalance || 0;
 
-      let closingBalance: number;
-      if (isDebitNormal) {
-        closingBalance = openingBalance + txn.totalDebit - txn.totalCredit;
-      } else {
-        closingBalance = openingBalance + txn.totalCredit - txn.totalDebit;
-      }
+      const closingBalance = isDebitNormal
+        ? openingBalance + txn.totalDebit - txn.totalCredit
+        : openingBalance + txn.totalCredit - txn.totalDebit;
 
       let debitBalance = 0;
       let creditBalance = 0;
 
       if (isDebitNormal) {
-        if (closingBalance >= 0) {
-          debitBalance = closingBalance;
-          totalDebitBalance += closingBalance;
-        } else {
-          creditBalance = Math.abs(closingBalance);
-          totalCreditBalance += Math.abs(closingBalance);
-        }
+        if (closingBalance >= 0) { debitBalance = closingBalance; totalDebitBalance += closingBalance; }
+        else { creditBalance = Math.abs(closingBalance); totalCreditBalance += Math.abs(closingBalance); }
       } else {
-        if (closingBalance >= 0) {
-          creditBalance = closingBalance;
-          totalCreditBalance += closingBalance;
-        } else {
-          debitBalance = Math.abs(closingBalance);
-          totalDebitBalance += Math.abs(closingBalance);
-        }
+        if (closingBalance >= 0) { creditBalance = closingBalance; totalCreditBalance += closingBalance; }
+        else { debitBalance = Math.abs(closingBalance); totalDebitBalance += Math.abs(closingBalance); }
       }
+
+      const isBank1102 = account.accountCode === '1102' && hasRealBankAccounts;
 
       trialBalance.push({
         accountId: account.id,
-        accountCode: account.accountCode,
-        accountName: account.accountName,
+        accountCode: isBank1102 ? 'BANK' : account.accountCode,
+        accountName: isBank1102 ? bankDisplayName : account.accountName,
         accountType: account.accountType,
         openingBalance,
         totalDebit: txn.totalDebit,
@@ -127,32 +134,8 @@ export async function GET(request: NextRequest) {
         closingBalance,
         debitBalance,
         creditBalance,
+        isRealBank: isBank1102,
       });
-    }
-
-    // ── 3b. Inject real bank accounts into trial balance ──────────────
-    if (hasRealBankAccounts) {
-      for (const bank of realBankAccounts) {
-        const bankBalance = bank.currentBalance || 0;
-        const debitBalance = bankBalance >= 0 ? bankBalance : 0;
-        const creditBalance = bankBalance < 0 ? Math.abs(bankBalance) : 0;
-        totalDebitBalance += debitBalance;
-        totalCreditBalance += creditBalance;
-
-        trialBalance.push({
-          accountId: `bank-${bank.id}`,
-          accountCode: `BANK-${bank.id.slice(-4).toUpperCase()}`,
-          accountName: `${bank.bankName} - ${bank.accountName}`,
-          accountType: 'ASSET',
-          openingBalance: bank.openingBalance || 0,
-          totalDebit: bank1102Txn.totalDebit,
-          totalCredit: bank1102Txn.totalCredit,
-          closingBalance: bankBalance,
-          debitBalance,
-          creditBalance,
-          isRealBank: true,
-        });
-      }
     }
 
     // ── 4. Group by type ─────────────────────────────────────────────
@@ -181,9 +164,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error('Trial balance error:', error);
-    return NextResponse.json({ error: 'Failed to fetch trial balance', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to fetch trial balance', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
   }
 }
-
-
-
