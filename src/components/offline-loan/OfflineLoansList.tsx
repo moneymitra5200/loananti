@@ -30,6 +30,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import OfflineLoanDetailPanel from './OfflineLoanDetailPanel';
 import ParallelLoanView from '@/components/loan/ParallelLoanView';
+import { useSystemSettings } from '@/hooks/useSystemSettings';
 
 interface OfflineLoan {
   id: string;
@@ -90,6 +91,17 @@ interface OfflineLoansListProps {
 }
 
 export default function OfflineLoansList({ userId, userRole, onLoanSelect, refreshKey }: OfflineLoansListProps) {
+  const { settings: sysSettings } = useSystemSettings();
+
+  // Determine mirror visibility based on role + system settings
+  const canSeeMirror = (() => {
+    if (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER') return true;
+    if (userRole === 'AGENT') return sysSettings.agentCanSeeMirror;
+    if (userRole === 'STAFF') return sysSettings.staffCanSeeMirror;
+    if (userRole === 'COMPANY') return sysSettings.companyCanSeeMirror;
+    if (userRole === 'ACCOUNTANT') return sysSettings.accountantCanSeeMirror;
+    return false;
+  })();
   const [loading, setLoading] = useState(true);
   const [loans, setLoans] = useState<OfflineLoan[]>([]);
   const [total, setTotal] = useState(0);
@@ -439,6 +451,7 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
         onViewMirror={() => mirrorLoan && handleViewLoan(mirrorLoan)}
         onPayEmi={(l, isOriginal) => handleViewLoan(isOriginal ? loan : mirrorLoan!)}
         userRole={userRole}
+        canSeeMirror={canSeeMirror}
         showPayButton={true}
         showEmiProgress={true}
       />

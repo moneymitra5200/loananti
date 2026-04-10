@@ -68,6 +68,7 @@ interface ParallelLoanViewProps {
   onViewMirror?: () => void;
   onPayEmi?: (loan: LoanData, isOriginal: boolean) => void;
   userRole?: string;
+  canSeeMirror?: boolean;
   showPayButton?: boolean;
   showEmiProgress?: boolean;
   compact?: boolean;
@@ -81,6 +82,7 @@ export function ParallelLoanView({
   onViewMirror,
   onPayEmi,
   userRole = 'SUPER_ADMIN',
+  canSeeMirror = true,
   showPayButton = true,
   showEmiProgress = true,
   compact = false
@@ -132,6 +134,20 @@ export function ParallelLoanView({
           <Building2 className="h-8 w-8 text-gray-300 mb-2" />
           <p className="text-sm text-gray-400 font-medium">No Mirror Loan</p>
           <p className="text-xs text-gray-300 mt-1">This loan is not mirrored</p>
+        </div>
+      );
+    }
+
+    // Mirror side — check access
+    if (!isOriginal && !canSeeMirror) {
+      return (
+        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/40 min-h-[160px] flex flex-col items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mb-3">
+            <Building2 className="h-6 w-6 text-orange-400" />
+          </div>
+          <p className="text-sm font-semibold text-orange-600">🔒 Not Accessible</p>
+          <p className="text-xs text-orange-400 mt-1 text-center">Mirror loan access is restricted.</p>
+          <p className="text-xs text-orange-400 text-center">Contact Super Admin to enable.</p>
         </div>
       );
     }
@@ -214,7 +230,8 @@ export function ParallelLoanView({
           
           {/* Action Buttons */}
           <div className="flex gap-2">
-            {showPayButton && onPayEmi && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY') && (
+            {/* Pay button ONLY on Original side — Mirror is read-only */}
+            {showPayButton && onPayEmi && isOriginal && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY') && (
               <Button
                 size="sm"
                 className="bg-emerald-500 hover:bg-emerald-600 text-white"

@@ -199,6 +199,7 @@ export async function DELETE(request: NextRequest) {
     const loanId = searchParams.get('loanId');
     const userId = searchParams.get('userId');
     const reason = searchParams.get('reason') || 'No reason provided';
+    const note = searchParams.get('note') || '';
     const loanType = searchParams.get('loanType') || 'ONLINE';
 
     if (!loanId) {
@@ -354,6 +355,29 @@ export async function DELETE(request: NextRequest) {
           }
         }
 
+        // ==========================================
+        // NOTIFY SUPER ADMINS
+        // ==========================================
+        try {
+          const superAdmins = await db.user.findMany({
+            where: { role: 'SUPER_ADMIN', isActive: true },
+            select: { id: true }
+          });
+          const deletedByUser = await db.user.findUnique({ where: { id: auditUserId! }, select: { name: true } }).catch(() => null);
+          if (superAdmins.length > 0) {
+            await db.notification.createMany({
+              data: superAdmins.map((sa: { id: string }) => ({
+                userId: sa.id,
+                type: 'LOAN_DELETED',
+                title: '🗑️ Loan Permanently Deleted',
+                message: `Loan ${applicationNo} (Customer: ${customerName}) was permanently deleted by ${deletedByUser?.name || 'Super Admin'}. Reason: ${reason}.${note ? ` Note: ${note}` : ''}${mirrorLoanId ? ' Mirror loan also deleted.' : ''}`,
+                isRead: false,
+                priority: 'HIGH',
+              }))
+            });
+          }
+        } catch(e) { console.error('[DELETE LOAN] SA notification error:', e); }
+
         return NextResponse.json({ 
           success: true, 
           message: `Loan ${applicationNo} deleted successfully${mirrorLoanId ? ' along with mirror loan' : ''}`
@@ -416,6 +440,27 @@ export async function DELETE(request: NextRequest) {
           console.error('Failed to create audit log:', e);
         }
       }
+
+      // Notify Super Admins
+      try {
+        const superAdmins = await db.user.findMany({
+          where: { role: 'SUPER_ADMIN', isActive: true },
+          select: { id: true }
+        });
+        const deletedByUser = auditUserId ? await db.user.findUnique({ where: { id: auditUserId }, select: { name: true } }).catch(() => null) : null;
+        if (superAdmins.length > 0) {
+          await db.notification.createMany({
+            data: superAdmins.map((sa: { id: string }) => ({
+              userId: sa.id,
+              type: 'LOAN_DELETED',
+              title: '🗑️ Offline Loan Permanently Deleted',
+              message: `Offline loan ${loanDetails.loanNumber} (Customer: ${loanDetails.customerName}) was permanently deleted by ${deletedByUser?.name || 'Super Admin'}. Reason: ${reason}.${note ? ` Note: ${note}` : ''}`,
+              isRead: false,
+              priority: 'HIGH',
+            }))
+          });
+        }
+      } catch(e) { console.error('[DELETE LOAN] SA notification error:', e); }
 
       return NextResponse.json({ 
         success: true, 

@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import {
   Building2, User, Phone, Calendar, Eye, IndianRupee, Clock,
-  AlertTriangle, CheckCircle, ChevronDown, ChevronUp
+  AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
@@ -60,7 +60,9 @@ interface MirrorLoanPairViewProps {
   onViewOriginal?: () => void;
   onViewMirror?: () => void;
   onPayEmi?: (loan: LoanData, emi?: any) => void;
+  onDeleteLoan?: (loan: LoanData) => void;
   userRole?: string;
+  canSeeMirror?: boolean;
   isExpanded?: boolean;
   onToggleExpand?: () => void;
   showEmiSchedule?: boolean;
@@ -73,7 +75,9 @@ export function MirrorLoanPairView({
   onViewOriginal,
   onViewMirror,
   onPayEmi,
+  onDeleteLoan,
   userRole = 'SUPER_ADMIN',
+  canSeeMirror = true,
   isExpanded = false,
   onToggleExpand,
   showEmiSchedule = false
@@ -118,6 +122,20 @@ export function MirrorLoanPairView({
             <p className="text-sm">No {type} loan</p>
             <p className="text-xs">Not mirrored</p>
           </div>
+        </div>
+      );
+    }
+
+    // Mirror side — check access
+    if (type === 'mirror' && !canSeeMirror) {
+      return (
+        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/40 min-h-[180px] flex flex-col items-center justify-center">
+          <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mb-3">
+            <Building2 className="h-6 w-6 text-orange-400" />
+          </div>
+          <p className="text-sm font-semibold text-orange-600">🔒 Not Accessible</p>
+          <p className="text-xs text-orange-400 mt-1 text-center">Mirror loan access is restricted.</p>
+          <p className="text-xs text-orange-400 text-center">Contact Super Admin to enable access.</p>
         </div>
       );
     }
@@ -194,8 +212,9 @@ export function MirrorLoanPairView({
               </p>
             )}
           </div>
-          <div className="flex gap-2">
-            {onPayEmi && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY') && (
+          <div className="flex gap-2 flex-wrap">
+            {/* Pay button ONLY on Original side — Mirror is read-only */}
+            {isOriginal && onPayEmi && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY') && (
               <Button
                 size="sm"
                 className="bg-emerald-500 hover:bg-emerald-600"
@@ -211,6 +230,17 @@ export function MirrorLoanPairView({
             >
               <Eye className="h-4 w-4 mr-1" /> View
             </Button>
+            {/* Delete button — SUPER_ADMIN only, original side only */}
+            {isOriginal && userRole === 'SUPER_ADMIN' && onDeleteLoan && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="bg-red-500 hover:bg-red-600"
+                onClick={() => onDeleteLoan(loan)}
+              >
+                <Trash2 className="h-4 w-4 mr-1" /> Delete
+              </Button>
+            )}
           </div>
         </div>
 

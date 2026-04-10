@@ -39,6 +39,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import MirrorLoanPairView from '@/components/loan/MirrorLoanPairView';
+import { useSystemSettings } from '@/hooks/useSystemSettings';
 
 interface ActiveLoan {
   id: string;
@@ -151,6 +152,17 @@ export function ActiveLoansSection({
   onView,
   onPaymentComplete
 }: ActiveLoansSectionProps) {
+  const { settings: sysSettings } = useSystemSettings();
+
+  // Determine if this role can see mirror loans
+  const canSeeMirror = (() => {
+    if (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER') return true;
+    if (userRole === 'AGENT') return sysSettings.agentCanSeeMirror;
+    if (userRole === 'STAFF') return sysSettings.staffCanSeeMirror;
+    if (userRole === 'COMPANY') return sysSettings.companyCanSeeMirror;
+    if (userRole === 'ACCOUNTANT') return sysSettings.accountantCanSeeMirror;
+    return false;
+  })();
   const [expandedLoan, setExpandedLoan] = useState<string | null>(null);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [showEmiDateDialog, setShowEmiDateDialog] = useState(false);
@@ -214,6 +226,46 @@ export function ActiveLoansSection({
   const [emiPaymentSettings, setEmiPaymentSettings] = useState<any>(null);
   const [savingSettings, setSavingSettings] = useState(false);
   const [secondaryPaymentPages, setSecondaryPaymentPages] = useState<any[]>([]);
+
+  // Delete loan state
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [loanToDelete, setLoanToDelete] = useState<ActiveLoan | null>(null);
+  const [deleteNote, setDeleteNote] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteLoan = (loan: ActiveLoan) => {
+    setLoanToDelete(loan);
+    setDeleteNote('');
+    setShowDeleteDialog(true);
+  };
+
+  const confirmDeleteLoan = async () => {
+    if (!loanToDelete || !userId) return;
+    setDeleting(true);
+    try {
+      const params = new URLSearchParams({
+        loanId: loanToDelete.id,
+        userId,
+        loanType: loanToDelete.loanType,
+        reason: 'Deleted by Super Admin',
+        note: deleteNote
+      });
+      const res = await fetch(`/api/loan/delete?${params}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast({ title: 'Loan Deleted', description: data.message });
+        setShowDeleteDialog(false);
+        setLoanToDelete(null);
+        onRefresh?.();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to delete loan', variant: 'destructive' });
+      }
+    } catch (e) {
+      toast({ title: 'Error', description: 'Network error deleting loan', variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Accountant cannot manage EMIs
   const canManageEmi = userRole !== 'ACCOUNTANT';
@@ -706,7 +758,7 @@ export function ActiveLoansSection({
                     <MirrorLoanPairView
                       key={`${loan.loanType}-${loan.id}`}
                       originalLoan={convertToLoanData(loan)}
-                      mirrorLoan={null} // Mirror loan data would need to be fetched separately
+                      mirrorLoan={null}
                       mirrorMapping={{
                         displayColor: mirrorMappingData?.displayColor || loan.displayColor,
                         extraEMICount: mirrorMappingData?.extraEMICount || 0,
@@ -718,7 +770,9 @@ export function ActiveLoansSection({
                       onViewOriginal={() => onView(loan)}
                       onViewMirror={() => onView(loan)}
                       onPayEmi={(l) => handlePayEmi(loan)}
+                      onDeleteLoan={() => handleDeleteLoan(loan)}
                       userRole={userRole}
+                      canSeeMirror={canSeeMirror}
                       isExpanded={expandedPairLoans.has(loan.id)}
                       onToggleExpand={() => togglePairExpanded(loan.id)}
                     />
@@ -1683,6 +1737,52 @@ export function ActiveLoansSection({
               disabled={savingSettings}
             >
               {savingSettings ? 'Saving...' : 'Save Settings'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Delete Loan Confirmation Dialog ─── */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" />
+              Permanently Delete Loan
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete <strong>{loanToDelete?.identifier}</strong> and its mirror loan (if any), along with ALL EMI records, payments, and accounting entries. <span className="text-red-600 font-semibold">This cannot be undone.</span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <AlertTriangle className="h-4 w-4 inline mr-1" />
+              All related accounting journal entries will be removed. Ledger balances will be recalculated automatically.
+            </div>
+            <div>
+              <Label htmlFor="delete-note" className="text-sm font-medium">
+                Note / Reason (will be sent to Super Admin)
+              </Label>
+              <Input
+                id="delete-note"
+                className="mt-1"
+                placeholder="e.g. Duplicate entry, customer withdrew..."
+                value={deleteNote}
+                onChange={e => setDeleteNote(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteLoan}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleting ? 'Deleting...' : 'Delete Permanently'}
             </Button>
           </DialogFooter>
         </DialogContent>
