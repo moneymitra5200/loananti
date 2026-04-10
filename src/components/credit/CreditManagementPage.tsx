@@ -19,7 +19,7 @@ import {
   CheckCircle, AlertTriangle, Eye, Download, Filter, Search, RefreshCw,
   CreditCard, Wallet, TrendingUp, Calendar, Phone, Mail, Building2,
   Upload, X, ImageIcon, FileCheck, MinusCircle, PlusCircle, History,
-  AlertCircle, Loader2, ArrowDown, Receipt, BookOpen, Repeat, Pause, Play
+  AlertCircle, Loader2, ArrowDown, Receipt, BookOpen, Repeat, Pause, Play, XCircle
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -133,6 +133,59 @@ export default function CreditManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [filterCreditType, setFilterCreditType] = useState('all');
+
+  // Credit Requests (settlement requests from roles â†’ SA)
+  const [creditRequests, setCreditRequests] = useState<any[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+
+  const fetchCreditRequests = async () => {
+    setLoadingRequests(true);
+    try {
+      const res = await fetch('/api/credit/settlement?all=true');
+      const data = await res.json();
+      if (data.success) setCreditRequests(data.settlements || []);
+    } catch { /* ignore */ } finally { setLoadingRequests(false); }
+  };
+
+  const handleApproveRequest = async (requestId: string) => {
+    setProcessingRequest(requestId);
+    try {
+      const res = await fetch('/api/credit/settlement', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settlementId: requestId, action: 'COMPLETE' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'âœ… Settlement Approved', description: 'Credit deducted from role and added to your account.' });
+        fetchCreditRequests();
+        fetchData(true);
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to approve', variant: 'destructive' });
+      }
+    } catch { toast({ title: 'Error', description: 'Network error', variant: 'destructive' }); }
+    finally { setProcessingRequest(null); }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    setProcessingRequest(requestId + '_reject');
+    try {
+      const res = await fetch('/api/credit/settlement', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settlementId: requestId, action: 'REJECT' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Request Rejected', description: 'Settlement request has been rejected.' });
+        fetchCreditRequests();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to reject', variant: 'destructive' });
+      }
+    } catch { toast({ title: 'Error', description: 'Network error', variant: 'destructive' }); }
+    finally { setProcessingRequest(null); }
+  };
   
   // Auto-refresh state - disabled by default to prevent DB connection limit issues
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -285,7 +338,7 @@ export default function CreditManagementPage() {
     if (amount > availableCredit) {
       toast({
         title: 'Insufficient Credit',
-        description: `Available ${deductCreditType.toLowerCase()} credit: ₹${availableCredit}`,
+        description: `Available ${deductCreditType.toLowerCase()} credit: â‚¹${availableCredit}`,
         variant: 'destructive'
       });
       return;
@@ -318,7 +371,7 @@ export default function CreditManagementPage() {
       if (data.success) {
         toast({
           title: 'Credit Deducted',
-          description: `₹${amount} deducted from ${selectedUser.name}'s ${deductCreditType.toLowerCase()} credit. The amount has been added to your credit.`
+          description: `â‚¹${amount} deducted from ${selectedUser.name}'s ${deductCreditType.toLowerCase()} credit. The amount has been added to your credit.`
         });
         setShowDeductDialog(false);
         setSelectedUser(null);
@@ -596,7 +649,7 @@ export default function CreditManagementPage() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-white border">
+        <TabsList className="bg-white border flex flex-wrap gap-0.5">
           <TabsTrigger value="users" className="flex items-center gap-2">
             <User className="h-4 w-4" />
             Users with Credit
@@ -608,6 +661,15 @@ export default function CreditManagementPage() {
           <TabsTrigger value="passbook" className="flex items-center gap-2">
             <BookOpen className="h-4 w-4" />
             Loan Passbook
+          </TabsTrigger>
+          <TabsTrigger value="requests" className="flex items-center gap-2 relative">
+            <ArrowUpRight className="h-4 w-4" />
+            Credit Requests
+            {creditRequests.filter(r => r.status === 'PENDING').length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full">
+                {creditRequests.filter(r => r.status === 'PENDING').length}
+              </span>
+            )}
           </TabsTrigger>
         </TabsList>
 
@@ -955,7 +1017,7 @@ export default function CreditManagementPage() {
                                     <Badge className="bg-red-100 text-red-700">{pendingEMIs} Pending</Badge>
                                   )}
                                 </div>
-                                <p className="text-sm text-gray-600">{loan.customer?.name} • {loan.customer?.phone}</p>
+                                <p className="text-sm text-gray-600">{loan.customer?.name} â€¢ {loan.customer?.phone}</p>
                                 <p className="text-xs text-gray-500">{loan.customer?.email}</p>
                               </div>
                             </div>
@@ -998,6 +1060,125 @@ export default function CreditManagementPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* â”€â”€ Credit Requests Tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        <TabsContent value="requests" className="mt-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <ArrowUpRight className="h-5 w-5 text-indigo-600" />
+                    Credit Settlement Requests
+                  </CardTitle>
+                  <CardDescription>
+                    Roles request settlement when they need to hand over collected money.
+                    Approve after receiving the cash â€” credit transfers to your account.
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={fetchCreditRequests} disabled={loadingRequests}>
+                  <RefreshCw className={`h-4 w-4 mr-1 ${loadingRequests ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loadingRequests ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+                </div>
+              ) : creditRequests.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-3 text-green-300" />
+                  <p className="font-medium">No settlement requests</p>
+                  <p className="text-sm">All credits are settled.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {(['PENDING', 'COMPLETED', 'REJECTED'] as const).map(statusGroup => (
+                    <div key={statusGroup}>
+                      {creditRequests.filter((r: any) => r.status === statusGroup).length > 0 && (
+                        <>
+                          <p className={`text-xs font-semibold uppercase tracking-wider mb-2 mt-4 first:mt-0 ${
+                            statusGroup === 'PENDING' ? 'text-amber-600' :
+                            statusGroup === 'COMPLETED' ? 'text-green-600' : 'text-red-500'
+                          }`}>
+                            {statusGroup === 'PENDING' ? 'â³ Pending Approval' :
+                             statusGroup === 'COMPLETED' ? 'âœ… Completed' : 'âŒ Rejected'}
+                          </p>
+                          {creditRequests.filter((r: any) => r.status === statusGroup).map((req: any) => (
+                            <motion.div
+                              key={req.id}
+                              initial={{ opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              className={`flex items-center justify-between p-4 rounded-xl border mb-2 transition-all ${
+                                statusGroup === 'PENDING'
+                                  ? 'bg-amber-50/50 border-amber-200 hover:shadow-md'
+                                  : statusGroup === 'COMPLETED'
+                                  ? 'bg-green-50/30 border-green-100'
+                                  : 'bg-red-50/30 border-red-100 opacity-75'
+                              }`}
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                  statusGroup === 'PENDING' ? 'bg-amber-100' :
+                                  statusGroup === 'COMPLETED' ? 'bg-green-100' : 'bg-red-100'
+                                }`}>
+                                  {statusGroup === 'PENDING' ? <Clock className="h-5 w-5 text-amber-600" /> :
+                                   statusGroup === 'COMPLETED' ? <CheckCircle className="h-5 w-5 text-green-600" /> :
+                                   <XCircle className="h-5 w-5 text-red-500" />}
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-800">{req.user?.name || req.cashier?.name || 'Unknown'}</p>
+                                  <p className="text-xs text-gray-500">{req.user?.role || req.cashier?.role} â€¢ {req.settlementNumber}</p>
+                                  <p className="text-xs text-gray-400">{formatDate(req.createdAt)}</p>
+                                  {req.remarks && <p className="text-xs text-gray-500 italic mt-0.5">&quot;{req.remarks}&quot;</p>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="text-lg font-bold text-gray-900">{formatCurrency(req.amount)}</p>
+                                  <Badge className={`text-xs ${
+                                    req.creditType === 'COMPANY' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                                  }`}>{req.creditType}</Badge>
+                                  <p className="text-xs text-gray-400 mt-0.5">{req.paymentMode}</p>
+                                </div>
+                                {statusGroup === 'PENDING' && (
+                                  <div className="flex flex-col gap-2">
+                                    <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white"
+                                      onClick={() => handleApproveRequest(req.id)}
+                                      disabled={processingRequest === req.id}
+                                    >
+                                      {processingRequest === req.id
+                                        ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                        : <CheckCircle className="h-3 w-3 mr-1" />}
+                                      Approve
+                                    </Button>
+                                    <Button size="sm" variant="outline"
+                                      className="border-red-200 text-red-600 hover:bg-red-50"
+                                      onClick={() => handleRejectRequest(req.id)}
+                                      disabled={processingRequest === req.id + '_reject'}
+                                    >
+                                      {processingRequest === req.id + '_reject'
+                                        ? <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                        : <XCircle className="h-3 w-3 mr-1" />}
+                                      Reject
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </motion.div>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
 
       {/* Deduct Credit Dialog */}
@@ -1468,3 +1649,4 @@ export default function CreditManagementPage() {
     </div>
   );
 }
+
