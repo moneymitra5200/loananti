@@ -786,14 +786,14 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="e.g., Partner Collection Point 1" 
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
                 <Label>Company *</Label>
                 <Select 
                   value={formData.companyId} 
-                  onValueChange={(value) => setFormData({ ...formData, companyId: value })}
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, companyId: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select company" />
@@ -814,7 +814,7 @@ export default function SecondaryPaymentPagesSection({
               <Input 
                 placeholder="Brief description of this payment page" 
                 value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
               />
             </div>
             
@@ -824,7 +824,7 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="e.g., partner@upi" 
                   value={formData.upiId}
-                  onChange={(e) => setFormData({ ...formData, upiId: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -881,7 +881,7 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="e.g., HDFC Bank" 
                   value={formData.bankName}
-                  onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -889,7 +889,7 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="1234567890" 
                   value={formData.accountNumber}
-                  onChange={(e) => setFormData({ ...formData, accountNumber: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
                 />
               </div>
             </div>
@@ -900,7 +900,7 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="Name on account" 
                   value={formData.accountName}
-                  onChange={(e) => setFormData({ ...formData, accountName: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, accountName: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -908,7 +908,7 @@ export default function SecondaryPaymentPagesSection({
                 <Input 
                   placeholder="HDFC0001234" 
                   value={formData.ifscCode}
-                  onChange={(e) => setFormData({ ...formData, ifscCode: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, ifscCode: e.target.value }))}
                 />
               </div>
             </div>

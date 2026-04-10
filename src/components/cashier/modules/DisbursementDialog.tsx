@@ -9,11 +9,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Send, Loader2, User, Building2, ArrowRight, AlertCircle, Landmark, AlertTriangle,
   ChevronDown, ChevronUp, FileImage, ExternalLink, Car, Gem, Home, IdCard, FileText,
@@ -141,24 +140,24 @@ export default function DisbursementDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[95vh] p-0 gap-0">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl lg:max-w-3xl xl:max-w-4xl p-0 gap-0 overflow-y-auto flex flex-col">
         {/* Header */}
-        <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-6">
-          <DialogHeader>
-            <DialogTitle className="text-xl flex items-center gap-2 text-white">
+        <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white p-5 flex-shrink-0">
+          <SheetHeader>
+            <SheetTitle className="text-xl flex items-center gap-2 text-white">
               <Send className="h-6 w-6" /> Disburse Loan - Complete Details
-            </DialogTitle>
-            <DialogDescription className="text-green-100">
+            </SheetTitle>
+            <SheetDescription className="text-green-100">
               {selectedLoan?.applicationNo} - {selectedLoan?.customer?.name}
               {selectedLoan?.company && <span className="ml-2 px-2 py-0.5 bg-white/20 rounded text-sm">Company: {selectedLoan.company.name}</span>}
-            </DialogDescription>
-          </DialogHeader>
+            </SheetDescription>
+          </SheetHeader>
         </div>
 
-        <ScrollArea className="max-h-[calc(95vh-200px)]">
+        <div className="flex-1 overflow-y-auto no-scrollbar">
           {selectedLoan && (
-            <div className="p-6 space-y-4">
+            <div className="p-5 space-y-4">
               {/* Mirror Loan Disbursement Info - Show FIRST if mirror loan */}
               {mirrorLoanInfo?.isMirrorLoan && (
                 <Card className="border-0 shadow-sm bg-gradient-to-r from-purple-50 to-pink-50 border-l-4 border-l-purple-500">
@@ -1256,52 +1255,53 @@ export default function DisbursementDialog({
               </div>
             </div>
           )}
-        </ScrollArea>
+        </div>
 
-        <DialogFooter className="p-6 border-t">
+        <SheetFooter className="p-5 border-t flex-shrink-0 flex-col gap-2">
           {/* Show missing requirements warning */}
           {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)) && (
-            <div className="w-full mb-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+            <div className="w-full p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600" />
               <span className="text-sm text-red-700">
-                {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source" : ""}
-                {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed" : ""}
-                {mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page" : ""}
+                {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source. " : ""}
+                {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed. " : ""}
+                {mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
               </span>
             </div>
           )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          {/* Send Back button for FINAL_APPROVED loans */}
-          {selectedLoan?.status === 'FINAL_APPROVED' && (
-            <Button 
-              variant="outline" 
-              className="border-amber-500 text-amber-600 hover:bg-amber-50"
-              onClick={onSendBack}
-              disabled={saving}
-            >
-              <ArrowLeft className="h-4 w-4 mr-1" /> Send Back
-            </Button>
-          )}
-          <Button 
-            className="bg-green-500 hover:bg-green-600" 
-            onClick={onDisburse}
-            disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
-          >
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4 mr-2" />
-                Confirm Disbursement
-              </>
+          <div className="flex gap-2 justify-end w-full">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            {selectedLoan?.status === 'FINAL_APPROVED' && (
+              <Button 
+                variant="outline" 
+                className="border-amber-500 text-amber-600 hover:bg-amber-50"
+                onClick={onSendBack}
+                disabled={saving}
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" /> Send Back
+              </Button>
             )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Button 
+              className="bg-green-500 hover:bg-green-600" 
+              onClick={onDisburse}
+              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Confirm Disbursement
+                </>
+              )}
+            </Button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
     </>
   );
 }
