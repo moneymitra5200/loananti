@@ -24,6 +24,7 @@ import { DisbursementDialog, LoanDetailPanel, InterestPaymentDialog } from './mo
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections } from './tabs/types';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
+import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -884,6 +885,11 @@ export default function CashierDashboard() {
       default:
         return (
           <div className="space-y-6">
+            {/* EMI Due Alert Banner */}
+            {user?.id && (
+              <EMIDueAlertBanner userId={user.id} userRole={user.role || 'CASHIER'} />
+            )}
+
             {/* Bank Balance Summary */}
             {bankAccounts.length > 0 && (
               <Card className="border-0 shadow-sm">

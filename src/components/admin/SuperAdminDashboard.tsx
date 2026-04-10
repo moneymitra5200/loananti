@@ -28,6 +28,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
 import { useCompaniesStore } from '@/stores/companiesStore';
+import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 // Lazy load heavy components
 const AuditLogViewer = lazy(() => import('@/components/audit/AuditLogViewer'));
@@ -1685,6 +1686,9 @@ export default function SuperAdminDashboard() {
       gradient="bg-gradient-to-br from-purple-600 to-indigo-700"
       logoIcon={Shield}
     >
+      {/* EMI Due Alert Banner for SuperAdmin */}
+      {user?.id && <EMIDueAlertBanner userId={user.id} userRole="SUPER_ADMIN" />}
+
       {renderContent()}
 
       {/* Approval Dialog */}
