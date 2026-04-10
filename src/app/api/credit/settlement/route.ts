@@ -177,9 +177,11 @@ export async function PUT(request: NextRequest) {
       notes
     } = body;
 
-    if (!settlementId || !action || !superAdminId) {
+    if (!settlementId || !action) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
+
+    const normalizedAction = action.toLowerCase();
 
     // Get settlement details
     const settlement = await db.cashierSettlement.findUnique({
@@ -202,9 +204,16 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Settlement already processed' }, { status: 400 });
     }
 
+    // Resolve Super Admin: use passed ID or fall back to cashierId on the settlement
+    const resolvedSAId = superAdminId || settlement.cashier?.id;
+
+    if (!resolvedSAId) {
+      return NextResponse.json({ error: 'Cannot resolve Super Admin for this settlement' }, { status: 400 });
+    }
+
     // Verify Super Admin
     const superAdmin = await db.user.findUnique({
-      where: { id: superAdminId },
+      where: { id: resolvedSAId },
       select: { id: true, name: true, role: true, personalCredit: true, companyCredit: true, credit: true }
     });
 
@@ -213,7 +222,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Reject settlement
-    if (action === 'reject') {
+    if (normalizedAction === 'reject') {
       const updated = await db.cashierSettlement.update({
         where: { id: settlementId },
         data: {
@@ -226,9 +235,9 @@ export async function PUT(request: NextRequest) {
     }
 
     // Complete settlement
-    if (action === 'complete') {
+    if (normalizedAction === 'complete') {
       const amount = settlement.amount;
-      const actualCreditType: CreditType = creditType || CreditType.COMPANY;
+      const actualCreditType: CreditType = (settlement as any).creditType || creditType || CreditType.COMPANY;
 
       // Check user has enough credit in specified type
       const userAvailableCredit = actualCreditType === CreditType.COMPANY 
@@ -283,7 +292,7 @@ export async function PUT(request: NextRequest) {
 
         // Increase Super Admin's credit
         await tx.user.update({
-          where: { id: superAdminId },
+          where: { id: resolvedSAId },
           data: {
             companyCredit: newSACompanyCredit,
             personalCredit: newSAPersonalCredit,
@@ -313,7 +322,7 @@ export async function PUT(request: NextRequest) {
         // Create credit transaction for Super Admin (INCREASE)
         await tx.creditTransaction.create({
           data: {
-            userId: superAdminId,
+            userId: resolvedSAId,
             transactionType: actualCreditType === CreditType.PERSONAL 
               ? CreditTransactionType.PERSONAL_COLLECTION 
               : CreditTransactionType.CREDIT_INCREASE,
