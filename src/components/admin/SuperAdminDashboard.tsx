@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ProfileSection from '@/components/shared/ProfileSection';
+import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { Shield, FileText, CheckCircle, Users, AlertTriangle, Eye, Building2, UserPlus, Edit, Trash2, Settings, Save, User, ClipboardCheck, Banknote, Briefcase, Plus, TrendingUp, Activity, DollarSign, BarChart3, ArrowRight, ArrowLeft, Calculator, PieChart, X, Loader2, MapPin, Phone, Mail, Calendar, FileCheck, CreditCard, Receipt, ExternalLink, RefreshCw, Info, Hash, CreditCard as CardIcon, Landmark, UserCog, Percent, Camera, Globe, Clock, Key, Unlock } from 'lucide-react';
 import { formatCurrency, formatDate, generateApplicationNo } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -1523,13 +1524,15 @@ export default function SuperAdminDashboard() {
 
       case 'messages':
         return (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <span>💬</span> Messages
             </h2>
-            <div className="p-6 bg-white rounded-xl border border-gray-200 text-center text-gray-500">
-              <p>Internal messaging via the notification system. Use Support Tickets tab for customer queries.</p>
-            </div>
+            <DirectMessaging
+              userId={user?.id || ''}
+              userRole={user?.role || 'SUPER_ADMIN'}
+              userName={user?.name || 'Admin'}
+            />
           </div>
         );
 

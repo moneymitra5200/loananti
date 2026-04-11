@@ -23,6 +23,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Home, FileText, CheckCircle, XCircle, Clock, Wallet, TrendingUp, Percent, Calendar, IndianRupee, PenLine, AlertCircle, CreditCard, User, Briefcase, Building2, ChevronRight, LogOut, Bell, Settings, History, BarChart3, Calculator, Gift, RefreshCw, Download, Share2, ClockIcon, AlertTriangle, Sparkles, ArrowUpRight, PiggyBank, FileDown, RefreshCcw, Loader2, PartyPopper, Ticket, Plus, MessageSquare, Send } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
+import CustomerMessages from '@/components/messaging/CustomerMessages';
 import { formatCurrency, calculateEMI, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { useLocationTracking } from '@/hooks/useLocationTracking';
@@ -926,6 +927,7 @@ export default function CustomerDashboard() {
     { id: 'home', label: 'Home', icon: Home },
     { id: 'loans', label: 'My Loans', icon: Wallet },
     { id: 'services', label: 'Services', icon: Briefcase },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
@@ -1334,7 +1336,18 @@ export default function CustomerDashboard() {
           </div>
         );
 
+      case 'messages':
+        return (
+          <div className="space-y-3">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-emerald-600" /> Messages
+            </h2>
+            <CustomerMessages />
+          </div>
+        );
+
       case 'profile':
+
         return (
           <div className="space-y-4">
             <Card className="border-0 shadow-sm">
