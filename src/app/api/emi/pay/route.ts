@@ -118,11 +118,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'EMI not found' }, { status: 404 });
     }
 
-    // ============ MIRROR LOAN CHECK ============
-    // Mirror loans cannot be paid directly - they sync from original loan
-    const mirrorLoanCheck = await db.mirrorLoanMapping.findFirst({
-      where: { mirrorLoanId: loanId }
-    });
+    // PERFORMANCE: Run mirror check + previous EMI validation IN PARALLEL
+    const [mirrorLoanCheck, previousEmis] = await Promise.all([
+      db.mirrorLoanMapping.findFirst({ where: { mirrorLoanId: loanId } }),
+      db.eMISchedule.findMany({
+        where: {
+          loanApplicationId: loanId,
+          installmentNumber: { lt: emi.installmentNumber },
+          paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
+        }
+      })
+    ]);
 
     if (mirrorLoanCheck) {
       return NextResponse.json({
@@ -133,16 +139,6 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Sequential Payment Validation - Check if previous EMIs are paid
-    // INTEREST_ONLY_PAID is also considered as "paid" for sequential payment purposes
-    const previousEmis = await db.eMISchedule.findMany({
-      where: {
-        loanApplicationId: loanId,
-        installmentNumber: { lt: emi.installmentNumber },
-        paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
-      }
-    });
-
     if (previousEmis.length > 0) {
       const unpaidEmiNumbers = previousEmis.map(e => e.installmentNumber).sort((a, b) => a - b);
       return NextResponse.json({ 
@@ -151,6 +147,13 @@ export async function POST(request: NextRequest) {
         unpaidEmis: unpaidEmiNumbers
       }, { status: 400 });
     }
+
+    // PERFORMANCE: Fetch mirror mapping ONCE here — reused throughout the route
+    // (replaces 3+ duplicate findFirst calls below)
+    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId }
+    });
+    const isExtraEMI = mirrorMapping && emi.installmentNumber > mirrorMapping.mirrorTenure;
 
     // Check if EMI already has partial payment - disable interest only option
     if (paymentType === 'INTEREST_ONLY' && emi.isPartialPayment) {
@@ -441,10 +444,8 @@ export async function POST(request: NextRequest) {
     if (paymentType === 'INTEREST_ONLY' && principalDeferred) {
       console.log(`[Interest Only] Processing for EMI #${emi.installmentNumber} - Original Loan: ${loanId}`);
       
-      // Get mirror mapping if exists
-      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId }
-      });
+      // Mirror mapping already fetched at top — reuse it
+      const mirrorMappingIO = mirrorMapping;
       
       // Get the due date day pattern from first pending EMI (consistent across all EMIs)
       const firstPendingEmi = await db.eMISchedule.findFirst({
@@ -545,20 +546,20 @@ export async function POST(request: NextRequest) {
       console.log(`[Interest Only] Original EMI #${emi.installmentNumber} status: INTEREST_ONLY_PAID`);
       
       // ============ MIRROR LOAN: Same process ============
-      if (mirrorMapping?.mirrorLoanId) {
-        console.log(`[Interest Only] Processing Mirror Loan: ${mirrorMapping.mirrorLoanId}`);
+      if (mirrorMappingIO?.mirrorLoanId) {
+        console.log(`[Interest Only] Processing Mirror Loan: ${mirrorMappingIO!.mirrorLoanId}`);
         
         // Get the corresponding mirror EMI
         const mirrorEMI = await db.eMISchedule.findFirst({
           where: {
-            loanApplicationId: mirrorMapping.mirrorLoanId,
+            loanApplicationId: mirrorMappingIO!.mirrorLoanId,
             installmentNumber: emi.installmentNumber
           }
         });
         
         if (mirrorEMI) {
           // Calculate mirror interest based on mirror rate
-          const mirrorRate = mirrorMapping.mirrorInterestRate;
+          const mirrorRate = mirrorMappingIO!.mirrorInterestRate;
           const mirrorMonthlyRate = mirrorRate / 12 / 100;
           const mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
           const mirrorPrincipal = mirrorEMI.principalAmount;
@@ -586,7 +587,7 @@ export async function POST(request: NextRequest) {
           // Get the due date day pattern from mirror loan's first pending EMI
           const firstPendingMirrorEmi = await db.eMISchedule.findFirst({
             where: {
-              loanApplicationId: mirrorMapping.mirrorLoanId,
+              loanApplicationId: mirrorMappingIO!.mirrorLoanId,
               paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
             },
             orderBy: { installmentNumber: 'asc' },
@@ -598,7 +599,7 @@ export async function POST(request: NextRequest) {
           // Get the NEXT mirror EMI's due date for the new EMI
           const nextMirrorEmi = await db.eMISchedule.findFirst({
             where: {
-              loanApplicationId: mirrorMapping.mirrorLoanId,
+              loanApplicationId: mirrorMappingIO!.mirrorLoanId,
               installmentNumber: mirrorEMI.installmentNumber + 1
             },
             select: { installmentNumber: true, dueDate: true }
@@ -613,7 +614,7 @@ export async function POST(request: NextRequest) {
           // Shift all subsequent EMIs in mirror loan - DESCENDING order!
           const subsequentEmisMirror = await db.eMISchedule.findMany({
             where: {
-              loanApplicationId: mirrorMapping.mirrorLoanId,
+              loanApplicationId: mirrorMappingIO!.mirrorLoanId,
               installmentNumber: { gt: mirrorEMI.installmentNumber }  // Only EMIs AFTER current
             },
             orderBy: { installmentNumber: 'desc' }  // DESCENDING - shift highest first!
@@ -643,7 +644,7 @@ export async function POST(request: NextRequest) {
           // Create NEW EMI for mirror loan with due date = Mirror EMI + 1 month
           const newEMIMirror = await db.eMISchedule.create({
             data: {
-              loanApplicationId: mirrorMapping.mirrorLoanId,
+              loanApplicationId: mirrorMappingIO!.mirrorLoanId,
               installmentNumber: mirrorEMI.installmentNumber + 1,
               dueDate: newMirrorEmiDueDate,
               originalDueDate: newMirrorEmiDueDate,
@@ -673,13 +674,13 @@ export async function POST(request: NextRequest) {
           // Record mirror interest as income in Mirror Company's CashBook
           if (mirrorInterestPaid > 0) {
             let mirrorCashBook = await db.cashBook.findUnique({
-              where: { companyId: mirrorMapping.mirrorCompanyId }
+              where: { companyId: mirrorMappingIO!.mirrorCompanyId }
             });
             
             if (!mirrorCashBook) {
               mirrorCashBook = await db.cashBook.create({
                 data: {
-                  companyId: mirrorMapping.mirrorCompanyId,
+                  companyId: mirrorMappingIO!.mirrorCompanyId,
                   currentBalance: 0
                 }
               });
@@ -710,10 +711,10 @@ export async function POST(request: NextRequest) {
             // ── Issue 6 Fix: Double-entry journal for mirror company (interest-only) ─
             try {
               const { AccountingService: IOAccSvc } = await import('@/lib/accounting-service');
-              const ioAccSvc = new IOAccSvc(mirrorMapping.mirrorCompanyId);
+              const ioAccSvc = new IOAccSvc(mirrorMappingIO!.mirrorCompanyId);
               await ioAccSvc.initializeChartOfAccounts();
               await ioAccSvc.recordEMIPayment({
-                loanId: mirrorMapping.mirrorLoanId || loanId,
+                loanId: mirrorMappingIO!.mirrorLoanId || loanId,
                 customerId: emi.loanApplication?.customerId || '',
                 paymentId: payment.id,
                 totalAmount: mirrorInterestPaid,
@@ -738,10 +739,8 @@ export async function POST(request: NextRequest) {
     const secondaryPaymentPage = emiSettings?.secondaryPaymentPage;
     const companyPaymentPage = emi.loanApplication?.company?.defaultPaymentPage;
 
-    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId }
-    });
-    const isExtraEMI = mirrorMapping && emi.installmentNumber > mirrorMapping.mirrorTenure;
+    // mirrorMapping already fetched at top of handler — reuse it
+    const isExtraEMILocal = mirrorMapping && emi.installmentNumber > mirrorMapping.mirrorTenure;
 
     let creditUserId = paidBy;
     let effectiveCreditType = creditType;
@@ -751,7 +750,7 @@ export async function POST(request: NextRequest) {
       creditUserId = secondaryPaymentPage.role.id;
       effectiveCreditType = 'PERSONAL';
       creditReason = `via EMI Secondary Payment Page (${secondaryPaymentPage.name})`;
-    } else if (isExtraEMI && companyPaymentPage?.secondaryPaymentRole) {
+    } else if (isExtraEMILocal && companyPaymentPage?.secondaryPaymentRole) {
       creditUserId = companyPaymentPage.secondaryPaymentRole.id;
       effectiveCreditType = 'PERSONAL';
       creditReason = `via Company Payment Page (Extra EMI #${emi.installmentNumber})`;
@@ -863,13 +862,10 @@ export async function POST(request: NextRequest) {
     // ============================================
     if (mirrorMapping && newEmiStatus === 'PAID' && emi.installmentNumber === 1) {
       try {
-        const fullMapping = await db.mirrorLoanMapping.findFirst({
-          where: { id: mirrorMapping.id },
-          select: { mirrorProcessingFee: true, processingFeeRecorded: true, originalCompanyId: true }
-        });
-        if (fullMapping && !fullMapping.processingFeeRecorded && (fullMapping.mirrorProcessingFee ?? 0) > 0) {
-          const procFee = fullMapping.mirrorProcessingFee!;
-          const origCompanyId = fullMapping.originalCompanyId;
+        // mirrorMapping already fetched — check processingFee details
+        if (!mirrorMapping.processingFeeRecorded && (mirrorMapping.mirrorProcessingFee ?? 0) > 0) {
+          const procFee = mirrorMapping.mirrorProcessingFee!;
+          const origCompanyId = mirrorMapping.originalCompanyId;
           // Record as cashbook credit in original company
           let origCashBook = await db.cashBook.findUnique({ where: { companyId: origCompanyId } });
           if (!origCashBook) {
@@ -1178,8 +1174,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Log action
-    await db.actionLog.create({
+    // PERFORMANCE: Fire-and-forget the action log — don't await it, user gets response faster
+    db.actionLog.create({
       data: {
         userId: paidBy,
         userRole: 'CASHIER',
@@ -1206,18 +1202,17 @@ export async function POST(request: NextRequest) {
         }),
         description: `${paymentType === 'FULL_EMI' ? 'Full EMI' : paymentType === 'PARTIAL_PAYMENT' ? 'Partial' : 'Interest Only'} payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber}`
       }
-    });
+    }).catch(e => console.error('[ActionLog] Failed (non-critical):', e));
 
     // ============================================
     // RECORD ACCOUNTING ENTRIES
     // ============================================
     try {
       // 1. Identify mirror settings for accounting
-      const mirrorMappingForAccounting = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId }
-      });
-      const isExtraEMI = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
-      const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI;
+      // PERFORMANCE: Reuse mirrorMapping fetched at top of handler
+      const mirrorMappingForAccounting = mirrorMapping;
+      const isExtraEMI2 = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
+      const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI2;
       
       let calculatedMirrorInterest: number | undefined = undefined;
       // Issue 2 Fix: Also capture mirror EMI amounts for correct journal entry values

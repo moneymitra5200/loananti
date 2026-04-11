@@ -190,8 +190,32 @@ export class AccountingService {
   private companyId: string;
   private financialYearId: string | null = null;
 
+  // ── PERFORMANCE: In-memory account ID cache (code→{id,type}) ──
+  // Loaded once per instance, reused for ALL journal lines
+  private accountCache: Map<string, { id: string; accountType: string; accountCode: string; currentBalance: number }> | null = null;
+
   constructor(companyId: string) {
     this.companyId = companyId;
+  }
+
+  // ── PERFORMANCE: Preload ALL account IDs in ONE query ──────────
+  // Replaces 15+ per-line getAccountByCode calls with O(1) Map lookups
+  private async ensureAccountCache(tx?: any): Promise<void> {
+    if (this.accountCache) return; // Already loaded
+    const transaction = tx || db;
+    const accounts = await transaction.chartOfAccount.findMany({
+      where: { companyId: this.companyId },
+      select: { id: true, accountCode: true, accountType: true, currentBalance: true },
+    });
+    this.accountCache = new Map();
+    for (const a of accounts) {
+      this.accountCache.set(a.accountCode, {
+        id: a.id,
+        accountType: a.accountType,
+        accountCode: a.accountCode,
+        currentBalance: a.currentBalance,
+      });
+    }
   }
 
   /**
@@ -204,7 +228,7 @@ export class AccountingService {
     // Fast-path: already done this process run — skip 40+ DB queries
     if (AccountingService.initializedCompanies.has(this.companyId)) return;
 
-    const allAccounts = [
+    const allDefaults = [
       ...DEFAULT_CHART_OF_ACCOUNTS.ASSETS,
       ...DEFAULT_CHART_OF_ACCOUNTS.LIABILITIES,
       ...DEFAULT_CHART_OF_ACCOUNTS.INCOME,
@@ -212,42 +236,62 @@ export class AccountingService {
       ...DEFAULT_CHART_OF_ACCOUNTS.EQUITY,
     ];
 
-    for (const account of allAccounts) {
-      const existing = await db.chartOfAccount.findFirst({
-        where: { companyId: this.companyId, accountCode: account.code },
-      });
+    // PERFORMANCE: Fetch ALL existing accounts in ONE query instead of 40+ findFirst calls
+    const existing = await db.chartOfAccount.findMany({
+      where: { companyId: this.companyId },
+      select: { accountCode: true },
+    });
+    const existingCodes = new Set(existing.map(e => e.accountCode));
 
-      if (!existing) {
-        await db.chartOfAccount.create({
-          data: {
-            companyId: this.companyId,
-            accountCode: account.code,
-            accountName: account.name,
-            accountType: account.type as AccountType,
-            isSystemAccount: account.isSystemAccount,
-            description: account.description,
-            openingBalance: 0,
-            currentBalance: 0,
-          },
-        });
-      }
+    // Only create missing accounts
+    const missing = allDefaults.filter(a => !existingCodes.has(a.code));
+    if (missing.length > 0) {
+      // PERFORMANCE: Use createMany instead of loop
+      await db.chartOfAccount.createMany({
+        data: missing.map(account => ({
+          companyId: this.companyId,
+          accountCode: account.code,
+          accountName: account.name,
+          accountType: account.type as AccountType,
+          isSystemAccount: account.isSystemAccount,
+          description: account.description,
+          openingBalance: 0,
+          currentBalance: 0,
+        })),
+        skipDuplicates: true,
+      });
     }
+
     // Mark as done so next call is instant
     AccountingService.initializedCompanies.add(this.companyId);
+    // Also preload account cache since we just touched the table
+    this.accountCache = null; // Force refresh
   }
 
   /**
    * Get or create current financial year
+   * PERFORMANCE: Cached per-instance + static process-wide cache
    */
+  private static fyCache = new Map<string, { id: string; expiry: number }>();
+
   async getCurrentFinancialYear(tx?: any): Promise<string> {
-    const transaction = tx || db;
+    // Instance cache
     if (this.financialYearId) return this.financialYearId;
 
+    // Process-wide cache (expires every 60 seconds)
+    const cacheKey = this.companyId;
+    const cached = AccountingService.fyCache.get(cacheKey);
+    if (cached && cached.expiry > Date.now()) {
+      this.financialYearId = cached.id;
+      return cached.id;
+    }
+
+    const transaction = tx || db;
     const now = new Date();
     const currentYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     const yearName = `FY ${currentYear}-${currentYear + 1}`;
-    const startDate = new Date(currentYear, 3, 1); // April 1
-    const endDate = new Date(currentYear + 1, 2, 31); // March 31
+    const startDate = new Date(currentYear, 3, 1);
+    const endDate = new Date(currentYear + 1, 2, 31);
 
     let financialYear = await transaction.financialYear.findFirst({
       where: { companyId: this.companyId, name: yearName },
@@ -255,29 +299,31 @@ export class AccountingService {
 
     if (!financialYear) {
       financialYear = await transaction.financialYear.create({
-        data: {
-          companyId: this.companyId,
-          name: yearName,
-          startDate,
-          endDate,
-          isClosed: false,
-        },
+        data: { companyId: this.companyId, name: yearName, startDate, endDate, isClosed: false },
       });
     }
 
     this.financialYearId = financialYear.id;
+    // Cache for 60s process-wide
+    AccountingService.fyCache.set(cacheKey, { id: financialYear.id, expiry: Date.now() + 60000 });
     return financialYear.id;
   }
 
   /**
-   * Get account by code
+   * Get account by code — PERFORMANCE: Uses in-memory cache (O(1) lookup)
    */
   async getAccountByCode(code: string, tx?: any): Promise<string> {
+    await this.ensureAccountCache(tx);
+    const cached = this.accountCache!.get(code);
+    if (cached) return cached.id;
+    // Fallback: DB query (shouldn't happen if initializeChartOfAccounts ran)
     const transaction = tx || db;
     const account = await transaction.chartOfAccount.findFirst({
       where: { companyId: this.companyId, accountCode: code },
     });
     if (!account) throw new Error(`Account with code ${code} not found`);
+    // Update cache
+    this.accountCache!.set(code, { id: account.id, accountType: account.accountType, accountCode: account.accountCode, currentBalance: account.currentBalance });
     return account.id;
   }
 
@@ -289,12 +335,13 @@ export class AccountingService {
     const count = await transaction.journalEntry.count({
       where: { companyId: this.companyId },
     });
-    const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
-    return entryNumber;
+    return `JE${String(count + 1).padStart(6, '0')}`;
   }
 
   /**
-   * Create a journal entry
+   * Create a journal entry — PERFORMANCE REWRITE
+   * Old: ~24 sequential queries per 3-line entry
+   * New: ~8 queries total (preload cache + create entry + createMany lines + batch balance updates)
    */
   async createJournalEntry(params: {
     entryDate: Date;
@@ -318,8 +365,6 @@ export class AccountingService {
   }, tx?: any): Promise<string> {
 
     // ── IDEMPOTENCY GUARD ─────────────────────────────────────────────
-    // If a journal entry already exists for the same referenceId + referenceType,
-    // return its ID instead of creating a duplicate. Prevents double-accounting.
     if (params.referenceId) {
       const existing = await db.journalEntry.findFirst({
         where: {
@@ -331,25 +376,34 @@ export class AccountingService {
         select: { id: true },
       });
       if (existing) {
-        console.warn(
-          `[Journal] DUPLICATE BLOCKED — referenceId: ${params.referenceId}, type: ${params.referenceType}. Returning existing entry.`
-        );
+        console.warn(`[Journal] DUPLICATE BLOCKED — ${params.referenceId}/${params.referenceType}`);
         return existing.id;
       }
     }
 
-    // Validate double-entry (total debit = total credit)
+    // Validate double-entry
     const totalDebit = params.lines.reduce((sum, line) => sum + line.debitAmount, 0);
     const totalCredit = params.lines.reduce((sum, line) => sum + line.creditAmount, 0);
-
     if (Math.abs(totalDebit - totalCredit) > 0.01) {
       throw new Error(`Journal entry not balanced. Debit: ${totalDebit}, Credit: ${totalCredit}`);
     }
 
-    const entryNumber = await this.generateEntryNumber(tx);
-    const financialYearId = await this.getCurrentFinancialYear(tx);
+    // PERFORMANCE: Preload account cache + financial year in parallel
+    const [entryNumber, financialYearId] = await Promise.all([
+      this.generateEntryNumber(tx),
+      this.getCurrentFinancialYear(tx),
+    ]);
+    await this.ensureAccountCache(tx);
+
+    // Resolve all account IDs from cache (0 DB queries)
+    const resolvedLines = params.lines.map(line => {
+      const cached = this.accountCache!.get(line.accountCode);
+      if (!cached) throw new Error(`Account ${line.accountCode} not in cache`);
+      return { ...line, accountId: cached.id, accountType: cached.accountType, accountCode: cached.accountCode };
+    });
 
     const executeEntry = async (transaction: any) => {
+      // 1. Create journal entry header (1 query)
       const entry = await transaction.journalEntry.create({
         data: {
           companyId: this.companyId,
@@ -370,25 +424,45 @@ export class AccountingService {
         },
       });
 
-      // Create journal entry lines
-      for (const line of params.lines) {
-        const accountId = await this.getAccountByCode(line.accountCode, transaction);
-        
-        await transaction.journalEntryLine.create({
-          data: {
-            journalEntryId: entry.id,
-            accountId,
-            debitAmount: line.debitAmount,
-            creditAmount: line.creditAmount,
-            loanId: line.loanId,
-            customerId: line.customerId,
-            narration: line.narration,
-          },
-        });
+      // 2. PERFORMANCE: Create ALL journal lines in ONE batch (1 query instead of N)
+      await transaction.journalEntryLine.createMany({
+        data: resolvedLines.map(line => ({
+          journalEntryId: entry.id,
+          accountId: line.accountId,
+          debitAmount: line.debitAmount,
+          creditAmount: line.creditAmount,
+          loanId: line.loanId || null,
+          customerId: line.customerId || null,
+          narration: line.narration || null,
+        })),
+      });
 
-        // Update account balance
-        await this.updateAccountBalance(transaction, accountId, line.debitAmount, line.creditAmount, financialYearId);
+      // 3. PERFORMANCE: Batch update account balances
+      // Group by accountId to avoid duplicate updates
+      const balanceUpdates = new Map<string, { debit: number; credit: number; accountType: string; accountCode: string }>();
+      for (const line of resolvedLines) {
+        const existing = balanceUpdates.get(line.accountId);
+        if (existing) {
+          existing.debit += line.debitAmount;
+          existing.credit += line.creditAmount;
+        } else {
+          balanceUpdates.set(line.accountId, {
+            debit: line.debitAmount,
+            credit: line.creditAmount,
+            accountType: line.accountType,
+            accountCode: line.accountCode,
+          });
+        }
       }
+
+      // Execute balance updates in parallel where possible
+      const updatePromises: Promise<void>[] = [];
+      for (const [accountId, upd] of balanceUpdates) {
+        updatePromises.push(
+          this.updateAccountBalanceFast(transaction, accountId, upd.debit, upd.credit, upd.accountType, upd.accountCode, financialYearId)
+        );
+      }
+      await Promise.all(updatePromises);
 
       return entry;
     };
@@ -406,79 +480,51 @@ export class AccountingService {
 
 
   /**
-   * Update account balance (with debit/credit rules)
-   *
-   * IMPORTANT: For Bank Account (1102) and Cash in Hand (1101),
-   * we sync the balance from BankAccount table instead of updating separately.
-   * This prevents double deduction since BankAccount table is the source of truth.
+   * PERFORMANCE: Fast balance update — no extra findUnique needed
+   * Uses pre-resolved account type from cache and upsert for ledger balance
+   * Old: 4 queries per line (findUnique + update + findUnique + update/create)
+   * New: 2 queries per account (update/sync + upsert)
    */
-  private async updateAccountBalance(
+  private async updateAccountBalanceFast(
     tx: any,
     accountId: string,
     debitAmount: number,
     creditAmount: number,
+    accountType: string,
+    accountCode: string,
     financialYearId: string
   ): Promise<void> {
-    const account = await tx.chartOfAccount.findUnique({
-      where: { id: accountId },
-    });
-
-    if (!account) return;
-
-    // ============================================
-    // CRITICAL FIX: Skip balance update for Bank/Cash accounts
-    // BankAccount table is the source of truth for these accounts
-    // ChartOfAccount balance will be synced from BankAccount
-    // ============================================
-    const isBankOrCashAccount = account.accountCode === ACCOUNT_CODES.BANK_ACCOUNT ||
-                                 account.accountCode === ACCOUNT_CODES.CASH_IN_HAND;
+    const isBankOrCash = accountCode === ACCOUNT_CODES.BANK_ACCOUNT ||
+                         accountCode === ACCOUNT_CODES.CASH_IN_HAND;
 
     // Balance calculation based on account type
-    // Assets & Expenses: Debit increases, Credit decreases
-    // Liabilities, Income & Equity: Credit increases, Debit decreases
-    let balanceChange = 0;
+    const balanceChange = (accountType === 'ASSET' || accountType === 'EXPENSE')
+      ? debitAmount - creditAmount
+      : creditAmount - debitAmount;
 
-    if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
-      balanceChange = debitAmount - creditAmount;
-    } else {
-      balanceChange = creditAmount - debitAmount;
-    }
-
-    // Update current balance - BUT skip for bank/cash accounts
-    // Their balance comes from BankAccount table (actual bank balance)
-    if (!isBankOrCashAccount) {
+    // 1. Update ChartOfAccount balance (skip for bank/cash — synced from BankAccount table)
+    if (!isBankOrCash) {
       await tx.chartOfAccount.update({
         where: { id: accountId },
-        data: {
-          currentBalance: account.currentBalance + balanceChange,
-        },
+        data: { currentBalance: { increment: balanceChange } },
       });
     } else {
-      // For bank/cash accounts, sync from actual BankAccount table
-      // This ensures ChartOfAccount reflects the real bank balance
-      await this.syncBankCashBalance(tx, account.accountCode, this.companyId);
+      await this.syncBankCashBalance(tx, accountCode, this.companyId);
     }
 
-    // Update ledger balance for the financial year
-    const ledgerBalance = await tx.ledgerBalance.findUnique({
-      where: {
-        accountId_financialYearId: {
-          accountId,
-          financialYearId,
-        },
-      },
-    });
-
-    if (ledgerBalance) {
+    // 2. PERFORMANCE: Upsert ledger balance (1 query instead of findUnique + update/create)
+    // MySQL doesn't have native upsert on compound keys, so we use try/catch
+    try {
       await tx.ledgerBalance.update({
-        where: { id: ledgerBalance.id },
+        where: { accountId_financialYearId: { accountId, financialYearId } },
         data: {
-          totalDebits: ledgerBalance.totalDebits + debitAmount,
-          totalCredits: ledgerBalance.totalCredits + creditAmount,
-          closingBalance: ledgerBalance.closingBalance + balanceChange,
+          totalDebits:   { increment: debitAmount },
+          totalCredits:  { increment: creditAmount },
+          closingBalance: { increment: balanceChange },
         },
       });
-    } else {
+    } catch {
+      // Record doesn't exist yet — create it
       await tx.ledgerBalance.create({
         data: {
           accountId,
@@ -490,6 +536,19 @@ export class AccountingService {
         },
       });
     }
+  }
+
+  // Legacy compatibility wrapper (used by some callers)
+  private async updateAccountBalance(
+    tx: any,
+    accountId: string,
+    debitAmount: number,
+    creditAmount: number,
+    financialYearId: string
+  ): Promise<void> {
+    const account = await tx.chartOfAccount.findUnique({ where: { id: accountId } });
+    if (!account) return;
+    await this.updateAccountBalanceFast(tx, accountId, debitAmount, creditAmount, account.accountType, account.accountCode, financialYearId);
   }
 
   /**
