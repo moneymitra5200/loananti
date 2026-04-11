@@ -179,6 +179,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     tenure: '12',
     emiAmount: '',
     processingFee: '0',
+    chargesAmount: '0',
     disbursementDate: new Date().toISOString().slice(0, 10),
     disbursementMode: 'CASH',
     disbursementRef: '',
@@ -459,7 +460,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
           loanType: product.loanType,
           interestRate: product.defaultInterestRate.toString(),
           tenure: productIsInterestOnly ? '0' : product.defaultTenure.toString(),
-          processingFee: ((parseFloat(formData.loanAmount || '0') * product.processingFeePercent) / 100).toFixed(0),
+          // processingFee intentionally NOT auto-set — it must be set manually at loan creation
           isInterestOnly: productIsInterestOnly
         }));
       }
@@ -607,15 +608,6 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       setTimeout(() => {
         const emi = calculateEmi();
         setFormData(prev => ({ ...prev, emiAmount: emi.toString() }));
-        
-        // Update processing fee based on product
-        if (formData.productId && field === 'loanAmount') {
-          const product = loanProducts.find(p => p.id === formData.productId);
-          if (product) {
-            const fee = (parseFloat(value) * product.processingFeePercent) / 100;
-            setFormData(prev => ({ ...prev, processingFee: fee.toFixed(0) }));
-          }
-        }
       }, 100);
     }
   };
@@ -817,6 +809,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         tenure: isInterestOnly ? 0 : parseInt(formData.tenure),
         emiAmount: parseFloat(formData.emiAmount) || calculateEmi(),
         processingFee: parseFloat(formData.processingFee) || 0,
+        chargesAmount: parseFloat(formData.chargesAmount || '0') || 0,
         customerMonthlyIncome: formData.customerMonthlyIncome ? parseFloat(formData.customerMonthlyIncome) : null,
         customerDOB: formData.customerDOB || null,
         bankAccountId: formData.bankAccountId || null,
@@ -876,6 +869,16 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
           setOpen(false);
           resetForm();
           onLoanCreated?.();
+
+          // Fire-and-forget: credit charges to creator's personal account
+          const charges = parseFloat(formData.chargesAmount || '0') || 0;
+          if (charges > 0 && createdById) {
+            fetch('/api/user/personal-credit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: createdById, amount: charges, loanId: data.loan?.id, description: 'Offline loan charges' })
+            }).catch(err => console.error('[Charges] Failed to credit personal amount:', err));
+          }
         }
       } else {
         const error = await res.json();
@@ -903,7 +906,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       customerAddress: '', customerCity: '', customerState: '', customerPincode: '', customerOccupation: '',
       customerMonthlyIncome: '', customerDOB: '', reference1Name: '', reference1Phone: '', reference1Relation: '',
       reference2Name: '', reference2Phone: '', reference2Relation: '', loanType: 'PERSONAL',
-      productId: '', loanAmount: '', interestRate: '12', interestType: 'FLAT', tenure: '12', emiAmount: '', processingFee: '0',
+      productId: '', loanAmount: '', interestRate: '12', interestType: 'FLAT', tenure: '12', emiAmount: '', processingFee: '0', chargesAmount: '0',
       disbursementDate: new Date().toISOString().slice(0, 10), disbursementMode: 'CASH',
       disbursementRef: '', startDate: new Date().toISOString().slice(0, 10), notes: '', internalNotes: '',
       companyId: '', bankAccountId: '', isInterestOnly: false, customerLocation: ''
@@ -1144,6 +1147,26 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 {/* Processing Fee: hidden for mirror loans - auto-calculated from EMI diff */}
                 {!isMirrorLoan && (
                   <div className="space-y-2"><Label>Processing Fee</Label><Input type="number" value={formData.processingFee} onChange={(e) => handleInputChange('processingFee', e.target.value)} /></div>
+                )}
+                {/* Charges Amount: Only for offline non-mirror loans — credited to creator's personal credit */}
+                {!isMirrorLoan && (
+                  <div className="space-y-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    <Label className="font-semibold text-orange-800 flex items-center gap-2">
+                      Charges Amount (₹)
+                      <span className="text-xs text-orange-500 font-normal">→ Your Personal Credit</span>
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={formData.chargesAmount || ''}
+                      onChange={(e) => handleInputChange('chargesAmount', e.target.value)}
+                      className="border-orange-200"
+                    />
+                    <p className="text-xs text-orange-600">
+                      Credited to <strong>your personal account</strong> only. No accounting entry.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>

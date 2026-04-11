@@ -1083,6 +1083,26 @@ export default function DisbursementDialog({
                   return null;
                 })()}
 
+                {/* Charges Amount - Added to cashier's personal credit only */}
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <IndianRupee className="h-4 w-4 text-orange-600" />
+                    <Label className="font-semibold text-orange-800">Charges Amount (₹)</Label>
+                    <span className="text-xs text-orange-500 ml-1">→ Your Personal Credit</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={disbursementForm.chargesAmount || ''}
+                    onChange={(e) => setDisbursementForm({ ...disbursementForm, chargesAmount: parseFloat(e.target.value) || 0 })}
+                    className="border-orange-200"
+                  />
+                  <p className="text-xs text-orange-600 mt-1">
+                    If you enter a charges amount, it will be credited to <strong>your personal account only</strong>. No accounting entry is created.
+                  </p>
+                </div>
+
                 <div>
                   <Label>Remarks</Label>
                   <Textarea 
@@ -1092,6 +1112,7 @@ export default function DisbursementDialog({
                     rows={2}
                   />
                 </div>
+
 
                 {/* Agreement Checkbox */}
                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">

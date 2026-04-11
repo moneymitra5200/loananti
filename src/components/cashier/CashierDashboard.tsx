@@ -315,11 +315,12 @@ export default function CashierDashboard() {
     
     setDisbursementForm({
       disbursedAmount: loan.sessionForm?.approvedAmount || loan.requestedAmount,
-      disbursementMode: 'CASH', // Default to CASH for Company 3
+      disbursementMode: 'CASH',
       disbursementRef: generateTransactionId(),
       remarks: '',
       selectedBankAccountId: '',
       agreementSigned: false,
+      chargesAmount: 0,
       extraEMIPaymentPageId: ''
     });
     setExpandedSections({
@@ -452,7 +453,8 @@ export default function CashierDashboard() {
           cashAmount: disbursementForm.cashAmount || 0
         },
         remarks: disbursementForm.remarks,
-        agreementSigned: disbursementForm.agreementSigned
+        agreementSigned: disbursementForm.agreementSigned,
+        chargesAmount: disbursementForm.chargesAmount || 0
       };
       
       console.log('[handleDisburse] Request body:', JSON.stringify(requestBody, null, 2));
@@ -538,6 +540,15 @@ export default function CashierDashboard() {
         setShowDisbursementDialog(false);
         fetchLoans();
         fetchBankAccounts();
+
+        // Fire-and-forget: add charges to cashier's personal credit
+        if ((disbursementForm.chargesAmount || 0) > 0 && user?.id) {
+          fetch('/api/user/personal-credit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: user.id, amount: disbursementForm.chargesAmount, loanId: selectedLoan.id })
+          }).catch(err => console.error('[Charges] Failed to credit personal amount:', err));
+        }
       } else {
         const data = await response.json();
         toast({ title: 'Error', description: data.error || 'Failed to disburse', variant: 'destructive' });

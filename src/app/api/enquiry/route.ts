@@ -15,12 +15,29 @@ export async function POST(request: NextRequest) {
       data: { name, email, phone: phone || '', subject: subject || 'General Enquiry', message }
     });
 
+    // Notify all active cashiers & super admins (fire-and-forget)
+    db.user.findMany({ where: { role: { in: ['CASHIER', 'SUPER_ADMIN'] }, isActive: true }, select: { id: true } })
+      .then(async (users) => {
+        if (users.length > 0) {
+          await db.notification.createMany({
+            data: users.map(u => ({
+              userId: u.id,
+              type: 'NEW_ENQUIRY',
+              title: 'New Customer Enquiry',
+              message: `${name} (${phone || email}) submitted an enquiry: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`,
+              data: JSON.stringify({ enquiryId: enquiry.id, email, phone })
+            }))
+          });
+        }
+      }).catch(err => console.error('[Enquiry] Notification failed (non-critical):', err));
+
     return NextResponse.json({ success: true, enquiry });
   } catch (error) {
     console.error('[Enquiry] POST error:', error);
     return NextResponse.json({ error: 'Failed to submit enquiry' }, { status: 500 });
   }
 }
+
 
 // GET /api/enquiry — Fetch enquiries (cashier/SA only)
 export async function GET(request: NextRequest) {

@@ -199,15 +199,19 @@ export async function POST(request: NextRequest) {
           data: { currentBalance: bankAccount.currentBalance + bankAmount }
         });
         
-        // Also update the actual BankAccount table if there's a default bank account
+        // Also update the actual BankAccount table — prefer default, fall back to first active
         const defaultBankAccount = await tx.bankAccount.findFirst({
-          where: { companyId, isDefault: true, isActive: true }
+          where: { companyId, isActive: true, isDefault: true }
+        }) || await tx.bankAccount.findFirst({
+          where: { companyId, isActive: true },
+          orderBy: { createdAt: 'asc' }
         });
         
         if (defaultBankAccount) {
+          const newBankBalance = defaultBankAccount.currentBalance + bankAmount;
           await tx.bankAccount.update({
             where: { id: defaultBankAccount.id },
-            data: { currentBalance: defaultBankAccount.currentBalance + bankAmount }
+            data: { currentBalance: newBankBalance }
           });
           
           // Create bank transaction record
@@ -216,7 +220,7 @@ export async function POST(request: NextRequest) {
               bankAccountId: defaultBankAccount.id,
               transactionType: 'CREDIT',
               amount: bankAmount,
-              balanceAfter: defaultBankAccount.currentBalance + bankAmount,
+              balanceAfter: newBankBalance,
               description: description || 'Owner equity investment - Bank',
               referenceType: 'EQUITY_INVESTMENT',
               transactionDate: new Date(),

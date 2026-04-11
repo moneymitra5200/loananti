@@ -155,6 +155,8 @@ export interface DisbursementForm {
   remarks: string;
   selectedBankAccountId: string;
   agreementSigned: boolean;
+  // Charges amount — credited to cashier's personal credit, no accounting entry
+  chargesAmount?: number;
   // Extra EMI Payment Page (for mirror loans)
   extraEMIPaymentPageId?: string;
   // Split Payment fields
@@ -163,6 +165,7 @@ export interface DisbursementForm {
   cashAmount?: number;
   splitBankAccountId?: string; // Selected bank account for split payment
 }
+
 
 export interface ExpandedSections {
   customer: boolean;

@@ -280,7 +280,7 @@ export default function LandingPage() {
     
     try {
       // Send enquiry to cashier
-      const response = await fetch('/api/contact-enquiry', {
+      const response = await fetch('/api/enquiry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
