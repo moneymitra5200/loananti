@@ -197,7 +197,13 @@ export class AccountingService {
   /**
    * Initialize chart of accounts for a company
    */
+  // ── Runtime cache: skip re-initialisation within the same server process ─
+  private static initializedCompanies = new Set<string>();
+
   async initializeChartOfAccounts(): Promise<void> {
+    // Fast-path: already done this process run — skip 40+ DB queries
+    if (AccountingService.initializedCompanies.has(this.companyId)) return;
+
     const allAccounts = [
       ...DEFAULT_CHART_OF_ACCOUNTS.ASSETS,
       ...DEFAULT_CHART_OF_ACCOUNTS.LIABILITIES,
@@ -226,6 +232,8 @@ export class AccountingService {
         });
       }
     }
+    // Mark as done so next call is instant
+    AccountingService.initializedCompanies.add(this.companyId);
   }
 
   /**

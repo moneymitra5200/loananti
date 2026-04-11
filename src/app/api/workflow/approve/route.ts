@@ -395,7 +395,7 @@ async function processSingleApproval({
       // Create the first interest EMI due in 1 month
       const dueDate = new Date();
       dueDate.setMonth(dueDate.getMonth() + 1);
-      dueDate.setDate(5); // Due on 5th of next month
+      dueDate.setDate(1); // Issue 8 Fix: 1st of next month (standard EMI day; was hardcoded 5)
       dueDate.setHours(0, 0, 0, 0);
       
       await tx.eMISchedule.create({
@@ -518,6 +518,37 @@ async function processSingleApproval({
               }
             });
             console.log(`[Disbursement] Cash deduction: ₹${disbursementData.cashAmount}, New Balance: ₹${newCashBalance}`);
+          }
+
+          // ── Issue 4 Fix: Double-entry journal for split disbursement ─────────
+          // Raw CashBook + BankTransaction already created above for the ledger.
+          // Now create proper journal entries so the trial balance / ledger reflect it.
+          const splitTargetCompanyId = loan.companyId || companyId;
+          if (splitTargetCompanyId) {
+            try {
+              const splitAccSvc = new AccountingService(splitTargetCompanyId);
+              await splitAccSvc.initializeChartOfAccounts();
+              if ((disbursementData.bankAmount || 0) > 0) {
+                await splitAccSvc.recordLoanDisbursement({
+                  loanId, customerId: loan.customerId, amount: disbursementData.bankAmount!,
+                  disbursementDate: new Date(), createdById: userId || 'SYSTEM',
+                  bankAccountId: disbursementData.bankAccountId,
+                  paymentMode: 'BANK_TRANSFER',
+                  reference: `Split Disbursement (Bank) - ${loan.applicationNo}`
+                }, tx);
+              }
+              if ((disbursementData.cashAmount || 0) > 0) {
+                await splitAccSvc.recordLoanDisbursement({
+                  loanId, customerId: loan.customerId, amount: disbursementData.cashAmount!,
+                  disbursementDate: new Date(), createdById: userId || 'SYSTEM',
+                  paymentMode: 'CASH',
+                  reference: `Split Disbursement (Cash) - ${loan.applicationNo}`
+                }, tx);
+              }
+              console.log(`[Split Disb. Journal] Bank ₹${disbursementData.bankAmount} + Cash ₹${disbursementData.cashAmount} recorded in ledger`);
+            } catch (splitJEErr) {
+              console.error('[Split Disb. Journal] Failed (non-critical):', splitJEErr);
+            }
           }
         } else if (isCompany3 && company) {
         // Company 3: Use CashBook instead of BankAccount

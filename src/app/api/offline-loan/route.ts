@@ -2245,12 +2245,14 @@ export async function PUT(request: NextRequest) {
           paymentStatus = 'PAID';
         }
       } else if (paymentType === 'PARTIAL') {
-        const remainingAmount = emi.totalAmount - paidAmount;
-        const paymentRatio = amount / remainingAmount;
-        paidPrincipal += emi.principalAmount * paymentRatio;
-        paidInterest += emi.interestAmount * paymentRatio;
-        paidAmount += amount;
-        paymentStatus = paidAmount >= emi.totalAmount ? 'PAID' : 'PARTIALLY_PAID';
+        // Issue 7 Fix: Interest-first allocation (same as online loans)
+        const remainingInterest  = emi.interestAmount  - paidInterest;
+        const interestPortion    = Math.min(amount, remainingInterest);
+        const principalPortion   = Math.max(0, amount - interestPortion);
+        paidInterest  += interestPortion;
+        paidPrincipal += principalPortion;
+        paidAmount    += amount;
+        paymentStatus = paidAmount >= emi.totalAmount - 0.01 ? 'PAID' : 'PARTIALLY_PAID';
       } else if (paymentType === 'INTEREST_ONLY') {
         paidInterest = emi.interestAmount;
         paidAmount = emi.interestAmount;

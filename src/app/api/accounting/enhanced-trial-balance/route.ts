@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
     const bankAccounts = await db.bankAccount.findMany({
       where: { companyId, isActive: true },
     });
+    // Issue: Bank Account in chart = sum of ALL banks (not individual names)
     const bankBalance = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
     // ─── 2. CASHBOOK BALANCE ──────────────────────────────────────────────
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     // ─── 3. LOANS RECEIVABLE (Outstanding principal) ──────────────────────
     const onlineLoans = await db.loanApplication.findMany({
-      where: { companyId, status: { in: ['DISBURSED', 'ACTIVE'] } },
+      where: { companyId, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
       include: { emiSchedules: true },
     });
 
@@ -191,7 +192,10 @@ export async function GET(request: NextRequest) {
           entries: investMoney,
         },
         bankBalance: {
-          total:    bankBalance,
+          // Single aggregated total (sum of all bank accounts) — no individual bank names in chart
+          total:       bankBalance,
+          label:       'Bank Account',
+          // Per-account detail available separately (for reconciliation)
           accounts: bankAccounts.map(b => ({
             bankName:      b.bankName,
             accountNumber: b.accountNumber,

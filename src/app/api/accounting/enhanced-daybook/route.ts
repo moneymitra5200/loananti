@@ -1,101 +1,158 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { syncExistingTransactions } from '@/lib/accounting-helper';
 
-// GET - Fetch all daybook entries with comprehensive data
+/**
+ * ENHANCED DAYBOOK — reads from JournalEntry + JournalEntryLine (double-entry system)
+ * and also merges CashBookEntry for cash-only transactions.
+ *
+ * Each row shows:
+ *   date | narration/particular | referenceType | DR amount | CR amount | runningBalance
+ *
+ * UI requirement: show proper CREDIT / DEBIT columns, NOT "Receive Payment" labels.
+ */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const companyId = searchParams.get('companyId');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
-    const accountHeadId = searchParams.get('accountHeadId');
     const referenceType = searchParams.get('referenceType');
+    const viewMode = searchParams.get('viewMode') || 'journal'; // 'journal' | 'cashbook' | 'all'
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    // Build where clause
-    const where: any = { companyId };
-    
+    const dateFilter: any = {};
     if (startDate && endDate) {
-      where.entryDate = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
-      };
-    }
-    
-    if (accountHeadId) {
-      where.accountHeadId = accountHeadId;
-    }
-    
-    if (referenceType) {
-      where.referenceType = referenceType;
+      dateFilter.gte = new Date(startDate);
+      dateFilter.lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
     }
 
-    // NOTE: Auto-sync removed — it ran on every page load causing serious performance
-    // degradation. Use POST ?action=sync to manually trigger a backfill when needed.
-    // await syncExistingTransactions(companyId);
+    // ── 1. JOURNAL ENTRIES (double-entry) ───────────────────────────────────
+    const journalWhere: any = { companyId };
+    if (startDate && endDate) journalWhere.entryDate = dateFilter;
+    if (referenceType) journalWhere.referenceType = referenceType;
 
-    // Fetch daybook entries
-    const daybookEntries = await db.daybookEntry.findMany({
-      where,
+    const journalEntries = await db.journalEntry.findMany({
+      where: journalWhere,
       orderBy: [{ entryDate: 'desc' }, { createdAt: 'desc' }],
-      take: 500
+      take: 500,
+      include: {
+        lines: {
+          include: {
+            account: { select: { accountCode: true, accountName: true, accountType: true } }
+          }
+        }
+      }
     });
 
-    // Calculate running balance
+    // Convert journal entries to daybook rows
+    const journalRows: any[] = journalEntries.map(je => {
+      const totalDebit  = je.lines.reduce((s, l) => s + (l.debitAmount  || 0), 0);
+      const totalCredit = je.lines.reduce((s, l) => s + (l.creditAmount || 0), 0);
+
+      // Determine the "other side" account for narration
+      const debitLines  = je.lines.filter(l => (l.debitAmount  || 0) > 0).map(l => l.account?.accountName || '');
+      const creditLines = je.lines.filter(l => (l.creditAmount || 0) > 0).map(l => l.account?.accountName || '');
+
+      return {
+        id:           je.id,
+        source:       'JOURNAL',
+        date:         je.entryDate,
+        particular:   je.narration,
+        referenceType: je.referenceType,
+        referenceId:  je.referenceId,
+        debit:        totalDebit,
+        credit:       totalCredit,
+        debitAccounts:  debitLines,
+        creditAccounts: creditLines,
+        paymentMode:  je.paymentMode,
+        entryNumber:  je.entryNumber,
+        isAutoEntry:  je.isAutoEntry,
+        isApproved:   je.isApproved,
+        createdAt:    je.createdAt,
+      };
+    });
+
+    // ── 2. CASHBOOK ENTRIES (direct cash entries without full journal) ──────
+    let cashRows: any[] = [];
+    if (viewMode === 'cashbook' || viewMode === 'all') {
+      const cashBook = await db.cashBook.findUnique({ where: { companyId } });
+      if (cashBook) {
+        const cashWhere: any = { cashBookId: cashBook.id };
+        if (startDate && endDate) cashWhere.entryDate = dateFilter;
+        if (referenceType) cashWhere.referenceType = referenceType;
+
+        const cashEntries = await db.cashBookEntry.findMany({
+          where: cashWhere,
+          orderBy: [{ entryDate: 'desc' }],
+          take: 300
+        });
+
+        cashRows = cashEntries.map(ce => ({
+          id:           ce.id,
+          source:       'CASHBOOK',
+          date:         ce.entryDate,
+          particular:   ce.description,
+          referenceType: ce.referenceType,
+          referenceId:  ce.referenceId,
+          debit:        ce.entryType === 'DEBIT'  ? ce.amount : 0,
+          credit:       ce.entryType === 'CREDIT' ? ce.amount : 0,
+          debitAccounts:  ce.entryType === 'DEBIT'  ? ['Cash Out'] : [],
+          creditAccounts: ce.entryType === 'CREDIT' ? ['Cash In']  : [],
+          paymentMode:  'CASH',
+          entryNumber:  null,
+          isAutoEntry:  true,
+          isApproved:   true,
+          createdAt:    ce.createdAt,
+        }));
+      }
+    }
+
+    // ── 3. Merge + sort ─────────────────────────────────────────────────────
+    let allRows = viewMode === 'cashbook'
+      ? cashRows
+      : viewMode === 'all'
+        ? [...journalRows, ...cashRows]
+        : journalRows;
+
+    allRows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // ── 4. Running balance (debit = money out, credit = money in) ──────────
     let runningBalance = 0;
-    const entriesWithBalance = daybookEntries
-      .sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime())
-      .map(entry => {
-        runningBalance += entry.debit - entry.credit;
-        return { ...entry, runningBalance };
-      })
-      .sort((a, b) => new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime());
+    const rowsWithBalance = allRows.map(row => {
+      runningBalance += (row.credit || 0) - (row.debit || 0);
+      return { ...row, runningBalance };
+    });
 
-    // Calculate totals
-    const totalDebit = daybookEntries.reduce((sum, e) => sum + e.debit, 0);
-    const totalCredit = daybookEntries.reduce((sum, e) => sum + e.credit, 0);
+    // Reverse for display (newest first)
+    rowsWithBalance.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // Group by account head
-    const byAccountHead = daybookEntries.reduce((acc, entry) => {
-      if (!acc[entry.accountHeadName]) {
-        acc[entry.accountHeadName] = {
-          accountHeadId: entry.accountHeadId,
-          accountType: entry.accountType,
-          totalDebit: 0,
-          totalCredit: 0,
-          count: 0
-        };
-      }
-      acc[entry.accountHeadName].totalDebit += entry.debit;
-      acc[entry.accountHeadName].totalCredit += entry.credit;
-      acc[entry.accountHeadName].count++;
-      return acc;
-    }, {} as Record<string, any>);
+    // ── 5. Totals ────────────────────────────────────────────────────────────
+    const totalDebit  = allRows.reduce((s, r) => s + (r.debit  || 0), 0);
+    const totalCredit = allRows.reduce((s, r) => s + (r.credit || 0), 0);
 
-    // Group by reference type
-    const byReferenceType = daybookEntries.reduce((acc, entry) => {
-      if (!acc[entry.referenceType]) {
-        acc[entry.referenceType] = { count: 0, totalDebit: 0, totalCredit: 0 };
-      }
-      acc[entry.referenceType].count++;
-      acc[entry.referenceType].totalDebit += entry.debit;
-      acc[entry.referenceType].totalCredit += entry.credit;
+    // ── 6. Group by referenceType ────────────────────────────────────────────
+    const byReferenceType = allRows.reduce((acc, row) => {
+      const k = row.referenceType || 'OTHER';
+      if (!acc[k]) acc[k] = { count: 0, totalDebit: 0, totalCredit: 0 };
+      acc[k].count++;
+      acc[k].totalDebit  += row.debit  || 0;
+      acc[k].totalCredit += row.credit || 0;
       return acc;
     }, {} as Record<string, any>);
 
     return NextResponse.json({
-      entries: entriesWithBalance,
+      entries: rowsWithBalance,
       summary: {
-        totalEntries: daybookEntries.length,
+        totalEntries: allRows.length,
         totalDebit,
         totalCredit,
-        netBalance: totalDebit - totalCredit,
-        byAccountHead,
-        byReferenceType
+        netBalance: totalCredit - totalDebit,
+        byReferenceType,
+        // Helpers for UI column display
+        columns: { debitLabel: 'Debit (DR)', creditLabel: 'Credit (CR)' }
       }
     });
   } catch (error) {
@@ -108,59 +165,33 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const {
-      companyId,
-      accountHeadId,
-      accountHeadName,
-      accountType,
-      particular,
-      referenceType,
-      debit,
-      credit,
-      paymentMode,
-      createdById
-    } = body;
+    const { companyId, accountHeadId, accountHeadName, accountType, particular,
+            referenceType, debit, credit, paymentMode, createdById } = body;
 
     if (!companyId || !accountHeadId || !particular) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Generate entry number
     const lastEntry = await db.daybookEntry.findFirst({
-      where: { companyId },
-      orderBy: { createdAt: 'desc' }
+      where: { companyId }, orderBy: { createdAt: 'desc' }
     });
-    
-    const entryNumber = lastEntry 
+    const entryNumber = lastEntry
       ? `DB-${String(parseInt(lastEntry.entryNumber.split('-')[1] || '0') + 1).padStart(6, '0')}`
       : 'DB-000001';
 
     const entry = await db.daybookEntry.create({
       data: {
-        companyId,
-        entryNumber,
-        entryDate: new Date(),
-        accountHeadId,
-        accountHeadName,
-        accountType,
-        particular,
-        referenceType: referenceType || 'MANUAL_ENTRY',
-        debit: debit || 0,
-        credit: credit || 0,
-        sourceType: 'MANUAL',
-        paymentMode,
-        createdById: createdById || 'system'
+        companyId, entryNumber, entryDate: new Date(),
+        accountHeadId, accountHeadName, accountType,
+        particular, referenceType: referenceType || 'MANUAL_ENTRY',
+        debit: debit || 0, credit: credit || 0,
+        sourceType: 'MANUAL', paymentMode, createdById: createdById || 'system'
       }
     });
 
-    // Update account head balance
     await db.accountHead.update({
       where: { id: accountHeadId },
-      data: {
-        currentBalance: {
-          increment: (debit || 0) - (credit || 0)
-        }
-      }
+      data: { currentBalance: { increment: (debit || 0) - (credit || 0) } }
     });
 
     return NextResponse.json({ success: true, entry });
