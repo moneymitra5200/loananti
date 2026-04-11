@@ -1396,21 +1396,10 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // ── MIRROR PROFIT MARGIN in original company ────────────────────
-        if (isMirrorPayment && calculatedMirrorInterest !== undefined) {
-          const originalCompanyId = emi.loanApplication?.companyId || companyId;
-          const profitAmount = paidInterest - calculatedMirrorInterest;
-          if (profitAmount > 0) {
-            const originalAccountingService = new AccountingService(originalCompanyId);
-            await originalAccountingService.initializeChartOfAccounts();
-            await originalAccountingService.recordMirrorInterestIncome({
-              loanId, customerId: emi.loanApplication?.customerId || '',
-              amount: profitAmount, paymentId: payment.id,
-              createdById: paidBy || 'SYSTEM', paymentMode: paymentMode as string
-            });
-            console.log(`[Accounting] Mirror Profit ₹${profitAmount} recorded for Company ${originalCompanyId}`);
-          }
-        }
+        // NOTE: The full interest income is included in recordEMIPayment above,
+        // which runs against companyIdToUse = mirrorCompanyId.
+        // ALL accounting for mirror loans lives exclusively in the mirror company.
+
       } // end if (companyIdToUse)
     } catch (accError) {
       console.error('[Accounting] EMI payment journal failed:', accError);
