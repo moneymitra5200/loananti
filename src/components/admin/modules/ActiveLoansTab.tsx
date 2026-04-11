@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Wallet, RefreshCw, Eye, Trash2, FileText, Receipt, DollarSign, Copy, Lock, 
-  PlayCircle, Loader2, Calculator, AlertCircle, Clock, Search
+  PlayCircle, Loader2, Calculator, AlertCircle, Clock, Search, IndianRupee
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,7 +21,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
 import ParallelLoanView from '@/components/loan/ParallelLoanView';
@@ -110,6 +111,9 @@ interface ActiveLoansTabProps {
   setShowDeleteLoanDialog: (show: boolean) => void;
   setSelectedLoanId: (id: string | null) => void;
   setShowLoanDetailPanel: (show: boolean) => void;
+  userId?: string;        // ← needed for EMI payment
+  userRole?: string;      // ← for permission checks
+  onPaymentComplete?: () => void;
 }
 
 export default function ActiveLoansTab({
@@ -122,11 +126,68 @@ export default function ActiveLoansTab({
   setLoanToDelete,
   setShowDeleteLoanDialog,
   setSelectedLoanId,
-  setShowLoanDetailPanel
+  setShowLoanDetailPanel,
+  userId,
+  userRole = 'SUPER_ADMIN',
+  onPaymentComplete
 }: ActiveLoansTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
   
+  // ── EMI Payment Dialog State ───────────────────────────────────────────────
+  const [showPayDialog, setShowPayDialog] = useState(false);
+  const [payLoan, setPayLoan] = useState<any>(null);
+  const [paymentMode, setPaymentMode] = useState('CASH');
+  const [paymentType, setPaymentType] = useState<'FULL_EMI' | 'PARTIAL_PAYMENT'>('FULL_EMI');
+  const [partialAmount, setPartialAmount] = useState('');
+  const [processing, setProcessing] = useState(false);
+
+  // Handler called from ParallelLoanView Pay button
+  const handlePayEmi = useCallback((loan: any) => {
+    setPayLoan(loan);
+    setPaymentMode('CASH');
+    setPaymentType('FULL_EMI');
+    setPartialAmount('');
+    setShowPayDialog(true);
+  }, []);
+
+  // Process the payment
+  const processPayment = async () => {
+    const nextEmi = payLoan?.nextEmi;
+    if (!nextEmi?.id || !payLoan?.id || !userId) {
+      toast({ title: 'Error', description: 'Missing EMI or user data. Ensure the loan has a pending EMI.', variant: 'destructive' });
+      return;
+    }
+    setProcessing(true);
+    try {
+      const fd = new FormData();
+      fd.append('emiId', nextEmi.id);
+      fd.append('loanId', payLoan.id);
+      fd.append('paymentMode', paymentMode);
+      fd.append('paidBy', userId);
+      fd.append('paymentType', paymentType);
+      fd.append('amount', paymentType === 'PARTIAL_PAYMENT' ? partialAmount : String(nextEmi.amount || 0));
+      if (paymentType === 'PARTIAL_PAYMENT') {
+        fd.append('partialAmount', partialAmount);
+        fd.append('nextPaymentDate', new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+      }
+      const res = await fetch('/api/emi/pay', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast({ title: '✅ Payment Successful', description: data.message || 'EMI payment processed successfully' });
+        setShowPayDialog(false);
+        fetchAllActiveLoans();
+        onPaymentComplete?.();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Payment failed', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error during payment', variant: 'destructive' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   // Start Loan Dialog State
   const [showStartLoanDialog, setShowStartLoanDialog] = useState(false);
   const [selectedLoanToStart, setSelectedLoanToStart] = useState<ActiveLoan | null>(null);
@@ -416,11 +477,11 @@ export default function ActiveLoansTab({
           } : null}
           onViewOriginal={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
           onViewMirror={() => { 
-            // If mirror loan exists, select it; otherwise select original
             const mirrorId = mapping?.mirrorLoanId || loan.id;
             setSelectedLoanId(mirrorId); 
             setShowLoanDetailPanel(true); 
           }}
+          onPayEmi={(loanData) => handlePayEmi({ ...loan, nextEmi: loan.nextEmi })}
           showPayButton={!isInterestOnly}
           showEmiProgress={true}
         />
@@ -759,6 +820,78 @@ export default function ActiveLoansTab({
                   Start Loan
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Pay EMI Dialog */}
+      <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IndianRupee className="h-5 w-5 text-emerald-600" />
+              Collect EMI Payment
+            </DialogTitle>
+            <DialogDescription>
+              {payLoan?.identifier} &mdash; {payLoan?.customer?.name || payLoan?.customerName}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* EMI Info */}
+            {payLoan?.nextEmi && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-emerald-700">EMI #{payLoan.nextEmi.installmentNumber} Due Amount</span>
+                  <span className="text-lg font-bold text-emerald-900">{formatCurrency(payLoan.nextEmi.amount || 0)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Payment Type */}
+            <div className="space-y-1">
+              <Label>Payment Type</Label>
+              <Select value={paymentType} onValueChange={(v) => setPaymentType(v as any)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FULL_EMI">Full EMI</SelectItem>
+                  <SelectItem value="PARTIAL_PAYMENT">Partial Payment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Partial amount */}
+            {paymentType === 'PARTIAL_PAYMENT' && (
+              <div className="space-y-1">
+                <Label>Partial Amount (₹)</Label>
+                <Input
+                  type="number"
+                  placeholder="Enter amount"
+                  value={partialAmount}
+                  onChange={(e) => setPartialAmount(e.target.value)}
+                />
+              </div>
+            )}
+
+            {/* Payment Mode */}
+            <div className="space-y-1">
+              <Label>Payment Mode</Label>
+              <Select value={paymentMode} onValueChange={setPaymentMode}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="CASH">Cash</SelectItem>
+                  <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
+                  <SelectItem value="UPI">UPI</SelectItem>
+                  <SelectItem value="CHEQUE">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPayDialog(false)} disabled={processing}>Cancel</Button>
+            <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={processPayment} disabled={processing}>
+              {processing ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</> : <><IndianRupee className="h-4 w-4 mr-1" />Confirm Payment</>}
             </Button>
           </DialogFooter>
         </DialogContent>

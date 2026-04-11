@@ -1262,12 +1262,14 @@ export default function SuperAdminDashboard() {
               setLoanToDelete={setLoanToDelete}
               setShowDeleteLoanDialog={setShowDeleteLoanDialog}
               setSelectedLoanId={(id: string | null) => {
-                // Find the loan type from allActiveLoans
                 const loan = allActiveLoans.find(l => l.id === id);
                 setSelectedLoanId(id);
                 setSelectedLoanType(loan?.loanType || 'ONLINE');
               }}
               setShowLoanDetailPanel={setShowLoanDetailPanel}
+              userId={user?.id}
+              userRole={user?.role}
+              onPaymentComplete={() => { fetchAllActiveLoans(); }}
             />
           </Suspense>
         );

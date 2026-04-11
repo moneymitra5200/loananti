@@ -632,24 +632,37 @@ export default function CompanyDashboard() {
 
       case 'active':
         return (
-          <Card className="bg-white shadow-sm border-0">
-            <CardHeader>
-              <CardTitle>Active Loans</CardTitle>
-              <CardDescription>Loans that are currently active with EMI schedules</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {activeLoans.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Wallet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>No active loans</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {activeLoans.map((loan, index) => renderLoanCard(loan, index))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <div className="space-y-4">
+            <Card className="bg-white shadow-sm border-0">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-emerald-600" />
+                  Active Loans — {getCompanyName()}
+                </CardTitle>
+                <CardDescription>
+                  Loans that are currently active with EMI schedules. Includes original + mirror pairs.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {activeLoans.length === 0 ? (
+                  <div className="text-center py-12 text-gray-500">
+                    <Wallet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                    <p>No active loans found for this company</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {activeLoans.map((loan, index) => renderLoanCard(loan, index))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            {/* EMI Collection — shows pending/overdue EMIs for this company */}
+            <EMICollectionSection
+              userId={user?.id || ''}
+              userRole={user?.role || 'COMPANY'}
+              onPaymentComplete={() => fetchData(true)}
+            />
+          </div>
         );
 
       case 'progress':

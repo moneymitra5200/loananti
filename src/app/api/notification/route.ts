@@ -141,6 +141,24 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action } = body;
 
+    // ── Auth guard for admin-only send actions ─────────────────────────────
+    const adminOnlyActions = ['from-template', 'send-to-role', 'send-to-segment', 'send-to-users'];
+    if (adminOnlyActions.includes(action)) {
+      const session = await getServerSession();
+      if (!session?.user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      const sessionUser = await db.user.findUnique({
+        where: { email: session.user.email! },
+        select: { role: true },
+      });
+      const allowedRoles = ['SUPER_ADMIN', 'STAFF'];
+      if (!sessionUser || !allowedRoles.includes(sessionUser.role)) {
+        return NextResponse.json({ error: 'Forbidden: insufficient permissions' }, { status: 403 });
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     // Create notification from template
     if (action === 'from-template') {
       const { templateId, userId, variables, actionUrl, actionText } = body;
