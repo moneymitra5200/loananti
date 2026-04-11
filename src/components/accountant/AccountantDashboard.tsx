@@ -2454,7 +2454,7 @@ function BalanceSheetSection({
                 <TableBody>
                   {(balanceSheet?.assets || []).length > 0 ? (
                     (balanceSheet.assets as any[]).flatMap((asset: any, idx: number) => {
-                      const rows: JSX.Element[] = [];
+                      const rows: React.ReactElement[] = [];
                       // HEAD row
                       rows.push(
                         <TableRow key={`head-${idx}`} className={asset.isHead ? 'bg-blue-50/60 font-semibold' : ''}>
