@@ -158,12 +158,10 @@ export async function GET(request: NextRequest) {
         }
       });
     } else if (emiScheduleId) {
-      // First try to find payment with receipt generated
+      // Fetch most recent COMPLETED payment — do NOT require receiptGenerated:true
+      // Many payments are saved without that flag set
       payment = await db.payment.findFirst({
-        where: { 
-          emiScheduleId,
-          receiptGenerated: true 
-        },
+        where: { emiScheduleId, status: 'COMPLETED' },
         include: {
           emiSchedule: {
             include: {
@@ -172,21 +170,12 @@ export async function GET(request: NextRequest) {
                   company: true,
                   customer: {
                     select: {
-                      id: true,
-                      name: true,
-                      phone: true,
-                      address: true,
-                      city: true,
-                      state: true,
-                      pincode: true
+                      id: true, name: true, phone: true,
+                      address: true, city: true, state: true, pincode: true
                     }
                   },
                   sessionForm: {
-                    include: {
-                      agent: {
-                        select: { id: true, name: true, email: true }
-                      }
-                    }
+                    include: { agent: { select: { id: true, name: true, email: true } } }
                   }
                 }
               }
@@ -285,10 +274,17 @@ export async function GET(request: NextRequest) {
                 loanApplicationId: emi.loanApplicationId,
                 emiScheduleId: emi.id,
                 customerId: emi.loanApplication?.customerId || '',
-                amount: emi.paidAmount || emi.totalAmount,
-                principalComponent: emi.paidPrincipal || emi.principalAmount,
-                interestComponent: emi.paidInterest || emi.interestAmount,
-                paymentMode: 'CASH',
+                // Use paidAmount first, then totalAmount as fallback
+                amount: emi.paidAmount || emi.totalAmount || 0,
+                // principalComponent: prefer paidPrincipal, then principalAmount
+                principalComponent: (emi.paidPrincipal && emi.paidPrincipal > 0)
+                  ? emi.paidPrincipal
+                  : (emi.principalAmount || 0),
+                // interestComponent: prefer paidInterest, then interestAmount
+                interestComponent: (emi.paidInterest && emi.paidInterest > 0)
+                  ? emi.paidInterest
+                  : (emi.interestAmount || 0),
+                paymentMode: emi.paymentMode || 'CASH',
                 status: 'COMPLETED',
                 receiptNumber: receiptNo,
                 receiptGenerated: true,
@@ -352,15 +348,19 @@ export async function GET(request: NextRequest) {
     // Get father/husband name from session form
     const fatherName = sessionForm?.fatherName || '';
 
-    // Calculate balance due
+    // Calculate balance due — use disbursedAmount as fallback for loanAmount
     const allEmis = await db.eMISchedule.findMany({
       where: { loanApplicationId: loan?.id }
     });
-    const paidEmis = allEmis.filter(e => e.paymentStatus === 'PAID');
-    const totalLoanAmount = sessionForm?.loanAmount || 0;
-    const totalPaidAmount = paidEmis.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
-    const balanceDue = totalLoanAmount - totalPaidAmount;
-
+    const paidEmisForBalance = allEmis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
+    // sessionForm.loanAmount → loan.disbursedAmount → loan.approvedAmount → 0
+    const totalLoanAmount =
+      (sessionForm?.loanAmount && sessionForm.loanAmount > 0 ? sessionForm.loanAmount : 0) ||
+      ((loan as any)?.disbursedAmount && (loan as any).disbursedAmount > 0 ? (loan as any).disbursedAmount : 0) ||
+      ((loan as any)?.approvedAmount && (loan as any).approvedAmount > 0 ? (loan as any).approvedAmount : 0) ||
+      0;
+    const totalPaidAmount = paidEmisForBalance.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
+    const balanceDue = Math.max(0, totalLoanAmount - totalPaidAmount);
     const totalEmis = allEmis.length;
 
     // For interest-only payments, use the mirror interest rate to calculate interest
@@ -376,14 +376,29 @@ export async function GET(request: NextRequest) {
     const penaltyAmount = emi?.penaltyAmount || 0;
     const waivedAmount = emi?.waivedAmount || 0;
 
-    // Fallback: if principalComponent is 0 (wasn't stored), use schedule values
-    const finalPrincipal = payment.principalComponent && payment.principalComponent > 0
-      ? payment.principalComponent
-      : (emi?.paidPrincipal || emi?.principalAmount || 0);
+    // Fallback chain: principalComponent → paidPrincipal on EMI schedule → principalAmount
+    const finalPrincipal =
+      (payment.principalComponent && payment.principalComponent > 0)
+        ? payment.principalComponent
+        : ((emi?.paidPrincipal && emi.paidPrincipal > 0)
+            ? emi.paidPrincipal
+            : (emi?.principalAmount || 0));
 
-    const finalTotal = payment.amount && payment.amount > 0
-      ? payment.amount
-      : (emi?.paidAmount || emi?.totalAmount || 0);
+    // Fallback chain: amount → paidAmount on EMI → totalAmount on EMI
+    const finalTotal =
+      (payment.amount && payment.amount > 0)
+        ? payment.amount
+        : ((emi?.paidAmount && emi.paidAmount > 0)
+            ? emi.paidAmount
+            : (emi?.totalAmount || 0));
+
+    // Interest: same fallback strategy; use mirror-adjusted value if applicable
+    const finalInterest =
+      (payment.interestComponent && payment.interestComponent > 0)
+        ? payment.interestComponent
+        : ((emi?.paidInterest && emi.paidInterest > 0)
+            ? emi.paidInterest
+            : displayInterestAmount);
 
     const receiptData = {
       receiptNo: payment.receiptNumber || `RCP-${company?.code || 'MM'}-1`,
@@ -403,7 +418,7 @@ export async function GET(request: NextRequest) {
       dueDate: emi?.dueDate?.toISOString() || '',
       paymentDate: emi?.paidDate?.toISOString() || payment.createdAt.toISOString(),
       principalAmount: finalPrincipal,
-      interestAmount: displayInterestAmount,
+      interestAmount: finalInterest,
       penaltyAmount,
       penaltyWaived: waivedAmount,
       totalAmount: finalTotal,

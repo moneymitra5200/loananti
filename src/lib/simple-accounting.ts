@@ -454,10 +454,27 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       createdById: userId
     });
     
-    // Create journal entry
+    // Create journal entry (always balanced)
     try {
       const accountingService = new AccountingService(company3Id);
       await accountingService.initializeChartOfAccounts();
+
+      // Build balanced credit lines
+      const personalCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
+      if (principalComponent > 0) {
+        personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
+      }
+      const personalInterestAdj = Math.max(0, interestComponent + Math.round((amount - principalComponent - interestComponent) * 100) / 100);
+      if (personalInterestAdj > 0) {
+        personalCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: personalInterestAdj, loanId, customerId, narration: 'Interest income' });
+      }
+      if (personalCreditLines.length === 0) {
+        personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: amount, loanId, customerId, narration: 'EMI repayment' });
+      }
+      // Final balance check
+      const personalCreditSum = personalCreditLines.reduce((s, l) => s + l.creditAmount, 0);
+      const personalDiff = Math.round((amount - personalCreditSum) * 100) / 100;
+      if (Math.abs(personalDiff) > 0.001) personalCreditLines[personalCreditLines.length - 1].creditAmount += personalDiff;
       
       result.journalEntryId = await accountingService.createJournalEntry({
         entryDate: new Date(),
@@ -465,30 +482,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         referenceId: paymentId,
         narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Personal Credit)`,
         lines: [
-          {
-            accountCode: ACCOUNT_CODES.CASH_IN_HAND,
-            debitAmount: amount,
-            creditAmount: 0,
-            loanId,
-            customerId,
-            narration: 'Cash received for EMI'
-          },
-          {
-            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-            debitAmount: 0,
-            creditAmount: principalComponent,
-            loanId,
-            customerId,
-            narration: 'Principal repayment'
-          },
-          {
-            accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-            debitAmount: 0,
-            creditAmount: interestComponent,
-            loanId,
-            customerId,
-            narration: 'Interest income'
-          }
+          { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0, loanId, customerId, narration: 'Cash received for EMI' },
+          ...personalCreditLines,
         ],
         createdById: userId,
         paymentMode: 'CASH'
@@ -534,7 +529,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     console.log(`[Accounting] Company Credit EMI recorded in CASH BOOK: ₹${amount}`);
   }
   
-  // Create journal entry
+  // Create journal entry (always balanced)
   try {
     const accountingService = new AccountingService(targetCompanyId);
     await accountingService.initializeChartOfAccounts();
@@ -543,6 +538,23 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
       ? ACCOUNT_CODES.BANK_ACCOUNT 
       : ACCOUNT_CODES.CASH_IN_HAND;
+
+    // Build balanced credit lines
+    const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
+    if (principalComponent > 0) {
+      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
+    }
+    const companyInterestAdj = Math.max(0, interestComponent + Math.round((amount - principalComponent - interestComponent) * 100) / 100);
+    if (companyInterestAdj > 0) {
+      companyCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: 'Interest income' });
+    }
+    if (companyCreditLines.length === 0) {
+      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: amount, loanId, customerId, narration: 'EMI repayment' });
+    }
+    // Final balance check
+    const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
+    const companyDiff = Math.round((amount - companyCreditSum) * 100) / 100;
+    if (Math.abs(companyDiff) > 0.001) companyCreditLines[companyCreditLines.length - 1].creditAmount += companyDiff;
     
     result.journalEntryId = await accountingService.createJournalEntry({
       entryDate: new Date(),
@@ -560,22 +572,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             ? 'Bank received for EMI'
             : 'Cash received for EMI'
         },
-        {
-          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-          debitAmount: 0,
-          creditAmount: principalComponent,
-          loanId,
-          customerId,
-          narration: 'Principal repayment'
-        },
-        {
-          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-          debitAmount: 0,
-          creditAmount: interestComponent,
-          loanId,
-          customerId,
-          narration: 'Interest income'
-        }
+        ...companyCreditLines,
       ],
       createdById: userId,
       paymentMode

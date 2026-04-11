@@ -655,6 +655,79 @@ export class AccountingService {
     );
     const debitAccount = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
 
+    // ── BALANCE ENFORCEMENT ────────────────────────────────────────────────────
+    // The debit side is always totalAmount. We need credits to sum exactly to that.
+    // Case 1: advance payment → principalComponent = totalAmount, interestComponent = 0
+    // Case 2: interest-only  → principalComponent = 0, interestComponent = totalAmount
+    // Case 3: rounding diff  → adjust interest line so debit == sum of credits
+    const penalty = params.penaltyComponent ?? 0;
+    const creditBase = params.principalComponent + params.interestComponent + penalty;
+    const rounding = Math.round((params.totalAmount - creditBase) * 100) / 100;
+
+    // Adjusted interest absorbs any rounding diff (never goes below 0)
+    const adjustedInterest = Math.max(0, params.interestComponent + rounding);
+
+    // Build credit lines
+    const creditLines: Array<{
+      accountCode: string;
+      debitAmount: number;
+      creditAmount: number;
+      loanId?: string;
+      customerId?: string;
+      narration?: string;
+    }> = [];
+
+    if (params.principalComponent > 0) {
+      creditLines.push({
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+        debitAmount: 0,
+        creditAmount: params.principalComponent,
+        loanId: params.loanId,
+        customerId: params.customerId,
+        narration: 'Principal repayment',
+      });
+    }
+    if (adjustedInterest > 0) {
+      creditLines.push({
+        accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+        debitAmount: 0,
+        creditAmount: adjustedInterest,
+        loanId: params.loanId,
+        customerId: params.customerId,
+        narration: 'Interest income earned',
+      });
+    }
+    if (penalty > 0) {
+      creditLines.push({
+        accountCode: ACCOUNT_CODES.LATE_FEE_INCOME,
+        debitAmount: 0,
+        creditAmount: penalty,
+        loanId: params.loanId,
+        customerId: params.customerId,
+        narration: 'Late payment penalty',
+      });
+    }
+
+    // Fallback: if no credit lines built (e.g. all zeros), treat full amount as loan repayment
+    if (creditLines.length === 0) {
+      creditLines.push({
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+        debitAmount: 0,
+        creditAmount: params.totalAmount,
+        loanId: params.loanId,
+        customerId: params.customerId,
+        narration: 'EMI repayment',
+      });
+    }
+
+    // Verify credit lines sum equals totalAmount — fix final line if still off
+    const creditSum = creditLines.reduce((s, l) => s + l.creditAmount, 0);
+    const finalDiff = Math.round((params.totalAmount - creditSum) * 100) / 100;
+    if (Math.abs(finalDiff) > 0.001 && creditLines.length > 0) {
+      creditLines[creditLines.length - 1].creditAmount =
+        Math.round((creditLines[creditLines.length - 1].creditAmount + finalDiff) * 100) / 100;
+    }
+
     return this.createJournalEntry({
       entryDate: params.paymentDate,
       referenceType: 'EMI_PAYMENT',
@@ -667,30 +740,7 @@ export class AccountingService {
           creditAmount: 0,
           narration: `EMI payment received via ${params.paymentMode}`,
         },
-        {
-          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-          debitAmount: 0,
-          creditAmount: params.principalComponent,
-          loanId: params.loanId,
-          customerId: params.customerId,
-          narration: 'Principal repayment',
-        },
-        ...(params.interestComponent > 0 ? [{
-          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-          debitAmount: 0,
-          creditAmount: params.interestComponent,
-          loanId: params.loanId,
-          customerId: params.customerId,
-          narration: 'Interest income earned'
-        }] : []),
-        ...(params.penaltyComponent && params.penaltyComponent > 0 ? [{
-          accountCode: ACCOUNT_CODES.LATE_FEE_INCOME,
-          debitAmount: 0,
-          creditAmount: params.penaltyComponent,
-          loanId: params.loanId,
-          customerId: params.customerId,
-          narration: 'Late payment penalty'
-        }] : [])
+        ...creditLines,
       ],
       createdById: params.createdById,
       paymentMode: params.paymentMode,

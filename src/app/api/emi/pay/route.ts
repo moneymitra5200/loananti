@@ -858,6 +858,26 @@ export async function POST(request: NextRequest) {
           await db.cashBook.update({ where: { id: origCashBook.id }, data: { currentBalance: newPFBalance } });
           await db.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
           console.log(`[Processing Fee] ₹${procFee} income recorded for original company on EMI#1 of ${emi.loanApplication?.applicationNo}`);
+
+          // ── Create Journal Entry for Processing Fee (Chart of Accounts) ──────────
+          // Dr: Cash in Hand (1101) / Bank (1102)   → money received
+          // Cr: Processing Fees Income (4121)        → income recognised
+          try {
+            const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
+            const pfAccService = new PFAccSvc(origCompanyId);
+            await pfAccService.initializeChartOfAccounts();
+            await pfAccService.recordProcessingFee({
+              loanId,
+              customerId: emi.loanApplication?.customerId || '',
+              amount: procFee,
+              collectionDate: new Date(),
+              createdById: paidBy || 'SYSTEM',
+              paymentMode: (paymentMode as string) || 'CASH',
+            });
+            console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for company ${origCompanyId}`);
+          } catch (pfJournalErr) {
+            console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
+          }
         }
       } catch (pfErr) {
         console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);
@@ -1167,7 +1187,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Journal Entry for Penalty Income:
-            // DR Cash/Bank → CR Penalty Income (1302)
+            // DR Cash/Bank (1101/1102) → CR Penalty Income (4125)
             await accountingService.createJournalEntry({
               entryDate: new Date(),
               referenceType: 'EMI_PAYMENT',
@@ -1176,13 +1196,13 @@ export async function POST(request: NextRequest) {
               createdById: paidBy,
               lines: [
                 {
-                  accountCode: penaltyPaymentMode === 'BANK' ? '1102' : '1101', // Bank or Cash
+                  accountCode: penaltyPaymentMode === 'BANK' ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
                   debitAmount: netPenalty,
                   creditAmount: 0,
-                  narration: `Penalty collected - ${penaltyPaymentMode}`,
+                  narration: `Penalty collected via ${penaltyPaymentMode}`,
                 },
                 {
-                  accountCode: '1302', // Penalty Income
+                  accountCode: ACCOUNT_CODES.PENALTY_INCOME, // 4125 - Penalty Income (INCOME account)
                   debitAmount: 0,
                   creditAmount: netPenalty,
                   narration: `Penalty income after waiver of ₹${penaltyWaiver}`,

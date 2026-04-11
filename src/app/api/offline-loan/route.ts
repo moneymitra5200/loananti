@@ -2447,6 +2447,26 @@ export async function PUT(request: NextRequest) {
               data: { processingFeeRecorded: true }
             });
 
+            // ── Journal Entry for Processing Fee (Chart of Accounts) ──────────
+            // Dr: Cash in Hand (1101)   → money received
+            // Cr: Processing Fees (4121) → income recognised
+            try {
+              const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
+              const pfAccService = new PFAccSvc(origCompanyId);
+              await pfAccService.initializeChartOfAccounts();
+              await pfAccService.recordProcessingFee({
+                loanId: emi.offlineLoanId,
+                customerId: emi.offlineLoan.customerId || '',
+                amount: procFee,
+                collectionDate: new Date(),
+                createdById: userId || 'SYSTEM',
+                paymentMode: paymentMode || 'CASH',
+              });
+              console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for company ${origCompanyId}`);
+            } catch (pfJournalErr) {
+              console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
+            }
+
             console.log(`[Processing Fee] ₹${procFee} income recorded for company ${origCompanyId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
           }
         } catch (pfErr) {
