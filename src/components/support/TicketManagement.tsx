@@ -214,18 +214,16 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
       setIsLoading(true);
       setError(null);
 
-      let url = '/api/tickets?';
-      if (activeTab === 'assigned') {
-        url += `assignedToId=${userId}`;
-      } else if (activeTab === 'open') {
-        url += 'status=OPEN';
-      }
+      // userId and userRole are REQUIRED by the API
+      let url = `/api/tickets?userId=${userId}&userRole=${userRole}&limit=50`;
+      if (activeTab === 'assigned') url += `&assignedToId=${userId}`;
+      if (activeTab === 'open') url += '&status=OPEN';
 
       const response = await fetch(url);
       const data = await response.json();
 
       if (data.success) {
-        setTickets(data.tickets);
+        setTickets(data.data || []);  // API returns { data: tickets[] }
       } else {
         setError(data.error || 'Failed to fetch tickets');
       }
@@ -235,17 +233,18 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, userId]);
+  }, [activeTab, userId, userRole]);
 
   // Fetch ticket detail
   const fetchTicketDetail = async (ticketId: string) => {
     try {
       setIsDetailLoading(true);
-      const response = await fetch(`/api/tickets?action=detail&ticketId=${ticketId}`);
+      // Correct endpoint: /api/tickets/{ticketId} — returns { success, data: ticket }
+      const response = await fetch(`/api/tickets/${ticketId}`);
       const data = await response.json();
 
       if (data.success) {
-        setSelectedTicket(data.ticket);
+        setSelectedTicket(data.data);  // API returns { data: ticket }
       } else {
         setError(data.error || 'Failed to fetch ticket details');
       }
@@ -265,15 +264,15 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
       setIsSendingMessage(true);
       setError(null);
 
-      const response = await fetch('/api/tickets', {
+      // Correct endpoint: POST /api/tickets/{id}/messages
+      const response = await fetch(`/api/tickets/${selectedTicket.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'message',
-          ticketId: selectedTicket.id,
-          message: replyMessage,
           senderId: userId,
-          senderRole: userRole,
+          senderType: 'ADMIN',  // SA/staff is ADMIN type
+          message: replyMessage,
+          isInternal: false
         }),
       });
 

@@ -41,9 +41,10 @@ type TicketPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
 
 interface TicketMessage {
   id: string;
-  content: string;
-  senderType: 'CUSTOMER' | 'STAFF' | 'SYSTEM';
-  senderName: string;
+  message: string;           // DB field is 'message', not 'content'
+  senderType: 'CUSTOMER' | 'ADMIN' | 'SYSTEM' | 'CHATBOT';
+  senderId: string;
+  senderName?: string;
   createdAt: string;
   attachments?: { id: string; name: string; url: string }[];
 }
@@ -185,7 +186,7 @@ export default function TicketSystem() {
       const response = await fetch(`/api/tickets/${ticketId}`);
       const data = await response.json();
       if (data.success) {
-        setSelectedTicket(data.ticket);
+        setSelectedTicket(data.data);  // API returns { data: ticket }
       }
     } catch (error) {
       console.error('Error fetching ticket details:', error);
@@ -263,21 +264,18 @@ export default function TicketSystem() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: newMessage,
-          senderType: 'CUSTOMER',
           senderId: user?.id,
+          senderType: 'CUSTOMER',   // DB expects CUSTOMER not CUSTOMER
+          message: newMessage,       // DB field is 'message' not 'content'
+          isInternal: false
         }),
       });
 
       const data = await response.json();
       if (data.success) {
         setNewMessage('');
-        // Update ticket with new message
-        setSelectedTicket(prev => prev ? {
-          ...prev,
-          messages: [...prev.messages, data.message],
-          updatedAt: new Date().toISOString(),
-        } : null);
+        // Refresh ticket to get updated messages
+        await fetchTicketDetails(selectedTicket.id);
       } else {
         throw new Error(data.error || 'Failed to send message');
       }
@@ -299,12 +297,13 @@ export default function TicketSystem() {
     setSubmitting(true);
     try {
       const response = await fetch(`/api/tickets/${selectedTicket.id}`, {
-        method: 'PATCH',
+        method: 'PUT',  // [ticketId]/route.ts only has GET + PUT, not PATCH
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: 'CLOSED',
           rating: closeFeedback.rating,
           feedback: closeFeedback.feedback,
+          performedBy: user?.id,
         }),
       });
 
@@ -386,7 +385,7 @@ export default function TicketSystem() {
         {ticket.messages.length > 0 && (
           <div className="mt-2 pt-2 border-t border-gray-100">
             <p className="text-sm text-gray-500 line-clamp-1">
-              {ticket.messages[ticket.messages.length - 1].content}
+              {ticket.messages[ticket.messages.length - 1].message}
             </p>
           </div>
         )}
@@ -481,7 +480,7 @@ export default function TicketSystem() {
                       ? 'text-gray-600'
                       : 'text-blue-700'
                   }`}>
-                    {message.senderType === 'SYSTEM' ? 'S' : message.senderName.charAt(0).toUpperCase()}
+                    {message.senderType === 'SYSTEM' ? 'S' : (message.senderName ?? message.senderId ?? '?').charAt(0).toUpperCase()}
                   </span>
                 </div>
                 <div className={`flex-1 ${message.senderType !== 'CUSTOMER' ? 'text-right' : ''}`}>
@@ -496,7 +495,7 @@ export default function TicketSystem() {
                       ? 'bg-amber-50 border border-amber-100'
                       : 'bg-emerald-50 border border-emerald-100'
                   }`}>
-                    <p className="text-gray-700 whitespace-pre-wrap">{message.content}</p>
+                    <p className="text-gray-700 whitespace-pre-wrap">{message.message}</p>
                   </div>
                 </div>
               </div>
