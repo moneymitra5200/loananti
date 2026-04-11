@@ -49,6 +49,16 @@ export async function POST(request: NextRequest) {
     const splitCashAmount = formData.get('splitCashAmount') ? parseFloat(formData.get('splitCashAmount') as string) : 0;
     const splitOnlineAmount = formData.get('splitOnlineAmount') ? parseFloat(formData.get('splitOnlineAmount') as string) : 0;
 
+    // ── SPLIT VALIDATION ────────────────────────────────────────────────────
+    if (isSplitPayment && (splitCashAmount + splitOnlineAmount) > 0) {
+      const splitTotal = splitCashAmount + splitOnlineAmount;
+      if (Math.abs(splitTotal - amount) > 1) {
+        return NextResponse.json({
+          error: `Split amounts (Cash ₹${splitCashAmount} + Online ₹${splitOnlineAmount} = ₹${splitTotal}) must match total payment amount ₹${amount}`
+        }, { status: 400 });
+      }
+    }
+
     console.log(`[EMI Pay] Penalty: ₹${penaltyAmount} - Waiver: ₹${penaltyWaiver} - Net Penalty: ₹${netPenalty} - Mode: ${penaltyPaymentMode}`);
     if (isSplitPayment) console.log(`[EMI Pay] SPLIT — Cash: ₹${splitCashAmount} | Online: ₹${splitOnlineAmount}`);
 
@@ -360,24 +370,7 @@ export async function POST(request: NextRequest) {
       const companyCode = emi.loanApplication?.company?.code || 'MM';
       
       // Get the last receipt number for this company
-      const lastPayment = await db.payment.findFirst({
-        where: {
-          receiptNumber: { startsWith: `RCP-${companyCode}-` }
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { receiptNumber: true }
-      });
-      
-      let nextNumber = 1;
-      if (lastPayment?.receiptNumber) {
-        const parts = lastPayment.receiptNumber.split('-');
-        const lastNumber = parseInt(parts[parts.length - 1] || '0', 10);
-        if (!isNaN(lastNumber)) {
-          nextNumber = lastNumber + 1;
-        }
-      }
-      
-      receiptNo = `RCP-${companyCode}-${nextNumber}`;
+      receiptNo = `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
       console.log(`[EMI Pay] Generated receipt number: ${receiptNo}`);
     }
 
@@ -392,6 +385,7 @@ export async function POST(request: NextRequest) {
         amount: paidAmount,
         principalComponent: paidPrincipal,
         interestComponent: paidInterest,
+        penaltyComponent: netPenalty,          // ← stores actual net penalty collected
         paymentMode: paymentMode,
         status: 'COMPLETED',
         receiptNumber: receiptNo,

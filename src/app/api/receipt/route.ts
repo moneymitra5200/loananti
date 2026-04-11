@@ -1,27 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// Helper function to generate sequential receipt number
+// Receipt number: timestamp + 4-digit random = collision-safe, no DB round-trip needed
 async function generateReceiptNumber(companyCode: string): Promise<string> {
-  const lastPayment = await db.payment.findFirst({
-    where: {
-      receiptNumber: { startsWith: `RCP-${companyCode}-` }
-    },
-    orderBy: { createdAt: 'desc' },
-    select: { receiptNumber: true }
-  });
-  
-  let nextNumber = 1;
-  if (lastPayment?.receiptNumber) {
-    const parts = lastPayment.receiptNumber.split('-');
-    const lastNumber = parseInt(parts[parts.length - 1] || '0', 10);
-    if (!isNaN(lastNumber)) {
-      nextNumber = lastNumber + 1;
-    }
-  }
-  
-  return `RCP-${companyCode}-${nextNumber}`;
+  return `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
 }
+
 
 export async function GET(request: NextRequest) {
   try {

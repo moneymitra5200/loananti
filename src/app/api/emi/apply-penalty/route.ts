@@ -16,7 +16,13 @@ export async function POST(request: NextRequest) {
     // Get system settings
     let settings: any = await (db as any).systemSettings.findFirst();
     if (!settings) {
-      settings = { penaltyPerDay: 100, penaltyGraceDays: 0, penaltyMaxAmount: null, sendPenaltyNotify: true };
+      settings = {
+        penaltyPerDay: 100,
+        penaltyGraceDays: 0,
+        penaltyMaxAmount: null,
+        sendPenaltyNotify: true,
+        penaltyNotifyIntervalHrs: 24  // ← default: notify max once per 24 hours
+      };
     }
 
     const today = new Date();

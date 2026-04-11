@@ -74,20 +74,20 @@ const STATUS_STYLE: Record<string, { label: string; className: string }> = {
 // Main Component
 // ──────────────────────────────────────────────
 export default function EmiTodayReport({ userRole }: { userRole: string }) {
-  if (userRole !== 'SUPER_ADMIN') return null;
-
-  const todayIST = () => {
+  // All hooks MUST be called before any early return (React rules of hooks)
+  const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
     return d.toISOString().split('T')[0];
-  };
-
-  const [selectedDate, setSelectedDate] = useState(todayIST());
+  });
   const [companyFilter, setCompanyFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'COLLECTED' | 'PENDING'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  // Guard — after all hooks
+  const isSuperAdmin = userRole === 'SUPER_ADMIN';
 
   const generate = useCallback(async () => {
     setLoading(true);
@@ -122,7 +122,7 @@ export default function EmiTodayReport({ userRole }: { userRole: string }) {
     if (!report) return;
     const headers = ['Application No', 'Company', 'Customer', 'Phone', 'EMI #', 'Due Date', 'Due Amount', 'Status',
       'Paid Amount', 'Principal', 'Interest', 'Net Penalty', 'Payment Mode', 'Paid Date', 'Collected By', 'Role', 'Agent', 'Staff'];
-    const rows = filteredRows.map(r => [
+    const csvRows = filteredRows.map(r => [
       r.applicationNo, r.companyName, r.customerName, r.customerPhone,
       r.emiNumber, fd(r.dueDate), r.dueAmount, r.status,
       r.paidAmount, r.paidPrincipal, r.paidInterest,
@@ -130,15 +130,22 @@ export default function EmiTodayReport({ userRole }: { userRole: string }) {
       r.paymentMode, r.paidDate ? fd(r.paidDate) : '',
       r.collectedByName, r.collectedByRole, r.agentName, r.staffName
     ]);
-    const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    // Proper CSV escaping: wrap in quotes + escape internal quotes
+    const escape = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...csvRows].map(r => r.map(escape).join(',')).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `emi-report-${selectedDate}.csv`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  // Guard after hooks
+  if (!isSuperAdmin) return null;
 
   return (
     <div className="space-y-4">
