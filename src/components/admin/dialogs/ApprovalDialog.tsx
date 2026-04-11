@@ -97,7 +97,7 @@ interface ApprovalDialogProps {
   loadingMirrorPreview: boolean;
   fetchMirrorPreview: (loan: Loan, mirrorCompanyId: string, mirrorType: string, mirrorRate?: number | null) => void;
   setMirrorPreview: (preview: any) => void;
-  handleApproval: (isFastApprove?: boolean) => void;
+  handleApproval: (isFastApprove?: boolean, chargesAmount?: number) => void;
   getStatusBadge: (status: string) => React.ReactNode;
 }
 
@@ -125,13 +125,15 @@ export default function ApprovalDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOriginalSchedule, setShowOriginalSchedule] = useState(false);
   const [showMirrorSchedule, setShowMirrorSchedule] = useState(false);
-
   const [fastApprove, setFastApprove] = useState(false);
+  const [chargesAmount, setChargesAmount] = useState<string>('');
 
   const onAction = async () => {
     setIsProcessing(true);
     try {
-      await handleApproval(fastApprove);
+      const amt = parseFloat(chargesAmount) || 0;
+      await handleApproval(fastApprove, amt);
+      setChargesAmount('');
     } finally {
       setIsProcessing(false);
     }
@@ -678,6 +680,33 @@ export default function ApprovalDialog({
                     </div>
                   )}
                   
+                  {/* Charges Amount — always visible for all approval types */}
+                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-orange-600 font-semibold text-sm">💵 Charges / Fees Collected</span>
+                    </div>
+                    <p className="text-xs text-orange-600">
+                      Enter any charges collected from customer (file fee, processing, etc). This amount will be added to your personal credit.
+                    </p>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium text-sm">₹</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0"
+                        value={chargesAmount}
+                        onChange={(e) => setChargesAmount(e.target.value)}
+                        className="pl-7"
+                      />
+                    </div>
+                    {parseFloat(chargesAmount) > 0 && (
+                      <p className="text-xs text-emerald-700 font-medium">
+                        ✅ ₹{parseFloat(chargesAmount).toLocaleString('en-IN')} will be added to your personal credit on approval.
+                      </p>
+                    )}
+                  </div>
+
                   {/* Remarks */}
                   <div>
                     <Label>Remarks (Optional)</Label>

@@ -903,7 +903,7 @@ export default function SuperAdminDashboard() {
     }
   };
 
-  const handleApproval = async (isFastApprove?: boolean) => {
+  const handleApproval = async (isFastApprove?: boolean, chargesAmount?: number) => {
     if (!selectedLoan) return;
     if (selectedLoan.status === 'SUBMITTED' && approvalAction === 'approve' && !selectedCompanyId) {
       toast({ title: 'Company Required', description: 'Please select a company to assign this loan.', variant: 'destructive' });
@@ -958,6 +958,33 @@ export default function SuperAdminDashboard() {
       });
       const data = await response.json();
       if (response.ok && data.success) {
+        // ── Charges: increase approver's personal credit ──────────────
+        if (chargesAmount && chargesAmount > 0 && user?.id && approvalAction === 'approve') {
+          try {
+            await fetch('/api/credit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userId: user.id,
+                amount: chargesAmount,
+                creditType: 'PERSONAL',
+                transactionType: 'PERSONAL_COLLECTION',
+                sourceType: 'CHARGES_COLLECTED',
+                paymentMode: 'CASH',
+                description: `Charges collected - ${selectedLoan.applicationNo}`,
+                loanApplicationId: selectedLoan.id,
+              })
+            });
+            toast({
+              title: `💰 Charges Recorded`,
+              description: `₹${chargesAmount.toLocaleString('en-IN')} added to your personal credit.`,
+              duration: 3000,
+            });
+          } catch (chargeErr) {
+            console.error('[Charges] Failed to credit charges (non-critical):', chargeErr);
+          }
+        }
+
         const actionText = approvalAction === 'approve' ? 'Approved' : approvalAction === 'reject' ? 'Rejected' : 'Sent Back';
         const mirrorMessage = mirrorLoanConfig.enabled ? ' Mirror loan scheduled. Cashier will disburse from mirror company bank account.' : '';
         toast({ 
@@ -978,6 +1005,7 @@ export default function SuperAdminDashboard() {
     } catch (error) {
       console.error('Approval error:', error);
       toast({ title: 'Error', description: 'Failed to process approval. Please try again.', variant: 'destructive' });
+
     }
   };
 

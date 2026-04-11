@@ -858,15 +858,14 @@ export async function POST(request: NextRequest) {
     // ============================================
     // PROCESSING FEE INCOME — Only for EMI #1 on mirror loans (online)
     // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
-    // Recorded as income for the original company when EMI #1 is paid
+    // Recorded in CashBook only — NO accounting journal to avoid triple entries
     // ============================================
     if (mirrorMapping && newEmiStatus === 'PAID' && emi.installmentNumber === 1) {
       try {
-        // mirrorMapping already fetched — check processingFee details
         if (!mirrorMapping.processingFeeRecorded && (mirrorMapping.mirrorProcessingFee ?? 0) > 0) {
           const procFee = mirrorMapping.mirrorProcessingFee!;
           const origCompanyId = mirrorMapping.originalCompanyId;
-          // Record as cashbook credit in original company
+          // Record as cashbook credit in original company (for tracking only — no journal entry)
           let origCashBook = await db.cashBook.findUnique({ where: { companyId: origCompanyId } });
           if (!origCashBook) {
             origCashBook = await db.cashBook.create({ data: { companyId: origCompanyId, currentBalance: 0 } });
@@ -886,32 +885,16 @@ export async function POST(request: NextRequest) {
           });
           await db.cashBook.update({ where: { id: origCashBook.id }, data: { currentBalance: newPFBalance } });
           await db.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
-          console.log(`[Processing Fee] ₹${procFee} income recorded for original company on EMI#1 of ${emi.loanApplication?.applicationNo}`);
-
-          // ── Create Journal Entry for Processing Fee (Chart of Accounts) ──────────
-          // Dr: Cash in Hand (1101) / Bank (1102)   → money received
-          // Cr: Processing Fees Income (4121)        → income recognised
-          try {
-            const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
-            const pfAccService = new PFAccSvc(origCompanyId);
-            await pfAccService.initializeChartOfAccounts();
-            await pfAccService.recordProcessingFee({
-              loanId,
-              customerId: emi.loanApplication?.customerId || '',
-              amount: procFee,
-              collectionDate: new Date(),
-              createdById: paidBy || 'SYSTEM',
-              paymentMode: (paymentMode as string) || 'CASH',
-            });
-            console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for company ${origCompanyId}`);
-          } catch (pfJournalErr) {
-            console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
-          }
+          console.log(`[Processing Fee] ₹${procFee} recorded in CashBook for ${emi.loanApplication?.applicationNo} EMI#1 (no journal — avoids triple entry)`);
+          // NOTE: No recordProcessingFee() journal entry here intentionally.
+          // The EMI payment already creates Principal + Interest journal entries.
+          // Adding a 3rd Processing Fee journal causes triple-entry confusion.
         }
       } catch (pfErr) {
-        console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);
+        console.error('[Processing Fee] Failed (non-critical):', pfErr);
       }
     }
+
 
     // ============ MIRROR LOAN SYNC FOR FULL EMI PAYMENT ============
     if (mirrorMapping && paymentType === 'FULL_EMI') {
