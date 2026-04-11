@@ -29,6 +29,7 @@ import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useSystemSettings } from '@/hooks/useSystemSettings';
 import { useLoansStore } from '@/stores/loansStore';
+import DirectMessaging from '@/components/messaging/DirectMessaging';
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -984,14 +985,11 @@ export default function CashierDashboard() {
 
       case 'messages':
         return (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <span>💬</span> Internal Messages
-            </h2>
-            <div className="p-6 bg-white rounded-xl border border-gray-200 text-center text-gray-500">
-              <p>Direct messaging between roles is available via the notification system. Ticket-based support is in the Tickets tab.</p>
-            </div>
-          </div>
+          <DirectMessaging
+            userId={user?.id || ''}
+            userRole={user?.role || 'CASHIER'}
+            userName={user?.name || 'Cashier'}
+          />
         );
 
       case 'profile':

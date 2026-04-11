@@ -216,7 +216,7 @@ export default function DirectMessaging({ userId, userRole, userName }: DirectMe
   );
 
   return (
-    <div className="flex h-[calc(100vh-120px)] bg-[#f0f2f5] rounded-xl overflow-hidden shadow-lg border border-gray-200">
+    <div className="flex bg-[#f0f2f5] rounded-xl overflow-hidden shadow-lg border border-gray-200" style={{ height: 'clamp(500px, 78vh, 900px)' }}>
       {/* LEFT: Contact List */}
       <div className={`flex flex-col bg-white border-r border-gray-200 ${selectedContact ? 'hidden md:flex' : 'flex'} w-full md:w-[360px] flex-shrink-0`}>
         {/* Header */}

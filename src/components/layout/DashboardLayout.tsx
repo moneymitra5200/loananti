@@ -479,6 +479,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'staff', label: 'My Staff', icon: ClipboardCheck },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'calculator', label: 'EMI Calculator', icon: Calculator },
+    { id: 'messages', label: 'Messages', icon: MessageCircle },
     { id: 'performance', label: 'Performance', icon: TrendingUp }
   ],
   STAFF: [

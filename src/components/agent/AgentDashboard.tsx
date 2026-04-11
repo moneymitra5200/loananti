@@ -26,6 +26,7 @@ import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
 import LoanDetailPanel from '@/components/loan/LoanDetailPanel';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import ProfileSection from '@/components/shared/ProfileSection';
+import DirectMessaging from '@/components/messaging/DirectMessaging';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
@@ -769,6 +770,15 @@ export default function AgentDashboard() {
             inProgress={inProgress}
             sanctionCreated={sanctionCreated}
             activeLoans={activeLoans}
+          />
+        );
+
+      case 'messages':
+        return (
+          <DirectMessaging
+            userId={user?.id || ''}
+            userRole={user?.role || 'AGENT'}
+            userName={user?.name || 'Agent'}
           />
         );
 

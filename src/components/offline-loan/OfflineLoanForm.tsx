@@ -1144,26 +1144,25 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 {!isMirrorLoan && (
                   <div className="space-y-2"><Label>Processing Fee</Label><Input type="number" value={formData.processingFee} onChange={(e) => handleInputChange('processingFee', e.target.value)} /></div>
                 )}
-                {/* Charges Amount: Only for offline non-mirror loans — credited to creator's personal credit */}
-                {!isMirrorLoan && (
-                  <div className="space-y-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                    <Label className="font-semibold text-orange-800 flex items-center gap-2">
-                      Charges Amount (₹)
-                      <span className="text-xs text-orange-500 font-normal">→ Your Personal Credit</span>
-                    </Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      value={formData.chargesAmount || ''}
-                      onChange={(e) => handleInputChange('chargesAmount', e.target.value)}
-                      className="border-orange-200"
-                    />
-                    <p className="text-xs text-orange-600">
-                      Credited to <strong>your personal account</strong> only. No accounting entry.
-                    </p>
-                  </div>
-                )}
+                {/* Charges Amount: Always visible — credited to creator's personal credit, no accounting entry */}
+                <div className="space-y-2 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <Label className="font-semibold text-orange-800 flex items-center gap-2">
+                    💵 Charges Amount (₹)
+                    <span className="text-xs text-orange-500 font-normal">→ Your Personal Credit</span>
+                  </Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    value={formData.chargesAmount || ''}
+                    onChange={(e) => handleInputChange('chargesAmount', e.target.value)}
+                    className="border-orange-200"
+                  />
+                  <p className="text-xs text-orange-600">
+                    Credited to <strong>your personal account</strong> only. No accounting entry created.
+                  </p>
+                </div>
+
               </div>
             </div>
 
