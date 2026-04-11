@@ -122,17 +122,39 @@ export default function DayBookSection({
   const fetchDayBookData = async () => {
     setLoading(true);
     try {
-      // Combine bank transactions and journal entries
+      // PRIMARY: Fetch from enhanced-daybook API (reads real JournalEntry/JournalEntryLine data)
+      const res = await fetch(
+        `/api/accounting/enhanced-daybook?companyId=${selectedCompanyId}&viewMode=all`
+      );
+
+      if (res.ok) {
+        const apiData = await res.json();
+        const apiEntries: DayBookEntry[] = (apiData.entries || []).map((row: any) => ({
+          id:            row.id,
+          date:          new Date(row.date),
+          time:          new Date(row.date),
+          description:   row.particular || row.narration || 'Journal Entry',
+          referenceType: row.referenceType || 'MANUAL_ENTRY',
+          entryNumber:   row.entryNumber || `JE-${(row.id || '').slice(0, 8).toUpperCase()}`,
+          receipt:       row.credit  || 0,   // Credit (CR) — money in
+          payment:       row.debit   || 0,   // Debit  (DR) — money out
+          balance:       row.runningBalance || 0,
+          type:          'journal' as const,
+          originalData:  row
+        }));
+
+        if (apiEntries.length > 0) {
+          setDayBookEntries(apiEntries);
+          return;
+        }
+      }
+
+      // FALLBACK: Build from parent props (used when API returns 0 results)
       const combinedEntries: DayBookEntry[] = [];
 
-      // Process journal entries
       for (const entry of journalEntries) {
-        const bankLine = entry.lines.find(l => 
-          l.account?.accountCode?.startsWith('14') // Bank accounts start with 14
-        );
-        const isReceipt = (bankLine?.debitAmount || 0) > 0;
-        const amount = bankLine?.debitAmount || bankLine?.creditAmount || 0;
-
+        const totalDebit  = entry.lines?.reduce((s: number, l: any) => s + (l.debitAmount  || 0), 0) || 0;
+        const totalCredit = entry.lines?.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0) || 0;
         combinedEntries.push({
           id: entry.id,
           date: new Date(entry.entryDate),
@@ -140,18 +162,16 @@ export default function DayBookSection({
           description: entry.narration || 'Journal Entry',
           referenceType: entry.referenceType || 'MANUAL_ENTRY',
           entryNumber: entry.entryNumber,
-          receipt: isReceipt ? amount : 0,
-          payment: !isReceipt ? amount : 0,
+          receipt: totalCredit,
+          payment: totalDebit,
           balance: 0,
           type: 'journal',
           originalData: entry
         });
       }
 
-      // Process bank transactions
       for (const txn of bankTransactions) {
         const isCredit = txn.transactionType === 'CREDIT';
-
         combinedEntries.push({
           id: txn.id,
           date: new Date(txn.transactionDate),
@@ -167,16 +187,10 @@ export default function DayBookSection({
         });
       }
 
-      // Sort by date descending (newest first)
       combinedEntries.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-      // Calculate running balance (from oldest to newest)
-      const sortedAsc = [...combinedEntries].sort((a, b) => a.date.getTime() - b.date.getTime());
       let runningBal = 0;
-      for (const entry of sortedAsc) {
-        runningBal += entry.receipt - entry.payment;
-        entry.balance = runningBal;
-      }
+      const sortedAsc = [...combinedEntries].sort((a, b) => a.date.getTime() - b.date.getTime());
+      for (const e of sortedAsc) { runningBal += e.receipt - e.payment; e.balance = runningBal; }
 
       setDayBookEntries(combinedEntries);
     } catch (error) {
@@ -361,7 +375,7 @@ export default function DayBookSection({
         </TabsContent>
       </Tabs>
 
-      {/* Summary */}
+      {/* Summary — Credit (CR) / Debit (DR) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="bg-gray-50">
           <CardContent className="p-4">
@@ -372,7 +386,7 @@ export default function DayBookSection({
         <Card className="bg-green-50 border-green-100">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Receipts</p>
+              <p className="text-sm text-gray-500 font-semibold">Total Credit (CR)</p>
               <ArrowUpRight className="h-4 w-4 text-green-600" />
             </div>
             <p className="text-xl font-bold text-green-600">+{formatCurrency(totalReceipts)}</p>
@@ -381,7 +395,7 @@ export default function DayBookSection({
         <Card className="bg-red-50 border-red-100">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Payments</p>
+              <p className="text-sm text-gray-500 font-semibold">Total Debit (DR)</p>
               <ArrowDownRight className="h-4 w-4 text-red-600" />
             </div>
             <p className="text-xl font-bold text-red-600">-{formatCurrency(totalPayments)}</p>
@@ -389,7 +403,7 @@ export default function DayBookSection({
         </Card>
         <Card className="bg-blue-50 border-blue-100">
           <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Net Movement</p>
+            <p className="text-sm text-gray-500">Net (CR − DR)</p>
             <p className={`text-xl font-bold ${totalReceipts - totalPayments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {totalReceipts - totalPayments >= 0 ? '+' : ''}{formatCurrency(totalReceipts - totalPayments)}
             </p>
@@ -417,10 +431,10 @@ export default function DayBookSection({
                   <TableHead className="w-[100px]">Date</TableHead>
                   <TableHead className="w-[70px]">Time</TableHead>
                   <TableHead className="w-[110px]">Entry No.</TableHead>
-                  <TableHead>Description</TableHead>
+                  <TableHead>Particulars</TableHead>
                   <TableHead className="w-[120px]">Type</TableHead>
-                  <TableHead className="text-right w-[120px]">Receipt</TableHead>
-                  <TableHead className="text-right w-[120px]">Payment</TableHead>
+                  <TableHead className="text-right w-[130px] text-green-700 font-bold">Credit (CR)</TableHead>
+                  <TableHead className="text-right w-[130px] text-red-700 font-bold">Debit (DR)</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>

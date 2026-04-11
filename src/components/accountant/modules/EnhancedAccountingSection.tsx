@@ -1043,19 +1043,20 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
                     1. BANK BALANCE
                   </TableCell>
                 </TableRow>
-                {data.rightSide?.bankBalance?.accounts?.length > 0 ? (
-                  data.rightSide.bankBalance.accounts.map((acc: any, idx: number) => (
-                    <TableRow key={idx}>
-                      <TableCell className="pl-8 text-sm">{acc.bankName} - ****{acc.accountNumber?.slice(-4)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(acc.balance)}</TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell className="pl-8 text-sm text-gray-400 italic">No bank accounts</TableCell>
-                    <TableCell className="text-right text-gray-400">₹0.00</TableCell>
-                  </TableRow>
-                )}
+                {/* Show aggregate "Bank Account" total — NOT individual bank names */}
+                <TableRow>
+                  <TableCell className="pl-8 text-sm">
+                    Bank Account
+                    {(data.rightSide?.bankBalance?.accounts?.length || 0) > 0 && (
+                      <span className="text-xs text-gray-400 ml-1">
+                        ({data.rightSide.bankBalance.accounts.length} account{data.rightSide.bankBalance.accounts.length > 1 ? 's' : ''} combined)
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatCurrency(data.rightSide?.bankBalance?.total || 0)}
+                  </TableCell>
+                </TableRow>
                 <TableRow className="bg-green-50">
                   <TableCell className="font-medium">Total Bank Balance</TableCell>
                   <TableCell className="text-right font-bold text-green-700">
