@@ -154,8 +154,8 @@ async function getBalanceSheet(companyId: string | null) {
 
   // ===================================================
   // BANK: Use BankAccount table as source of truth
-  // Do NOT include ChartOfAccount bank entries (1102/1103)
-  // which can go negative after recalculate from journals
+  // Do NOT include ChartOfAccount bank entries — they
+  // are replaced by actual BankAccount table data below.
   // ===================================================
   const bankAccountsData = companyId
     ? await db.bankAccount.findMany({ where: { companyId, isActive: true } })
@@ -163,13 +163,37 @@ async function getBalanceSheet(companyId: string | null) {
 
   const actualBankTotal = bankAccountsData.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
 
-  // Bank codes to EXCLUDE from the flat asset list (we replace them manually below)
+  // Build a set of real bank names + accountNames for name-matching exclusion
+  const realBankNames = new Set<string>();
+  for (const b of bankAccountsData) {
+    if (b.bankName) realBankNames.add(b.bankName.trim().toLowerCase());
+    if (b.accountName) realBankNames.add(b.accountName.trim().toLowerCase());
+    // Also exclude "Bank - XXXX" style variants
+    if (b.bankName && b.accountNumber) {
+      realBankNames.add(`${b.bankName} - ${b.accountNumber.slice(-4)}`.toLowerCase());
+    }
+  }
+
+  // Bank-related account CODES to exclude from flat asset list
+  // Includes 1000 (permanent-accounts "Bank" head), 1102/1103/1104 (service accounts)
+  const BANK_CODES_EXACT = new Set(['1000', '1102', '1103', '1104']);
   const BANK_CODE_PREFIXES = ['1102', '1103', '1104'];
-  const isBankCode = (code: string) =>
-    BANK_CODE_PREFIXES.some(p => code === p || code.startsWith(p + '-') || code.startsWith(p + '.'));
+
+  const isBankCode = (code: string, name: string) => {
+    // Exact code match
+    if (BANK_CODES_EXACT.has(code)) return true;
+    // Prefix match (e.g. 1102-HDFC, 1103.1)
+    if (BANK_CODE_PREFIXES.some(p => code.startsWith(p + '-') || code.startsWith(p + '.'))) return true;
+    // Name matches a real bank (catches stale ChartOfAccount records named after actual banks)
+    if (realBankNames.has(name.trim().toLowerCase())) return true;
+    // Account name contains "bank account" or "bank - " (generic bank heads)
+    const nameLower = name.trim().toLowerCase();
+    if (nameLower === 'bank' || nameLower === 'bank account' || nameLower.startsWith('bank - ')) return true;
+    return false;
+  };
 
   // Non-bank asset accounts (shown normally)
-  const nonBankAssets = allAssetAccounts.filter(a => !isBankCode(a.accountCode));
+  const nonBankAssets = allAssetAccounts.filter(a => !isBankCode(a.accountCode, a.accountName));
 
   // Build flat asset array: non-bank accounts + bank HEAD + bank SUB-HEADS
   const assets: any[] = nonBankAssets.map(account => ({
@@ -184,10 +208,10 @@ async function getBalanceSheet(companyId: string | null) {
     accountCode: '1102',
     accountName: 'Bank Account',
     amount: actualBankTotal,
-    isHead: true,        // marks this as a header row
+    isHead: true,
     subAccounts: bankAccountsData.map(b => ({
       accountCode: b.id,
-      accountName: `${b.bankName} - ${b.accountNumber?.slice(-4) || 'XXXX'}`,
+      accountName: `${b.bankName} – ${b.accountNumber?.slice(-4) || 'XXXX'}`,
       amount: b.currentBalance || 0,
       isSubHead: true,
     }))
