@@ -745,15 +745,24 @@ export async function POST(request: NextRequest) {
     let creditUserId = paidBy;
     let effectiveCreditType = creditType;
     let creditReason = '';
-    
+
     if (secondaryPaymentPage?.role && !emiSettings?.useDefaultCompanyPage) {
+      // EMI-level secondary payment page assignment
       creditUserId = secondaryPaymentPage.role.id;
       effectiveCreditType = 'PERSONAL';
       creditReason = `via EMI Secondary Payment Page (${secondaryPaymentPage.name})`;
-    } else if (isExtraEMILocal && companyPaymentPage?.secondaryPaymentRole) {
-      creditUserId = companyPaymentPage.secondaryPaymentRole.id;
+    } else if (isExtraEMILocal) {
+      // ── EXTRA EMI: ALWAYS PersonalCredit ────────────────────────────────
+      // Secondary payment page owner gets credit if configured;
+      // otherwise the role who collected (paidBy) gets credit.
       effectiveCreditType = 'PERSONAL';
-      creditReason = `via Company Payment Page (Extra EMI #${emi.installmentNumber})`;
+      if (companyPaymentPage?.secondaryPaymentRole) {
+        creditUserId = companyPaymentPage.secondaryPaymentRole.id;
+        creditReason = `Extra EMI #${emi.installmentNumber} — via Company Payment Page`;
+      } else {
+        creditUserId = paidBy; // cashier / agent who collected
+        creditReason = `Extra EMI #${emi.installmentNumber} — direct collection by payer`;
+      }
     }
 
     if (effectiveCreditType === 'PERSONAL') {
@@ -1252,8 +1261,12 @@ export async function POST(request: NextRequest) {
         ? mirrorMappingForAccounting!.mirrorCompanyId
         : (emi.loanApplication?.companyId || companyId);
 
-      // ALL loans (mirror and regular) need accounting entries
-      if (companyIdToUse) {
+      // ── EXTRA EMIs: already fully handled by the extra EMI block above ──
+      // CashBook + Day Book journal are recorded there in original company.
+      // Skip here to avoid duplicate journal entries.
+      if (isExtraEMI2) {
+        console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — accounting already recorded in original company block above. Skipping main block.`);
+      } else if (companyIdToUse) {
         const accountingService = new AccountingService(companyIdToUse);
         await accountingService.initializeChartOfAccounts();
 
