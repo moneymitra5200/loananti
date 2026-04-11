@@ -1037,10 +1037,6 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                           <p className="text-xs text-gray-500">Loan Amount</p>
                           <p className="font-medium">{formatCurrency(selectedProduct.minAmount)} - {formatCurrency(selectedProduct.maxAmount)}</p>
                         </div>
-                        <div>
-                          <p className="text-xs text-gray-500">Processing Fee</p>
-                          <p className="font-medium">{selectedProduct.processingFeePercent}%</p>
-                        </div>
                       </div>
                     </div>
                   )}
