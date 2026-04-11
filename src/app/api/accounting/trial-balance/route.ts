@@ -71,14 +71,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // ── 2. Live journal entry aggregation ────────────────────────────
+    // ── 1b. Real bank balance (aggregate) — used to override 1102 ────────
+    const realBankTotal = realBankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
+
+    // ── 2. Live journal entry aggregation — include ALL non-reversed entries ─
     const lineAgg = await db.journalEntryLine.groupBy({
       by: ['accountId'],
       where: {
         journalEntry: {
           companyId,
           entryDate: { lte: dateFilter },
-          isApproved: true,
+          // NOTE: Include isApproved=null AND isApproved=true (drop strict filter)
           isReversed: false,
         },
       },
@@ -121,20 +124,40 @@ export async function GET(request: NextRequest) {
         else { debitBalance = Math.abs(closingBalance); totalDebitBalance += Math.abs(closingBalance); }
       }
 
-      const isBank1102 = account.accountCode === '1102' && hasRealBankAccounts;
+      const isBank1102 = account.accountCode === '1102';
+      // For Bank Account (1102): use the REAL sum from BankAccount table
+      // (not journal-computed, which can be stale if disbursements/payments weren't journaled)
+      let effectiveDebitBalance = debitBalance;
+      let effectiveCreditBalance = creditBalance;
+      let effectiveClosingBalance = closingBalance;
+
+      if (isBank1102) {
+        // Real bank balance overrides journal computation
+        effectiveClosingBalance = realBankTotal;
+        effectiveDebitBalance = realBankTotal;
+        effectiveCreditBalance = 0;
+        // Also fix totals
+        totalDebitBalance -= debitBalance;
+        totalDebitBalance += realBankTotal;
+      }
 
       trialBalance.push({
         accountId: account.id,
         accountCode: isBank1102 ? 'BANK' : account.accountCode,
-        accountName: isBank1102 ? bankDisplayName : account.accountName,
+        // Single "Bank Account" label — sum of all banks, no individual names
+        accountName: isBank1102
+          ? `Bank Account${realBankAccounts.length > 1 ? ` (${realBankAccounts.length} banks)` : ''}`
+          : account.accountName,
         accountType: account.accountType,
         openingBalance,
         totalDebit: txn.totalDebit,
         totalCredit: txn.totalCredit,
-        closingBalance,
-        debitBalance,
-        creditBalance,
+        closingBalance: effectiveClosingBalance,
+        debitBalance: effectiveDebitBalance,
+        creditBalance: effectiveCreditBalance,
         isRealBank: isBank1102,
+        // Extra info for drill-down (not shown in main table)
+        bankAccounts: isBank1102 ? realBankAccounts.map(b => ({ name: b.bankName, balance: b.currentBalance })) : undefined,
       });
     }
 

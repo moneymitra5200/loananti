@@ -66,6 +66,9 @@ export async function GET(request: NextRequest) {
     // Total bank movement recorded in journal entries
     const totalBankJournalBalance = bank1102Opening + bank1102Txn.totalDebit - bank1102Txn.totalCredit;
 
+    // ── AGGREGATE bank balance (sum of all BankAccount.currentBalance) ───
+    const realBankTotal = realBankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
+
     // ── Build enriched list ────────────────────────────────────────────
     const enrichedRaw = accounts.map(account => {
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
@@ -76,15 +79,28 @@ export async function GET(request: NextRequest) {
         ? opening + txn.totalDebit - txn.totalCredit
         : opening + txn.totalCredit - txn.totalDebit;
 
-      // ── BANK ACCOUNT LOGIC ──────────────────────────────────────────
-      // If this is the generic "Bank Account (1102)" system account AND
-      // the company has real bank accounts → HIDE it (will be replaced)
-      if (account.accountCode === '1102' && hasRealBankAccounts) {
-        return null; // skip generic - replaced by real banks below
+      // ── BANK ACCOUNT 1102: override with real bank total ────────────
+      // Show ONE "Bank Account" row = sum of all banks (e.g. HDFC ₹5k + ICICI ₹5k = ₹10k)
+      if (account.accountCode === '1102') {
+        return {
+          ...account,
+          accountName: 'Bank Account', // always show as generic "Bank Account"
+          currentBalance: realBankTotal, // real-time aggregate
+          totalDebit: txn.totalDebit,
+          totalCredit: txn.totalCredit,
+          // Attach per-bank breakdown for detail views only
+          bankBreakdown: realBankAccounts.map(b => ({
+            id: b.id,
+            bankName: b.bankName,
+            accountName: b.accountName,
+            accountNumber: b.accountNumber,
+            balance: b.currentBalance || 0,
+          })),
+        };
       }
 
-      // If this is a user-created bank ChartOfAccount (non-1102, non-system, ASSET type)
-      // that maps to an actual BankAccount record → show actual balance
+      // Skip per-bank ChartOfAccount rows that duplicate real BankAccount entries
+      // (These would show wrong balances since journal tracks via 1102, not per-bank codes)
       const matchingRealBank = realBankAccounts.find(rb =>
         rb.accountName?.toLowerCase() === account.accountName?.toLowerCase() ||
         rb.bankName?.toLowerCase().includes(account.accountName?.toLowerCase() || '') ||
@@ -92,7 +108,7 @@ export async function GET(request: NextRequest) {
         account.accountName?.toLowerCase().includes(rb.accountNumber?.slice(-4) || '')
       );
       if (matchingRealBank) {
-        liveBalance = matchingRealBank.currentBalance || 0;
+        return null; // skip — handled by 1102 aggregate row above
       }
 
       return {
@@ -103,39 +119,7 @@ export async function GET(request: NextRequest) {
       };
     }).filter(Boolean);
 
-    // ── If company has real banks, inject them as proper account rows ──
-    // Only if the company doesn't ALREADY have them as ChartOfAccount entries
-    if (hasRealBankAccounts) {
-      for (const bank of realBankAccounts) {
-        // Check if this bank already appears in ChartOfAccount
-        const alreadyListed = enrichedRaw.some(a =>
-          a?.accountName?.toLowerCase() === bank.accountName?.toLowerCase() ||
-          a?.accountName?.toLowerCase().includes(bank.bankName?.toLowerCase() || '') ||
-          bank.bankName?.toLowerCase().includes(a?.accountName?.toLowerCase() || '')
-        );
-
-        if (!alreadyListed) {
-          // Inject a virtual row for this bank
-          enrichedRaw.push({
-            id: `bank-${bank.id}`,
-            companyId,
-            accountCode: `BANK-${bank.id.slice(-4).toUpperCase()}`,
-            accountName: `${bank.bankName} - ${bank.accountName}`,
-            accountType: 'ASSET' as any,
-            description: `Bank Account: ${bank.accountNumber}`,
-            isSystemAccount: false,
-            isActive: true,
-            openingBalance: bank.openingBalance || 0,
-            currentBalance: bank.currentBalance || 0,
-            totalDebit: bank1102Txn.totalDebit,   // journal debits tracked via 1102
-            totalCredit: bank1102Txn.totalCredit,  // journal credits tracked via 1102
-            parentAccountId: null,
-            createdAt: bank.createdAt,
-            updatedAt: bank.updatedAt,
-          } as any);
-        }
-      }
-    }
+    // NOTE: No individual bank row injection — all banks are aggregated in 1102 above
 
     return NextResponse.json({ accounts: enrichedRaw });
   } catch (error) {
