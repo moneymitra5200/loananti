@@ -229,8 +229,8 @@ function DayBookSection({
     currentPage * entriesPerPage
   );
 
-  const totalReceipts = filteredEntries.reduce((s, e) => s + e.totalCredit, 0);
-  const totalPayments = filteredEntries.reduce((s, e) => s + e.totalDebit, 0);
+  const totalDebits  = filteredEntries.reduce((s, e) => s + (e.totalDebit  || 0), 0);
+  const totalCredits = filteredEntries.reduce((s, e) => s + (e.totalCredit || 0), 0);
 
   const getReferenceLabel = (type: string) => {
     const labels: Record<string, string> = {
@@ -239,9 +239,11 @@ function DayBookSection({
       'MIRROR_EMI_PAYMENT': 'Mirror EMI',
       'EXTRA_EMI_PAYMENT': 'Extra EMI',
       'PROCESSING_FEE_COLLECTION': 'Processing Fee',
+      'PROCESSING_FEE': 'Processing Fee',
       'EXPENSE_ENTRY': 'Expense',
       'OPENING_BALANCE': 'Opening Balance',
-      'MANUAL_ENTRY': 'Manual Entry'
+      'MANUAL_ENTRY': 'Manual Entry',
+      'EQUITY_INVESTMENT': 'Equity',
     };
     return labels[type] || type || 'Entry';
   };
@@ -251,7 +253,7 @@ function DayBookSection({
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h2 className="text-xl font-semibold flex items-center gap-2">
           <BookOpen className="h-5 w-5" />
-          Day Book - All Transactions
+          Day Book — Debit / Credit Ledger
         </h2>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="relative">
@@ -265,21 +267,11 @@ function DayBookSection({
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">From:</span>
-            <Input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-36"
-            />
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-36" />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">To:</span>
-            <Input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-36"
-            />
+            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-36" />
           </div>
           <Button variant="outline" size="sm" onClick={loadEntries}>
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -290,98 +282,115 @@ function DayBookSection({
 
       {/* Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-blue-50 border-blue-100">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">Total Debit</p>
+              <ArrowDownRight className="h-4 w-4 text-blue-600" />
+            </div>
+            <p className="text-xl font-bold text-blue-600">{formatCurrency(totalDebits)}</p>
+          </CardContent>
+        </Card>
         <Card className="bg-green-50 border-green-100">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Receipts</p>
+              <p className="text-sm text-gray-500">Total Credit</p>
               <ArrowUpRight className="h-4 w-4 text-green-600" />
             </div>
-            <p className="text-xl font-bold text-green-600">+{formatCurrency(totalReceipts)}</p>
+            <p className="text-xl font-bold text-green-600">{formatCurrency(totalCredits)}</p>
           </CardContent>
         </Card>
-        <Card className="bg-red-50 border-red-100">
+        <Card className="bg-gray-50 border-gray-100">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Payments</p>
-              <ArrowDownRight className="h-4 w-4 text-red-600" />
-            </div>
-            <p className="text-xl font-bold text-red-600">-{formatCurrency(totalPayments)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-50 border-blue-100">
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Net Movement</p>
-            <p className={`text-xl font-bold ${totalReceipts - totalPayments >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {totalReceipts - totalPayments >= 0 ? '+' : ''}{formatCurrency(totalReceipts - totalPayments)}
-            </p>
+            <p className="text-sm text-gray-500">Journal Entries</p>
+            <p className="text-xl font-bold text-gray-700">{filteredEntries.length}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Transactions Table */}
+      {/* Day Book Table — per Journal Line (Debit/Credit view) */}
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">All Transactions</CardTitle>
-            <Badge variant="outline">{filteredEntries.length} entries</Badge>
+            <CardTitle className="text-lg">Ledger Entries</CardTitle>
+            <Badge variant="outline">{filteredEntries.length} journal entries</Badge>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <ScrollArea className="h-[540px]">
             <Table>
               <TableHeader className="sticky top-0 bg-white z-10">
-                <TableRow>
-                  <TableHead className="w-[100px]">Date</TableHead>
-                  <TableHead className="w-[110px]">Entry No.</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="w-[120px]">Type</TableHead>
-                  <TableHead className="text-right w-[120px]">Receipt</TableHead>
-                  <TableHead className="text-right w-[120px]">Payment</TableHead>
+                <TableRow className="bg-gray-50">
+                  <TableHead className="w-[90px]">Date</TableHead>
+                  <TableHead className="w-[100px]">Entry No.</TableHead>
+                  <TableHead className="w-[130px]">Type</TableHead>
+                  <TableHead>Account Name</TableHead>
+                  <TableHead className="text-right w-[130px] text-blue-700 font-semibold">Debit (Dr)</TableHead>
+                  <TableHead className="text-right w-[130px] text-green-700 font-semibold">Credit (Cr)</TableHead>
+                  <TableHead className="max-w-[180px]">Narration</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
+                    <TableCell colSpan={7} className="text-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin mx-auto text-emerald-500" />
                     </TableCell>
                   </TableRow>
                 ) : paginatedEntries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-gray-500 py-8">
+                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
                       No transactions found
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedEntries.map((entry) => (
-                    <TableRow key={entry.id} className="hover:bg-gray-50">
-                      <TableCell className="font-mono text-sm">
-                        {formatDateShort(entry.entryDate)}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs text-gray-500">
-                        {entry.entryNumber}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {entry.narration || '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {getReferenceLabel(entry.referenceType)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right text-green-600 font-medium">
-                        {entry.totalCredit > 0 ? `+${formatCurrency(entry.totalCredit)}` : '-'}
-                      </TableCell>
-                      <TableCell className="text-right text-red-600 font-medium">
-                        {entry.totalDebit > 0 ? `-${formatCurrency(entry.totalDebit)}` : '-'}
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  paginatedEntries.flatMap((entry) => {
+                    const lines = entry.lines || [];
+                    if (lines.length === 0) {
+                      // Fallback: single row from totals
+                      return [(
+                        <TableRow key={entry.id} className="hover:bg-gray-50 border-b border-dashed">
+                          <TableCell className="font-mono text-xs text-gray-500">{formatDateShort(entry.entryDate)}</TableCell>
+                          <TableCell className="font-mono text-xs text-gray-400">{entry.entryNumber}</TableCell>
+                          <TableCell><Badge variant="outline" className="text-xs">{getReferenceLabel(entry.referenceType)}</Badge></TableCell>
+                          <TableCell className="text-sm text-gray-500 italic">{entry.narration || '—'}</TableCell>
+                          <TableCell className="text-right text-blue-700 font-semibold">{entry.totalDebit > 0 ? formatCurrency(entry.totalDebit) : '—'}</TableCell>
+                          <TableCell className="text-right text-green-700 font-semibold">{entry.totalCredit > 0 ? formatCurrency(entry.totalCredit) : '—'}</TableCell>
+                          <TableCell className="text-xs text-gray-400">—</TableCell>
+                        </TableRow>
+                      )];
+                    }
+                    return lines.map((line: any, li: number) => (
+                      <TableRow
+                        key={`${entry.id}-${li}`}
+                        className={`hover:bg-gray-50 ${li === lines.length - 1 ? 'border-b-2 border-gray-200' : 'border-b border-dashed border-gray-100'}`}
+                      >
+                        <TableCell className="font-mono text-xs text-gray-500">{li === 0 ? formatDateShort(entry.entryDate) : ''}</TableCell>
+                        <TableCell className="font-mono text-xs text-gray-400">{li === 0 ? entry.entryNumber : ''}</TableCell>
+                        <TableCell>{li === 0 ? <Badge variant="outline" className="text-xs">{getReferenceLabel(entry.referenceType)}</Badge> : ''}</TableCell>
+                        <TableCell className="font-medium text-sm">
+                          {line.debitAmount > 0
+                            ? <span className="text-blue-800">{line.account?.accountName || '—'}</span>
+                            : <span className="text-green-800 pl-4">↳ {line.account?.accountName || '—'}</span>
+                          }
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-blue-700">
+                          {line.debitAmount > 0 ? formatCurrency(line.debitAmount) : ''}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-green-700">
+                          {line.creditAmount > 0 ? formatCurrency(line.creditAmount) : ''}
+                        </TableCell>
+                        <TableCell className="text-xs text-gray-500 max-w-[180px] truncate">
+                          {li === 0 ? (entry.narration || '—') : (line.narration || '')}
+                        </TableCell>
+                      </TableRow>
+                    ));
+                  })
                 )}
               </TableBody>
             </Table>
           </ScrollArea>
-          
+
           {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-4 py-3 border-t">
@@ -404,6 +413,7 @@ function DayBookSection({
     </div>
   );
 }
+
 
 // Cash Book Section - For Company 3 (Cash Only)
 function CashBookSection({
