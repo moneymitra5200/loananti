@@ -7,7 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   TrendingUp, TrendingDown, DollarSign, CheckCircle, Wallet, BarChart3,
   PieChart, Activity, FileText, Users, Calendar, ArrowUpRight, ArrowDownRight,
-  Target, Zap, Building2, AlertTriangle, Shield, IndianRupee, Percent, Clock
+  Target, Zap, Building2, AlertTriangle, Shield, IndianRupee, Percent, Clock,
+  UserCheck, Star, Medal, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import {
@@ -149,6 +150,29 @@ function AnalyticsSection({
   const [emiCollection, setEmiCollection] = useState<any[]>([]);
   const [emiLoading, setEmiLoading] = useState(false);
   const [emiSummary, setEmiSummary] = useState<any>(null);
+
+  // ── Agent Performance Data ────────────────────────────────
+  const [agentData, setAgentData] = useState<any>(null);
+  const [agentLoading, setAgentLoading] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<string>('');
+  const [agentSort, setAgentSort] = useState<'disbursed' | 'apps' | 'amount' | 'growth'>('disbursed');
+
+  useEffect(() => {
+    const fetchAgents = async () => {
+      if (tab !== 'agents') return;
+      setAgentLoading(true);
+      try {
+        const res = await fetch('/api/analytics/agent-performance');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) setAgentData(data);
+        }
+      } catch { /* non-critical */ } finally {
+        setAgentLoading(false);
+      }
+    };
+    fetchAgents();
+  }, [tab]);
 
   useEffect(() => {
     const fetchEmiCollection = async () => {
@@ -317,6 +341,7 @@ function AnalyticsSection({
             { v: 'distribution', label: '🥧 Distribution' },
             { v: 'risk',         label: '⚠️ Risk & Health' },
             { v: 'comparison',   label: '🔄 Month Comparison' },
+            { v: 'agents',       label: '👤 Agent Analytics' },
           ].map(t => (
             <TabsTrigger key={t.v} value={t.v} className="rounded-lg text-xs sm:text-sm flex-1 min-w-fit">
               {t.label}
@@ -1315,6 +1340,322 @@ function AnalyticsSection({
           </div>
         );
       })()}
+
+      {/* ══════════════════════════════════════════════════════════
+          TAB — AGENT ANALYTICS (rendered outside <Tabs>, same pattern as comparison)
+      ══════════════════════════════════════════════════════════ */}
+      {tab === 'agents' && (<div className="space-y-5">
+          {agentLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full" />
+              <span className="ml-3 text-gray-500">Loading agent analytics...</span>
+            </div>
+          ) : !agentData ? (
+            <Card><CardContent className="p-10 text-center text-gray-400">
+              <Users className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p>No agent data found. Switch to this tab to load.</p>
+            </CardContent></Card>
+          ) : (() => {
+            const agents: any[] = agentData.agents || [];
+            const labels = agentData.summary?.periodLabels || {};
+
+            // Sort agents
+            const sorted = [...agents].sort((a, b) => {
+              if (agentSort === 'disbursed') return b.periods.lastMonth.disbursed - a.periods.lastMonth.disbursed;
+              if (agentSort === 'apps')      return b.periods.lastMonth.apps - a.periods.lastMonth.apps;
+              if (agentSort === 'amount')    return b.periods.lastMonth.amount - a.periods.lastMonth.amount;
+              if (agentSort === 'growth')    return b.growthScore - a.growthScore;
+              return 0;
+            });
+
+            const sel = selectedAgent ? agents.find(a => a.id === selectedAgent) : null;
+
+            // Period columns definition
+            const cols = [
+              { key: 'threeMonthsAgo', label: labels.threeMonthsAgo || '-3M',  bg: 'bg-gray-50',    text: 'text-gray-600' },
+              { key: 'twoMonthsAgo',   label: labels.twoMonthsAgo   || '-2M',  bg: 'bg-orange-50',  text: 'text-orange-600' },
+              { key: 'lastMonth',      label: labels.lastMonth      || 'Last',  bg: 'bg-blue-50',    text: 'text-blue-700' },
+              { key: 'current',        label: labels.current        || 'Now',   bg: 'bg-emerald-50', text: 'text-emerald-700' },
+            ];
+
+            return (
+              <div className="space-y-5">
+                {/* Summary KPIs */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <KPICard label="Total Agents"  value={agentData.summary.totalAgents}  icon={Users}     color="text-indigo-600" bg="bg-indigo-50" />
+                  <KPICard label="Active Agents" value={agentData.summary.activeAgents} icon={UserCheck}  color="text-emerald-600" bg="bg-emerald-50" />
+                  <KPICard label="Top This Month"
+                    value={agentData.summary.topPerformers?.[0]?.name?.split(' ')?.[0] || '—'}
+                    sub={`${agentData.summary.topPerformers?.[0]?.periods?.lastMonth?.disbursed || 0} disbursed`}
+                    icon={Medal} color="text-amber-600" bg="bg-amber-50" />
+                  <KPICard label="Growing Agents"
+                    value={agents.filter(a => a.isGrowing).length}
+                    sub={`of ${agents.length} agents`}
+                    icon={TrendingUp} color="text-green-600" bg="bg-green-50" />
+                </div>
+
+                {/* Sort Bar */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-500 font-medium">Sort by last month:</span>
+                  {(['disbursed', 'apps', 'amount', 'growth'] as const).map(s => (
+                    <button key={s} onClick={() => setAgentSort(s)}
+                      className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-all ${
+                        agentSort === s ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                      }`}>
+                      {s === 'disbursed' ? '🏆 Disbursed' : s === 'apps' ? '📋 Applications' : s === 'amount' ? '💰 Volume' : '📈 Growth'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Agent Leaderboard Table with 4-period comparison */}
+                <Card className="border border-gray-100 shadow-sm overflow-hidden">
+                  <CardHeader className="pb-2 bg-gradient-to-r from-indigo-50 to-blue-50">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-indigo-600" />
+                      Agent Performance — 4-Month Comparison
+                    </CardTitle>
+                    <CardDescription>Click any agent row to see detailed trend analysis</CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0 overflow-x-auto">
+                    <table className="w-full text-xs min-w-[900px]">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="py-3 px-3 text-left font-semibold text-gray-600 w-8">#</th>
+                          <th className="py-3 px-3 text-left font-semibold text-gray-600">Agent</th>
+                          {cols.map(c => (
+                            <th key={c.key} className={`py-3 px-2 text-center font-semibold ${c.text} border-l border-gray-100`} colSpan={3}>
+                              {c.label}
+                            </th>
+                          ))}
+                          <th className="py-3 px-3 text-center font-semibold text-purple-600 border-l border-gray-100">Growth</th>
+                          <th className="py-3 px-3 text-center font-semibold text-teal-600 border-l border-gray-100">Trend</th>
+                        </tr>
+                        <tr className="border-b bg-gray-50/50 text-[10px]">
+                          <th /><th />
+                          {cols.map(c => (
+                            <>
+                              <th key={`${c.key}-a`} className="py-1 px-2 text-center text-blue-500 border-l border-gray-100">Apps</th>
+                              <th key={`${c.key}-d`} className="py-1 px-2 text-center text-green-600">Disb</th>
+                              <th key={`${c.key}-v`} className="py-1 px-2 text-center text-violet-500">Vol</th>
+                            </>
+                          ))}
+                          <th className="border-l border-gray-100" />
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sorted.length === 0 ? (
+                          <tr><td colSpan={15} className="text-center py-10 text-gray-400">No agents found</td></tr>
+                        ) : sorted.map((agent, idx) => {
+                          const isSelected = selectedAgent === agent.id;
+                          const momPct = agent.momentum;
+                          const growing = agent.isGrowing;
+                          return (
+                            <>
+                              <tr key={agent.id}
+                                className={`border-b hover:bg-indigo-50/30 cursor-pointer transition-colors ${
+                                  isSelected ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : idx < 3 ? 'bg-amber-50/20' : ''
+                                }`}
+                                onClick={() => setSelectedAgent(isSelected ? '' : agent.id)}>
+                                <td className="py-2.5 px-3 font-bold text-gray-400">
+                                  {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="font-semibold text-gray-800">{agent.name}</div>
+                                  <div className="text-gray-400 text-[10px]">{agent.phone}</div>
+                                </td>
+                                {cols.map(c => {
+                                  const p = agent.periods[c.key];
+                                  return (
+                                    <>
+                                      <td key={`${agent.id}-${c.key}-a`} className={`py-2.5 px-2 text-center font-medium text-blue-600 border-l border-gray-100 ${c.bg}`}>{p.apps}</td>
+                                      <td key={`${agent.id}-${c.key}-d`} className={`py-2.5 px-2 text-center font-bold text-green-700 ${c.bg}`}>{p.disbursed}</td>
+                                      <td key={`${agent.id}-${c.key}-v`} className={`py-2.5 px-2 text-center text-violet-600 ${c.bg}`}>{fmt(p.amount)}</td>
+                                    </>
+                                  );
+                                })}
+                                <td className="py-2.5 px-3 text-center border-l border-gray-100">
+                                  <span className={`inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-full ${
+                                    growing ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                                  }`}>
+                                    {growing ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                    {Math.abs(momPct)}%
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 border-l border-gray-100">
+                                  {/* Mini bar sparkline */}
+                                  <div className="flex items-end gap-0.5 h-6 justify-center">
+                                    {agent.trend.map((t: any, ti: number) => {
+                                      const maxD = Math.max(...agent.trend.map((x: any) => x.disbursed), 1);
+                                      const h = Math.max(2, Math.round((t.disbursed / maxD) * 22));
+                                      return (
+                                        <div key={ti} title={`${t.label}: ${t.disbursed} disbursed`}
+                                          style={{ height: `${h}px`, width: '8px' }}
+                                          className={`rounded-t transition-all ${
+                                            ti === 3 ? 'bg-indigo-500' :
+                                            ti === 2 ? 'bg-blue-400' :
+                                            ti === 1 ? 'bg-blue-300' : 'bg-gray-300'
+                                          }`} />
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* Expanded detail row */}
+                              {isSelected && (
+                                <tr key={`${agent.id}-detail`} className="bg-indigo-50/40 border-b border-indigo-100">
+                                  <td colSpan={15} className="px-4 py-4">
+                                    <div className="space-y-3">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <UserCheck className="h-4 w-4 text-indigo-600" />
+                                        <span className="font-bold text-indigo-700">{agent.name} — Detailed Growth Analysis</span>
+                                        {agent.isGrowing
+                                          ? <Badge className="bg-green-100 text-green-700 text-[10px]">📈 Growing</Badge>
+                                          : <Badge className="bg-red-100 text-red-600 text-[10px]">📉 Declining</Badge>}
+                                      </div>
+
+                                      {/* 4-period visual bars */}
+                                      <div className="grid grid-cols-4 gap-3">
+                                        {cols.map((c, ci) => {
+                                          const p = agent.periods[c.key];
+                                          return (
+                                            <div key={c.key} className={`rounded-xl p-3 border ${c.bg} border-gray-100`}>
+                                              <div className={`text-[10px] font-bold ${c.text} mb-2`}>{c.label}</div>
+                                              <div className="space-y-1">
+                                                <div className="flex justify-between">
+                                                  <span className="text-[10px] text-gray-500">Applications</span>
+                                                  <span className="font-bold text-blue-700">{p.apps}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-[10px] text-gray-500">Disbursed</span>
+                                                  <span className="font-bold text-green-700">{p.disbursed}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-[10px] text-gray-500">Rejected</span>
+                                                  <span className="font-medium text-red-500">{p.rejected}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-[10px] text-gray-500">Volume</span>
+                                                  <span className="font-bold text-violet-700">{fmt(p.amount)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-[10px] text-gray-500">Conv. Rate</span>
+                                                  <span className={`font-bold ${p.convRate >= 60 ? 'text-emerald-600' : p.convRate >= 30 ? 'text-amber-600' : 'text-red-500'}`}>
+                                                    {p.convRate}%
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Growth insight */}
+                                      <div className={`rounded-xl p-3 border text-xs ${
+                                        agent.isGrowing ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'
+                                      }`}>
+                                        {agent.isGrowing
+                                          ? `✅ ${agent.name} is on a growth trajectory. Last month: ${agent.periods.lastMonth.disbursed} disbursed. Projected this month: ~${agent.currentProjected} (${agent.momentum > 0 ? '+' : ''}${agent.momentum}% vs last month).`
+                                          : `⚠️ ${agent.name} showing decline. Last month: ${agent.periods.lastMonth.disbursed} disbursed vs ${agent.periods.twoMonthsAgo.disbursed} two months ago. Needs coaching or support.`
+                                        }
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </CardContent>
+                </Card>
+
+                {/* Bar-chart: Last month comparison across all agents */}
+                {agents.length > 0 && (
+                  <Card className="border border-gray-100 shadow-sm">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <BarChart3 className="h-4 w-4 text-indigo-600" />
+                        Agent Head-to-Head — Last Month Disbursements
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={Math.max(180, agents.length * 38)}>
+                        <BarChart
+                          data={[...agents]
+                            .sort((a, b) => b.periods.lastMonth.disbursed - a.periods.lastMonth.disbursed)
+                            .map(a => ({
+                              name: a.name.split(' ')[0],
+                              Disbursed: a.periods.lastMonth.disbursed,
+                              Applications: a.periods.lastMonth.apps,
+                              Volume: a.periods.lastMonth.amount,
+                            }))}
+                          layout="vertical"
+                          margin={{ top: 5, right: 40, left: 60, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis type="number" tick={{ fontSize: 10 }} />
+                          <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={55} />
+                          <Tooltip content={<CT />} />
+                          <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                          <Bar dataKey="Applications" fill={P.blue}  radius={[0, 3, 3, 0]} />
+                          <Bar dataKey="Disbursed"    fill={P.green} radius={[0, 3, 3, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Growth trend chart: top 5 agents, 4 periods */}
+                <Card className="border border-gray-100 shadow-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-green-600" />
+                      Top 5 Agents — 4-Month Disbursement Growth
+                    </CardTitle>
+                    <CardDescription>How each top agent has grown (or declined) across periods</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const top5 = [...agents]
+                        .sort((a, b) => b.periods.lastMonth.disbursed - a.periods.lastMonth.disbursed)
+                        .slice(0, 5);
+                      const chartData = cols.map((c, ci) => {
+                        const row: any = { period: c.label };
+                        top5.forEach(a => { row[a.name.split(' ')[0]] = a.periods[c.key].disbursed; });
+                        return row;
+                      });
+                      const agentColors = [P.blue, P.green, P.violet, P.amber, P.pink];
+                      return (
+                        <ResponsiveContainer width="100%" height={260}>
+                          <LineChart data={chartData} margin={{ top: 5, right: 15, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                            <YAxis tick={{ fontSize: 10 }} />
+                            <Tooltip content={<CT />} />
+                            <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                            {top5.map((a, i) => (
+                              <Line key={a.id}
+                                type="monotone"
+                                dataKey={a.name.split(' ')[0]}
+                                stroke={agentColors[i]}
+                                strokeWidth={2.5}
+                                dot={{ r: 4, fill: agentColors[i] }}
+                                activeDot={{ r: 6 }}
+                              />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
+      </div>)}
+
     </div>
   );
 }
