@@ -346,12 +346,50 @@ export function EnhancedProfitLossSection({ selectedCompanyId, formatCurrency, f
     description: ''
   });
   const [addingExpense, setAddingExpense] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [missingEntries, setMissingEntries] = useState(0);
 
   useEffect(() => {
     if (selectedCompanyId) {
       fetchPnLData();
+      checkMissingEntries();
     }
   }, [selectedCompanyId]);
+
+  const checkMissingEntries = async () => {
+    try {
+      const res = await fetch(`/api/accounting/sync-journal-entries?companyId=${selectedCompanyId}`);
+      if (res.ok) {
+        const result = await res.json();
+        setMissingEntries(
+          (result.payments?.missingJournalEntry || 0) + (result.disbursements?.missingJournalEntry || 0)
+        );
+      }
+    } catch { /* non-critical */ }
+  };
+
+  const handleSyncJournals = async () => {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/accounting/sync-journal-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompanyId, dryRun: false }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        toast.success(`Sync complete! Created ${result.summary?.totalCreated || 0} journal entries.`);
+        setMissingEntries(0);
+        fetchPnLData();
+      } else {
+        toast.error(result.error || 'Sync failed');
+      }
+    } catch {
+      toast.error('Network error during sync');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchPnLData = async () => {
     setLoading(true);
@@ -433,15 +471,49 @@ export function EnhancedProfitLossSection({ selectedCompanyId, formatCurrency, f
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
             <TrendingUp className="h-6 w-6 text-emerald-600" />
-            Profit & Loss Statement
+            Profit &amp; Loss Statement
           </h2>
           <p className="text-sm text-gray-500">Income vs Expenses analysis</p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchPnLData}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          {missingEntries > 0 && (
+            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-300 px-2 py-1 rounded-lg font-medium">
+              ⚠ {missingEntries} entries missing
+            </span>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSyncJournals}
+            disabled={syncing}
+            className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs px-3"
+          >
+            {syncing ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Syncing...</>
+            ) : (
+              <><RefreshCw className="h-3.5 w-3.5 mr-1" />Sync Journals</>
+            )}
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchPnLData}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* Missing entries warning */}
+      {missingEntries > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+          <span className="text-amber-500 text-xl">⚠</span>
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">P&amp;L Shows Zero — Journal Entries Missing</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {missingEntries} transactions have no journal entry. Interest Income and Processing Fee Income will be ₹0
+              until you click <strong>Sync Journals</strong> above.
+            </p>
+          </div>
+        </div>
+      )}
+
 
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -667,12 +739,55 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
   const [showAddEquityDialog, setShowAddEquityDialog] = useState(false);
   const [showAddBorrowedDialog, setShowAddBorrowedDialog] = useState(false);
   const [showAddInvestDialog, setShowAddInvestDialog] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<{ missingPayments: number; missingDisbursements: number } | null>(null);
 
   useEffect(() => {
     if (selectedCompanyId) {
       fetchTrialBalance();
+      checkSyncStatus();
     }
   }, [selectedCompanyId]);
+
+  const checkSyncStatus = async () => {
+    try {
+      const res = await fetch(`/api/accounting/sync-journal-entries?companyId=${selectedCompanyId}`);
+      if (res.ok) {
+        const result = await res.json();
+        setSyncStatus({
+          missingPayments: result.payments?.missingJournalEntry || 0,
+          missingDisbursements: result.disbursements?.missingJournalEntry || 0,
+        });
+      }
+    } catch { /* non-critical */ }
+  };
+
+  const handleSyncJournals = async () => {
+    if (!selectedCompanyId) return;
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/accounting/sync-journal-entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompanyId, dryRun: false }),
+      });
+      const result = await res.json();
+      if (res.ok && result.success) {
+        toast.success(
+          `Sync complete! Created ${result.summary?.totalCreated || 0} journal entries ` +
+          `(${result.results?.emiPayments?.created || 0} EMIs, ${result.results?.disbursements?.created || 0} disbursements).`
+        );
+        setSyncStatus({ missingPayments: 0, missingDisbursements: 0 });
+        fetchTrialBalance();
+      } else {
+        toast.error(result.error || 'Sync failed');
+      }
+    } catch (err) {
+      toast.error('Network error during sync');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const fetchTrialBalance = async () => {
     setLoading(true);
@@ -720,12 +835,46 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
           <p className="text-sm text-gray-500">Liabilities vs Assets</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* ── Sync Journal Entries ── */}
+          {syncStatus && (syncStatus.missingPayments > 0 || syncStatus.missingDisbursements > 0) && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs text-amber-700">
+              <span className="font-semibold">⚠ {syncStatus.missingPayments + syncStatus.missingDisbursements} missing entries</span>
+            </div>
+          )}
+          <Button
+            size="sm"
+            onClick={handleSyncJournals}
+            disabled={syncing}
+            className="bg-amber-500 hover:bg-amber-600 text-white h-8 text-xs px-3"
+          >
+            {syncing ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />Syncing...</>
+            ) : (
+              <><RefreshCw className="h-3.5 w-3.5 mr-1" />Sync Journals</>
+            )}
+          </Button>
           <Button variant="outline" size="sm" onClick={fetchTrialBalance}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
         </div>
       </div>
+
+      {/* Missing Journal Entry Warning */}
+      {syncStatus && (syncStatus.missingPayments > 0 || syncStatus.missingDisbursements > 0) && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+          <span className="text-amber-500 text-xl mt-0.5">⚠</span>
+          <div>
+            <p className="font-semibold text-amber-800 text-sm">Journal Entries Missing — Trial Balance May Show Zero</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {syncStatus.missingPayments > 0 && `${syncStatus.missingPayments} EMI payment(s) have no journal entry. `}
+              {syncStatus.missingDisbursements > 0 && `${syncStatus.missingDisbursements} loan disbursement(s) have no journal entry. `}
+              Click <strong>Sync Journals</strong> above to backfill them instantly. This is a one-time fix.
+            </p>
+          </div>
+        </div>
+      )}
+
 
       {/* Balance Status */}
       <Card className={`${data.summary?.isBalanced ? 'border-green-500 bg-green-50' : 'border-orange-500 bg-orange-50'}`}>
