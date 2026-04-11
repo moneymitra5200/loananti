@@ -113,6 +113,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ============================================================
+    // BANK OVERRIDE: After journal-based recalculation,
+    // reset any 'Bank Account' parent ChartOfAccount (1102/1103)
+    // to equal the SUM of BankAccount.currentBalance.
+    // This prevents journal credits making the head go negative.
+    // ============================================================
+    const BANK_PARENT_CODES = ['1102', '1103', '1104'];
+    const bankParentAccounts = accounts.filter(a =>
+      BANK_PARENT_CODES.some(p => a.accountCode === p)
+    );
+
+    if (bankParentAccounts.length > 0) {
+      const bankRows = await db.bankAccount.findMany({
+        where: { companyId, isActive: true },
+        select: { currentBalance: true }
+      });
+      const actualBankTotal = bankRows.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+
+      for (const bankParent of bankParentAccounts) {
+        if (Math.abs(actualBankTotal - bankParent.currentBalance) > 0.01) {
+          await db.chartOfAccount.update({
+            where: { id: bankParent.id },
+            data: { currentBalance: actualBankTotal }
+          });
+          updates.push({
+            accountId: bankParent.id,
+            accountCode: bankParent.accountCode,
+            accountName: bankParent.accountName + ' [BANK OVERRIDE]',
+            oldBalance: bankParent.currentBalance,
+            newBalance: actualBankTotal,
+            totalDebit: 0,
+            totalCredit: 0
+          });
+          console.log(`[Recalculate] Bank override ${bankParent.accountCode}: ${bankParent.currentBalance} → ${actualBankTotal} (from BankAccount table)`);
+        }
+      }
+    }
+
     console.log(`[Recalculate] Updated ${updates.length} accounts`);
 
     return NextResponse.json({

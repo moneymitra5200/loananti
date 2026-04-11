@@ -135,31 +135,65 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
 // Balance Sheet
 async function getBalanceSheet(companyId: string | null) {
   const where = companyId ? { companyId, isActive: true } : { isActive: true };
-  
-  // Get asset accounts
-  const assetAccounts = await db.chartOfAccount.findMany({
+
+  // Fetch ChartOfAccount entries — we will OVERRIDE bank entries below
+  const allAssetAccounts = await db.chartOfAccount.findMany({
     where: { ...where, accountType: 'ASSET' },
     orderBy: { accountCode: 'asc' },
   });
 
-  // Get liability accounts
   const liabilityAccounts = await db.chartOfAccount.findMany({
     where: { ...where, accountType: 'LIABILITY' },
     orderBy: { accountCode: 'asc' },
   });
 
-  // Get equity accounts
   const equityAccounts = await db.chartOfAccount.findMany({
     where: { ...where, accountType: 'EQUITY' },
     orderBy: { accountCode: 'asc' },
   });
 
-  const assets = assetAccounts.map(account => ({
+  // ===================================================
+  // BANK: Use BankAccount table as source of truth
+  // Do NOT include ChartOfAccount bank entries (1102/1103)
+  // which can go negative after recalculate from journals
+  // ===================================================
+  const bankAccountsData = companyId
+    ? await db.bankAccount.findMany({ where: { companyId, isActive: true } })
+    : await db.bankAccount.findMany({ where: { isActive: true } });
+
+  const actualBankTotal = bankAccountsData.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+
+  // Bank codes to EXCLUDE from the flat asset list (we replace them manually below)
+  const BANK_CODE_PREFIXES = ['1102', '1103', '1104'];
+  const isBankCode = (code: string) =>
+    BANK_CODE_PREFIXES.some(p => code === p || code.startsWith(p + '-') || code.startsWith(p + '.'));
+
+  // Non-bank asset accounts (shown normally)
+  const nonBankAssets = allAssetAccounts.filter(a => !isBankCode(a.accountCode));
+
+  // Build flat asset array: non-bank accounts + bank HEAD + bank SUB-HEADS
+  const assets: any[] = nonBankAssets.map(account => ({
     accountCode: account.accountCode,
     accountName: account.accountName,
     amount: account.currentBalance,
+    isHead: false,
   }));
 
+  // Insert "Bank Account" HEAD (sum of all BankAccount.currentBalance)
+  assets.push({
+    accountCode: '1102',
+    accountName: 'Bank Account',
+    amount: actualBankTotal,
+    isHead: true,        // marks this as a header row
+    subAccounts: bankAccountsData.map(b => ({
+      accountCode: b.id,
+      accountName: `${b.bankName} - ${b.accountNumber?.slice(-4) || 'XXXX'}`,
+      amount: b.currentBalance || 0,
+      isSubHead: true,
+    }))
+  });
+
+  // Sort: keep existing ordering, bank HEAD placed after non-bank assets
   const liabilities = liabilityAccounts.map(account => ({
     accountCode: account.accountCode,
     accountName: account.accountName,
@@ -172,43 +206,39 @@ async function getBalanceSheet(companyId: string | null) {
     amount: account.currentBalance,
   }));
 
-  // Calculate profit for equity
-  const incomeAccounts = await db.chartOfAccount.findMany({
-    where: { ...where, accountType: 'INCOME' },
-  });
-  const expenseAccounts = await db.chartOfAccount.findMany({
-    where: { ...where, accountType: 'EXPENSE' },
-  });
-
+  // Current year profit
+  const incomeAccounts = await db.chartOfAccount.findMany({ where: { ...where, accountType: 'INCOME' } });
+  const expenseAccounts = await db.chartOfAccount.findMany({ where: { ...where, accountType: 'EXPENSE' } });
   const totalIncome = incomeAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
   const totalExpenses = expenseAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
   const currentYearProfit = totalIncome - totalExpenses;
 
-  // Add current year profit to equity
   equity.push({
     accountCode: '5200',
     accountName: 'Current Year Profit/(Loss)',
     amount: currentYearProfit,
   });
 
-  const totalAssets = assets.reduce((sum, acc) => sum + acc.amount, 0);
-  const totalLiabilities = liabilities.reduce((sum, acc) => sum + acc.amount, 0);
-  const totalEquityBeforeProfit = equity.reduce((sum, acc) => sum + acc.amount, 0);
+  // Totals — expand sub-accounts for total calculation
+  const totalAssets = assets.reduce((sum, a) => sum + (a.amount || 0), 0);
+  const totalLiabilities = liabilities.reduce((sum, a) => sum + a.amount, 0);
+  const totalEquity = equity.reduce((sum, a) => sum + a.amount, 0);
 
   return NextResponse.json({
-    assets,
+    assets,          // includes bank HEAD with subAccounts[]
     liabilities,
     equity,
     totalAssets,
     totalLiabilities,
-    totalEquity: totalEquityBeforeProfit,
+    totalEquity,
     balanceCheck: {
       assets: totalAssets,
-      liabilitiesAndEquity: totalLiabilities + totalEquityBeforeProfit,
-      isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquityBeforeProfit)) < 0.01,
+      liabilitiesAndEquity: totalLiabilities + totalEquity,
+      isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01,
     },
   });
 }
+
 
 // Loan Portfolio Report
 async function getLoanPortfolioReport(companyId: string | null) {

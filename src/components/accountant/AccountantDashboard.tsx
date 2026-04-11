@@ -2453,12 +2453,36 @@ function BalanceSheetSection({
               <Table>
                 <TableBody>
                   {(balanceSheet?.assets || []).length > 0 ? (
-                    balanceSheet.assets.map((asset: any, idx: number) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-medium">{asset.accountName}</TableCell>
-                        <TableCell className="text-right text-blue-600">{formatCurrency(asset.amount)}</TableCell>
-                      </TableRow>
-                    ))
+                    (balanceSheet.assets as any[]).flatMap((asset: any, idx: number) => {
+                      const rows: JSX.Element[] = [];
+                      // HEAD row
+                      rows.push(
+                        <TableRow key={`head-${idx}`} className={asset.isHead ? 'bg-blue-50/60 font-semibold' : ''}>
+                          <TableCell className={`font-medium ${asset.isHead ? 'text-blue-800' : ''}`}>
+                            {asset.accountName}
+                          </TableCell>
+                          <TableCell className={`text-right ${asset.amount < 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                            {formatCurrency(asset.amount)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                      // SUB-HEAD rows (individual banks)
+                      if (asset.isHead && Array.isArray(asset.subAccounts)) {
+                        asset.subAccounts.forEach((sub: any, si: number) => {
+                          rows.push(
+                            <TableRow key={`sub-${idx}-${si}`} className="bg-slate-50/50">
+                              <TableCell className="pl-8 text-sm text-gray-600">
+                                ↳ {sub.accountName}
+                              </TableCell>
+                              <TableCell className={`text-right text-sm ${sub.amount < 0 ? 'text-red-500' : 'text-slate-600'}`}>
+                                {formatCurrency(sub.amount)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        });
+                      }
+                      return rows;
+                    })
                   ) : (
                     <TableRow>
                       <TableCell className="text-gray-500">No assets recorded</TableCell>
@@ -2475,6 +2499,7 @@ function BalanceSheetSection({
               </Table>
             </CardContent>
           </Card>
+
 
           {/* Liabilities & Equity */}
           <Card>
