@@ -40,29 +40,54 @@ export async function POST(request: NextRequest) {
 
 
 // GET /api/enquiry — Fetch enquiries (cashier/SA only)
+// Merges BOTH Enquiry table (new) + ContactEnquiry table (old landing-page submissions)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status');
-    const take = parseInt(searchParams.get('take') || '50');
+    const take = parseInt(searchParams.get('take') || '100');
 
     const where: any = {};
     if (status) where.status = status;
 
-    const enquiries = await (db as any).enquiry.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take
-    });
+    // Fetch from both tables in parallel
+    const [newEnquiries, oldEnquiries] = await Promise.all([
+      (db as any).enquiry.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take
+      }),
+      db.contactEnquiry.findMany({
+        where: status ? { status } : {},
+        orderBy: { createdAt: 'desc' },
+        take
+      })
+    ]);
 
-    const pendingCount = await (db as any).enquiry.count({ where: { status: 'PENDING' } });
+    // Normalize ContactEnquiry records to match Enquiry shape
+    const normalizedOld = oldEnquiries.map((e: any) => ({
+      ...e,
+      subject: 'General Enquiry',       // ContactEnquiry has no subject
+      seenByCashier: false,
+      seenBySA: false,
+      resolvedNote: e.notes || null,
+      _source: 'contact_enquiry'         // mark origin for PATCH routing
+    }));
 
-    return NextResponse.json({ success: true, enquiries, pendingCount });
+    // Merge, sort newest first, cap at take
+    const merged = [...newEnquiries, ...normalizedOld]
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, take);
+
+    const pendingCount = merged.filter((e: any) => e.status === 'PENDING').length;
+
+    return NextResponse.json({ success: true, enquiries: merged, pendingCount });
   } catch (error) {
     console.error('[Enquiry] GET error:', error);
     return NextResponse.json({ error: 'Failed to fetch enquiries' }, { status: 500 });
   }
 }
+
 
 // PATCH /api/enquiry — Update status
 export async function PATCH(request: NextRequest) {
