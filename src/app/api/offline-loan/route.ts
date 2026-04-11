@@ -1844,36 +1844,10 @@ export async function PUT(request: NextRequest) {
       // Find the pending interest EMI
       let currentEMI = loan.emis.find(e => e.paymentStatus === 'PENDING');
       
-      // If no pending EMI but last EMI is paid, create next month's EMI first
-      if (!currentEMI && loan.emis.length > 0) {
-        const lastEMI = loan.emis[0];
-        if (lastEMI.paymentStatus === 'PAID') {
-          // Create next month's interest EMI
-          const nextInstallmentNumber = lastEMI.installmentNumber + 1;
-          const newDueDate = new Date(lastEMI.dueDate);
-          newDueDate.setMonth(newDueDate.getMonth() + 1);
-          
-          const monthlyInterest = loan.interestOnlyMonthlyAmount || 0;
-          
-          currentEMI = await db.offlineLoanEMI.create({
-            data: {
-              offlineLoanId: loanId,
-              installmentNumber: nextInstallmentNumber,
-              dueDate: newDueDate,
-              originalDueDate: newDueDate,
-              principalAmount: 0,
-              interestAmount: monthlyInterest,
-              totalAmount: monthlyInterest,
-              outstandingPrincipal: loan.loanAmount,
-              paymentStatus: 'PENDING',
-              isInterestOnly: true,
-              interestOnlyAmount: monthlyInterest
-            }
-          });
-          
-          console.log(`[Offline Loan] Created next Interest EMI #${nextInstallmentNumber} for loan ${loan.loanNumber}`);
-        }
-      }
+      // NOTE: Do NOT pre-create the next EMI here.
+      // The DB transaction block below always creates the next-month EMI after marking
+      // the current one as PAID. Pre-creating it here causes a duplicate EMI bug.
+      // The only fallback needed is when there is NO EMI at all (first payment).
 
       // If still no EMI, create the first one (shouldn't happen normally)
       if (!currentEMI) {
@@ -2061,6 +2035,77 @@ export async function PUT(request: NextRequest) {
           }
         });
       });
+
+      // ============================================================
+      // ACCOUNTING: Record Interest-Only Payment as Interest Income
+      // Dr: Cash in Hand / Bank Account  = interestAmount
+      // Cr: Interest Income (4110)       = interestAmount
+      // This was previously MISSING — interest was collected but
+      // never reflected in the company's income accounts.
+      // ============================================================
+      if (loan.companyId) { // guard: only run accounting if company is known
+        try {
+          const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
+          const { AccountingService: AccSvc, ACCOUNT_CODES: CODES } = await import('@/lib/accounting-service');
+          const accService = new AccSvc(loan.companyId);
+          await accService.initializeChartOfAccounts();
+
+          // Cashbook or Bank entry
+          if (isOnlineMode) {
+            const { recordBankTransaction } = await import('@/lib/simple-accounting');
+            await recordBankTransaction({
+              companyId: loan.companyId,
+              transactionType: 'CREDIT',
+              amount: interestAmount,
+              description: `Interest-Only EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
+              referenceType: 'INTEREST_ONLY_PAYMENT',
+              referenceId: currentEMI.id,
+              createdById: userId,
+            });
+          } else {
+            const { recordCashBookEntry } = await import('@/lib/simple-accounting');
+            await recordCashBookEntry({
+              companyId: loan.companyId,
+              entryType: 'CREDIT',
+              amount: interestAmount,
+              description: `Interest-Only EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
+              referenceType: 'INTEREST_ONLY_PAYMENT',
+              referenceId: currentEMI.id,
+              createdById: userId,
+            });
+          }
+
+          // Double-entry journal: Dr Cash/Bank → Cr Interest Income
+          await accService.createJournalEntry({
+            entryDate: now,
+            referenceType: 'INTEREST_ONLY_PAYMENT',
+            referenceId: currentEMI.id,
+            narration: `Interest-Only EMI #${currentEMI.installmentNumber} for ${loan.loanNumber} — ₹${interestAmount}`,
+            lines: [
+              {
+                accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND,
+                debitAmount:  interestAmount,
+                creditAmount: 0,
+                narration: `Interest received (${paymentMode || 'CASH'})`,
+              },
+              {
+                accountCode: CODES.INTEREST_INCOME,
+                debitAmount:  0,
+                creditAmount: interestAmount,
+                narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}`,
+              },
+            ],
+            createdById: userId,
+            paymentMode: paymentMode || 'CASH',
+            isAutoEntry: true,
+          });
+
+          console.log(`[Interest-Only Accounting] ✓ Dr ${isOnlineMode ? 'Bank' : 'Cash'} ₹${interestAmount}, Cr Interest Income ₹${interestAmount}`);
+        } catch (accErr) {
+          // Non-fatal: log but don't block the success response
+          console.error('[Interest-Only Accounting] Failed (non-critical):', accErr);
+        }
+      } // end if (loan.companyId)
 
       return NextResponse.json({
         success: true,
@@ -2351,20 +2396,27 @@ export async function PUT(request: NextRequest) {
                 }
               });
             } else if (paymentStatus === 'PARTIALLY_PAID') {
-              const paymentRatio = paidAmount / emi.totalAmount;
+              // Fix: use the mirror EMI's own totalAmount as the denominator so the
+              // principal/interest split reflects the MIRROR rate, not the original rate.
+              const mirrorPaymentRatio = mirrorEmi.totalAmount > 0
+                ? Math.min(paidAmount / emi.totalAmount, 1)   // same % as original
+                : 0;
+              const mirrorPaidAmount    = Math.round(mirrorEmi.totalAmount    * mirrorPaymentRatio * 100) / 100;
+              const mirrorPaidPrincipal = Math.round(mirrorEmi.principalAmount * mirrorPaymentRatio * 100) / 100;
+              const mirrorPaidInterest  = Math.round(mirrorEmi.interestAmount  * mirrorPaymentRatio * 100) / 100;
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus: 'PARTIALLY_PAID',
-                  paidAmount: Math.round(mirrorEmi.totalAmount * paymentRatio * 100) / 100,
-                  paidPrincipal: Math.round(mirrorEmi.principalAmount * paymentRatio * 100) / 100,
-                  paidInterest: Math.round(mirrorEmi.interestAmount * paymentRatio * 100) / 100,
-                  paidDate: now,
+                  paidAmount:    mirrorPaidAmount,
+                  paidPrincipal: mirrorPaidPrincipal,
+                  paidInterest:  mirrorPaidInterest,
+                  paidDate:      now,
                   paymentMode,
-                  collectedById: userId,
+                  collectedById:   userId,
                   collectedByName: user.name,
-                  collectedAt: now,
-                  notes: `[MIRROR SYNC] Partial payment (${Math.round(paymentRatio * 100)}%)`
+                  collectedAt:     now,
+                  notes: `[MIRROR SYNC] Partial payment (${Math.round(mirrorPaymentRatio * 100)}%) – mirror amounts`
                 }
               });
             }

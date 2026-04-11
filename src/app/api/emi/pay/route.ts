@@ -21,6 +21,9 @@ export async function POST(request: NextRequest) {
     const isAdvancePayment = formData.get('isAdvancePayment') === 'true'; // Advance payment flag
     
     const paymentType = (formData.get('paymentType') as string) || 'FULL_EMI';
+    // Editable interest amount for original loans (staff can override)
+    const editedInterestRaw = formData.get('editedInterest');
+    const editedInterest = editedInterestRaw ? parseFloat(editedInterestRaw as string) : null;
     
     console.log(`[EMI Pay] ========== PAYMENT REQUEST ==========`);
     console.log(`[EMI Pay] EMI ID: ${emiId}`);
@@ -233,9 +236,17 @@ export async function POST(request: NextRequest) {
       } else {
         // REGULAR FULL PAYMENT
         paidPrincipal = remainingPrincipal;
-        paidInterest = remainingInterest;
-        paidAmount = remainingAmount;
-        newEmiStatus = 'PAID';
+        paidInterest  = remainingInterest;
+        paidAmount    = remainingAmount;
+        newEmiStatus  = 'PAID';
+        // ── Apply staff-edited interest (original loans only) ─────────────
+        // If the cashier has manually overridden the interest amount via the
+        // dialog, honour that value so the correct interest is recorded.
+        if (editedInterest !== null && !isNaN(editedInterest) && editedInterest >= 0) {
+          paidInterest = editedInterest;
+          paidAmount   = paidPrincipal + paidInterest;
+          console.log(`[EMI Pay] Staff-edited interest applied: ₹${paidInterest} (was ₹${remainingInterest})`);
+        }
         console.log(`[EMI Pay] FULL payment - Principal: ₹${paidPrincipal}, Interest: ₹${paidInterest}`);
       }
     } else if (paymentType === 'PARTIAL_PAYMENT') {
@@ -1106,7 +1117,13 @@ export async function POST(request: NextRequest) {
       const { AccountingService } = await import('@/lib/accounting-service');
       const companyIdToUse = isMirrorPayment ? mirrorMappingForAccounting.mirrorCompanyId : (emi.loanApplication?.companyId || companyId);
       
-      if (companyIdToUse) {
+      // ── SKIP ACCOUNTING FOR ORIGINAL (NON-MIRROR) LOANS ────────────────
+      // Per business rule: original loan EMI payments must NOT generate
+      // journal entries. Only mirror loans produce accounting entries.
+      const isOriginalLoanOnly = !mirrorMappingForAccounting;
+      if (isOriginalLoanOnly) {
+        console.log(`[Accounting] SKIPPED — original loan ${loanId} (no mirror). No journal entry created.`);
+      } else if (companyIdToUse) {
         const accountingService = new AccountingService(companyIdToUse);
         await accountingService.initializeChartOfAccounts();
         
@@ -1237,7 +1254,7 @@ export async function POST(request: NextRequest) {
             console.log(`[Accounting] Mirror Profit (₹${profitAmount}) recorded for Company ${originalCompanyId}`);
           }
         }
-      }
+      } // end else-if (companyIdToUse) for mirror loans
     } catch (accError) {
       console.error('[Accounting] EMI payment journal failed:', accError);
     }

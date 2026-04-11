@@ -573,7 +573,7 @@ export default function CustomerLoanDetailPage() {
   const overdueEmis = emiSchedules.filter(e => e.paymentStatus === 'OVERDUE');
   const progress = emiSchedules.length > 0 ? (paidEmis.length / emiSchedules.length) * 100 : 0;
   const totalPaid = paidEmis.reduce((sum, e) => sum + e.paidAmount, 0);
-  const totalOutstanding = pendingEmis.reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0) + overdueEmis.reduce((sum, e) => sum + e.totalAmount, 0);
+  const totalPrincipalRemaining = pendingEmis.reduce((sum, e) => sum + (e.principalAmount - (e.paidPrincipal || 0)), 0) + overdueEmis.reduce((sum, e) => sum + e.principalAmount, 0);
 
   // Sequential EMI Payment - Check if this EMI can be paid
   const canPayEmi = (emi: EMISchedule) => {
@@ -716,8 +716,8 @@ export default function CustomerLoanDetailPage() {
                   <Clock className="h-5 w-5 text-amber-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Outstanding</p>
-                  <p className="font-bold text-lg text-amber-600">{formatCurrency(totalOutstanding)}</p>
+                  <p className="text-xs text-gray-500">Principal Remaining</p>
+                  <p className="font-bold text-lg text-amber-600">{formatCurrency(totalPrincipalRemaining)}</p>
                 </div>
               </div>
             </CardContent>

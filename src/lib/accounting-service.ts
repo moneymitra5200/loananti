@@ -179,7 +179,8 @@ export type JournalEntryType =
   | 'YEAR_END_CLOSING'
   | 'BANK_TRANSFER'
   | 'CASH_DEPOSIT'
-  | 'CASH_WITHDRAWAL';
+  | 'CASH_WITHDRAWAL'
+  | 'INTEREST_ONLY_PAYMENT';
 
 // ============================================
 // MAIN ACCOUNTING SERVICE CLASS

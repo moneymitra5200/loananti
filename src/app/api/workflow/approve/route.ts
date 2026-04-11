@@ -58,11 +58,11 @@ async function generateLoanNo(loanType: string, companyId: string): Promise<stri
 
   const prefix = `${companyCode}${productCode}`;
 
-  // Get count of loans with this prefix (only ACTIVE loans)
+  // Count ALL loans with this prefix regardless of status to prevent
+  // duplicate application numbers when loans are rejected or closed.
   const count = await db.loanApplication.count({
     where: {
-      applicationNo: { startsWith: prefix },
-      status: 'ACTIVE'
+      applicationNo: { startsWith: prefix }
     }
   });
 

@@ -404,6 +404,8 @@ model LoanApplication {
   @@index([customerId])
   @@index([status])
   @@index([companyId])
+  @@index([status, companyId])   // compound: dashboard filtered by company + status
+  @@index([customerId, status])  // compound: customer loan list filtered by status
 }
 
 model LoanForm {
@@ -1020,6 +1022,8 @@ model JournalEntry {
   @@index([isApproved])
   @@index([paymentMode])
   @@index([bankAccountId])
+  @@index([companyId, entryDate])     // compound: daybook date range per company
+  @@index([referenceId, referenceType]) // compound: find journal entry by reference
 }
 
 // Journal Entry Lines - Individual debit/credit lines
@@ -1189,6 +1193,8 @@ model CashBookEntry {
   @@index([cashBookId])
   @@index([entryDate])
   @@index([referenceType])
+  @@index([cashBookId, entryDate])     // compound: cashbook history by date range
+  @@index([referenceId, referenceType]) // compound: find cashbook entry by reference
 }
 
 // Accounting Settings
@@ -2115,6 +2121,8 @@ model OfflineLoan {
   @@index([customerId])
   @@index([status])
   @@index([disbursementDate])
+  @@index([companyId, status])      // compound: admin list by company + status
+  @@index([customerPhone])          // phone search
 }
 
 // Offline Loan EMI Schedule
@@ -2171,6 +2179,8 @@ model OfflineLoanEMI {
   @@index([dueDate])
   @@index([paymentStatus])
   @@index([collectedById])
+  @@index([offlineLoanId, paymentStatus])  // compound: find PENDING EMIs for a loan fast
+  @@index([dueDate, paymentStatus])        // compound: overdue EMI reports
 }
 
 // EMI Reminder Log - Track all reminders sent

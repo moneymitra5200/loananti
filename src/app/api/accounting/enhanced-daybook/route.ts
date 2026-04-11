@@ -34,8 +34,9 @@ export async function GET(request: NextRequest) {
       where.referenceType = referenceType;
     }
 
-    // First, sync all existing transactions to daybook
-    await syncExistingTransactions(companyId);
+    // NOTE: Auto-sync removed — it ran on every page load causing serious performance
+    // degradation. Use POST ?action=sync to manually trigger a backfill when needed.
+    // await syncExistingTransactions(companyId);
 
     // Fetch daybook entries
     const daybookEntries = await db.daybookEntry.findMany({

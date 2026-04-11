@@ -143,6 +143,7 @@ function AnalyticsSection({
   rejectedLoans, highRiskLoans, totalRequested, totalDisbursed
 }: Props) {
   const [tab, setTab] = useState('overview');
+  const [comparisonMode, setComparisonMode] = useState<'1M' | '3M' | '6M'>('1M');
 
   // ── Live EMI Collection Data (fetched from API) ───────────
   const [emiCollection, setEmiCollection] = useState<any[]>([]);
@@ -309,12 +310,13 @@ function AnalyticsSection({
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex flex-wrap gap-1 h-auto p-1.5 bg-gray-100 rounded-xl w-full">
           {[
-            { v: 'overview',     label: '📊 Overview' },
+          { v: 'overview',     label: '📊 Overview' },
             { v: 'monthly',      label: '📅 Monthly Drill' },
             { v: 'emi',          label: '💰 EMI Collection' },
             { v: 'yearly',       label: '📈 Yearly' },
             { v: 'distribution', label: '🥧 Distribution' },
             { v: 'risk',         label: '⚠️ Risk & Health' },
+            { v: 'comparison',   label: '🔄 Month Comparison' },
           ].map(t => (
             <TabsTrigger key={t.v} value={t.v} className="rounded-lg text-xs sm:text-sm flex-1 min-w-fit">
               {t.label}
@@ -1122,6 +1124,197 @@ function AnalyticsSection({
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* ══ MONTH COMPARISON TAB CONTENT (outside Tabs to avoid nested Tabs issues) ══ */}
+      {tab === 'comparison' && (() => {
+        const monthsCount = comparisonMode === '1M' ? 1 : comparisonMode === '3M' ? 3 : 6;
+        const now = new Date();
+
+        // Current period: last N months ending this month
+        const currentPeriod = Array.from({ length: monthsCount }, (_, i) => {
+          const d = new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1 - i), 1);
+          const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+          const ml = loans.filter(l => { const c = new Date(l.createdAt); return c >= d && c < next; });
+          const disb = ml.filter(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
+          return {
+            month: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+            applications: ml.length,
+            disbursed: disb.length,
+            amount: disb.reduce((s, l) => s + (l.disbursedAmount || l.sessionForm?.approvedAmount || l.requestedAmount || 0), 0),
+            convRate: ml.length > 0 ? parseFloat(((disb.length / ml.length) * 100).toFixed(1)) : 0,
+          };
+        });
+
+        // Previous period: N months before current period
+        const prevPeriod = Array.from({ length: monthsCount }, (_, i) => {
+          const d = new Date(now.getFullYear(), now.getMonth() - (monthsCount * 2 - 1 - i), 1);
+          const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+          const ml = loans.filter(l => { const c = new Date(l.createdAt); return c >= d && c < next; });
+          const disb = ml.filter(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
+          return {
+            month: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+            applications: ml.length,
+            disbursed: disb.length,
+            amount: disb.reduce((s, l) => s + (l.disbursedAmount || l.sessionForm?.approvedAmount || l.requestedAmount || 0), 0),
+            convRate: ml.length > 0 ? parseFloat(((disb.length / ml.length) * 100).toFixed(1)) : 0,
+          };
+        });
+
+        // Aggregate totals for KPI comparison
+        const curTotals = { apps: currentPeriod.reduce((s,m) => s+m.applications,0), disb: currentPeriod.reduce((s,m) => s+m.disbursed,0), amount: currentPeriod.reduce((s,m) => s+m.amount,0) };
+        const prevTotals = { apps: prevPeriod.reduce((s,m) => s+m.applications,0), disb: prevPeriod.reduce((s,m) => s+m.disbursed,0), amount: prevPeriod.reduce((s,m) => s+m.amount,0) };
+
+        const delta = (cur: number, prev: number) => prev > 0 ? ((cur - prev) / prev * 100).toFixed(1) : cur > 0 ? '+∞' : '0';
+        const isUp = (cur: number, prev: number) => cur >= prev;
+
+        // Merge data for side-by-side chart
+        const chartData = Array.from({ length: monthsCount }, (_, i) => ({
+          index: `#${i + 1}`,
+          'Current Apps': currentPeriod[i].applications,
+          'Prev Apps': prevPeriod[i].applications,
+          'Current Disb': currentPeriod[i].disbursed,
+          'Prev Disb': prevPeriod[i].disbursed,
+          'Current Amt': currentPeriod[i].amount,
+          'Prev Amt': prevPeriod[i].amount,
+        }));
+
+        return (
+          <div className="space-y-5 mt-4">
+            {/* Period Selector */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-semibold text-gray-700">📊 Compare Period:</span>
+              {(['1M', '3M', '6M'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => setComparisonMode(m)}
+                  className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all ${
+                    comparisonMode === m
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
+                  }`}
+                >
+                  {m === '1M' ? 'Last Month vs This Month' : m === '3M' ? 'Last 3M vs This 3M' : 'Last 6M vs This 6M'}
+                </button>
+              ))}
+            </div>
+
+            {/* KPI Delta Cards */}
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { label: 'Applications', cur: curTotals.apps, prev: prevTotals.apps, fmt: (v: number) => v.toString() },
+                { label: 'Disbursed Loans', cur: curTotals.disb, prev: prevTotals.disb, fmt: (v: number) => v.toString() },
+                { label: 'Disbursement Volume', cur: curTotals.amount, prev: prevTotals.amount, fmt },
+              ].map(k => {
+                const up = isUp(k.cur, k.prev);
+                const d = delta(k.cur, k.prev);
+                return (
+                  <Card key={k.label} className="border border-gray-100 shadow-sm">
+                    <CardContent className="p-4">
+                      <p className="text-xs text-gray-500 mb-1">{k.label}</p>
+                      <div className="flex items-end gap-2">
+                        <span className="text-xl font-bold text-gray-800">{k.fmt(k.cur)}</span>
+                        <span className={`text-xs font-semibold mb-0.5 ${up ? 'text-green-600' : 'text-red-500'}`}>
+                          {up ? '▲' : '▼'} {d}%
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">vs {k.fmt(k.prev)} prev period</p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Side-by-side Applications + Disbursed Comparison */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-indigo-600" />
+                  Applications & Disbursements — Current vs Previous
+                </CardTitle>
+                <CardDescription>
+                  Current period ({currentPeriod.map(m => m.month).join(', ')}) vs Previous ({prevPeriod.map(m => m.month).join(', ')})
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="index" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} />
+                    <Tooltip content={<CT />} />
+                    <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="Current Apps" fill={P.blue} radius={[4,4,0,0]} />
+                    <Bar dataKey="Prev Apps" fill={`${P.blue}60`} radius={[4,4,0,0]} />
+                    <Bar dataKey="Current Disb" fill={P.green} radius={[4,4,0,0]} />
+                    <Bar dataKey="Prev Disb" fill={`${P.green}60`} radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Disbursement Volume Comparison */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <IndianRupee className="h-4 w-4 text-emerald-600" />
+                  Disbursement Volume (₹) — Current vs Previous
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="index" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={fmt} />
+                    <Tooltip content={<CT />} />
+                    <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="Current Amt" name="Current Volume" fill={P.violet} radius={[4,4,0,0]} />
+                    <Bar dataKey="Prev Amt" name="Previous Volume" fill={`${P.violet}60`} radius={[4,4,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Detail Table */}
+            <Card className="border border-gray-100 shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-gray-600" />
+                  Month-by-Month Detail Comparison
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="py-2 px-3 text-left font-semibold text-gray-600">Metric</th>
+                      {currentPeriod.map(m => <th key={`c-${m.month}`} className="py-2 px-3 text-right font-semibold text-indigo-600">Current: {m.month}</th>)}
+                      {prevPeriod.map(m => <th key={`p-${m.month}`} className="py-2 px-3 text-right font-semibold text-gray-400">Prev: {m.month}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {['Applications', 'Disbursed', 'Volume (₹)', 'Conv %'].map(metric => (
+                      <tr key={metric} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="py-2 px-3 font-semibold text-gray-700">{metric}</td>
+                        {currentPeriod.map((m, i) => (
+                          <td key={`c${i}`} className="py-2 px-3 text-right font-medium text-indigo-700">
+                            {metric === 'Applications' ? m.applications : metric === 'Disbursed' ? m.disbursed : metric === 'Volume (₹)' ? fmt(m.amount) : `${m.convRate}%`}
+                          </td>
+                        ))}
+                        {prevPeriod.map((m, i) => (
+                          <td key={`p${i}`} className="py-2 px-3 text-right text-gray-500">
+                            {metric === 'Applications' ? m.applications : metric === 'Disbursed' ? m.disbursed : metric === 'Volume (₹)' ? fmt(m.amount) : `${m.convRate}%`}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
     </div>
   );
 }

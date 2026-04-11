@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { PaymentType, PaymentRequestStatus } from '@prisma/client';
+import { AccountingService } from '@/lib/accounting-service';
 
 // GET - List payment requests (for cashier/admin)
 export async function GET(request: NextRequest) {
@@ -520,14 +521,18 @@ export async function PUT(request: NextRequest) {
           const partialCount = emi.partialPaymentCount + 1;
           const maxPartialPayments = 2;
 
-          // Calculate principal and interest for partial payment
-          const totalPrincipal = emi.principalAmount;
+          // Calculate principal and interest for partial payment — INTEREST FIRST
+          // Business rule: interest is collected before principal on any partial payment
           const totalInterest = emi.interestAmount;
-          const principalRatio = totalPrincipal / emi.totalAmount;
-          const interestRatio = totalInterest / emi.totalAmount;
-          
-          const paidPrincipal = partialAmount * principalRatio;
-          const paidInterest = partialAmount * interestRatio;
+          let paidPrincipal: number;
+          let paidInterest: number;
+          if (partialAmount <= totalInterest) {
+            paidInterest  = partialAmount;
+            paidPrincipal = 0;
+          } else {
+            paidInterest  = totalInterest;
+            paidPrincipal = Math.round((partialAmount - totalInterest) * 100) / 100;
+          }
 
           // Update EMI with partial payment info
           await tx.eMISchedule.update({
@@ -680,6 +685,142 @@ export async function PUT(request: NextRequest) {
 
         return updated;
       }, { timeout: 30000 }); // 30 second timeout for complex payment processing
+
+      // ============================================================
+      // POST-APPROVAL ACCOUNTING + MIRROR SYNC
+      // Runs AFTER the DB transaction so it never blocks the approval.
+      //
+      // Flow:
+      //  1. Customer pays on ORIGINAL loan via payment request
+      //  2. Cashier approves → EMI marked paid above
+      //  3. Below: find mirror mapping → sync mirror EMI → record
+      //     accounting in MIRROR company (Dr Cash/Bank, Cr Interest)
+      //  4. If no mirror: no journal entry (original loan policy)
+      // ============================================================
+      setImmediate(async () => {
+        try {
+          const loan = paymentRequest.loanApplication;
+          if (!loan?.companyId) return;
+
+          const pType = paymentRequest.paymentType;
+          const payMode = paymentRequest.paymentMethod || 'UPI';
+          const paidAmt  = pType === 'PARTIAL_PAYMENT'
+            ? (paymentRequest.partialAmount || 0)
+            : pType === 'INTEREST_ONLY'
+              ? emi.interestAmount
+              : paymentRequest.requestedAmount;
+
+          // ── Interest-first split for accounting ─────────────────
+          const interestFirst = emi.interestAmount;
+          let accPaidInterest: number;
+          let accPaidPrincipal: number;
+          if (pType === 'INTEREST_ONLY') {
+            accPaidInterest  = paidAmt;
+            accPaidPrincipal = 0;
+          } else if (pType === 'PARTIAL_PAYMENT') {
+            if (paidAmt <= interestFirst) {
+              accPaidInterest  = paidAmt;
+              accPaidPrincipal = 0;
+            } else {
+              accPaidInterest  = interestFirst;
+              accPaidPrincipal = paidAmt - interestFirst;
+            }
+          } else {
+            // FULL_EMI
+            accPaidInterest  = emi.interestAmount;
+            accPaidPrincipal = emi.principalAmount;
+          }
+
+          // ── Check if original loan has a mirror mapping ──────────
+          const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+            where: { originalLoanId: loan.id }   // ← correct direction
+          });
+
+          if (!mirrorMapping) {
+            // No mirror — no accounting entry per business rule
+            console.log(`[PR Accounting] Skipping — original loan ${loan.id} has no mirror.`);
+            return;
+          }
+
+          // ── Sync mirror EMI ─────────────────────────────────────
+          if (!mirrorMapping.mirrorLoanId) return; // guard against null
+          const mirrorEmi = await db.eMISchedule.findFirst({
+            where: {
+              loanApplicationId: mirrorMapping.mirrorLoanId,
+              installmentNumber: emi.installmentNumber
+            }
+          });
+
+          if (mirrorEmi) {
+            const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
+            const mirrorInterest = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
+            const mirrorPrincipal = mirrorEmi.principalAmount || 0;
+
+            if (pType === 'FULL_EMI') {
+              await db.eMISchedule.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'PAID',
+                  paidAmount: mirrorEmi.totalAmount,
+                  paidPrincipal: mirrorPrincipal,
+                  paidInterest: mirrorInterest,
+                  paidDate: new Date(),
+                  paymentMode: payMode,
+                  notes: `[MIRROR SYNC via Payment Request] EMI #${emi.installmentNumber}`
+                }
+              });
+            } else if (pType === 'PARTIAL_PAYMENT') {
+              const ratio = Math.min(paidAmt / emi.totalAmount, 1);
+              await db.eMISchedule.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'PARTIALLY_PAID',
+                  paidAmount: Math.round(mirrorEmi.totalAmount * ratio * 100) / 100,
+                  paidPrincipal: Math.round(mirrorPrincipal * ratio * 100) / 100,
+                  paidInterest: Math.round(mirrorInterest * ratio * 100) / 100,
+                  paidDate: new Date(),
+                  paymentMode: payMode,
+                  notes: `[MIRROR SYNC via Payment Request] Partial ${Math.round(ratio*100)}%`
+                }
+              });
+            } else if (pType === 'INTEREST_ONLY') {
+              await db.eMISchedule.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'INTEREST_ONLY_PAID',
+                  paidAmount: mirrorInterest,
+                  paidPrincipal: 0,
+                  paidInterest: mirrorInterest,
+                  paidDate: new Date(),
+                  paymentMode: payMode,
+                  notes: `[MIRROR SYNC via Payment Request] Interest only`
+                }
+              });
+            }
+
+            // ── Mirror company journal entry ─────────────────────
+            const { AccountingService } = await import('@/lib/accounting-service');
+            const accSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
+            await accSvc.initializeChartOfAccounts();
+            await accSvc.recordEMIPayment({
+              loanId:             mirrorMapping.mirrorLoanId!,
+              customerId:         paymentRequest.customerId,
+              paymentId:          (result as any).id as string,
+              totalAmount:        paidAmt,
+              principalComponent: accPaidPrincipal,
+              interestComponent:  accPaidInterest,
+              paymentDate:        new Date(),
+              paymentMode:        payMode,
+              createdById:        reviewedById,
+              reference: `PaymentReq#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`
+            });
+
+            console.log(`[PR Accounting] ✓ Mirror EMI #${emi.installmentNumber} synced & journal entry created in company ${mirrorMapping.mirrorCompanyId}`);
+          }
+        } catch (accErr) {
+          console.error('[PR Accounting] Error (non-blocking):', accErr);
+        }
+      });
 
       return NextResponse.json({ 
         success: true, 

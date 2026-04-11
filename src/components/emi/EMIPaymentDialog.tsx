@@ -105,6 +105,8 @@ export default function EMIPaymentDialog({
   const [paymentReference, setPaymentReference] = useState('');
   const [processing, setProcessing] = useState(false);
   const [interestOnlyConfirmed, setInterestOnlyConfirmed] = useState(false);
+  // Editable interest for original (non-mirror) loans
+  const [editedInterest, setEditedInterest] = useState<string>('');
 
   // Bank details state
   const [bankDetails, setBankDetails] = useState<{
@@ -120,6 +122,8 @@ export default function EMIPaymentDialog({
 
   // Determine if this is an Extra EMI
   const isActuallyExtraEMI = isExtraEMI || (mirrorLoanInfo && emi && emi.installmentNumber > (mirrorLoanInfo.mirrorTenure || 0));
+  // True when this is an original (non-mirror) online loan — interest is editable
+  const isOriginalOnlineLoan = type === 'online' && !mirrorLoanInfo?.isMirrorLoan;
   
   // Determine if Personal Credit should be available
   // Personal Credit is only for Extra EMIs when Secondary Payment Page is assigned
@@ -253,10 +257,14 @@ export default function EMIPaymentDialog({
             isAdvance: true
           };
         }
+        // Use staff-edited interest if set (original online loans only)
+        const resolvedInterest = (isOriginalOnlineLoan && editedInterest !== '' && !isNaN(parseFloat(editedInterest)))
+          ? parseFloat(editedInterest)
+          : effectiveInterest;
         return {
-          amount: effectiveTotal,
+          amount: effectivePrincipal + resolvedInterest,
           principal: effectivePrincipal,
-          interest: effectiveInterest,
+          interest: resolvedInterest,
           description: 'Full EMI Payment',
           remainingAfter: 0,
           isAdvance: false
@@ -414,6 +422,10 @@ export default function EMIPaymentDialog({
         if (mirrorLoanInfo?.mirrorInterest) {
           formData.append('mirrorInterest', mirrorLoanInfo.mirrorInterest.toString());
         }
+        // Pass edited interest for original loan interest override
+        if (isOriginalOnlineLoan && editedInterest !== '' && !isNaN(parseFloat(editedInterest))) {
+          formData.append('editedInterest', editedInterest);
+        }
 
         if (paymentType === 'PARTIAL_PAYMENT') {
           formData.append('partialAmount', partialAmount);
@@ -461,6 +473,7 @@ export default function EMIPaymentDialog({
     setNextPaymentDate(undefined);
     setPaymentReference('');
     setInterestOnlyConfirmed(false);
+    setEditedInterest('');
   };
 
   const minNextPaymentDate = addDays(new Date(emi.dueDate), 1);
@@ -766,7 +779,7 @@ export default function EMIPaymentDialog({
                 ) : (
                   <CheckCircle2 className="h-5 w-5 text-emerald-500 mt-0.5" />
                 )}
-                <div className={`text-sm ${isAdvance ? 'text-blue-700' : 'text-emerald-700'}`}>
+                <div className={`text-sm flex-1 ${isAdvance ? 'text-blue-700' : 'text-emerald-700'}`}>
                   <p className="font-medium">
                     {isAdvance ? 'Advance Payment - Principal Only' : 'Full EMI Payment'}
                   </p>
@@ -786,10 +799,29 @@ export default function EMIPaymentDialog({
                     </>
                   ) : (
                     <>
-                      <p className="mt-1">Pay the complete remaining amount of {formatCurrency(remainingAmount)}</p>
+                      <p className="mt-1">Pay the complete remaining amount of {formatCurrency(details?.amount || remainingAmount)}</p>
                       <div className="mt-2 text-xs text-emerald-600">
                         <p>Principal: {formatCurrency(remainingPrincipal)}</p>
-                        <p>Interest: {formatCurrency(remainingInterest)}</p>
+                        {/* Editable interest for original loans */}
+                        {isOriginalOnlineLoan ? (
+                          <div className="flex items-center gap-2 mt-1">
+                            <span>Interest:</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editedInterest}
+                              onChange={e => setEditedInterest(e.target.value)}
+                              className="w-28 px-2 py-0.5 border border-emerald-300 rounded text-emerald-800 bg-white text-xs font-semibold"
+                              placeholder={remainingInterest.toFixed(2)}
+                            />
+                            <span className="text-emerald-500 text-xs italic">
+                              {editedInterest === '' ? `default: ₹${remainingInterest.toFixed(2)}` : '(edited)'}
+                            </span>
+                          </div>
+                        ) : (
+                          <p>Interest: {formatCurrency(remainingInterest)}</p>
+                        )}
                       </div>
                     </>
                   )}

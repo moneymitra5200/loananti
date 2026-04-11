@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
           mirrorTenure: m.mirrorTenure,
           originalTenure: m.originalTenure,
           originalEMIAmount: m.originalEMIAmount,
-          mirrorEMIAmount: m.originalEMIAmount, // Same EMI amount
+          mirrorEMIAmount: (m as any).mirrorEMIAmount ?? m.originalEMIAmount, // Use actual mirror EMI amount
           loanApplication: mirrorLoan ? {
             id: mirrorLoan.id,
             applicationNo: mirrorLoan.applicationNo,
