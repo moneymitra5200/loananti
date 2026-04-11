@@ -1215,50 +1215,49 @@ export async function POST(request: NextRequest) {
       }
 
       const { AccountingService } = await import('@/lib/accounting-service');
-      const companyIdToUse = isMirrorPayment ? mirrorMappingForAccounting.mirrorCompanyId : (emi.loanApplication?.companyId || companyId);
-      
-      // ── SKIP ACCOUNTING FOR ORIGINAL (NON-MIRROR) LOANS ────────────────
-      // Per business rule: original loan EMI payments must NOT generate
-      // journal entries. Only mirror loans produce accounting entries.
-      const isOriginalLoanOnly = !mirrorMappingForAccounting;
-      if (isOriginalLoanOnly) {
-        console.log(`[Accounting] SKIPPED — original loan ${loanId} (no mirror). No journal entry created.`);
-      } else if (companyIdToUse) {
+      const companyIdToUse = isMirrorPayment
+        ? mirrorMappingForAccounting!.mirrorCompanyId
+        : (emi.loanApplication?.companyId || companyId);
+
+      // ALL loans (mirror and regular) need accounting entries
+      if (companyIdToUse) {
         const accountingService = new AccountingService(companyIdToUse);
         await accountingService.initializeChartOfAccounts();
-        
-        // ── SPLIT PAYMENT: record cash & bank portions separately ────────
-        if (isSplitPayment && splitCashAmount > 0 && splitOnlineAmount > 0) {
-          const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
 
-          // Cash portion → CashBook CREDIT
-          await recordCashBookEntry({
-            companyId: companyIdToUse,
-            entryType: 'CREDIT',
-            amount: splitCashAmount,
-            description: `EMI #${emi.installmentNumber} Cash Portion - ${emi.loanApplication?.applicationNo}`,
-            referenceType: 'EMI_PAYMENT',
-            referenceId: `${payment.id}-CASH`,
-            createdById: paidBy,
-          });
-
-          // Online portion → BankTransaction CREDIT
-          await recordBankTransaction({
-            companyId: companyIdToUse,
-            transactionType: 'CREDIT',
-            amount: splitOnlineAmount,
-            description: `EMI #${emi.installmentNumber} Online Portion - ${emi.loanApplication?.applicationNo}`,
-            referenceType: 'EMI_PAYMENT',
-            referenceId: `${payment.id}-ONLINE`,
-            createdById: paidBy,
-          });
-
-          console.log(`[EMI Split] Cash ₹${splitCashAmount} → CashBook | Online ₹${splitOnlineAmount} → Bank`);
+        // ── CASHBOOK / BANK ENTRY for regular (non-mirror) loans ────────
+        // Mirror loans already record cashbook in the mirror sync block above.
+        // For regular loans we must record here so Day Book / Cash Book shows the receipt.
+        if (!isMirrorPayment && paidAmount > 0) {
+          try {
+            const isOnlinePayment = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'CHEQUE'].includes(
+              (paymentMode || '').toUpperCase()
+            );
+            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+            if (isSplitPayment && splitCashAmount > 0 && splitOnlineAmount > 0) {
+              await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: splitCashAmount,
+                description: `EMI #${emi.installmentNumber} Cash - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'EMI_PAYMENT', referenceId: `${payment.id}-CASH`, createdById: paidBy });
+              await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: splitOnlineAmount,
+                description: `EMI #${emi.installmentNumber} Online - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'EMI_PAYMENT', referenceId: `${payment.id}-ONLINE`, createdById: paidBy });
+            } else if (isOnlinePayment) {
+              await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: paidAmount,
+                description: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
+            } else {
+              await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: paidAmount,
+                description: `EMI #${emi.installmentNumber} Cash - ${emi.loanApplication?.applicationNo}`,
+                referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
+            }
+            console.log(`[CashBook/Bank] ₹${paidAmount} recorded for regular loan EMI #${emi.installmentNumber}`);
+          } catch (cbErr) {
+            console.error('[CashBook/Bank] Entry failed (non-critical):', cbErr);
+          }
         }
-
-        // ── EMI PAYMENT JOURNAL ENTRY ────────────────────────────────────
-        // Record the main EMI payment (principal + interest journal entry)
-        // Issue 2 Fix: Use mirror loan amounts (not original amounts) for mirror journal entries
+        
+        
+        // ── EMI PAYMENT JOURNAL ENTRY (Principal + Interest) ──────────
+        // Works for ALL loan types — mirror uses mirror amounts, regular uses actual amounts.
         await accountingService.recordEMIPayment({
           loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
           customerId: emi.loanApplication?.customerId || '',
@@ -1271,8 +1270,38 @@ export async function POST(request: NextRequest) {
           paymentMode: isSplitPayment ? 'CASH' : (paymentMode as any),
           reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
         });
-        
-        console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse}`);
+        console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse} (${isMirrorPayment ? 'MIRROR' : 'REGULAR'})`);
+
+        // ── PROCESSING FEE — non-mirror, EMI #1 only ────────────────────
+        if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
+          try {
+            const loanData = await db.loanApplication.findUnique({
+              where: { id: loanId }, select: { processingFee: true, applicationNo: true }
+            });
+            const procFee = (loanData?.processingFee || 0);
+            if (procFee > 0) {
+              const { recordCashBookEntry } = await import('@/lib/simple-accounting');
+              await recordCashBookEntry({
+                companyId: companyIdToUse, entryType: 'CREDIT', amount: procFee,
+                description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy,
+              });
+              await accountingService.createJournalEntry({
+                entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION',
+                referenceId: `${loanId}-PF-JE`,
+                narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                createdById: paidBy,
+                lines: [
+                  { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
+                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
+                ],
+              });
+              console.log(`[Processing Fee] ₹${procFee} journal + cashbook recorded for loan ${loanId}`);
+            }
+          } catch (pfErr) {
+            console.error('[Processing Fee] Regular loan fee failed (non-critical):', pfErr);
+          }
+        }
 
         // ── PENALTY INCOME ACCOUNTING ────────────────────────────────────
         // Record net penalty (after waiver) as Penalty Income
@@ -1334,28 +1363,22 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // If this is a mirror payment, the profit margin stays in the original company
+        // ── MIRROR PROFIT MARGIN in original company ────────────────────
         if (isMirrorPayment && calculatedMirrorInterest !== undefined) {
           const originalCompanyId = emi.loanApplication?.companyId || companyId;
           const profitAmount = paidInterest - calculatedMirrorInterest;
-          
           if (profitAmount > 0) {
             const originalAccountingService = new AccountingService(originalCompanyId);
             await originalAccountingService.initializeChartOfAccounts();
-            
             await originalAccountingService.recordMirrorInterestIncome({
-              loanId,
-              customerId: emi.loanApplication?.customerId || '',
-              amount: profitAmount,
-              paymentId: payment.id,
-              createdById: paidBy || 'SYSTEM',
-              paymentMode: paymentMode as string
+              loanId, customerId: emi.loanApplication?.customerId || '',
+              amount: profitAmount, paymentId: payment.id,
+              createdById: paidBy || 'SYSTEM', paymentMode: paymentMode as string
             });
-            
-            console.log(`[Accounting] Mirror Profit (₹${profitAmount}) recorded for Company ${originalCompanyId}`);
+            console.log(`[Accounting] Mirror Profit ₹${profitAmount} recorded for Company ${originalCompanyId}`);
           }
         }
-      } // end else-if (companyIdToUse) for mirror loans
+      } // end if (companyIdToUse)
     } catch (accError) {
       console.error('[Accounting] EMI payment journal failed:', accError);
     }
