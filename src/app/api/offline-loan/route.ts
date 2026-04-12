@@ -2603,12 +2603,62 @@ export async function PUT(request: NextRequest) {
           }
           console.log(`  - Bank Entry: ${accountingResult.bankTransaction ? 'Yes' : 'No'}`);
           console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
-          console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes' : 'No'}`);
+          console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes (' + accountingResult.journalEntryId + ')' : 'MISSING ❌'}`);
+
+          // ── FALLBACK: If mirror journal wasn't created, do it directly here ──────────────
+          if (isMirrorLoan && !accountingResult.journalEntryId && mirrorLoanMapping?.mirrorCompanyId) {
+            console.warn('[Accounting] ⚠️ Journal missing after recordEMIPaymentAccounting — attempting inline fallback');
+            try {
+              const { AccountingService: FbAccSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');
+              const fbSvc = new FbAccSvc(mirrorLoanMapping.mirrorCompanyId);
+              await fbSvc.initializeChartOfAccounts();
+
+              const effectiveP = isMirrorLoan ? mirrorPrincipalAmount : paidPrincipal;
+              const effectiveI = isMirrorLoan ? mirrorInterestAmount : paidInterest;
+              const effectiveTotal = effectiveP + effectiveI;
+              const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI';
+              const debitCode = isOnlineMode ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND;
+
+              const fbLines: any[] = [
+                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: emi.offlineLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - Mirror EMI #${emi.installmentNumber}` },
+                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: emi.offlineLoanId, narration: `Mirror interest income - EMI #${emi.installmentNumber}` },
+              ];
+              if (effectiveP > 0) {
+                fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: emi.offlineLoanId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
+              }
+
+              const fbJournalId = await fbSvc.createJournalEntry({
+                entryDate: new Date(),
+                referenceType: 'MIRROR_EMI_PAYMENT',
+                referenceId: updatedEmi.id,
+                narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} - ₹${effectiveTotal} (P:₹${effectiveP} + I:₹${effectiveI})`,
+                lines: fbLines,
+                createdById: userId || 'SYSTEM',
+                paymentMode: paymentMode || 'CASH',
+                isAutoEntry: true,
+              });
+              console.log(`[Accounting] ✅ FALLBACK journal created: ${fbJournalId} for mirror company ${mirrorLoanMapping.mirrorCompanyId}`);
+            } catch (fbErr: any) {
+              console.error('[Accounting] ❌ FALLBACK journal also FAILED:', {
+                message: fbErr?.message,
+                code: fbErr?.code,
+                stack: fbErr?.stack?.split('\n').slice(0, 10).join(' | '),
+                mirrorCompanyId: mirrorLoanMapping.mirrorCompanyId,
+                emiId: emi.id,
+                mirrorInterestAmount,
+                mirrorPrincipalAmount,
+              });
+            }
+          }
         } else {
           console.warn('[Accounting] Target company not found - skipping accounting entries');
         }
-      } catch (accountingError) {
-        console.error('[Accounting] Failed to record EMI payment accounting:', accountingError);
+      } catch (accountingError: any) {
+        console.error('[Accounting] Failed to record EMI payment accounting:', {
+          message: accountingError?.message,
+          code: accountingError?.code,
+          stack: accountingError?.stack?.split('\n').slice(0, 6).join(' | '),
+        });
         // Don't fail the payment, just log the error
       }
 
