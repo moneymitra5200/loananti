@@ -265,8 +265,9 @@ export class AccountingService {
 
     // Mark as done so next call is instant
     AccountingService.initializedCompanies.add(this.companyId);
-    // Also preload account cache since we just touched the table
-    this.accountCache = null; // Force refresh
+    // CRITICAL: Always refresh cache after init — new accounts may have been created
+    this.accountCache = null;
+    await this.ensureAccountCache(); // Pre-load so createJournalEntry works immediately
   }
 
   /**
@@ -617,6 +618,7 @@ export class AccountingService {
     } catch (error) {
       console.error('[Accounting] Failed to sync bank/cash balance:', error);
     }
+
   }
 
   /**

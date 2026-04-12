@@ -1414,9 +1414,15 @@ export async function POST(request: NextRequest) {
         // ALL accounting for mirror loans lives exclusively in the mirror company.
 
       } // end if (companyIdToUse)
-    } catch (accError) {
-      console.error('[Accounting] EMI payment journal failed:', accError);
+    } catch (accError: any) {
+      console.error('[Accounting] ❌ EMI journal FAILED — P&L will NOT show income!', {
+        message: accError?.message,
+        stack: accError?.stack?.split('\n').slice(0, 6).join(' | '),
+        loanId,
+        emiId,
+      });
     }
+
 
 
     return NextResponse.json({ 
