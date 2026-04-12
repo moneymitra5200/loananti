@@ -48,9 +48,21 @@ interface MirrorPair {
 interface Props {
   setSelectedLoanId: (id: string | null) => void;
   setShowLoanDetailPanel: (show: boolean) => void;
+  // Role-based filter: only pass ONE of these
+  companyId?: string;
+  agentId?: string;
+  createdById?: string;     // for Staff / Cashier
+  mirrorEnabled?: boolean;  // if false → simple list, if true → parallel view
 }
 
-export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPanel }: Props) {
+export default function ClosedLoansTab({
+  setSelectedLoanId,
+  setShowLoanDetailPanel,
+  companyId,
+  agentId,
+  createdById,
+  mirrorEnabled: mirrorEnabledProp,
+}: Props) {
   const [loading, setLoading]     = useState(true);
   const [mirrorPairs, setMirrorPairs]       = useState<MirrorPair[]>([]);
   const [standaloneOffline, setStandaloneOffline] = useState<ClosedLoan[]>([]);
@@ -58,15 +70,24 @@ export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPan
   const [stats, setStats] = useState({ totalOnline: 0, totalOffline: 0, totalPairs: 0, totalLoans: 0, totalAmount: 0, totalInterestCollected: 0, totalOnlineAmount: 0, totalOfflineAmount: 0 });
   const [filter, setFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // mirrorEnabled: from prop OR from API response (API is source of truth if prop not supplied)
+  const [mirrorEnabledFromAPI, setMirrorEnabledFromAPI] = useState(true);
+  const showParallel = mirrorEnabledProp !== undefined ? mirrorEnabledProp : mirrorEnabledFromAPI;
 
   const fetchClosedLoans = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`/api/loan/closed?filter=${filter}`);
+      const params = new URLSearchParams({ filter });
+      if (companyId)   params.set('companyId',   companyId);
+      if (agentId)     params.set('agentId',     agentId);
+      if (createdById) params.set('createdById', createdById);
+      if (mirrorEnabledProp === false) params.set('mirrorEnabled', 'false');
+      const res  = await fetch(`/api/loan/closed?${params}`);
       const data = await res.json();
       setMirrorPairs(data.mirrorPairs || []);
       setStandaloneOffline(data.standaloneOffline || []);
       setOnlineLoans(data.onlineLoans || []);
+      setMirrorEnabledFromAPI(data.mirrorEnabled !== false);
       if (data.stats) setStats(data.stats);
     } catch (e) {
       console.error('Error fetching closed loans:', e);
@@ -75,7 +96,7 @@ export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPan
     }
   };
 
-  useEffect(() => { fetchClosedLoans(); }, [filter]);
+  useEffect(() => { fetchClosedLoans(); }, [filter, companyId, agentId, createdById]);
 
   // ── Loan card (single side) ───────────────────────────────────────────────
   const LoanCard = ({ loan, side }: { loan: ClosedLoan; side: 'original' | 'mirror' | 'standalone' }) => {
@@ -312,9 +333,13 @@ export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPan
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-green-600" />
-            Closed Loans — Parallel View
+            Closed Loans — {showParallel ? 'Parallel View' : 'List View'}
           </CardTitle>
-          <CardDescription>Mirror loan pairs are shown side by side. Standalone loans appear below.</CardDescription>
+          <CardDescription>
+            {showParallel
+              ? 'Mirror loan pairs shown side by side. Standalone loans below.'
+              : 'All closed loans. Enable Mirror Loans in settings for parallel view.'}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -327,26 +352,71 @@ export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPan
               <p className="font-medium">No closed loans yet</p>
               <p className="text-sm mt-1">Loans will appear here once all EMIs are paid</p>
             </div>
-          ) : (
+          ) : showParallel ? (
+            /* ── PARALLEL VIEW (mirror enabled) ──────────────────── */
             <div className="space-y-4">
-              {/* Mirror pairs (offline) */}
               {showPairs && mirrorPairs.map((pair, i) => <MirrorPairRow key={pair.pairId} pair={pair} index={i} />)}
-
-              {/* Standalone offline */}
               {showStandalone && standaloneOffline.length > 0 && (
                 <div className="space-y-3">
-                  {standaloneOffline.length > 0 && <p className="text-sm font-medium text-gray-500 pt-2">Offline Loans (No Mirror)</p>}
+                  <p className="text-sm font-medium text-gray-500 pt-2">Offline Loans (No Mirror)</p>
                   {standaloneOffline.map((loan, i) => <StandaloneRow key={loan.id} loan={loan} index={i} />)}
                 </div>
               )}
-
-              {/* Online loans */}
               {showOnline && onlineLoans.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-sm font-medium text-gray-500 pt-2">Online Loans</p>
                   {onlineLoans.map((loan, i) => <StandaloneRow key={loan.id} loan={loan} index={i} />)}
                 </div>
               )}
+            </div>
+          ) : (
+            /* ── SIMPLE LIST VIEW (mirror disabled) ──────────────── */
+            <div className="space-y-3">
+              {[
+                ...onlineLoans,
+                ...standaloneOffline,
+                ...mirrorPairs.map(p => p.original),
+              ].map((loan, i) => (
+                <motion.div
+                  key={loan.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.03 }}
+                  className="flex items-center justify-between p-4 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center text-white font-bold">
+                      {loan.customer?.name?.charAt(0) || 'L'}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-900 text-sm">{loan.identifier}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">CLOSED</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${loan.loanType === 'ONLINE' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{loan.loanType}</span>
+                      </div>
+                      <p className="text-xs text-gray-500">{loan.customer?.name} • {loan.customer?.phone}</p>
+                      <p className="text-xs text-gray-400">Closed: {formatDate(loan.closedAt)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right hidden sm:block">
+                      <p className="font-bold text-gray-900">{formatCurrency(loan.approvedAmount)}</p>
+                      <p className="text-xs text-gray-500">{loan.summary.paidEMIs}/{loan.summary.totalEMIs} EMIs</p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => {
+                        setSelectedLoanId(loan.id);
+                        setShowLoanDetailPanel(true);
+                      }}
+                    >
+                      <Eye className="h-4 w-4 mr-1" /> View
+                    </Button>
+                  </div>
+                </motion.div>
+              ))}
             </div>
           )}
         </CardContent>

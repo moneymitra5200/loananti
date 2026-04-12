@@ -4,8 +4,10 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { User, Eye, EyeOff, Lock, Mail, Loader2, ArrowLeft, UserPlus, LogIn, Phone } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import {
+  User, Eye, EyeOff, Lock, Mail, Loader2, ArrowLeft,
+  UserPlus, LogIn, Phone, AlertCircle,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { signInWithGoogle } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,70 +27,70 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
   const [phone, setPhone] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);   // ← inline error
+
+  const clearError = () => setError(null);
+
+  const mapError = (msg: string, isLogin: boolean): string => {
+    const m = msg.toLowerCase();
+    if (m.includes('password') || m.includes('invalid') || m.includes('wrong') || m.includes('mismatch'))
+      return isLogin ? 'Incorrect password. Please try again.' : 'Password must be at least 6 characters.';
+    if (m.includes('not found') || m.includes('no account') || m.includes('user not found'))
+      return 'No account found with this email. Please sign up first.';
+    if (m.includes('email'))
+      return 'Please enter a valid email address.';
+    if (m.includes('exists') || m.includes('already'))
+      return 'An account with this email already exists. Please sign in.';
+    if (m.includes('locked'))
+      return 'Account locked. Please contact support.';
+    if (m.includes('attempt'))
+      return msg; // already has attempts remaining info
+    return msg || (isLogin ? 'Login failed. Please try again.' : 'Sign up failed. Please try again.');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!email || !password) {
-      toast({ title: 'Error', description: 'Please fill all required fields', variant: 'destructive' });
+    setError(null);
+
+    if (!email.trim() || !password) {
+      setError('Please fill in all required fields.');
       return;
     }
-
-    if (isSignUp && !name) {
-      toast({ title: 'Error', description: 'Please enter your name', variant: 'destructive' });
+    if (isSignUp && !name.trim()) {
+      setError('Please enter your full name.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
     setLoading(true);
     try {
       if (isSignUp) {
-        const result = await customerRegister({ email, password, name, phone });
+        const result = await customerRegister({ email: email.trim(), password, name: name.trim(), phone });
         if (result.success) {
-          toast({ title: 'Success', description: 'Account created successfully!' });
           window.location.reload();
         } else {
-          // Show specific error message
-          const errorMessage = result.error || 'Sign up failed';
-          if (errorMessage.toLowerCase().includes('password')) {
-            toast({ title: 'Invalid Password', description: 'Password must be at least 6 characters', variant: 'destructive' });
-          } else if (errorMessage.toLowerCase().includes('email')) {
-            toast({ title: 'Invalid Email', description: 'Please enter a valid email address', variant: 'destructive' });
-          } else if (errorMessage.toLowerCase().includes('exists')) {
-            toast({ title: 'Account Exists', description: 'An account with this email already exists. Please sign in.', variant: 'destructive' });
-          } else {
-            toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
-          }
+          setError(mapError(result.error || '', false));
         }
       } else {
-        const result = await customerLogin(email, password);
+        const result = await customerLogin(email.trim(), password);
         if (result.success) {
-          toast({ title: 'Success', description: 'Login successful!' });
           window.location.reload();
         } else {
-          // Show specific error message
-          const errorMessage = result.error || 'Login failed';
-          if (errorMessage.toLowerCase().includes('password') || errorMessage.toLowerCase().includes('invalid') || errorMessage.toLowerCase().includes('wrong')) {
-            toast({ title: 'Wrong Password', description: 'The password you entered is incorrect. Please try again.', variant: 'destructive' });
-          } else if (errorMessage.toLowerCase().includes('user') || errorMessage.toLowerCase().includes('not found') || errorMessage.toLowerCase().includes('email')) {
-            toast({ title: 'Account Not Found', description: 'No account found with this email. Please sign up first.', variant: 'destructive' });
-          } else {
-            toast({ title: 'Login Failed', description: errorMessage, variant: 'destructive' });
-          }
+          setError(mapError(result.error || '', true));
         }
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
-      if (errorMessage.toLowerCase().includes('password')) {
-        toast({ title: 'Wrong Password', description: 'The password you entered is incorrect.', variant: 'destructive' });
-      } else {
-        toast({ title: 'Error', description: errorMessage, variant: 'destructive' });
-      }
+    } catch (err) {
+      setError(mapError(err instanceof Error ? err.message : '', isSignUp ? false : true));
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
+    setError(null);
     setLoading(true);
     try {
       const result = await signInWithGoogle();
@@ -101,38 +103,33 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
             firebaseUid: result.user.uid,
             name: result.user.displayName,
             profilePicture: result.user.photoURL,
-            phone: result.user.phoneNumber
-          })
+            phone: result.user.phoneNumber,
+          }),
         });
-
         if (syncResponse.ok) {
           const syncData = await syncResponse.json();
           sessionStorage.setItem('demoUser', JSON.stringify(syncData.user));
-          toast({ title: 'Success', description: 'Login successful!' });
           window.location.reload();
         } else {
-          const errorData = await syncResponse.json();
-          toast({ title: 'Error', description: errorData.error || 'Failed to sync account', variant: 'destructive' });
+          const d = await syncResponse.json();
+          setError(d.error || 'Failed to sync Google account.');
         }
       } else {
-        toast({ title: 'Error', description: result.error || 'Google login failed', variant: 'destructive' });
+        setError(result.error || 'Google sign-in failed. Please try again.');
       }
-    } catch (error) {
-      toast({ title: 'Error', description: 'Something went wrong', variant: 'destructive' });
+    } catch {
+      setError('Google sign-in failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-emerald-50 flex items-center justify-center p-4">
-      {/* Background Pattern */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808008_1px,transparent_1px),linear-gradient(to_bottom,#80808008_1px,transparent_1px)] bg-[size:24px_24px]" />
-      
-      {/* Decorative Elements */}
-      <div className="absolute top-20 right-20 w-72 h-72 bg-emerald-100 rounded-full blur-3xl opacity-30" />
-      <div className="absolute bottom-20 left-20 w-96 h-96 bg-teal-100 rounded-full blur-3xl opacity-30" />
+      <div className="absolute top-20 right-20 w-72 h-72 bg-emerald-100 rounded-full blur-3xl opacity-30 pointer-events-none" />
+      <div className="absolute bottom-20 left-20 w-96 h-96 bg-teal-100 rounded-full blur-3xl opacity-30 pointer-events-none" />
 
-      {/* Back Button */}
       <motion.button
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
@@ -143,11 +140,10 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
         <span className="text-sm font-medium">Back</span>
       </motion.button>
 
-      {/* Main Card */}
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.4 }}
+        transition={{ duration: 0.3 }}
         className="w-full max-w-md relative"
       >
         <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
@@ -168,26 +164,20 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
           <div className="px-8 pt-4">
             <div className="flex bg-gray-100 p-1 rounded-xl">
               <button
-                onClick={() => setIsSignUp(false)}
-                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 text-sm ${
-                  !isSignUp 
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200' 
-                    : 'text-gray-500 hover:text-gray-700'
+                onClick={() => { setIsSignUp(false); clearError(); }}
+                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-sm ${
+                  !isSignUp ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <LogIn className="h-4 w-4" />
-                Sign In
+                <LogIn className="h-4 w-4" />Sign In
               </button>
               <button
-                onClick={() => setIsSignUp(true)}
-                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all duration-300 flex items-center justify-center gap-2 text-sm ${
-                  isSignUp 
-                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200' 
-                    : 'text-gray-500 hover:text-gray-700'
+                onClick={() => { setIsSignUp(true); clearError(); }}
+                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition-all duration-200 flex items-center justify-center gap-2 text-sm ${
+                  isSignUp ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                <UserPlus className="h-4 w-4" />
-                Sign Up
+                <UserPlus className="h-4 w-4" />Sign Up
               </button>
             </div>
           </div>
@@ -200,9 +190,10 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                 initial={{ opacity: 0, x: isSignUp ? 20 : -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: isSignUp ? -20 : 20 }}
-                transition={{ duration: 0.2 }}
+                transition={{ duration: 0.18 }}
                 onSubmit={handleSubmit}
                 className="space-y-4"
+                noValidate
               >
                 {isSignUp && (
                   <div className="space-y-2">
@@ -213,8 +204,8 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                         type="text"
                         placeholder="John Doe"
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
+                        onChange={(e) => { setName(e.target.value); clearError(); }}
+                        className="pl-12 h-12 bg-gray-50 border-gray-200 rounded-xl text-sm"
                       />
                     </div>
                   </div>
@@ -226,10 +217,13 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                     <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <Input
                       type="email"
+                      autoComplete={isSignUp ? 'email' : 'username'}
                       placeholder="you@example.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
+                      onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                      className={`pl-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
+                        error ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                      }`}
                     />
                   </div>
                 </div>
@@ -244,7 +238,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                         placeholder="+91 98765 43210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="pl-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
+                        className="pl-12 h-12 bg-gray-50 border-gray-200 rounded-xl text-sm"
                       />
                     </div>
                   </div>
@@ -256,33 +250,49 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                     <Input
                       type={showPassword ? 'text' : 'password'}
+                      autoComplete={isSignUp ? 'new-password' : 'current-password'}
                       placeholder="••••••••"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="pl-12 pr-12 h-12 bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:ring-emerald-500/20 rounded-xl text-sm"
+                      onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                      className={`pl-12 pr-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
+                        error ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                      }`}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      tabIndex={-1}
                     >
                       {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </button>
                   </div>
                 </div>
 
+                {/* ── Inline Error Banner ─────────────────────────── */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      key="error"
+                      initial={{ opacity: 0, y: -4, height: 0 }}
+                      animate={{ opacity: 1, y: 0, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="flex items-start gap-2.5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm font-medium overflow-hidden"
+                    >
+                      <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
+                      <span>{error}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <Button
                   type="submit"
                   disabled={loading}
-                  className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-200 transition-all text-sm"
+                  className="w-full h-12 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold rounded-xl shadow-lg shadow-emerald-200/50 transition-all text-sm"
                 >
-                  {loading ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : isSignUp ? (
-                    'Create Account'
-                  ) : (
-                    'Sign In'
-                  )}
+                  {loading
+                    ? <Loader2 className="h-5 w-5 animate-spin" />
+                    : isSignUp ? 'Create Account' : 'Sign In'}
                 </Button>
               </motion.form>
             </AnimatePresence>
@@ -314,7 +324,6 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
               Continue with Google
             </Button>
 
-            {/* Terms */}
             {isSignUp && (
               <p className="mt-4 text-xs text-center text-gray-400">
                 By creating an account, you agree to our{' '}
@@ -325,11 +334,8 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
             )}
           </div>
 
-          {/* Footer */}
           <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">
-            <p className="text-xs text-gray-400">
-              © 2024 {settings.companyName || 'MM Square'}. All rights reserved.
-            </p>
+            <p className="text-xs text-gray-400">© 2024 {settings.companyName || 'MM Square'}. All rights reserved.</p>
           </div>
         </div>
       </motion.div>

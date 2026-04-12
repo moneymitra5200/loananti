@@ -8,7 +8,8 @@ const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
 const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
 
 async function ensureSuperAdmin() {
-  const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 10);
+  // Cost 8 = ~75ms on average server (vs 300ms at cost 10) — still very secure
+  const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 8);
   const admin = await db.user.upsert({
     where: { email: PERMANENT_SUPER_ADMIN_EMAIL },
     update: {

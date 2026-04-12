@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache } from '@/lib/cache';
 
 interface ResetOptions {
   loanApplications: boolean;
@@ -548,6 +549,10 @@ export async function POST(request: NextRequest) {
 
     const duration = (Date.now() - startTime) / 1000;
     console.log(`[System Reset] Completed in ${duration}s`, stats);
+
+    // Clear ALL in-memory cache immediately so fresh data is served
+    cache.clear();
+    console.log('[System Reset] In-memory cache cleared');
 
     // Create an action log for the reset
     try {

@@ -10,186 +10,106 @@ interface PrefetchDataProviderProps {
 }
 
 /**
- * Prefetches all dashboard data on app load for instant navigation
- * This component should be placed at the root level
+ * Aggressive prefetch – fires ALL role-relevant requests in parallel the moment the
+ * user is known (or even before, for public data). The goal is <200ms to first data.
  */
-export default function PrefetchDataProvider({ 
-  userId, 
-  userRole, 
-  companyId 
+export default function PrefetchDataProvider({
+  userId,
+  userRole,
+  companyId,
 }: PrefetchDataProviderProps) {
   const queryClient = useQueryClient();
-  const hasPrefetched = useRef(false);
+  const prefetchedFor = useRef<string | null>(null);
 
   useEffect(() => {
-    // Only prefetch once per session
-    if (hasPrefetched.current) return;
-    hasPrefetched.current = true;
+    // Re-prefetch when user changes (e.g. different role logs in)
+    const key = `${userId}:${userRole}`;
+    if (prefetchedFor.current === key) return;
+    prefetchedFor.current = key;
 
-    const prefetchData = async () => {
-      const startTime = performance.now();
-      console.log('[Prefetch] Starting data prefetch...');
-
-      // Prefetch all data in parallel for maximum speed
-      const prefetchPromises: Promise<void>[] = [];
-
-      // 1. Settings (always needed)
-      prefetchPromises.push(
-        queryClient.prefetchQuery({
-          queryKey: ['settings'],
-          queryFn: () => fetch('/api/settings').then(r => r.json()),
-          staleTime: 5 * 60 * 1000,
-        })
-      );
-
-      // 2. CMS Services (landing page data)
-      prefetchPromises.push(
-        queryClient.prefetchQuery({
-          queryKey: ['cmsServices'],
-          queryFn: () => fetch('/api/cms/service?type=all').then(r => r.json()),
-          staleTime: 5 * 60 * 1000,
-        })
-      );
-
-      // 3. CMS Products (loan products)
-      prefetchPromises.push(
-        queryClient.prefetchQuery({
-          queryKey: ['cmsProducts'],
-          queryFn: () => fetch('/api/cms/product?isActive=true').then(r => r.json()),
-          staleTime: 5 * 60 * 1000,
-        })
-      );
-
-      // 4. Companies list
-      prefetchPromises.push(
-        queryClient.prefetchQuery({
-          queryKey: ['companies'],
-          queryFn: () => fetch('/api/company?isActive=true').then(r => r.json()),
-          staleTime: 5 * 60 * 1000,
-        })
-      );
-
-      // 5. User-specific data (if logged in)
-      if (userId && userRole) {
-        // User details
-        prefetchPromises.push(
-          queryClient.prefetchQuery({
-            queryKey: ['user', userId],
-            queryFn: () => fetch(`/api/user/${userId}`).then(r => r.json()),
-            staleTime: 60 * 1000,
-          })
-        );
-
-        // Role-based data
-        if (['SUPER_ADMIN', 'ACCOUNTANT', 'CASHIER'].includes(userRole)) {
-          // All users
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['users', { role: 'STAFF' }],
-              queryFn: () => fetch('/api/user?role=STAFF').then(r => r.json()),
-              staleTime: 60 * 1000,
+    const p = (queryKey: any[], url: string, ttl = 60_000) =>
+      queryClient.prefetchQuery({
+        queryKey,
+        queryFn: () =>
+          fetch(url, { cache: 'no-store' })
+            .then(r => {
+              if (!r.ok) throw new Error(`${url} → ${r.status}`);
+              return r.json();
             })
-          );
+            .catch(() => null),       // never throw – prefetch is best-effort
+        staleTime: ttl,
+        gcTime: ttl * 2,
+      });
 
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['users', { role: 'AGENT' }],
-              queryFn: () => fetch('/api/user?role=AGENT').then(r => r.json()),
-              staleTime: 60 * 1000,
-            })
-          );
+    const batch: Promise<void>[] = [];
 
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['users', { role: 'CASHIER' }],
-              queryFn: () => fetch('/api/user?role=CASHIER').then(r => r.json()),
-              staleTime: 60 * 1000,
-            })
-          );
-        }
+    // ── Always prefetch (public / lightweight) ─────────────────────────────
+    batch.push(p(['settings'],     '/api/settings',                      5 * 60_000));
+    batch.push(p(['cmsServices'],  '/api/cms/service?type=all',          5 * 60_000));
+    batch.push(p(['cmsProducts'],  '/api/cms/product?isActive=true',     5 * 60_000));
+    batch.push(p(['companies'],    '/api/company?isActive=true',         5 * 60_000));
 
-        // Active loans (for all roles except CUSTOMER)
-        if (userRole !== 'CUSTOMER') {
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['activeLoans'],
-              queryFn: () => fetch('/api/loan/all-active').then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
+    if (!userId || !userRole) {
+      Promise.allSettled(batch);   // public prefetch only — user not known yet
+      return;
+    }
 
-          // Offline loans
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['offlineLoans'],
-              queryFn: () => fetch('/api/offline-loan?page=1&limit=50').then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
+    // ── Role-specific prefetch ──────────────────────────────────────────────
+    batch.push(p(['user', userId], `/api/user/${userId}`, 60_000));
 
-          // EMI reminders
-          const today = new Date();
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['emiCalendar', `${today.getFullYear()}-${today.getMonth() + 1}`],
-              queryFn: () => fetch(`/api/emi-reminder?action=calendar&userId=${userId}&userRole=${userRole}&year=${today.getFullYear()}&month=${today.getMonth() + 1}`).then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
+    if (userRole === 'CUSTOMER') {
+      batch.push(p(['customerLoans', userId], `/api/loan/list?customerId=${userId}`, 30_000));
+      batch.push(p(['customerProfile', userId], `/api/user/${userId}`, 60_000));
+    } else {
+      // All staff roles need active loans + offline loans
+      batch.push(p(['activeLoans'], '/api/loan/all-active', 30_000));
+      batch.push(p(['offlineLoans'], '/api/offline-loan?page=1&limit=50', 30_000));
 
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['emiTodayTomorrow'],
-              queryFn: () => fetch(`/api/emi-reminder?action=today-tomorrow&userId=${userId}&userRole=${userRole}`).then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
-        }
+      const today = new Date();
+      const ym = `${today.getFullYear()}-${today.getMonth() + 1}`;
+      batch.push(p(
+        ['emiCalendar', ym],
+        `/api/emi-reminder?action=calendar&userId=${userId}&userRole=${userRole}&year=${today.getFullYear()}&month=${today.getMonth() + 1}`,
+        30_000,
+      ));
+      batch.push(p(
+        ['emiTodayTomorrow'],
+        `/api/emi-reminder?action=today-tomorrow&userId=${userId}&userRole=${userRole}`,
+        30_000,
+      ));
+    }
 
-        // Customer-specific data
-        if (userRole === 'CUSTOMER') {
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['customerLoans', userId],
-              queryFn: () => fetch(`/api/loan/list?customerId=${userId}`).then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
-        }
+    // Role-tailored extras
+    if (['SUPER_ADMIN', 'ACCOUNTANT', 'CASHIER'].includes(userRole)) {
+      batch.push(p(['users', 'STAFF'],   '/api/user?role=STAFF',   60_000));
+      batch.push(p(['users', 'AGENT'],   '/api/user?role=AGENT',   60_000));
+      batch.push(p(['users', 'CASHIER'], '/api/user?role=CASHIER', 60_000));
+      batch.push(p(['users', 'COMPANY'], '/api/user?role=COMPANY', 60_000));
+    }
 
-        // Agent/Staff specific data
-        if (userRole === 'AGENT' || userRole === 'STAFF') {
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['agentLoans', userId],
-              queryFn: () => fetch(`/api/loan/list?agentId=${userId}`).then(r => r.json()),
-              staleTime: 30 * 1000,
-            })
-          );
-        }
+    if (userRole === 'SUPER_ADMIN') {
+      batch.push(p(['allUsers'], '/api/user', 60_000));
+      batch.push(p(['systemStats'], '/api/stats', 30_000));
+    }
 
-        // Company-specific data
-        if (companyId) {
-          prefetchPromises.push(
-            queryClient.prefetchQuery({
-              queryKey: ['company', companyId],
-              queryFn: () => fetch(`/api/company?id=${companyId}`).then(r => r.json()),
-              staleTime: 5 * 60 * 1000,
-            })
-          );
-        }
-      }
+    if (userRole === 'AGENT') {
+      batch.push(p(['agentLoans', userId], `/api/loan/list?role=AGENT&agentId=${userId}`, 30_000));
+    }
 
-      // Wait for all prefetches to complete
-      await Promise.allSettled(prefetchPromises);
+    if (userRole === 'STAFF') {
+      batch.push(p(['staffLoans', userId], `/api/loan/list?role=STAFF&staffId=${userId}`, 30_000));
+    }
 
-      const endTime = performance.now();
-      console.log(`[Prefetch] Completed in ${(endTime - startTime).toFixed(0)}ms`);
-    };
+    if (companyId) {
+      batch.push(p(['company', companyId], `/api/company?id=${companyId}`, 5 * 60_000));
+      batch.push(p(['companyLoans', companyId], `/api/loan/list?companyId=${companyId}`, 30_000));
+    }
 
-    // Start prefetching immediately
-    prefetchData();
+    // Fire all in parallel — don't await, app should not block on prefetch
+    Promise.allSettled(batch).then(() => {
+      /* prefetch done — data is in cache */
+    });
   }, [userId, userRole, companyId, queryClient]);
 
-  return null; // This component doesn't render anything
+  return null;
 }

@@ -40,6 +40,7 @@ import { EMICalculatorSection, PerformanceSection, DashboardSection } from './mo
 
 // Imported dialogs
 import { ApprovalDialog, SanctionDialog, StaffDialog, LoanDetailsDialog, BulkApprovalDialog } from './dialogs';
+import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 
 export default function AgentDashboard() {
   const { user } = useAuth();
@@ -789,6 +790,15 @@ export default function AgentDashboard() {
         return (
           <SecondaryPaymentPageSection
             userId={user?.id || 'system'}
+          />
+        );
+
+      case 'closedLoans':
+        return (
+          <ClosedLoansTab
+            setSelectedLoanId={setSelectedLoanId}
+            setShowLoanDetailPanel={setShowLoanDetailPanel}
+            agentId={user?.id}
           />
         );
 

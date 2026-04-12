@@ -29,6 +29,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
 import { useCompaniesStore } from '@/stores/companiesStore';
+import { useStats } from '@/hooks/useStats';
 import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 // Lazy load heavy components
@@ -229,6 +230,13 @@ export default function SuperAdminDashboard() {
   const [mirrorPreview, setMirrorPreview] = useState<any>(null);
   const [loadingMirrorPreview, setLoadingMirrorPreview] = useState(false);
   const [mirrorCompanies, setMirrorCompanies] = useState<any[]>([]);
+
+  // Instant dashboard counters — shows BEFORE full data loads
+  const { stats: liveStats } = useStats({
+    role: 'SUPER_ADMIN',
+    userId: user?.id,
+    enabled: !!user?.id,
+  });
 
   // Real-time updates hook
   const { requestRefresh } = useRealtime({
@@ -1163,16 +1171,17 @@ export default function SuperAdminDashboard() {
 
   const menuItems = ROLE_MENU_ITEMS.SUPER_ADMIN.map(item => ({
     ...item,
-    count: item.id === 'pending' ? pendingForSA.length :
-           item.id === 'final' ? pendingForFinal.length :
-           item.id === 'activeLoans' ? totalActiveLoansCount :
-           item.id === 'offline-loans' ? offlineLoansCount :
-           item.id === 'users' ? users.length :
-           item.id === 'customers' ? customers.length :
-           item.id === 'companies' ? companyUsers.length :
-           item.id === 'agents' ? agents.length :
-           item.id === 'staff' ? staff.length :
-           item.id === 'cashiers' ? cashiers.length :
+    // Show live stats counters instantly; fall back to local computed counts once data is loaded
+    count: item.id === 'pending' ? (loading ? (liveStats.pendingLoans || 0) : pendingForSA.length) :
+           item.id === 'final' ? (loading ? 0 : pendingForFinal.length) :
+           item.id === 'activeLoans' ? (loading ? (liveStats.totalActiveLoans || 0) : totalActiveLoansCount) :
+           item.id === 'offline-loans' ? (loading ? (liveStats.offlineLoanCount || 0) : offlineLoansCount) :
+           item.id === 'users' ? (loading ? 0 : users.length) :
+           item.id === 'customers' ? (loading ? (liveStats.totalCustomers || 0) : customers.length) :
+           item.id === 'companies' ? (loading ? (liveStats.totalCompanies || 0) : companyUsers.length) :
+           item.id === 'agents' ? (loading ? (liveStats.totalAgents || 0) : agents.length) :
+           item.id === 'staff' ? (loading ? (liveStats.totalStaff || 0) : staff.length) :
+           item.id === 'cashiers' ? (loading ? 0 : cashiers.length) :
            item.id === 'accountants' ? accountants.length :
            item.id === 'risk' ? highRiskLoans.length : undefined
   }));

@@ -1,0 +1,125 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
+
+/**
+ * GET /api/stats
+ * Returns all dashboard counters in ONE fast parallel query.
+ * Cached server-side for 30 seconds.
+ *
+ * Query params: role, userId, companyId
+ */
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const role = searchParams.get('role') || 'SUPER_ADMIN';
+    const userId = searchParams.get('userId') || '';
+    const companyId = searchParams.get('companyId') || '';
+
+    const cacheKey = `stats:${role}:${userId}:${companyId}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) {
+      return NextResponse.json({ ...cached, cached: true });
+    }
+
+    // ── Build role-specific filters ─────────────────────────────────────────
+    const loanWhere: Record<string, unknown> = {};
+    const offlineWhere: Record<string, unknown> = { status: { in: ['ACTIVE', 'INTEREST_ONLY'] } };
+
+    if (role === 'COMPANY' && companyId) {
+      loanWhere.companyId = companyId;
+      offlineWhere.companyId = companyId;
+    } else if (role === 'AGENT' && userId) {
+      loanWhere.agentId = userId;
+      offlineWhere.agentId = userId;
+    } else if (role === 'STAFF' && userId) {
+      offlineWhere.createdById = userId;
+    }
+
+    const companyFilter = companyId ? { companyId } : {};
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+
+    // ── All counts in parallel ──────────────────────────────────────────────
+    const [
+      activeDisbursedLoans,
+      offlineLoanCount,
+      totalCustomers,
+      pendingLoans,
+      closedOfflineLoans,
+      totalCompanies,
+      totalAgents,
+      totalStaff,
+      todayEMIs,
+      overdueEMIs,
+    ] = await Promise.all([
+      // Online loans: DISBURSED + ACTIVE + ACTIVE_INTEREST_ONLY
+      db.loanApplication.count({
+        where: { ...loanWhere, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
+      }).catch(() => 0),
+
+      // Offline loans
+      db.offlineLoan.count({ where: offlineWhere }).catch(() => 0),
+
+      // Customers (role-filtered above)
+      db.user.count({ where: { role: 'CUSTOMER' } }).catch(() => 0),
+
+      // Pending loans awaiting any approval step
+      db.loanApplication.count({
+        where: { ...companyFilter, status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1', 'LOAN_FORM_COMPLETED'] } },
+      }).catch(() => 0),
+
+      // Closed offline loans
+      db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED' } }).catch(() => 0),
+
+      // Admin-only: companies, agents, staff
+      role === 'SUPER_ADMIN' ? db.company.count({ where: { isActive: true } }).catch(() => 0) : Promise.resolve(0),
+      role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'AGENT', isActive: true } }).catch(() => 0) : Promise.resolve(0),
+      role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'STAFF', isActive: true } }).catch(() => 0) : Promise.resolve(0),
+
+      // EMIs due today (paymentStatus field on OfflineLoanEMI)
+      db.offlineLoanEMI.count({
+        where: {
+          dueDate: { gte: todayStart, lte: todayEnd },
+          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        },
+      }).catch(() => 0),
+
+      // Overdue EMIs (due before today, still PENDING)
+      db.offlineLoanEMI.count({
+        where: {
+          dueDate: { lt: todayStart },
+          paymentStatus: 'PENDING',
+        },
+      }).catch(() => 0),
+    ]);
+
+    const stats = {
+      totalActiveLoans: activeDisbursedLoans + offlineLoanCount,
+      onlineLoanCount: activeDisbursedLoans,
+      offlineLoanCount,
+      totalCustomers,
+      pendingLoans,
+      closedLoans: closedOfflineLoans,
+      totalCompanies,
+      totalAgents,
+      totalStaff,
+      todayEMIs,
+      overdueEMIs,
+      generatedAt: new Date().toISOString(),
+    };
+
+    cache.set(cacheKey, stats, CacheTTL.SHORT);  // 30 seconds
+
+    return NextResponse.json(stats);
+  } catch (error) {
+    console.error('[stats] Error:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch stats', details: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}

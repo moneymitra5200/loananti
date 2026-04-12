@@ -6,15 +6,23 @@ import { OfflineLoanStatus } from '@prisma/client';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const filter = searchParams.get('filter') || 'all'; // 'all', 'online', 'offline'
+    const filter         = searchParams.get('filter') || 'all'; // 'all', 'online', 'offline'
+    const companyId      = searchParams.get('companyId') || null;   // for COMPANY role
+    const agentId        = searchParams.get('agentId') || null;     // for AGENT role
+    const createdById    = searchParams.get('createdById') || null; // for STAFF / CASHIER
+    const mirrorEnabled  = searchParams.get('mirrorEnabled') !== 'false'; // default true
 
     let onlineLoans: any[] = [];
     let offlineLoans: any[] = [];
 
     // ── Online closed loans ─────────────────────────────────────────────────
     if (filter === 'all' || filter === 'online') {
+      const onlineWhere: any = { status: 'CLOSED' };
+      if (companyId)   onlineWhere.companyId = companyId;
+      if (agentId)     onlineWhere.agentId   = agentId;
+      if (createdById) onlineWhere.createdById = createdById;
       onlineLoans = await db.loanApplication.findMany({
-        where: { status: 'CLOSED' },
+        where: onlineWhere,
         orderBy: { updatedAt: 'desc' },
         include: {
           customer: { select: { id: true, name: true, email: true, phone: true } },
@@ -32,8 +40,12 @@ export async function GET(request: NextRequest) {
 
     // ── Offline closed loans ────────────────────────────────────────────────
     if (filter === 'all' || filter === 'offline') {
+      const offlineWhere: any = { status: OfflineLoanStatus.CLOSED };
+      if (companyId)   offlineWhere.companyId   = companyId;
+      if (agentId)     offlineWhere.agentId      = agentId;
+      if (createdById) offlineWhere.createdById  = createdById;
       offlineLoans = await db.offlineLoan.findMany({
-        where: { status: OfflineLoanStatus.CLOSED },
+        where: offlineWhere,
         orderBy: { updatedAt: 'desc' },
         include: {
           customer:  { select: { id: true, name: true, email: true, phone: true } },
@@ -192,6 +204,7 @@ export async function GET(request: NextRequest) {
       mirrorPairs,
       standaloneOffline,
       onlineLoans: formattedOnlineLoans,
+      mirrorEnabled, // let UI decide parallel vs list view
       stats
     });
 

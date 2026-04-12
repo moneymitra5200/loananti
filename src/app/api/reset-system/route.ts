@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache } from '@/lib/cache';
 import fs from 'fs';
 import path from 'path';
 
@@ -377,6 +378,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('[RESET] System reset completed successfully!');
+
+    // Clear ALL in-memory cache so stale data is never served
+    cache.clear();
+    console.log('[RESET] In-memory cache cleared');
 
     return NextResponse.json({
       success: true,

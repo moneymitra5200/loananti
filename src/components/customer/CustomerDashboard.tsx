@@ -148,22 +148,24 @@ export default function CustomerDashboard() {
     if (!user) return;
     setLoading(true);
     try {
-      // PARALLEL FETCH - All requests at once
-      const [loansRes, servicesRes, notificationsRes, offersRes, referralsRes] = await Promise.all([
+      // PARALLEL FETCH - All requests at once (including tickets)
+      const [loansRes, servicesRes, notificationsRes, offersRes, referralsRes, ticketsRes] = await Promise.all([
         fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`),
         fetch('/api/cms/product?isActive=true'),
         fetch(`/api/notification?userId=${user.id}&limit=5`),
         fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`),
-        fetch(`/api/loan-features?action=referrals&customerId=${user.id}`)
+        fetch(`/api/loan-features?action=referrals&customerId=${user.id}`),
+        fetch(`/api/tickets?customerId=${user.id}`),
       ]);
 
       // Process all responses in parallel
-      const [loansData, servicesData, notificationsData, offersData, referralsData] = await Promise.all([
+      const [loansData, servicesData, notificationsData, offersData, referralsData, ticketsData] = await Promise.all([
         loansRes.json(),
         servicesRes.json(),
         notificationsRes.json(),
         offersRes.json(),
-        referralsRes.json()
+        referralsRes.json(),
+        ticketsRes.json().catch(() => ({ success: false, tickets: [] })),
       ]);
 
       // Update loans store for caching
@@ -203,6 +205,10 @@ export default function CustomerDashboard() {
           commissioned: refs.filter((r: any) => r.status === 'COMMISSIONED').length,
           earned: refs.reduce((sum: number, r: any) => sum + (r.commissionPaid ? r.commissionAmount : 0), 0)
         });
+      }
+
+      if (ticketsData.success) {
+        setTickets(ticketsData.tickets || []);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -350,21 +356,16 @@ export default function CustomerDashboard() {
     }
   }, [user]);
 
-  // Fetch tickets
+  // fetchAllData already fetches tickets; only refetch tickets individually on tab changes
   const fetchTickets = useCallback(async () => {
     if (!user) return;
     setTicketsLoading(true);
     try {
       const response = await fetch(`/api/tickets?customerId=${user.id}`);
       const data = await response.json();
-      if (data.success) {
-        setTickets(data.tickets || []);
-      }
-    } catch (error) {
-      console.error('Error fetching tickets:', error);
-    } finally {
-      setTicketsLoading(false);
-    }
+      if (data.success) setTickets(data.tickets || []);
+    } catch {}
+    finally { setTicketsLoading(false); }
   }, [user]);
 
   // Create new ticket
@@ -403,12 +404,6 @@ export default function CustomerDashboard() {
     }
   };
 
-  // Fetch tickets on mount
-  useEffect(() => {
-    if (user) {
-      fetchTickets();
-    }
-  }, [user, fetchTickets]);
 
   // Confirmation dialog handler
   const handleConfirmAction = async () => {

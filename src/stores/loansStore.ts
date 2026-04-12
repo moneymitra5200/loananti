@@ -57,7 +57,7 @@ interface LoansState {
   clearCache: () => void;
 }
 
-const CACHE_TTL = 30000; // 30 seconds
+const CACHE_TTL = 60000; // 60 seconds — reduces redundant DB fetches across tab switches
 
 export const useLoansStore = create<LoansState>((set, get) => ({
   loans: [],

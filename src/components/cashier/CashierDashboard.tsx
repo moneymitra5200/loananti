@@ -30,6 +30,7 @@ import { useSettings } from '@/contexts/SettingsContext';
 import { useSystemSettings } from '@/hooks/useSystemSettings';
 import { useLoansStore } from '@/stores/loansStore';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
+import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -994,6 +995,15 @@ export default function CashierDashboard() {
 
       case 'profile':
         return <ProfileSection />;
+
+      case 'closedLoans':
+        return (
+          <ClosedLoansTab
+            setSelectedLoanId={(id) => setSelectedLoan({ id } as any)}
+            setShowLoanDetailPanel={setShowLoanDetailPanel}
+            mirrorEnabled={(systemSettings as any)?.mirrorLoanEnabled !== false}
+          />
+        );
 
       case 'dashboard':
       default:

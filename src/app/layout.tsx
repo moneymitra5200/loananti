@@ -8,6 +8,7 @@ import { SecurityProvider } from "@/contexts/SecurityContext";
 import QueryProvider from "@/providers/QueryProvider";
 import PWAInstallPrompt from "@/components/pwa/PWAInstallPrompt";
 import DataPrefetchWrapper from "@/components/DataPrefetchWrapper";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export const metadata: Metadata = {
   title: {
@@ -148,21 +149,25 @@ export default function RootLayout({
         <link rel="apple-touch-icon" sizes="180x180" href="/logo-circle.png" />
         
         {/* Splash screens for iOS */}
-        <link rel="apple-touch-startup-image" href="/logo-circle.png" />
+        {/* Performance: preconnect to Google Fonts CDN */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body>
         <QueryProvider>
-          <AuthProvider>
-            <CompanyProvider>
-              <SettingsProvider>
-                <SecurityProvider>
-                  <DataPrefetchWrapper>
-                    {children}
-                  </DataPrefetchWrapper>
-                </SecurityProvider>
-              </SettingsProvider>
-            </CompanyProvider>
-          </AuthProvider>
+          <ErrorBoundary>
+            <AuthProvider>
+              <CompanyProvider>
+                <SettingsProvider>
+                  <SecurityProvider>
+                    <DataPrefetchWrapper>
+                      {children}
+                    </DataPrefetchWrapper>
+                  </SecurityProvider>
+                </SettingsProvider>
+              </CompanyProvider>
+            </AuthProvider>
+          </ErrorBoundary>
         </QueryProvider>
         <Toaster position="top-right" richColors closeButton />
         <PWAInstallPrompt />

@@ -17,6 +17,7 @@ import { DashboardTab, PendingTab, CompletedTab, ActiveLoansTab, FieldVisitsTab 
 import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { LoanFormStepContent } from '@/components/staff/modules';
+import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 
@@ -564,6 +565,14 @@ export default function StaffDashboard() {
         );
       case 'profile':
         return <ProfileSection />;
+      case 'closedLoans':
+        return (
+          <ClosedLoansTab
+            setSelectedLoanId={setSelectedLoanId}
+            setShowLoanDetailPanel={setShowLoanDetailPanel}
+            createdById={user?.id}
+          />
+        );
       case 'dashboard':
       default:
         return <DashboardTab loans={loans} pendingLoans={pendingLoans} setActiveTab={setActiveTab} />;

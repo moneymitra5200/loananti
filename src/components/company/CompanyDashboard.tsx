@@ -30,6 +30,7 @@ import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPag
 import BankHeadSection from '@/components/company/BankHeadSection';
 import DaybookSection from '@/components/company/DaybookSection';
 import FixMirrorAccountingPage from '@/components/accounting/FixMirrorAccountingPage';
+import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
@@ -1176,7 +1177,17 @@ export default function CompanyDashboard() {
       
       case 'fix-accounting':
         return <FixMirrorAccountingPage />;
-      
+
+      case 'closedLoans':
+        return (
+          <ClosedLoansTab
+            setSelectedLoanId={(id) => { setSelectedLoanId(id); setShowLoanDetailPanel(true); }}
+            setShowLoanDetailPanel={setShowLoanDetailPanel}
+            companyId={getCompanyId()}
+            mirrorEnabled={hasBankAccess}
+          />
+        );
+
       case 'dashboard':
       default:
         return (

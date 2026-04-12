@@ -34,156 +34,89 @@ export async function GET(request: NextRequest) {
 
     // Fetch online loans (from LoanApplication)
     if (filter === 'all' || filter === 'online') {
-      const includeOptions: any = {
-        customer: {
-          select: { id: true, name: true, email: true, phone: true }
-        },
-        company: {
-          select: { id: true, name: true, code: true }
-        },
-        sessionForm: {
-          select: {
-            approvedAmount: true,
-            interestRate: true,
-            tenure: true,
-            emiAmount: true,
-            totalAmount: true,
-            totalInterest: true
-          }
-        }
+      // ── Build online include options ──────────────────────────────────────
+      const onlineInclude: any = {
+        customer:    { select: { id: true, name: true, email: true, phone: true } },
+        company:     { select: { id: true, name: true, code: true } },
+        sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, emiAmount: true, totalAmount: true, totalInterest: true } },
       };
 
-      // Include EMI schedules for passbook
       if (includePassbook) {
-        includeOptions.emiSchedules = {
+        // Full EMI list only for passbook view
+        onlineInclude.emiSchedules = {
           orderBy: { installmentNumber: 'asc' },
           select: {
-            id: true,
-            installmentNumber: true,
-            dueDate: true,
-            originalDueDate: true,
-            principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
-            paidPrincipal: true,
-            paidInterest: true,
-            paymentStatus: true,
-            paidDate: true,
-            paymentMode: true,
-            penaltyAmount: true,
-            daysOverdue: true
+            id: true, installmentNumber: true, dueDate: true, originalDueDate: true,
+            principalAmount: true, interestAmount: true, totalAmount: true,
+            paidAmount: true, paidPrincipal: true, paidInterest: true,
+            paymentStatus: true, paidDate: true, paymentMode: true,
+            penaltyAmount: true, daysOverdue: true
           }
         };
-        includeOptions.payments = {
+        onlineInclude.payments = {
           where: { status: 'COMPLETED' },
           orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            amount: true,
-            paymentMode: true,
-            createdAt: true,
-            status: true,
-            receiptNumber: true
-          }
+          select: { id: true, amount: true, paymentMode: true, createdAt: true, status: true, receiptNumber: true }
         };
       } else {
-        // Always include all EMI schedules for the expandable view
-        includeOptions.emiSchedules = {
+        // List mode: only next pending/overdue EMI (massive bandwidth saving)
+        onlineInclude.emiSchedules = {
+          where: { paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIALLY_PAID'] } },
           orderBy: { installmentNumber: 'asc' },
+          take: 1,
           select: {
-            id: true,
-            installmentNumber: true,
-            dueDate: true,
-            originalDueDate: true,
-            principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
-            paidPrincipal: true,
-            paidInterest: true,
-            paymentStatus: true,
-            paidDate: true,
-            paymentMode: true,
-            penaltyAmount: true,
-            daysOverdue: true,
-            isPartialPayment: true,
-            isInterestOnly: true,
-            nextPaymentDate: true
+            id: true, installmentNumber: true, dueDate: true,
+            totalAmount: true, paidAmount: true, paymentStatus: true,
+            penaltyAmount: true, daysOverdue: true, isPartialPayment: true,
+            isInterestOnly: true, nextPaymentDate: true
           }
         };
       }
 
       onlineLoans = await db.loanApplication.findMany({
-        where: {
-          status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }
-        },
+        where: { status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } },
         orderBy: { createdAt: 'desc' },
-        include: includeOptions
+        include: onlineInclude,
       });
+    }
+
+    // ── Offline loans include options ──────────────────────────────────────
+    const offlineInclude: any = {
+      customer: { select: { id: true, name: true, email: true, phone: true } },
+      company:  { select: { id: true, name: true, code: true } },
+      createdBy: { select: { id: true, name: true, role: true } },
+    };
+
+    if (includePassbook) {
+      offlineInclude.emis = {
+        orderBy: { installmentNumber: 'asc' },
+        select: {
+          id: true, installmentNumber: true, dueDate: true,
+          principalAmount: true, interestAmount: true, totalAmount: true,
+          paidAmount: true, paymentStatus: true, paidDate: true,
+          paymentMode: true, penaltyAmount: true
+        }
+      };
+    } else {
+      // List mode: only next pending EMI
+      offlineInclude.emis = {
+        where: { paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIALLY_PAID'] } },
+        orderBy: { installmentNumber: 'asc' },
+        take: 1,
+        select: {
+          id: true, installmentNumber: true, dueDate: true,
+          totalAmount: true, paidAmount: true, paymentStatus: true,
+          penaltyAmount: true, daysOverdue: true
+        }
+      };
     }
 
     // Fetch offline loans
     if (filter === 'all' || filter === 'offline') {
-      const includeOptions: any = {
-        customer: {
-          select: { id: true, name: true, email: true, phone: true }
-        },
-        company: {
-          select: { id: true, name: true, code: true }
-        },
-        createdBy: {
-          select: { id: true, name: true, role: true }
-        }
-      };
-
-      // Include EMI schedules for passbook
-      if (includePassbook) {
-        includeOptions.emis = {
-          orderBy: { installmentNumber: 'asc' },
-          select: {
-            id: true,
-            installmentNumber: true,
-            dueDate: true,
-            principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
-            paymentStatus: true,
-            paidDate: true,
-            paymentMode: true,
-            penaltyAmount: true
-          }
-        };
-      } else {
-        // Always include all EMI schedules for the expandable view
-        includeOptions.emis = {
-          orderBy: { installmentNumber: 'asc' },
-          select: {
-            id: true,
-            installmentNumber: true,
-            dueDate: true,
-            principalAmount: true,
-            interestAmount: true,
-            totalAmount: true,
-            paidAmount: true,
-            paidPrincipal: true,
-            paidInterest: true,
-            paymentStatus: true,
-            paidDate: true,
-            paymentMode: true,
-            penaltyAmount: true,
-            daysOverdue: true
-          }
-        };
-      }
-
       offlineLoans = await db.offlineLoan.findMany({
-        where: {
-          status: { in: activeOfflineStatuses }
-        },
+        where: { status: { in: activeOfflineStatuses } },
         orderBy: { createdAt: 'desc' },
-        include: includeOptions
+        include: offlineInclude,
       });
     }
 
@@ -385,9 +318,9 @@ export async function GET(request: NextRequest) {
       stats
     };
 
-    // Cache the result for non-passbook requests
+    // Cache the result for non-passbook requests (60s — list data is not time-critical)
     if (!includePassbook) {
-      cache.set(cacheKey, response, CacheTTL.SHORT);
+      cache.set(cacheKey, response, 60_000);
     }
 
     return NextResponse.json(response);
