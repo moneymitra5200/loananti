@@ -143,13 +143,11 @@ export default function ActiveLoansTab({
   const [processing, setProcessing] = useState(false);
 
   // Handler called from ParallelLoanView Pay button
+  // Opens the FULL loan detail view (same as clicking View) instead of the small inline dialog
   const handlePayEmi = useCallback((loan: any) => {
-    setPayLoan(loan);
-    setPaymentMode('CASH');
-    setPaymentType('FULL_EMI');
-    setPartialAmount('');
-    setShowPayDialog(true);
-  }, []);
+    setSelectedLoanId(loan.id);
+    setShowLoanDetailPanel(true);
+  }, [setSelectedLoanId, setShowLoanDetailPanel]);
 
   // Process the payment
   const processPayment = async () => {

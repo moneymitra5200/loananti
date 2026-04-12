@@ -45,7 +45,7 @@ const PersonalCreditManager = lazy(() => import('@/components/credit/PersonalCre
 const CreditManagementPage = lazy(() => import('@/components/credit/CreditManagementPage'));
 const NotificationManagementSection = lazy(() => import('@/components/notification/NotificationManagementSection'));
 const SuperAdminMyCredit = lazy(() => import('@/components/credit/SuperAdminMyCredit'));
-const LoanDetailPanel = lazy(() => import('@/components/loan/LoanDetailPanel'));
+const ActiveLoanDetailView = lazy(() => import('@/components/loan/ActiveLoanDetailView'));
 const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 const SecondaryPaymentPageSection = lazy(() => import('@/components/shared/SecondaryPaymentPageSection'));
 const EnquirySection = lazy(() => import('@/components/shared/EnquirySection'));
@@ -2118,7 +2118,7 @@ export default function SuperAdminDashboard() {
       />
 
       {/* Loan Detail Panel - Conditional based on loan type */}
-      {selectedLoanType === 'OFFLINE' ? (
+      {showLoanDetailPanel && selectedLoanId && (selectedLoanType === 'OFFLINE' ? (
         <Suspense fallback={<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white" /></div>}>
           <OfflineLoanDetailPanel
             loanId={selectedLoanId}
@@ -2130,15 +2130,16 @@ export default function SuperAdminDashboard() {
           />
         </Suspense>
       ) : (
-        <LoanDetailPanel
-          loanId={selectedLoanId}
-          open={showLoanDetailPanel}
-          onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
-          userRole={user?.role || 'SUPER_ADMIN'}
-          userId={user?.id || ''}
-          onPaymentSuccess={() => { fetchLoans(); fetchAllActiveLoans(); }}
-        />
-      )}
+        <Suspense fallback={<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white" /></div>}>
+          <ActiveLoanDetailView
+            loanId={selectedLoanId}
+            onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+            onRefresh={() => { fetchLoans(); fetchAllActiveLoans(); }}
+            userRole={user?.role || 'SUPER_ADMIN'}
+            userId={user?.id || ''}
+          />
+        </Suspense>
+      ))}
 
       {/* System Reset Dialog */}
       <SystemResetDialog
