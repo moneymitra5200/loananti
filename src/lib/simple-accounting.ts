@@ -412,35 +412,101 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       });
     }
 
+    // ── DIRECT DB JOURNAL — bypasses AccountingService entirely to avoid silent failures ──
     try {
-      const accountingService = new AccountingService(mirrorCompanyId);
-      await accountingService.initializeChartOfAccounts();
+      // Ensure chart of accounts exists for mirror company
+      const { AccountingService: AccSvcForInit } = await import('@/lib/accounting-service');
+      const accSvcInit = new AccSvcForInit(mirrorCompanyId);
+      await accSvcInit.initializeChartOfAccounts();
 
-      result.journalEntryId = await accountingService.createJournalEntry({
-        entryDate: new Date(),
-        referenceType: 'MIRROR_EMI_PAYMENT',
-        referenceId: paymentId,
-        narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${mirrorEMITotal} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest}) [${paymentMode}]`,
-        lines: journalLines,
-        createdById: userId || 'SYSTEM',
-        paymentMode
+      // Check for duplicate (idempotency)
+      const existingJE = await db.journalEntry.findFirst({
+        where: { companyId: mirrorCompanyId, referenceId: paymentId, referenceType: 'MIRROR_EMI_PAYMENT', isReversed: false },
+        select: { id: true },
       });
 
-      console.log(`[Accounting] ✅ MIRROR: Journal — Dr ${debitAccountCode} ₹${mirrorEMITotal}, Cr 4110 ₹${mirrorInterest}, Cr 1200 ₹${effectiveMirrorPrincipal}`);
+      if (existingJE) {
+        result.journalEntryId = existingJE.id;
+        console.log(`[Accounting] ✅ MIRROR: Journal already exists (${existingJE.id}) — skipping duplicate`);
+      } else {
+        // Fetch account IDs directly from DB (no cache dependency)
+        const accountCodes = [debitAccountCode, '4110', '1200'];
+        const accounts = await db.chartOfAccount.findMany({
+          where: { companyId: mirrorCompanyId, accountCode: { in: accountCodes } },
+          select: { id: true, accountCode: true },
+        });
+        const accMap = new Map(accounts.map(a => [a.accountCode, a.id]));
+
+        const debitAccId = accMap.get(debitAccountCode);
+        const interestAccId = accMap.get('4110');
+        const loanAccId = accMap.get('1200');
+
+        if (!debitAccId || !interestAccId) {
+          throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: debit=${debitAccId}, interest=${interestAccId}`);
+        }
+
+        // Count existing entries for entry number
+        const jeCount = await db.journalEntry.count({ where: { companyId: mirrorCompanyId } });
+        const entryNumber = `JE${String(jeCount + 1).padStart(6, '0')}`;
+
+        // Get or create financial year
+        const now = new Date();
+        const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+        const fyName = `FY ${fyYear}-${fyYear + 1}`;
+        let fy = await db.financialYear.findFirst({ where: { companyId: mirrorCompanyId, name: fyName } });
+        if (!fy) {
+          fy = await db.financialYear.create({
+            data: { companyId: mirrorCompanyId, name: fyName, startDate: new Date(fyYear, 3, 1), endDate: new Date(fyYear + 1, 2, 31), isClosed: false },
+          });
+        }
+
+        // Build journal lines for direct create
+        const directLines: any[] = [
+          { accountId: debitAccId, debitAmount: mirrorEMITotal, creditAmount: 0, loanId: loanId || null, customerId: customerId || null,
+            narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
+              ? `Bank received - Mirror EMI #${installmentNumber}` : `Cash received - Mirror EMI #${installmentNumber}` },
+          { accountId: interestAccId, debitAmount: 0, creditAmount: mirrorInterest, loanId: loanId || null, customerId: customerId || null,
+            narration: `Mirror interest income - EMI #${installmentNumber}` },
+        ];
+        if (effectiveMirrorPrincipal > 0 && loanAccId) {
+          directLines.push({ accountId: loanAccId, debitAmount: 0, creditAmount: effectiveMirrorPrincipal, loanId: loanId || null, customerId: customerId || null,
+            narration: `Mirror principal repayment - EMI #${installmentNumber}` });
+        }
+
+        const je = await db.journalEntry.create({
+          data: {
+            companyId: mirrorCompanyId,
+            entryNumber,
+            entryDate: now,
+            referenceType: 'MIRROR_EMI_PAYMENT',
+            referenceId: paymentId,
+            narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${mirrorEMITotal} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest}) [${paymentMode}]`,
+            totalDebit: mirrorEMITotal,
+            totalCredit: mirrorInterest + effectiveMirrorPrincipal,
+            isAutoEntry: true,
+            isApproved: true,
+            createdById: userId || 'SYSTEM',
+            paymentMode: paymentMode || 'CASH',
+            lines: { create: directLines },
+          },
+        });
+
+        result.journalEntryId = je.id;
+
+        // Update account balances
+        await db.chartOfAccount.update({ where: { id: debitAccId }, data: { currentBalance: { increment: mirrorEMITotal } } });
+        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: mirrorInterest } } });
+        if (effectiveMirrorPrincipal > 0 && loanAccId) {
+          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: effectiveMirrorPrincipal } } });
+        }
+
+        console.log(`[Accounting] ✅ MIRROR: Journal entry ${je.id} created directly — Dr ${debitAccountCode} ₹${mirrorEMITotal}, Cr 4110 ₹${mirrorInterest}, Cr 1200 ₹${effectiveMirrorPrincipal}`);
+      }
     } catch (journalError: any) {
-      console.error('[Accounting] ❌ MIRROR EMI journal FAILED — Day Book will be empty!', {
+      console.error('[Accounting] ❌ MIRROR EMI journal FAILED (direct DB write also failed):', {
         message: journalError?.message,
         code: journalError?.code,
-        stack: journalError?.stack?.split('\n').slice(0, 8).join(' | '),
-        mirrorCompanyId,
-        paymentId,
-        mirrorEMITotal,
-        mirrorInterest,
-        effectiveMirrorPrincipal,
-        debitAccountCode,
-        userId,
-        journalLinesCount: journalLines.length,
-        journalLines: JSON.stringify(journalLines),
+        mirrorCompanyId, paymentId, mirrorEMITotal, mirrorInterest, effectiveMirrorPrincipal,
       });
     }
 
