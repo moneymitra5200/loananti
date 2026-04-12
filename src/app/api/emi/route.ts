@@ -988,8 +988,20 @@ export async function PUT(request: NextRequest) {
       // ── ACCOUNTING JOURNAL ENTRY (AFTER tx commits, before response) ──
       // createEMIPaymentEntry uses global db — must NOT be inside tx (SQLite deadlock)
       const { updatedEmi: result, capturedPaymentId, capturedCompanyId } = txResult;
-      const principalPaid = normalizedPaymentType === 'INTEREST_ONLY' ? 0 : Math.min(paidAmount, emi.principalAmount);
-      const interestPaid = normalizedPaymentType === 'INTEREST_ONLY' ? paidAmount : Math.max(0, paidAmount - principalPaid);
+
+      // Interest-first allocation rule:
+      //   • INTEREST_ONLY → all to interest, 0 to principal
+      //   • PARTIAL / FULL → cover interest first, remainder goes to principal
+      let principalPaid: number;
+      let interestPaid: number;
+      if (normalizedPaymentType === 'INTEREST_ONLY') {
+        interestPaid = paidAmount;
+        principalPaid = 0;
+      } else {
+        // Pay off EMI interest first, then whatever is left goes to principal
+        interestPaid = Math.min(paidAmount, emi.interestAmount);
+        principalPaid = Math.max(0, paidAmount - interestPaid);
+      }
 
       if (capturedPaymentId && capturedCompanyId) {
         try {
@@ -1039,8 +1051,78 @@ export async function PUT(request: NextRequest) {
           } catch (pfError) {
             console.error('[EMI API] ⚠️ Processing fee journal entry failed:', pfError);
           }
+        } // end if (capturedPaymentId && capturedCompanyId)
+
+        // ── BANK / CASHBOOK PASSBOOK UPDATE ──────────────────────────────────────
+        // Update the physical passbook records so EMI payments show up in
+        // the bank statements and cash book (not just the journal/daybook).
+        // This runs even if the journal entry failed — passbook is a separate concern.
+        if (capturedPaymentId && capturedCompanyId) {
+          try {
+            const isCash = actualPaymentMode === 'CASH';
+            const loanAppNo = emi.loanApplication?.applicationNo || loanId;
+            const passbookDesc = `EMI #${emi.installmentNumber} Collection - ${loanAppNo}`;
+
+            if (isCash) {
+              // CASH → update CashBook
+              let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
+              if (!cashBook) {
+                cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+              }
+              const newCashBalance = cashBook.currentBalance + paidAmount;
+              await db.cashBookEntry.create({
+                data: {
+                  cashBookId: cashBook.id,
+                  entryType: 'CREDIT',
+                  amount: paidAmount,
+                  balanceAfter: newCashBalance,
+                  description: passbookDesc,
+                  referenceType: 'EMI_PAYMENT',
+                  referenceId: capturedPaymentId,
+                  createdById: userId,
+                  entryDate: new Date(),
+                },
+              });
+              await db.cashBook.update({
+                where: { id: cashBook.id },
+                data: { currentBalance: newCashBalance, lastUpdatedById: userId, lastUpdatedAt: new Date() },
+              });
+              console.log(`[EMI API] ✅ CashBook entry created: +₹${paidAmount} (new balance: ₹${newCashBalance})`);
+            } else {
+              // ONLINE / CHEQUE → update BankAccount
+              const bankAcct = await db.bankAccount.findFirst({
+                where: { companyId: capturedCompanyId, isActive: true },
+                orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+              });
+              if (bankAcct) {
+                const newBankBalance = bankAcct.currentBalance + paidAmount;
+                await db.bankTransaction.create({
+                  data: {
+                    bankAccountId: bankAcct.id,
+                    transactionType: 'CREDIT',
+                    amount: paidAmount,
+                    balanceAfter: newBankBalance,
+                    description: passbookDesc,
+                    referenceType: 'EMI_PAYMENT',
+                    referenceId: capturedPaymentId,
+                    createdById: userId,
+                    transactionDate: new Date(),
+                  },
+                });
+                await db.bankAccount.update({
+                  where: { id: bankAcct.id },
+                  data: { currentBalance: newBankBalance },
+                });
+                console.log(`[EMI API] ✅ BankTransaction created: +₹${paidAmount} → ${bankAcct.bankName} (new balance: ₹${newBankBalance})`);
+              } else {
+                console.warn(`[EMI API] ⚠️ No bank account found for company ${capturedCompanyId}, skipping bank passbook entry`);
+              }
+            }
+          } catch (bookError) {
+            console.error('[EMI API] ⚠️ Bank/cashbook passbook update failed (payment still recorded):', bookError);
+          }
         }
-      } // end if (capturedPaymentId && capturedCompanyId)
+      } // end outer if (capturedPaymentId && capturedCompanyId)
 
       return NextResponse.json({ 
         success: true, 
