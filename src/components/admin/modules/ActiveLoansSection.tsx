@@ -212,7 +212,7 @@ export function ActiveLoansSection({
     };
 
     fetchMirrorMappings();
-  }, [onRefresh]);
+  }, []); // ← run once on mount only; onRefresh is a new ref every render and causes infinite flicker
 
   // EMI Settings State
   const [emiSettings, setEmiSettings] = useState<{[key: string]: {

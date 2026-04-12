@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { EMIPaymentStatus, CreditType, CreditTransactionType, PaymentModeType } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
-import { createEMIPaymentEntry } from '@/lib/accounting-service';
+import { createEMIPaymentEntry, AccountingService } from '@/lib/accounting-service';
 
 // GET - Fetch EMI schedules with NPA tracking
 export async function GET(request: NextRequest) {
@@ -380,7 +380,7 @@ export async function PUT(request: NextRequest) {
             include: { 
               company: true,
               customer: { select: { id: true, name: true, phone: true } },
-              sessionForm: { select: { emiAmount: true, interestRate: true } }
+              sessionForm: { select: { emiAmount: true, interestRate: true, processingFee: true } }
             } 
           } 
         }
@@ -1010,7 +1010,37 @@ export async function PUT(request: NextRequest) {
         } catch (journalError) {
           console.error('[EMI API] ⚠️ Journal entry failed (payment still recorded):', journalError);
         }
-      }
+
+        // ── PROCESSING FEE JOURNAL ENTRY on first EMI (EMI #1) ──
+        // Same logic as offline loans: when installment #1 is paid, record the processing fee
+        const processingFeeAmount = emi.loanApplication?.sessionForm?.processingFee || 0;
+        if (emi.installmentNumber === 1 && processingFeeAmount > 0 && capturedCompanyId) {
+          try {
+            const pfService = new AccountingService(capturedCompanyId);
+            await pfService.initializeChartOfAccounts();
+            // Check idempotency: don't create duplicate processing fee entry for same loan
+            const existingPfEntry = await db.journalEntry.findFirst({
+              where: { companyId: capturedCompanyId, referenceId: loanId, referenceType: 'PROCESSING_FEE_COLLECTION', isReversed: false },
+              select: { id: true }
+            });
+            if (!existingPfEntry) {
+              await pfService.recordProcessingFee({
+                loanId,
+                customerId: emi.loanApplication?.customerId || '',
+                amount: processingFeeAmount,
+                collectionDate: new Date(),
+                createdById: userId,
+                paymentMode: actualPaymentMode,
+              });
+              console.log(`[EMI API] ✅ Processing fee ₹${processingFeeAmount} journal entry created (EMI #1)`);
+            } else {
+              console.log(`[EMI API] ℹ️ Processing fee entry already exists for loan ${loanId}, skipping`);
+            }
+          } catch (pfError) {
+            console.error('[EMI API] ⚠️ Processing fee journal entry failed:', pfError);
+          }
+        }
+      } // end if (capturedPaymentId && capturedCompanyId)
 
       return NextResponse.json({ 
         success: true, 

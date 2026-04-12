@@ -536,8 +536,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   const handleEMIPayment = async () => {
     if (!selectedEMI || !loanDetails) return;
     
-    const actualCreditType = emiPaymentForm.paymentMode === 'CASH' ? 'COMPANY' : 'PERSONAL';
-    const requiresProof = actualCreditType === 'PERSONAL';
+    // Use exactly what the user selected — do NOT override based on paymentMode
+    const actualCreditType = emiPaymentForm.creditType;
+    // Proof required for non-CASH (cheque/UPI etc.) payments
+    const requiresProof = emiPaymentForm.paymentMode !== 'CASH' && emiPaymentForm.paymentMode !== 'SPLIT';
     
     if (requiresProof && !emiPaymentForm.proofFile) {
       toast({ 
@@ -599,7 +601,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           paidAmount: emiPaymentForm.amount,
           paymentMode: emiPaymentForm.paymentMode,
           paymentRef: emiPaymentForm.paymentRef,
-          creditType: emiPaymentForm.creditType,
+          creditType: actualCreditType,
           remarks: emiPaymentForm.remarks,
           proofUrl: proofUrl,
           userId: user?.id,
@@ -614,6 +616,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           // Split payment
           splitCashAmount: emiPaymentForm.splitCashAmount || 0,
           splitOnlineAmount: emiPaymentForm.splitOnlineAmount || 0,
+          // Mirror company — accounting entries go to mirror company's books when loan has mirror
+          ...(hasMirrorLoan && mirrorCompanyInfo?.id ? { mirrorCompanyId: mirrorCompanyInfo.id } : {}),
         })
       });
 

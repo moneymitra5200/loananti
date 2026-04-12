@@ -14,7 +14,7 @@ interface UseRealtimeOptions {
   onNotification?: (notification: any) => void;
   onDashboardRefresh?: () => void;
   onCreditUpdated?: (credit: { personalCredit: number; companyCredit: number }) => void;
-  /** Polling interval in ms when WebSocket is unavailable. Default: 15000 (15s). Set 0 to disable. */
+  /** Polling interval in ms when WebSocket is unavailable. Default: 60000 (60s). Set 0 to disable. */
   pollInterval?: number;
 }
 
@@ -44,7 +44,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onNotification,
     onDashboardRefresh,
     onCreditUpdated,
-    pollInterval = 15_000,
+    pollInterval = 60_000,
   } = options;
 
   const callbacksRef = useRef({
@@ -128,25 +128,27 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   }, [userId, role, companyId]);
 
   // ─── Polling fallback ────────────────────────────────────────────────────────
-  // Always runs — provides reliable updates even when WebSocket is available
-  // (acts as a safety net for missed events and Vercel/PWA deployments)
+  // Acts as a safety net for missed events and Vercel/PWA deployments.
   useEffect(() => {
     if (!userId || !pollInterval || pollInterval <= 0) return;
 
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
     // Small initial delay so the first data load completes before polling starts
     const startDelay = setTimeout(() => {
-      const intervalId = setInterval(() => {
+      intervalId = setInterval(() => {
         // Only poll when the tab is visible to save battery / bandwidth
         if (document.visibilityState === 'visible') {
           callbacksRef.current.onDashboardRefresh?.();
         }
       }, pollInterval);
-
-      // Clean up interval inside the timeout closure
-      return () => clearInterval(intervalId);
     }, 5000); // wait 5s after mount before first poll
 
-    return () => clearTimeout(startDelay);
+    // Cleanup BOTH the timeout and the interval
+    return () => {
+      clearTimeout(startDelay);
+      if (intervalId) clearInterval(intervalId);
+    };
   }, [userId, pollInterval]);
 
   // ─── Visibility change restart ───────────────────────────────────────────────
