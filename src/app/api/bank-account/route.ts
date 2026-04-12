@@ -8,17 +8,55 @@ export async function GET(request: NextRequest) {
     const companyId = searchParams.get('companyId');
     const action = searchParams.get('action');
 
-    // Get default bank account for a company
+    // Get default bank account for a company (with optional mirror-loan check)
     if (action === 'default') {
       if (!companyId) {
         return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
       }
 
-      // Try to get the marked-default account first; fall back to any active account
+      const loanId = searchParams.get('loanId');
+
+      // ── Mirror loan check ──────────────────────────────────────────────────
+      // If a loanId is provided and the loan has a mirror mapping,
+      // show the MIRROR company's bank account (that's where the customer pays)
+      if (loanId) {
+        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId },
+          select: { mirrorCompanyId: true }
+        });
+
+        if (mirrorMapping?.mirrorCompanyId) {
+          const mirrorBank = await db.bankAccount.findFirst({
+            where: { companyId: mirrorMapping.mirrorCompanyId, isActive: true, isDefault: true }
+          }) ?? await db.bankAccount.findFirst({
+            where: { companyId: mirrorMapping.mirrorCompanyId, isActive: true },
+            orderBy: { createdAt: 'desc' }
+          });
+
+          if (mirrorBank) {
+            return NextResponse.json({ success: true, account: mirrorBank, source: 'mirror' });
+          }
+        }
+      }
+
+      // ── Standard 4-tier fallback ───────────────────────────────────────────
+      // Tier 1: company's marked-default account
       const defaultAccount = await db.bankAccount.findFirst({
         where: { companyId, isActive: true, isDefault: true }
-      }) ?? await db.bankAccount.findFirst({
+      })
+      // Tier 2: any active account for this company
+      ?? await db.bankAccount.findFirst({
         where: { companyId, isActive: true },
+        orderBy: { createdAt: 'desc' }
+      })
+      // Tier 3: any default bank account system-wide (handles cash-only companies like Company 3)
+      ?? await db.bankAccount.findFirst({
+        where: { isActive: true, isDefault: true },
+        orderBy: { createdAt: 'desc' }
+      })
+      // Tier 4: absolute fallback — any active bank account in the system
+      ?? await db.bankAccount.findFirst({
+        where: { isActive: true },
         orderBy: { createdAt: 'desc' }
       });
 

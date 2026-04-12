@@ -204,7 +204,14 @@ export default function CustomerLoanDetailPage() {
       
       if (loanRes.ok) {
         const loanData = await loanRes.json();
-        setLoan(loanData.loan || loanData);
+        const loanObj = loanData.loan || loanData;
+        setLoan(loanObj);
+        // Eagerly fetch bank account — use company.id or companyId scalar as fallback
+        const companyId = loanObj?.company?.id || loanObj?.companyId;
+        if (companyId) {
+          // Don't await — run in parallel so the page doesn't block
+          fetchCompanyBankAccount(companyId, loanId);
+        }
       }
       
       if (emiRes.ok) {
@@ -244,10 +251,12 @@ export default function CustomerLoanDetailPage() {
   }, [loanId]);
 
   // Fetch company bank account details (QR code, UPI ID, account number etc)
-  const fetchCompanyBankAccount = useCallback(async (companyId: string) => {
+  // When loanId is provided the API will check for a mirror mapping and return mirror bank account
+  const fetchCompanyBankAccount = useCallback(async (companyId: string, lId?: string) => {
     if (!companyId) return;
     try {
-      const res = await fetch(`/api/bank-account?companyId=${companyId}&action=default`);
+      const qs = `companyId=${companyId}&action=default${lId ? `&loanId=${lId}` : ''}`;
+      const res = await fetch(`/api/bank-account?${qs}`);
       if (!res.ok) return;
       const data = await res.json();
       if (data.success && data.account) {
