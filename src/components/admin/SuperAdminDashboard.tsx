@@ -249,8 +249,8 @@ export default function SuperAdminDashboard() {
       toast({ title: 'Loan Updated', description: `Loan ${loan.applicationNo} status changed to ${newStatus}` });
     },
     onDashboardRefresh: () => {
-      // Refresh all data when requested
-      fetchAllData();
+      // Force refresh all data whenever polling or WebSocket triggers
+      fetchAllData(true);
     }
   });
 
