@@ -219,19 +219,65 @@ export default function CustomerLoanDetailPage() {
     }
   }, [loanId]);
 
-  // Fetch payment settings
+  // Fetch payment settings — loads the company's default bank account (real QR, UPI, account details)
   const fetchPaymentSettings = useCallback(async () => {
     if (!loanId) return;
     try {
-      const response = await fetch(`/api/payment-request?action=settings&loanApplicationId=${loanId}`);
-      const data = await response.json();
-      if (data.success && data.settings) {
-        setPaymentSettings(data.settings);
-      }
+      // First get emi-payment-settings for payment type toggles
+      const [settingsRes] = await Promise.all([
+        fetch(`/api/emi-payment-settings?loanApplicationId=${loanId}`)
+      ]);
+      const settingsData = settingsRes.ok ? await settingsRes.json() : null;
+
+      // We'll merge with bank account details once loan is loaded
+      setPaymentSettings(prev => ({
+        enableFullPayment: settingsData?.settings?.enableFullPayment ?? true,
+        enablePartialPayment: settingsData?.settings?.enablePartialPayment ?? true,
+        enableInterestOnly: settingsData?.settings?.enableInterestOnly ?? true,
+        maxPartialPayments: settingsData?.settings?.maxPartialPayments ?? 2,
+        maxInterestOnlyPerLoan: settingsData?.settings?.maxInterestOnlyPerLoan ?? 3,
+        ...prev, // keep existing bank details if already loaded
+      }));
     } catch (error) {
       console.error('Error fetching payment settings:', error);
     }
   }, [loanId]);
+
+  // Fetch company bank account details (QR code, UPI ID, account number etc)
+  const fetchCompanyBankAccount = useCallback(async (companyId: string) => {
+    if (!companyId) return;
+    try {
+      const res = await fetch(`/api/bank-account?companyId=${companyId}&action=default`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success && data.account) {
+        const acc = data.account;
+        setPaymentSettings(prev => ({
+          enableFullPayment: prev?.enableFullPayment ?? true,
+          enablePartialPayment: prev?.enablePartialPayment ?? true,
+          enableInterestOnly: prev?.enableInterestOnly ?? true,
+          maxPartialPayments: prev?.maxPartialPayments ?? 2,
+          maxInterestOnlyPerLoan: prev?.maxInterestOnlyPerLoan ?? 3,
+          companyUpiId: acc.upiId || prev?.companyUpiId,
+          companyQrCodeUrl: acc.qrCodeUrl || prev?.companyQrCodeUrl,
+          bankName: acc.bankName || prev?.bankName,
+          bankAccountNumber: acc.accountNumber || prev?.bankAccountNumber,
+          bankIfscCode: acc.ifscCode || prev?.bankIfscCode,
+          bankBranch: acc.branchName || prev?.bankBranch,
+          collectionBankAccountId: acc.id,
+        }));
+        // Also update bank details for display
+        setBankDetails({
+          bankName: acc.bankName || '',
+          accountNumber: acc.accountNumber || '',
+          ifscCode: acc.ifscCode || '',
+          accountHolderName: acc.accountName || '',
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching company bank account:', error);
+    }
+  }, []);
 
   // Fetch EMI-specific payment settings
   const fetchEmiSpecificSettings = useCallback(async (emiScheduleId: string) => {
@@ -277,6 +323,13 @@ export default function CustomerLoanDetailPage() {
     fetchLoanDetails();
     fetchPaymentSettings();
   }, [fetchLoanDetails, fetchPaymentSettings]);
+
+  // Once loan is loaded, fetch the company's real bank account details
+  useEffect(() => {
+    if (loan?.company?.id) {
+      fetchCompanyBankAccount(loan.company.id);
+    }
+  }, [loan?.company?.id, fetchCompanyBankAccount]);
 
   // Fetch Interest EMI data when loan is an Interest Only loan
   // This handles both ACTIVE_INTEREST_ONLY status and loans that might have incorrect status
@@ -1388,24 +1441,60 @@ export default function CustomerLoanDetailPage() {
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span className="text-gray-500">Account Holder:</span>
-                        <span className="font-medium">{loan.company?.name || 'Money Mitra'}</span>
+                        <span className="font-medium">
+                          {bankDetails?.accountHolderName || loan.company?.name || 'Money Mitra'}
+                        </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-500">Bank Name:</span>
-                        <span className="font-medium">{paymentSettings?.bankName || 'HDFC Bank'}</span>
+                        <span className="font-medium">{paymentSettings?.bankName || bankDetails?.bankName || '—'}</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex justify-between items-center">
                         <span className="text-gray-500">Account Number:</span>
-                        <span className="font-mono">{paymentSettings?.bankAccountNumber || '50100212345678'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono">{paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '—'}</span>
+                          {(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber) && (
+                            <button
+                              onClick={() => copyToClipboard(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '')}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex justify-between items-center">
                         <span className="text-gray-500">IFSC Code:</span>
-                        <span className="font-mono">{paymentSettings?.bankIfscCode || 'HDFC0001234'}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono">{paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '—'}</span>
+                          {(paymentSettings?.bankIfscCode || bankDetails?.ifscCode) && (
+                            <button
+                              onClick={() => copyToClipboard(paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '')}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {paymentSettings?.bankBranch && (
                         <div className="flex justify-between">
                           <span className="text-gray-500">Branch:</span>
                           <span className="font-medium">{paymentSettings.bankBranch}</span>
+                        </div>
+                      )}
+                      {paymentSettings?.companyUpiId && (
+                        <div className="flex justify-between items-center pt-2 border-t">
+                          <span className="text-gray-500">UPI ID:</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-blue-700">{paymentSettings.companyUpiId}</span>
+                            <button
+                              onClick={() => copyToClipboard(paymentSettings.companyUpiId || '')}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
