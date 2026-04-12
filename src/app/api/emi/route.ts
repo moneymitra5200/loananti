@@ -491,7 +491,7 @@ export async function PUT(request: NextRequest) {
       console.log(`[EMI Payment] Setting paymentStatus to: ${newPaymentStatus}`);
 
       // Start transaction with extended timeout for complex operations
-      const result = await db.$transaction(async (tx) => {
+      const txResult = await db.$transaction(async (tx) => {
         // Prepare update data for EMI
         const updateData: Record<string, unknown> = {
           paymentStatus: newPaymentStatus,
@@ -973,44 +973,44 @@ export async function PUT(request: NextRequest) {
           }
         }
 
-        // ── ACCOUNTING JOURNAL ENTRY (inside transaction, guaranteed to run) ──
-        const principalPaid = normalizedPaymentType === 'INTEREST_ONLY' ? 0 : Math.min(paidAmount, emi.principalAmount);
-        const interestPaid = normalizedPaymentType === 'INTEREST_ONLY' ? paidAmount : Math.max(0, paidAmount - principalPaid);
-
-        // Get the payment record we just created
+        // Fetch payment ID inside tx (reads its own writes)
         const latestPayment = await tx.payment.findFirst({
           where: { loanApplicationId: loanId, emiScheduleId: emiId, amount: paidAmount },
           orderBy: { createdAt: 'desc' },
           select: { id: true }
         });
+        const capturedPaymentId = latestPayment?.id || null;
+        const capturedCompanyId = mirrorCompanyId || emi.loanApplication?.companyId || null;
 
-        // Determine accounting company (mirror uses mirror company)
-        const accountingCompanyId = mirrorCompanyId || emi.loanApplication?.companyId;
-
-        if (latestPayment && accountingCompanyId) {
-          try {
-            await createEMIPaymentEntry({
-              loanId,
-              customerId: emi.loanApplication?.customerId || '',
-              paymentId: latestPayment.id,
-              totalAmount: paidAmount,
-              principalComponent: principalPaid,
-              interestComponent: interestPaid,
-              penaltyComponent: 0,
-              paymentDate: new Date(),
-              createdById: userId,
-              paymentMode: actualPaymentMode,
-              targetCompanyId: accountingCompanyId,
-            });
-            console.log(`[EMI API] ✅ Journal entry created for company ${accountingCompanyId}`);
-          } catch (journalError) {
-            // Log but don't fail the transaction — payment is recorded, journal can be reconciled
-            console.error('[EMI API] ⚠️ Journal entry failed (payment still recorded):', journalError);
-          }
-        }
-
-        return updatedEmi;
+        return { updatedEmi, capturedPaymentId, capturedCompanyId };
       }, { maxWait: 30000, timeout: 30000 });
+
+      // ── ACCOUNTING JOURNAL ENTRY (AFTER tx commits, before response) ──
+      // createEMIPaymentEntry uses global db — must NOT be inside tx (SQLite deadlock)
+      const { updatedEmi: result, capturedPaymentId, capturedCompanyId } = txResult;
+      const principalPaid = normalizedPaymentType === 'INTEREST_ONLY' ? 0 : Math.min(paidAmount, emi.principalAmount);
+      const interestPaid = normalizedPaymentType === 'INTEREST_ONLY' ? paidAmount : Math.max(0, paidAmount - principalPaid);
+
+      if (capturedPaymentId && capturedCompanyId) {
+        try {
+          await createEMIPaymentEntry({
+            loanId,
+            customerId: emi.loanApplication?.customerId || '',
+            paymentId: capturedPaymentId,
+            totalAmount: paidAmount,
+            principalComponent: principalPaid,
+            interestComponent: interestPaid,
+            penaltyComponent: 0,
+            paymentDate: new Date(),
+            createdById: userId,
+            paymentMode: actualPaymentMode,
+            targetCompanyId: capturedCompanyId,
+          });
+          console.log(`[EMI API] ✅ Journal entry created for company ${capturedCompanyId}`);
+        } catch (journalError) {
+          console.error('[EMI API] ⚠️ Journal entry failed (payment still recorded):', journalError);
+        }
+      }
 
       return NextResponse.json({ 
         success: true, 
