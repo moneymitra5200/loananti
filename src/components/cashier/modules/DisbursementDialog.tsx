@@ -546,9 +546,11 @@ export default function DisbursementDialog({
                             { label: 'Income Proof', value: selectedLoan.incomeProofDoc, icon: FileText },
                             { label: 'Address Proof', value: selectedLoan.addressProofDoc, icon: Home },
                             { label: 'Bank Statement', value: selectedLoan.bankStatementDoc, icon: Landmark },
+                            { label: 'Passbook', value: selectedLoan.passbookDoc, icon: Landmark },
                             { label: 'Salary Slip', value: selectedLoan.salarySlipDoc, icon: IndianRupee },
                             { label: 'Election Card', value: selectedLoan.electionCardDoc, icon: IdCard },
                             { label: 'House Photo', value: selectedLoan.housePhotoDoc, icon: Home },
+                            { label: 'Guarantor Photo', value: selectedLoan.guarantorPhotoDoc, icon: Users2 },
                             { label: 'Other Docs', value: selectedLoan.otherDocs, icon: FileText },
                           ].filter(d => d.value).map((doc, i) => (
                             <a key={i} href={doc.value} target="_blank" rel="noopener noreferrer" 
@@ -558,9 +560,12 @@ export default function DisbursementDialog({
                               <ExternalLink className="h-3 w-3 text-purple-400" />
                             </a>
                           ))}
-                          {![selectedLoan.photoDoc, selectedLoan.panCardDoc, selectedLoan.aadhaarFrontDoc, selectedLoan.aadhaarBackDoc, 
+                          {![
+                             selectedLoan.photoDoc, selectedLoan.panCardDoc, selectedLoan.aadhaarFrontDoc, selectedLoan.aadhaarBackDoc, 
                              selectedLoan.incomeProofDoc, selectedLoan.addressProofDoc, selectedLoan.bankStatementDoc, 
-                             selectedLoan.salarySlipDoc, selectedLoan.electionCardDoc, selectedLoan.housePhotoDoc, selectedLoan.otherDocs].some(Boolean) && (
+                             selectedLoan.passbookDoc, selectedLoan.salarySlipDoc, selectedLoan.electionCardDoc, 
+                             selectedLoan.housePhotoDoc, selectedLoan.guarantorPhotoDoc, selectedLoan.otherDocs
+                          ].some(Boolean) && (
                             <div className="col-span-4 text-center py-8 text-gray-500">
                               No documents uploaded
                             </div>
@@ -779,6 +784,34 @@ export default function DisbursementDialog({
                       <div className="flex items-center gap-2 p-3 border rounded-lg bg-gray-50">
                         <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
                         <span className="text-sm text-gray-500">Loading payment sources...</span>
+                      </div>
+                    ) : disbursementForm.useSplitPayment ? (
+                      /* When split is active, replace Select with stable static display */
+                      <div className="flex items-center justify-between p-3 border-2 border-purple-400 bg-purple-50 rounded-lg">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 bg-purple-100 rounded-lg">
+                            <Split className="h-4 w-4 text-purple-600" />
+                          </div>
+                          <div>
+                            <p className="font-semibold text-purple-800 text-sm">Split Payment Active</p>
+                            <p className="text-xs text-purple-500">Bank + Cash distribution below</p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs text-purple-700 border-purple-300 hover:bg-purple-100"
+                          onClick={() => setDisbursementForm({
+                            ...disbursementForm,
+                            selectedBankAccountId: '',
+                            useSplitPayment: false,
+                            bankAmount: 0,
+                            cashAmount: 0
+                          })}
+                        >
+                          × Change Method
+                        </Button>
                       </div>
                     ) : (
                       <Select 
@@ -1004,11 +1037,12 @@ export default function DisbursementDialog({
                       </div>
                     </div>
 
-                    {/* Validation */}
+                    {/* Confirm Split Button */}
                     {(() => {
                       const total = (disbursementForm.bankAmount || 0) + (disbursementForm.cashAmount || 0);
                       const bankBal = paymentSources.find(s => s.type === 'BANK' && s.id === disbursementForm.splitBankAccountId)?.currentBalance || paymentSources.find(s => s.type === 'BANK')?.currentBalance || 0;
                       const cashBal = paymentSources.find(s => s.type === 'CASH')?.currentBalance || 0;
+                      const isValid = total === disbursementForm.disbursedAmount && (disbursementForm.bankAmount || 0) <= bankBal;
 
                       if (total !== disbursementForm.disbursedAmount) {
                         return (
@@ -1027,9 +1061,12 @@ export default function DisbursementDialog({
                         );
                       }
                       return (
-                        <div className="p-3 bg-green-50 border border-green-300 rounded-lg text-sm text-green-700 flex items-center gap-2">
-                          <span className="text-green-500 text-lg">✓</span>
-                          Split: Bank {formatCurrency(disbursementForm.bankAmount || 0)} + Cash {formatCurrency(disbursementForm.cashAmount || 0)} = {formatCurrency(total)}
+                        <div className="p-3 bg-green-50 border border-green-300 rounded-lg text-sm text-green-700 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-green-500 text-lg">✓</span>
+                            Split: Bank {formatCurrency(disbursementForm.bankAmount || 0)} + Cash {formatCurrency(disbursementForm.cashAmount || 0)} = {formatCurrency(total)}
+                          </div>
+                          <span className="px-2 py-1 bg-green-600 text-white text-xs rounded-full font-semibold">Done ✓</span>
                         </div>
                       );
                     })()}

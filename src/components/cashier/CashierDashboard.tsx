@@ -152,7 +152,8 @@ export default function CashierDashboard() {
       // Set default bank account
       const defaultAccount = bankAccountsData.bankAccounts?.find((a: BankAccount) => a.isDefault);
       if (defaultAccount) {
-        setDisbursementForm(prev => ({ ...prev, selectedBankAccountId: defaultAccount.id }));
+        // CRITICAL: Only set default when no source is chosen yet — never override an active split or selection
+        setDisbursementForm(prev => prev.selectedBankAccountId ? prev : ({ ...prev, selectedBankAccountId: defaultAccount.id }));
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -194,7 +195,8 @@ export default function CashierDashboard() {
         // Set default bank account for the company
         const defaultAccount = data.bankAccounts?.find((a: BankAccount) => a.isDefault);
         if (defaultAccount) {
-          setDisbursementForm(prev => ({ ...prev, selectedBankAccountId: defaultAccount.id }));
+          // CRITICAL: Only set default when no source is chosen yet — never override an active split or selection
+          setDisbursementForm(prev => prev.selectedBankAccountId ? prev : ({ ...prev, selectedBankAccountId: defaultAccount.id }));
         }
       }
     } catch (error) {

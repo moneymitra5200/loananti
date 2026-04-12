@@ -137,10 +137,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'EMI schedules already exist', count: existingSchedules.length }, { status: 400 });
     }
 
-    const { approvedAmount, interestRate, tenure, emiAmount } = loan.sessionForm;
+    const { approvedAmount, interestRate, interestType, tenure, emiAmount } = loan.sessionForm;
     const startDate = loan.disbursedAt || new Date();
 
-    const emiCalculation = calculateEMI(approvedAmount, interestRate, tenure, startDate);
+    const emiCalculation = calculateEMI(
+      approvedAmount,
+      interestRate,
+      tenure,
+      (interestType as 'FLAT' | 'REDUCING') || 'FLAT',
+      startDate
+    );
 
     const schedules = await Promise.all(
       emiCalculation.schedule.map((item) =>

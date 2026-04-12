@@ -58,6 +58,8 @@ export interface Loan {
   salarySlipDoc?: string;
   electionCardDoc?: string;
   housePhotoDoc?: string;
+  passbookDoc?: string;
+  guarantorPhotoDoc?: string;
   otherDocs?: string;
   // References
   reference1Name?: string;

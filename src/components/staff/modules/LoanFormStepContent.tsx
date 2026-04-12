@@ -145,6 +145,8 @@ const DOCUMENT_TYPES = [
   { id: 'photo', name: 'Photo', desc: 'Passport size', required: false },
   { id: 'election_card', name: 'Election Card', desc: 'Voter ID', required: false },
   { id: 'house_photo', name: 'House Photo', desc: 'Residence photo', required: false },
+  { id: 'guarantor_photo', name: 'Guarantor Photo', desc: 'Guarantor passport photo', required: false },
+  { id: 'passbook_photo', name: 'Passbook Photo', desc: 'Bank passbook front page', required: false },
 ];
 
 export default function LoanFormStepContent({
@@ -580,12 +582,12 @@ export default function LoanFormStepContent({
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <Users className="h-5 w-5 text-emerald-600" />
-            <h4 className="font-semibold text-lg">Guardians</h4>
+            <h4 className="font-semibold text-lg">Guarantors</h4>
           </div>
-          <p className="text-sm text-gray-500">Add at least two guardians for verification purposes.</p>
+          <p className="text-sm text-gray-500">Add at least two guarantors for verification purposes.</p>
           <div className="space-y-6">
             <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-              <h5 className="font-medium mb-3 text-gray-700">Guardian 1</h5>
+              <h5 className="font-medium mb-3 text-gray-700">Guarantor 1</h5>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="ref1Name">Full Name</Label>
@@ -615,7 +617,7 @@ export default function LoanFormStepContent({
               </div>
             </div>
             <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-              <h5 className="font-medium mb-3 text-gray-700">Guardian 2</h5>
+              <h5 className="font-medium mb-3 text-gray-700">Guarantor 2</h5>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="ref2Name">Full Name</Label>
@@ -943,7 +945,7 @@ export default function LoanFormStepContent({
                 { label: 'Bank Verified', checked: loanForm.bankVerified },
                 { label: 'Employment Added', checked: !!loanForm.employmentType },
                 { label: 'Address Filled', checked: !!loanForm.address },
-                { label: 'Guardians Added', checked: !!(loanForm.ref1Name || loanForm.ref2Name) },
+                { label: 'Guarantors Added', checked: !!(loanForm.ref1Name || loanForm.ref2Name) },
                 // Add collateral details check for GOLD/VEHICLE loans
                 ...(isGoldLoan(selectedLoan?.loanType || '') ? [{ label: 'Gold Details Filled', checked: !!(goldLoanData.netWeight && goldLoanData.loanAmount) }] : []),
                 ...(isVehicleLoan(selectedLoan?.loanType || '') ? [{ label: 'Vehicle Details Filled', checked: !!(vehicleLoanData.vehicleType && vehicleLoanData.loanAmount) }] : []),

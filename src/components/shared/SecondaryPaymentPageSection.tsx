@@ -361,155 +361,6 @@ const SecondaryPaymentPageSection = memo(function SecondaryPaymentPageSection({
     return <Badge className={c.className}>{c.label}</Badge>;
   };
 
-  // Dialog Form Component
-  const PaymentPageForm = () => (
-    <div className="grid gap-4 py-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="grid gap-2">
-          <Label>Page Name *</Label>
-          <Input
-            value={formData.name}
-            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-            placeholder="e.g., Collection Point A"
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label>Description</Label>
-          <Input
-            value={formData.description}
-            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-            placeholder="Optional description"
-          />
-        </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <h4 className="font-medium flex items-center gap-2 mb-3">
-          <User className="h-4 w-4" /> Role Assignment (Personal Credit)
-        </h4>
-        <div className="grid gap-2">
-          <Label>Select Role/User</Label>
-          <Select value={formData.roleId} onValueChange={handleRoleChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select user for personal credit" />
-            </SelectTrigger>
-            <SelectContent>
-              {users.map(u => (
-                <SelectItem key={u.id} value={u.id}>
-                  {u.name} ({u.role})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-gray-500">
-            When EMI payment is made via this page, the selected user&apos;s personal credit will increase.
-          </p>
-        </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <h4 className="font-medium flex items-center gap-2 mb-3">
-          <QrCode className="h-4 w-4" /> UPI Payment Details
-        </h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-2">
-            <Label>UPI ID</Label>
-            <Input
-              value={formData.upiId}
-              onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))}
-              placeholder="name@upi"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>QR Code Image</Label>
-            <div className="flex items-center gap-2">
-              <Input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleQrCodeUpload}
-                className="hidden"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingQr}
-                className="w-full"
-              >
-                {uploadingQr ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Upload className="h-4 w-4 mr-2" />
-                )}
-                {uploadingQr ? 'Uploading...' : 'Upload QR'}
-              </Button>
-            </div>
-          </div>
-        </div>
-        
-        {/* QR Code Preview */}
-        {formData.qrCodeUrl && (
-          <div className="mt-3 relative inline-block">
-            <img 
-              src={formData.qrCodeUrl} 
-              alt="QR Code Preview" 
-              className="w-32 h-32 rounded-lg border object-cover"
-            />
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="absolute -top-2 -right-2 h-6 w-6 p-0"
-              onClick={handleRemoveQrCode}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-        )}
-      </div>
-
-      <div className="border-t pt-4">
-        <h4 className="font-medium flex items-center gap-2 mb-3">
-          <Banknote className="h-4 w-4" /> Bank Account Details
-        </h4>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="grid gap-2">
-            <Label>Bank Name</Label>
-            <Input
-              value={formData.bankName}
-              onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
-              placeholder="State Bank of India"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Account Number</Label>
-            <Input
-              value={formData.accountNumber}
-              onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))}
-              placeholder="1234567890"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>Account Holder Name</Label>
-            <Input
-              value={formData.accountName}
-              onChange={(e) => setFormData(prev => ({ ...prev, accountName: e.target.value }))}
-              placeholder="John Doe"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>IFSC Code</Label>
-            <Input
-              value={formData.ifscCode}
-              onChange={(e) => setFormData(prev => ({ ...prev, ifscCode: e.target.value }))}
-              placeholder="SBIN0001234"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 
   // Render for SuperAdmin with tabs
   if (isSuperAdmin) {
@@ -774,7 +625,76 @@ const SecondaryPaymentPageSection = memo(function SecondaryPaymentPageSection({
               </DialogDescription>
             </DialogHeader>
 
-            <PaymentPageForm />
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Page Name *</Label>
+                  <Input
+                    value={formData.name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="e.g., Collection Point A"
+                    autoFocus
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Description</Label>
+                  <Input
+                    value={formData.description}
+                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Optional description"
+                  />
+                </div>
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><User className="h-4 w-4" /> Role Assignment (Personal Credit)</h4>
+                <div className="grid gap-2">
+                  <Label>Select Role/User</Label>
+                  <Select value={formData.roleId} onValueChange={handleRoleChange}>
+                    <SelectTrigger><SelectValue placeholder="Select user for personal credit" /></SelectTrigger>
+                    <SelectContent>
+                      {users.map(u => (
+                        <SelectItem key={u.id} value={u.id}>{u.name} ({u.role})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">When EMI payment is made via this page, the selected user&apos;s personal credit will increase.</p>
+                </div>
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><QrCode className="h-4 w-4" /> UPI Payment Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>UPI ID</Label>
+                    <Input value={formData.upiId} onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))} placeholder="name@upi" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>QR Code Image</Label>
+                    <div className="flex items-center gap-2">
+                      <Input ref={fileInputRef} type="file" accept="image/*" onChange={handleQrCodeUpload} className="hidden" />
+                      <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingQr} className="w-full">
+                        {uploadingQr ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                        {uploadingQr ? 'Uploading...' : 'Upload QR'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                {formData.qrCodeUrl && (
+                  <div className="mt-3 relative inline-block">
+                    <img src={formData.qrCodeUrl} alt="QR Code Preview" className="w-32 h-32 rounded-lg border object-cover" />
+                    <Button type="button" variant="destructive" size="sm" className="absolute -top-2 -right-2 h-6 w-6 p-0" onClick={handleRemoveQrCode}><X className="h-3 w-3" /></Button>
+                  </div>
+                )}
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><Banknote className="h-4 w-4" /> Bank Account Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2"><Label>Bank Name</Label><Input value={formData.bankName} onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))} placeholder="State Bank of India" /></div>
+                  <div className="grid gap-2"><Label>Account Number</Label><Input value={formData.accountNumber} onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))} placeholder="1234567890" /></div>
+                  <div className="grid gap-2"><Label>Account Holder Name</Label><Input value={formData.accountName} onChange={(e) => setFormData(prev => ({ ...prev, accountName: e.target.value }))} placeholder="John Doe" /></div>
+                  <div className="grid gap-2"><Label>IFSC Code</Label><Input value={formData.ifscCode} onChange={(e) => setFormData(prev => ({ ...prev, ifscCode: e.target.value }))} placeholder="SBIN0001234" /></div>
+                </div>
+              </div>
+            </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
@@ -913,7 +833,62 @@ const SecondaryPaymentPageSection = memo(function SecondaryPaymentPageSection({
               </DialogDescription>
             </DialogHeader>
 
-            <PaymentPageForm />
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Page Name *</Label>
+                  <Input value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="e.g., Collection Point A" autoFocus />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Description</Label>
+                  <Input value={formData.description} onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))} placeholder="Optional description" />
+                </div>
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><User className="h-4 w-4" /> Role Assignment (Personal Credit)</h4>
+                <div className="grid gap-2">
+                  <Label>Select Role/User</Label>
+                  <Select value={formData.roleId} onValueChange={handleRoleChange}>
+                    <SelectTrigger><SelectValue placeholder="Select user for personal credit" /></SelectTrigger>
+                    <SelectContent>
+                      {users.map(u => (<SelectItem key={u.id} value={u.id}>{u.name} ({u.role})</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">When EMI payment is made via this page, the selected user&apos;s personal credit will increase.</p>
+                </div>
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><QrCode className="h-4 w-4" /> UPI Payment Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2"><Label>UPI ID</Label><Input value={formData.upiId} onChange={(e) => setFormData(prev => ({ ...prev, upiId: e.target.value }))} placeholder="name@upi" /></div>
+                  <div className="grid gap-2">
+                    <Label>QR Code Image</Label>
+                    <div className="flex items-center gap-2">
+                      <Input ref={fileInputRef} type="file" accept="image/*" onChange={handleQrCodeUpload} className="hidden" />
+                      <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingQr} className="w-full">
+                        {uploadingQr ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                        {uploadingQr ? 'Uploading...' : 'Upload QR'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                {formData.qrCodeUrl && (
+                  <div className="mt-3 relative inline-block">
+                    <img src={formData.qrCodeUrl} alt="QR Code Preview" className="w-32 h-32 rounded-lg border object-cover" />
+                    <Button type="button" variant="destructive" size="sm" className="absolute -top-2 -right-2 h-6 w-6 p-0" onClick={handleRemoveQrCode}><X className="h-3 w-3" /></Button>
+                  </div>
+                )}
+              </div>
+              <div className="border-t pt-4">
+                <h4 className="font-medium flex items-center gap-2 mb-3"><Banknote className="h-4 w-4" /> Bank Account Details</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2"><Label>Bank Name</Label><Input value={formData.bankName} onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))} placeholder="State Bank of India" /></div>
+                  <div className="grid gap-2"><Label>Account Number</Label><Input value={formData.accountNumber} onChange={(e) => setFormData(prev => ({ ...prev, accountNumber: e.target.value }))} placeholder="1234567890" /></div>
+                  <div className="grid gap-2"><Label>Account Holder Name</Label><Input value={formData.accountName} onChange={(e) => setFormData(prev => ({ ...prev, accountName: e.target.value }))} placeholder="John Doe" /></div>
+                  <div className="grid gap-2"><Label>IFSC Code</Label><Input value={formData.ifscCode} onChange={(e) => setFormData(prev => ({ ...prev, ifscCode: e.target.value }))} placeholder="SBIN0001234" /></div>
+                </div>
+              </div>
+            </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>

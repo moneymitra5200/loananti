@@ -54,7 +54,7 @@ const getStepsForLoanType = (loanType: string) => {
     { id: 3, title: 'KYC', icon: FileSearch, description: 'Identity documents' },
     { id: 4, title: 'Employment', icon: Briefcase, description: 'Work & income details' },
     { id: 5, title: 'Bank', icon: Banknote, description: 'Bank account details' },
-    { id: 6, title: 'Guardian', icon: Users, description: 'Guardian details' },
+    { id: 6, title: 'Guarantor', icon: Users, description: 'Guarantor details' },
     { id: 7, title: 'Documents', icon: Upload, description: 'Upload documents' },
     { id: 8, title: 'Signature', icon: ClipboardList, description: 'Applicant signature' },
   ];
