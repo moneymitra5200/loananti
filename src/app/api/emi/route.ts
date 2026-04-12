@@ -973,46 +973,26 @@ export async function PUT(request: NextRequest) {
           }
         }
 
-        return updatedEmi;
-      }, { maxWait: 30000, timeout: 30000 }); // 30 second timeout for complex EMI payments
+        // ── ACCOUNTING JOURNAL ENTRY (inside transaction, guaranteed to run) ──
+        const principalPaid = normalizedPaymentType === 'INTEREST_ONLY' ? 0 : Math.min(paidAmount, emi.principalAmount);
+        const interestPaid = normalizedPaymentType === 'INTEREST_ONLY' ? paidAmount : Math.max(0, paidAmount - principalPaid);
 
-      // Get updated credit balance
-      const updatedUser = await db.user.findUnique({
-        where: { id: userId },
-        select: { personalCredit: true, companyCredit: true, credit: true }
-      });
+        // Get the payment record we just created
+        const latestPayment = await tx.payment.findFirst({
+          where: { loanApplicationId: loanId, emiScheduleId: emiId, amount: paidAmount },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true }
+        });
 
-      // Create automatic journal entry for double-entry accounting
-      // This runs ASYNC (fire and forget) to not block the response
-      // Journal entry can be reconciled later if it fails
-      setImmediate(async () => {
-        try {
-          // Calculate principal and interest components for this payment
-          const principalPaid = normalizedPaymentType === 'INTEREST_ONLY' ? 0 : Math.min(paidAmount, emi.principalAmount);
-          const interestPaid = normalizedPaymentType === 'INTEREST_ONLY' ? paidAmount : Math.max(0, paidAmount - principalPaid);
-          
-          // Get the payment record ID we just created
-          const paymentRecord = await db.payment.findFirst({
-            where: { 
-              loanApplicationId: loanId, 
-              emiScheduleId: emiId,
-              amount: paidAmount 
-            },
-            orderBy: { createdAt: 'desc' },
-            select: { id: true }
-          });
+        // Determine accounting company (mirror uses mirror company)
+        const accountingCompanyId = mirrorCompanyId || emi.loanApplication?.companyId;
 
-          // For mirror loans, use the mirror company's ID for accounting
-          // This ensures the entry is recorded in the correct company's books
-          const accountingCompanyId = mirrorCompanyId || emi.loanApplication?.companyId;
-          
-          console.log(`[EMI API] Creating accounting entry for company: ${accountingCompanyId} (mirrorCompanyId: ${mirrorCompanyId || 'none'}, loanCompanyId: ${emi.loanApplication?.companyId || 'none'})`);
-          
-          if (paymentRecord && accountingCompanyId) {
+        if (latestPayment && accountingCompanyId) {
+          try {
             await createEMIPaymentEntry({
-              loanId: loanId,
+              loanId,
               customerId: emi.loanApplication?.customerId || '',
-              paymentId: paymentRecord.id,
+              paymentId: latestPayment.id,
               totalAmount: paidAmount,
               principalComponent: principalPaid,
               interestComponent: interestPaid,
@@ -1020,14 +1000,17 @@ export async function PUT(request: NextRequest) {
               paymentDate: new Date(),
               createdById: userId,
               paymentMode: actualPaymentMode,
-              targetCompanyId: accountingCompanyId, // Use mirror company ID for mirror loans
+              targetCompanyId: accountingCompanyId,
             });
+            console.log(`[EMI API] ✅ Journal entry created for company ${accountingCompanyId}`);
+          } catch (journalError) {
+            // Log but don't fail the transaction — payment is recorded, journal can be reconciled
+            console.error('[EMI API] ⚠️ Journal entry failed (payment still recorded):', journalError);
           }
-        } catch (journalError) {
-          // Log but don't fail - journal entry can be reconciled later
-          console.error('Journal entry creation failed (async):', journalError);
         }
-      });
+
+        return updatedEmi;
+      }, { maxWait: 30000, timeout: 30000 });
 
       return NextResponse.json({ 
         success: true, 
@@ -1036,9 +1019,9 @@ export async function PUT(request: NextRequest) {
           ? `EMI paid successfully. Payment recorded to company bank account. No credit change (direct bank payment).`
           : `EMI paid successfully. Your ${actualCreditType.toLowerCase()} credit increased by ₹${creditIncreaseAmount}`,
         creditBreakdown: {
-          companyCredit: updatedUser?.companyCredit || 0,
-          personalCredit: updatedUser?.personalCredit || 0,
-          totalCredit: updatedUser?.credit || 0,
+          companyCredit: newCompanyCredit,
+          personalCredit: newPersonalCredit,
+          totalCredit: newTotalCredit,
           creditIncreased: !isCompanyOnlinePayment,
           increaseAmount: creditIncreaseAmount
         },
