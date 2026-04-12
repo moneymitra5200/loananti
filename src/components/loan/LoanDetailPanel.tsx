@@ -538,17 +538,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     
     // Use exactly what the user selected — do NOT override based on paymentMode
     const actualCreditType = emiPaymentForm.creditType;
-    // Proof required for non-CASH (cheque/UPI etc.) payments
-    const requiresProof = emiPaymentForm.paymentMode !== 'CASH' && emiPaymentForm.paymentMode !== 'SPLIT';
-    
-    if (requiresProof && !emiPaymentForm.proofFile) {
-      toast({ 
-        title: 'Proof Required', 
-        description: 'Personal credit transactions require payment proof. Please upload a proof document.', 
-        variant: 'destructive' 
-      });
-      return;
-    }
+    // Admin panel: proof is optional — only try to upload if a file was actually attached.
+    // (No proof upload field is shown in the admin dialog, so never hard-block here.)
+    const requiresProof = false;
 
     if (emiPaymentForm.paymentType === 'PARTIAL') {
       if (!emiPaymentForm.remainingPaymentDate) {

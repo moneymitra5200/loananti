@@ -432,15 +432,15 @@ export async function PUT(request: NextRequest) {
             ? CreditType.COMPANY 
             : CreditType.PERSONAL;
 
-      // Validate proof requirements
-      // Personal Credit ALWAYS requires proof
-      // Company Credit + ONLINE requires proof (bank transfer proof)
-      // Company Credit + CASH does NOT require proof
-      const requiresProof = actualCreditType === CreditType.PERSONAL || isCompanyOnlinePayment;
+      // Validate proof requirements:
+      // PERSONAL Credit → proof always required (agent must verify they received cash)
+      // COMPANY + ONLINE → proof is optional (admin/cashier can record without attachment)
+      // COMPANY + CASH   → no proof needed
+      const requiresProof = actualCreditType === CreditType.PERSONAL;
       
       if (requiresProof && !proofUrl) {
         return NextResponse.json({ 
-          error: 'Proof document is required for this transaction type',
+          error: 'Proof document is required for personal credit transactions',
           requiresProof: true 
         }, { status: 400 });
       }
