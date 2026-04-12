@@ -2468,22 +2468,22 @@ export async function PUT(request: NextRequest) {
       // ============================================
       // PROCESSING FEE INCOME — Only for EMI #1 on mirror loans
       // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
-      // Recorded as income for the original company when EMI #1 is paid
+      // Recorded as income for the MIRROR company (not original)
       // ============================================
       if (paymentStatus === 'PAID' && emi.installmentNumber === 1 && mirrorLoanMapping) {
         try {
           const fullMapping = await db.mirrorLoanMapping.findFirst({
             where: { id: mirrorLoanMapping.id },
-            select: { mirrorProcessingFee: true, processingFeeRecorded: true, originalCompanyId: true }
+            select: { mirrorProcessingFee: true, processingFeeRecorded: true, mirrorCompanyId: true }
           });
 
           if (fullMapping && !fullMapping.processingFeeRecorded && (fullMapping.mirrorProcessingFee ?? 0) > 0) {
             const procFee = fullMapping.mirrorProcessingFee;
-            const origCompanyId = fullMapping.originalCompanyId;
+            const mirrorCoId = fullMapping.mirrorCompanyId; // ← MIRROR company, not original
 
             try {
               await recordCashBookEntry({
-                companyId: origCompanyId,
+                companyId: mirrorCoId,
                 entryType: 'CREDIT',
                 amount: procFee,
                 description: `Mirror Loan Processing Fee - ${emi.offlineLoan.loanNumber} (EMI #1)`,
@@ -2501,12 +2501,12 @@ export async function PUT(request: NextRequest) {
               data: { processingFeeRecorded: true }
             });
 
-            // ── Journal Entry for Processing Fee (Chart of Accounts) ──────────
-            // Dr: Cash in Hand (1101)   → money received
+            // ── Journal Entry for Processing Fee in MIRROR company ──────────
+            // Dr: Cash in Hand (1101)    → money received
             // Cr: Processing Fees (4121) → income recognised
             try {
               const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
-              const pfAccService = new PFAccSvc(origCompanyId);
+              const pfAccService = new PFAccSvc(mirrorCoId);
               await pfAccService.initializeChartOfAccounts();
               await pfAccService.recordProcessingFee({
                 loanId: emi.offlineLoanId,
@@ -2516,17 +2516,18 @@ export async function PUT(request: NextRequest) {
                 createdById: userId || 'SYSTEM',
                 paymentMode: paymentMode || 'CASH',
               });
-              console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for company ${origCompanyId}`);
+              console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for MIRROR company ${mirrorCoId}`);
             } catch (pfJournalErr) {
               console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
             }
 
-            console.log(`[Processing Fee] ₹${procFee} income recorded for company ${origCompanyId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
+            console.log(`[Processing Fee] ₹${procFee} income recorded for MIRROR company ${mirrorCoId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
           }
         } catch (pfErr) {
           console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);
         }
       }
+
 
 
       try {
