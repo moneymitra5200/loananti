@@ -2126,7 +2126,12 @@ export async function PUT(request: NextRequest) {
 
     // Pay EMI with partial payment support - OPTIMIZED VERSION
     if (action === 'pay-emi' && emiId && userId) {
-      const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment } = body;
+      const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment,
+        penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode } = body;
+      const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
+      const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
+      const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
+      const penaltyPaymentMode = rawPenaltyMode || 'CASH';
       // paymentType: 'FULL', 'PARTIAL', 'INTEREST_ONLY', 'ADVANCE'
       // creditType: 'COMPANY', 'PERSONAL'
       // isAdvancePayment: true when paying EMI before its due date month starts (collect principal only)
@@ -2662,7 +2667,56 @@ export async function PUT(request: NextRequest) {
         // Don't fail the payment, just log the error
       }
 
-      return NextResponse.json({
+      // ── OFFLINE LOAN PENALTY INCOME ──────────────────────────────────────
+      // Record net penalty (charged minus waived) as Penalty Income in the company's books
+      if (netPenalty > 0) {
+        const penaltyCompanyId = mirrorLoanMapping?.mirrorCompanyId || emi.offlineLoan.companyId;
+        try {
+          const isOnlinePenalty = penaltyPaymentMode === 'BANK' || ['ONLINE','UPI','BANK_TRANSFER'].includes((paymentMode||'').toUpperCase());
+          if (isOnlinePenalty) {
+            await recordBankTransaction({
+              companyId: penaltyCompanyId || '',
+              transactionType: 'CREDIT',
+              amount: netPenalty,
+              description: `Penalty Income (Charged ₹${penaltyAmount} - Waived ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber}`,
+              referenceType: 'PENALTY_INCOME',
+              referenceId: `${updatedEmi.id}-PENALTY`,
+              createdById: userId,
+            });
+          } else {
+            await recordCashBookEntry({
+              companyId: penaltyCompanyId || '',
+              entryType: 'CREDIT',
+              amount: netPenalty,
+              description: `Penalty Income (Charged ₹${penaltyAmount} - Waived ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber}`,
+              referenceType: 'PENALTY_INCOME',
+              referenceId: `${updatedEmi.id}-PENALTY`,
+              createdById: userId,
+            });
+          }
+          // Journal Entry: DR Cash/Bank → CR Penalty Income (4125)
+          const { AccountingService: PenAccSvc, ACCOUNT_CODES: PenCodes } = await import('@/lib/accounting-service');
+          const penSvc = new PenAccSvc(penaltyCompanyId || '');
+          await penSvc.initializeChartOfAccounts();
+          await penSvc.createJournalEntry({
+            entryDate: new Date(),
+            referenceType: 'PENALTY_COLLECTION',
+            referenceId: `${updatedEmi.id}-PENALTY-JE`,
+            narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} (Charged ₹${penaltyAmount}, Waived ₹${penaltyWaiver}, Collected ₹${netPenalty})`,
+            createdById: userId || 'SYSTEM',
+            isAutoEntry: true,
+            lines: [
+              { accountCode: isOnlinePenalty ? PenCodes.BANK_ACCOUNT : PenCodes.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty collected via ${penaltyPaymentMode}` },
+              { accountCode: PenCodes.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income after waiver of ₹${penaltyWaiver}` },
+            ],
+          });
+          console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
+        } catch (penErr) {
+          console.error('[Penalty] ❌ Offline loan penalty accounting failed (non-critical):', penErr);
+        }
+      }
+
+            return NextResponse.json({
         success: true,
         emi: updatedEmi,
         creditAdded: actualPaymentAmount,

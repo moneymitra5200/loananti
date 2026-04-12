@@ -1326,23 +1326,28 @@ export async function POST(request: NextRequest) {
             });
             const procFee = (loanData?.processingFee || 0);
             if (procFee > 0) {
-              const { recordCashBookEntry } = await import('@/lib/simple-accounting');
-              await recordCashBookEntry({
-                companyId: companyIdToUse, entryType: 'CREDIT', amount: procFee,
-                description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy,
-              });
+              const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+              const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
+              if (isPfOnline) {
+                await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
+              } else {
+                await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
+              }
               await accountingService.createJournalEntry({
                 entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION',
                 referenceId: `${loanId}-PF-JE`,
                 narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                createdById: paidBy,
+                createdById: paidBy || 'SYSTEM', isAutoEntry: true,
                 lines: [
-                  { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
+                  { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
                   { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
                 ],
               });
-              console.log(`[Processing Fee] ₹${procFee} journal + cashbook recorded for loan ${loanId}`);
+              console.log(`[Processing Fee] ₹${procFee} journal + ${isPfOnline ? 'bank' : 'cashbook'} recorded for loan ${loanId}`);
             }
           } catch (pfErr) {
             console.error('[Processing Fee] Regular loan fee failed (non-critical):', pfErr);

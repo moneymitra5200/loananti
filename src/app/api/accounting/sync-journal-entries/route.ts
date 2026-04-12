@@ -212,17 +212,110 @@ export async function POST(request: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // 3. SUMMARY
+    // 3. BACKFILL OFFLINE LOAN EMI JOURNAL ENTRIES
+    //    Covers mirror loans (companyId = mirrorCompanyId) and regular offline loans
+    // ══════════════════════════════════════════════════════════════════════════
+    const offlineEmiResults = { processed: 0, created: 0, skipped: 0, errors: 0 };
+
+    // Find all PAID offline EMIs whose loan's mirror company = companyId
+    // OR whose loan's own companyId = companyId (regular offline)
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorCompanyId: companyId, isOfflineLoan: true },
+      select: { mirrorLoanId: true, mirrorInterestRate: true, originalLoanId: true },
+    });
+    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+
+    // Collect paid EMIs from mirror loans (companyId = mirror company)
+    const paidOfflineEmis = await db.offlineLoanEMI.findMany({
+      where: {
+        paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID'] },
+        offlineLoan: {
+          OR: [
+            { id: { in: mirrorLoanIds } },           // mirror loan EMIs
+            { companyId, isMirrorLoan: false },        // regular offline loan EMIs
+          ],
+        },
+      },
+      include: {
+        offlineLoan: {
+          select: { id: true, loanNumber: true, companyId: true, customerId: true, isMirrorLoan: true },
+        },
+      },
+      orderBy: { installmentNumber: 'asc' },
+    });
+
+    for (const oemi of paidOfflineEmis) {
+      offlineEmiResults.processed++;
+      // Use this EMI's ID as the referenceId (same as what offline-loan/route.ts uses for live payments)
+      const refId = oemi.id;
+      const refType = 'MIRROR_EMI_PAYMENT';
+
+      try {
+        const existing = await db.journalEntry.findFirst({
+          where: { companyId, referenceId: refId, referenceType: refType, isReversed: false },
+          select: { id: true },
+        });
+        if (existing) { offlineEmiResults.skipped++; continue; }
+
+        if (dryRun) {
+          offlineEmiResults.created++;
+          results.messages.push(`[DRY RUN] Would create offline EMI journal for ${oemi.offlineLoan.loanNumber} #${oemi.installmentNumber}`);
+          continue;
+        }
+
+        const principal = oemi.principalAmount || 0;
+        const interest  = oemi.interestAmount  || 0;
+        const total     = principal + interest;
+
+        if (total <= 0) { offlineEmiResults.skipped++; continue; }
+
+        // Use same AccountingService instance created for companyId
+        const lines: any[] = [
+          { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: total, creditAmount: 0,
+            loanId: oemi.offlineLoanId, customerId: oemi.offlineLoan.customerId || undefined,
+            narration: `Cash received - Mirror EMI #${oemi.installmentNumber} (backfill)` },
+          { accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: interest,
+            loanId: oemi.offlineLoanId, customerId: oemi.offlineLoan.customerId || undefined,
+            narration: `Mirror interest income - EMI #${oemi.installmentNumber} (backfill)` },
+        ];
+        if (principal > 0) {
+          lines.push({
+            accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principal,
+            loanId: oemi.offlineLoanId, customerId: oemi.offlineLoan.customerId || undefined,
+            narration: `Principal repayment - EMI #${oemi.installmentNumber} (backfill)`,
+          });
+        }
+
+        await accountingService.createJournalEntry({
+          entryDate: oemi.paidDate || oemi.updatedAt || new Date(),
+          referenceType: 'MIRROR_EMI_PAYMENT',
+          referenceId: refId,
+          narration: `[BACKFILL] Offline EMI #${oemi.installmentNumber} - ${oemi.offlineLoan.loanNumber} - ₹${total} (P:₹${principal} + I:₹${interest})`,
+          lines,
+          createdById: 'SYSTEM',
+          isAutoEntry: true,
+        });
+
+        offlineEmiResults.created++;
+        results.messages.push(`✅ Offline EMI journal created: ${oemi.offlineLoan.loanNumber} #${oemi.installmentNumber} ₹${total}`);
+      } catch (err: any) {
+        offlineEmiResults.errors++;
+        results.messages.push(`❌ Offline EMI ${oemi.offlineLoan.loanNumber}#${oemi.installmentNumber}: ${err?.message}`);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // 4. SUMMARY
     // ══════════════════════════════════════════════════════════════════════════
     return NextResponse.json({
       success: true,
       dryRun,
       companyId,
-      results,
+      results: { ...results, offlineEmiPayments: offlineEmiResults },
       summary: {
-        totalCreated: results.emiPayments.created + results.disbursements.created + results.processingFees.created,
-        totalSkipped: results.emiPayments.skipped + results.disbursements.skipped + results.processingFees.skipped,
-        totalErrors: results.emiPayments.errors + results.disbursements.errors + results.processingFees.errors,
+        totalCreated: results.emiPayments.created + results.disbursements.created + results.processingFees.created + offlineEmiResults.created,
+        totalSkipped: results.emiPayments.skipped + results.disbursements.skipped + results.processingFees.skipped + offlineEmiResults.skipped,
+        totalErrors:  results.emiPayments.errors  + results.disbursements.errors  + results.processingFees.errors  + offlineEmiResults.errors,
       },
     });
   } catch (error) {
@@ -233,6 +326,7 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
 
 /**
  * GET — return counts of payments that have no journal entry yet
