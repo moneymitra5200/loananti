@@ -1390,17 +1390,13 @@ export default function CustomerLoanDetailPage() {
                   <Wallet className="h-5 w-5" /> Payment Methods
                 </h3>
 
-                {/* QR Code */}
-                {(paymentSettings?.companyQrCodeUrl || loan.company) && (
+                {/* QR Code — only show when an actual QR image is configured */}
+                {paymentSettings?.companyQrCodeUrl && (
                   <Card className="border-0 bg-gradient-to-br from-blue-50 to-indigo-50">
                     <CardContent className="p-4">
                       <div className="flex items-center gap-4">
                         <div className="w-24 h-24 bg-white rounded-lg border flex items-center justify-center">
-                          {paymentSettings?.companyQrCodeUrl ? (
-                            <img src={paymentSettings.companyQrCodeUrl} alt="QR Code" className="w-20 h-20" />
-                          ) : (
-                            <QrCode className="h-12 w-12 text-gray-300" />
-                          )}
+                          <img src={paymentSettings.companyQrCodeUrl} alt="QR Code" className="w-20 h-20" />
                         </div>
                         <div>
                           <p className="font-medium">Scan QR Code</p>

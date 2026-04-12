@@ -14,12 +14,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
       }
 
+      // Try to get the marked-default account first; fall back to any active account
       const defaultAccount = await db.bankAccount.findFirst({
-        where: {
-          companyId,
-          isActive: true,
-          isDefault: true
-        }
+        where: { companyId, isActive: true, isDefault: true }
+      }) ?? await db.bankAccount.findFirst({
+        where: { companyId, isActive: true },
+        orderBy: { createdAt: 'desc' }
       });
 
       return NextResponse.json({
