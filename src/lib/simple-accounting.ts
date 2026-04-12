@@ -374,60 +374,76 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     //   Dr  Cash/Bank                = full mirror EMI
     //   Cr  Interest Income          = mirror interest (our income)
     //   Cr  Loans Receivable         = mirror principal (loan asset reduces)
+
+    // Declared outside try so the catch block can log them for diagnostics
+    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
+      ? ACCOUNT_CODES.BANK_ACCOUNT 
+      : ACCOUNT_CODES.CASH_IN_HAND;
+
+    const journalLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [
+      {
+        accountCode: debitAccountCode,
+        debitAmount: mirrorEMITotal,
+        creditAmount: 0,
+        loanId,
+        customerId,
+        narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
+          ? `Bank received - Mirror EMI #${installmentNumber}`
+          : `Cash received - Mirror EMI #${installmentNumber}`
+      },
+      {
+        accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+        debitAmount: 0,
+        creditAmount: mirrorInterest,
+        loanId,
+        customerId,
+        narration: `Mirror interest income - EMI #${installmentNumber}`
+      }
+    ];
+
+    if (effectiveMirrorPrincipal > 0) {
+      journalLines.push({
+        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+        debitAmount: 0,
+        creditAmount: effectiveMirrorPrincipal,
+        loanId,
+        customerId,
+        narration: `Mirror loan principal repayment - EMI #${installmentNumber}`
+      });
+    }
+
     try {
       const accountingService = new AccountingService(mirrorCompanyId);
       await accountingService.initializeChartOfAccounts();
-      
-      const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
-        ? ACCOUNT_CODES.BANK_ACCOUNT 
-        : ACCOUNT_CODES.CASH_IN_HAND;
-      
-      const journalLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [
-        {
-          accountCode: debitAccountCode,
-          debitAmount: mirrorEMITotal,
-          creditAmount: 0,
-          loanId,
-          customerId,
-          narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
-            ? `Bank received - Mirror EMI #${installmentNumber}`
-            : `Cash received - Mirror EMI #${installmentNumber}`
-        },
-        {
-          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-          debitAmount: 0,
-          creditAmount: mirrorInterest,
-          loanId,
-          customerId,
-          narration: `Mirror interest income - EMI #${installmentNumber}`
-        }
-      ];
-      
-      if (effectiveMirrorPrincipal > 0) {
-        journalLines.push({
-          accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-          debitAmount: 0,
-          creditAmount: effectiveMirrorPrincipal,
-          loanId,
-          customerId,
-          narration: `Mirror loan principal repayment - EMI #${installmentNumber}`
-        });
-      }
-      
+
       result.journalEntryId = await accountingService.createJournalEntry({
         entryDate: new Date(),
         referenceType: 'MIRROR_EMI_PAYMENT',
         referenceId: paymentId,
         narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${mirrorEMITotal} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest}) [${paymentMode}]`,
         lines: journalLines,
-        createdById: userId,
+        createdById: userId || 'SYSTEM',
         paymentMode
       });
-      
-      console.log(`[Accounting] MIRROR: Journal entry — Dr Cash/Bank ₹${mirrorEMITotal}, Cr Interest ₹${mirrorInterest}, Cr Loans Receivable ₹${effectiveMirrorPrincipal}`);
-    } catch (journalError) {
-      console.error('[Accounting] Failed to create mirror EMI journal entry:', journalError);
+
+      console.log(`[Accounting] ✅ MIRROR: Journal — Dr ${debitAccountCode} ₹${mirrorEMITotal}, Cr 4110 ₹${mirrorInterest}, Cr 1200 ₹${effectiveMirrorPrincipal}`);
+    } catch (journalError: any) {
+      console.error('[Accounting] ❌ MIRROR EMI journal FAILED — Day Book will be empty!', {
+        message: journalError?.message,
+        code: journalError?.code,
+        stack: journalError?.stack?.split('\n').slice(0, 8).join(' | '),
+        mirrorCompanyId,
+        paymentId,
+        mirrorEMITotal,
+        mirrorInterest,
+        effectiveMirrorPrincipal,
+        debitAccountCode,
+        userId,
+        journalLinesCount: journalLines.length,
+        journalLines: JSON.stringify(journalLines),
+      });
     }
+
     
     return result;
   }
