@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
-  Wallet, RefreshCw, Eye, FileText, Receipt, DollarSign, CheckCircle, Calendar, User, Building2
+  Wallet, RefreshCw, Eye, FileText, Receipt, DollarSign, CheckCircle,
+  Calendar, User, Building2, ArrowLeftRight, Banknote, TrendingUp
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
@@ -16,6 +17,9 @@ interface ClosedLoan {
   identifier: string;
   applicationNo: string;
   loanType: string;
+  mirrorRole?: 'ORIGINAL' | 'MIRROR';
+  isMirrorLoan?: boolean;
+  isPair?: boolean;
   status: string;
   closedAt: string;
   customer?: { name: string; phone: string; email?: string };
@@ -27,84 +31,222 @@ interface ClosedLoan {
   totalInterest: number;
   disbursementDate?: string;
   createdAt: string;
-  summary: {
-    totalEMIs: number;
-    paidEMIs: number;
-    totalPaid: number;
-    totalAmount: number;
-  };
-  emiSchedules?: Array<{
-    installmentNumber: number;
-    dueDate: string;
-    totalAmount: number;
-    paidAmount: number;
-    paymentStatus: string;
-    paidDate?: string;
-  }>;
+  summary: { totalEMIs: number; paidEMIs: number; totalPaid: number; totalAmount: number };
+  emiSchedules?: any[];
 }
 
-interface ClosedLoansStats {
-  totalOnline: number;
-  totalOffline: number;
-  totalLoans: number;
-  totalOnlineAmount: number;
-  totalOfflineAmount: number;
-  totalAmount: number;
-  totalInterestCollected: number;
+interface MirrorPair {
+  pairId: string;
+  isPair: true;
+  mirrorInterestRate: number;
+  mirrorCompany?: { id: string; name: string; code: string };
+  original: ClosedLoan;
+  mirror: ClosedLoan | null;
+  closedAt: string;
 }
 
-interface ClosedLoansTabProps {
+interface Props {
   setSelectedLoanId: (id: string | null) => void;
   setShowLoanDetailPanel: (show: boolean) => void;
 }
 
-export default function ClosedLoansTab({
-  setSelectedLoanId,
-  setShowLoanDetailPanel
-}: ClosedLoansTabProps) {
-  const [loading, setLoading] = useState(true);
-  const [closedLoans, setClosedLoans] = useState<ClosedLoan[]>([]);
-  const [stats, setStats] = useState<ClosedLoansStats>({
-    totalOnline: 0,
-    totalOffline: 0,
-    totalLoans: 0,
-    totalOnlineAmount: 0,
-    totalOfflineAmount: 0,
-    totalAmount: 0,
-    totalInterestCollected: 0
-  });
+export default function ClosedLoansTab({ setSelectedLoanId, setShowLoanDetailPanel }: Props) {
+  const [loading, setLoading]     = useState(true);
+  const [mirrorPairs, setMirrorPairs]       = useState<MirrorPair[]>([]);
+  const [standaloneOffline, setStandaloneOffline] = useState<ClosedLoan[]>([]);
+  const [onlineLoans, setOnlineLoans]       = useState<ClosedLoan[]>([]);
+  const [stats, setStats] = useState({ totalOnline: 0, totalOffline: 0, totalPairs: 0, totalLoans: 0, totalAmount: 0, totalInterestCollected: 0, totalOnlineAmount: 0, totalOfflineAmount: 0 });
   const [filter, setFilter] = useState<'all' | 'online' | 'offline'>('all');
-  const [expandedLoan, setExpandedLoan] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const fetchClosedLoans = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/loan/closed?filter=${filter}`);
-      const data = await response.json();
-      if (data.loans) {
-        setClosedLoans(data.loans);
-        setStats(data.stats);
-      }
-    } catch (error) {
-      console.error('Error fetching closed loans:', error);
+      const res  = await fetch(`/api/loan/closed?filter=${filter}`);
+      const data = await res.json();
+      setMirrorPairs(data.mirrorPairs || []);
+      setStandaloneOffline(data.standaloneOffline || []);
+      setOnlineLoans(data.onlineLoans || []);
+      if (data.stats) setStats(data.stats);
+    } catch (e) {
+      console.error('Error fetching closed loans:', e);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchClosedLoans();
-  }, [filter]);
+  useEffect(() => { fetchClosedLoans(); }, [filter]);
 
-  const filteredLoans = closedLoans.filter(loan => {
-    if (filter === 'all') return true;
-    return loan.loanType === filter.toUpperCase();
-  });
+  // ── Loan card (single side) ───────────────────────────────────────────────
+  const LoanCard = ({ loan, side }: { loan: ClosedLoan; side: 'original' | 'mirror' | 'standalone' }) => {
+    const isMirror   = side === 'mirror';
+    const borderCol  = isMirror ? 'border-l-orange-500' : 'border-l-emerald-500';
+    const bgGradient = isMirror
+      ? 'from-orange-50 to-amber-50'
+      : 'from-emerald-50 to-green-50';
+    const badgeCls   = isMirror
+      ? 'bg-orange-100 text-orange-700 border-orange-300'
+      : 'bg-emerald-100 text-emerald-700 border-emerald-300';
+
+    return (
+      <div className={`flex-1 min-w-0 rounded-xl border border-l-4 ${borderCol} bg-gradient-to-br ${bgGradient} p-4`}>
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex items-center gap-3">
+            <Avatar className={`h-10 w-10 ${isMirror ? 'bg-gradient-to-br from-orange-400 to-amber-500' : 'bg-gradient-to-br from-emerald-400 to-green-500'}`}>
+              <AvatarFallback className="bg-transparent text-white font-bold text-sm">
+                {isMirror ? 'M' : 'O'}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-semibold text-gray-900 text-sm">{loan.identifier}</span>
+                <Badge className={`text-xs px-1.5 py-0 ${badgeCls}`}>
+                  {isMirror ? 'MIRROR' : 'ORIGINAL'}
+                </Badge>
+                <Badge className="text-xs px-1.5 py-0 bg-green-100 text-green-700 border-green-300">CLOSED</Badge>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">{loan.customer?.name}</p>
+              {loan.company && (
+                <p className="text-xs text-gray-400 flex items-center gap-1">
+                  <Building2 className="h-3 w-3" />{loan.company.name}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="font-bold text-base text-gray-900">{formatCurrency(loan.approvedAmount)}</p>
+            <p className="text-xs text-gray-400">{loan.interestRate}% · {loan.tenure}m</p>
+          </div>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="bg-white/70 rounded-lg p-2 text-center">
+            <p className="text-xs text-gray-500">EMI</p>
+            <p className="text-sm font-bold">{formatCurrency(loan.emiAmount)}</p>
+          </div>
+          <div className="bg-white/70 rounded-lg p-2 text-center">
+            <p className="text-xs text-gray-500">Interest</p>
+            <p className="text-sm font-bold text-green-600">{formatCurrency(loan.totalInterest)}</p>
+          </div>
+          <div className="bg-white/70 rounded-lg p-2 text-center">
+            <p className="text-xs text-gray-500">EMIs</p>
+            <p className="text-sm font-bold text-emerald-600">{loan.summary.paidEMIs}/{loan.summary.totalEMIs}</p>
+          </div>
+        </div>
+
+        {/* Closed date */}
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <Calendar className="h-3 w-3" />
+          <span>Closed: {formatDate(loan.closedAt)}</span>
+        </div>
+
+        {/* EMI Schedule preview */}
+        {loan.emiSchedules && loan.emiSchedules.length > 0 && expandedId === (loan.id + side) && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-3 bg-white/80 rounded-lg p-3 max-h-48 overflow-y-auto">
+            <p className="text-xs font-medium text-gray-600 mb-2">EMI Payment History</p>
+            <div className="space-y-1">
+              {loan.emiSchedules.map((e: any) => (
+                <div key={e.id} className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">EMI #{e.installmentNumber}</span>
+                  <span className={`font-medium ${e.paymentStatus === 'PAID' ? 'text-green-600' : 'text-gray-400'}`}>
+                    {formatCurrency(e.paidAmount || e.totalAmount)}
+                  </span>
+                  <span className="text-gray-400">{e.paidDate ? formatDate(e.paidDate) : '—'}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        <Button
+          size="sm"
+          variant="ghost"
+          className="w-full mt-2 text-xs h-7"
+          onClick={() => setExpandedId(expandedId === (loan.id + side) ? null : (loan.id + side))}
+        >
+          <Eye className="h-3 w-3 mr-1" />
+          {expandedId === (loan.id + side) ? 'Hide EMIs' : 'View EMIs'}
+        </Button>
+      </div>
+    );
+  };
+
+  // ── Mirror Pair Row ───────────────────────────────────────────────────────
+  const MirrorPairRow = ({ pair, index }: { pair: MirrorPair; index: number }) => (
+    <motion.div
+      key={pair.pairId}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04 }}
+      className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden"
+    >
+      {/* Pair header */}
+      <div className="bg-gradient-to-r from-emerald-600 to-green-700 px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ArrowLeftRight className="h-4 w-4 text-white/80" />
+          <span className="text-white font-semibold text-sm">Mirror Pair — CLOSED</span>
+          <Badge className="bg-white/20 text-white border-white/30 text-xs">
+            Original {pair.original.interestRate}% ↔ Mirror {pair.mirrorInterestRate}%
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2 text-white/70 text-xs">
+          <Calendar className="h-3 w-3" />
+          {formatDate(pair.closedAt)}
+        </div>
+      </div>
+
+      {/* Side-by-side cards */}
+      <div className="p-4 flex flex-col md:flex-row gap-4">
+        <LoanCard loan={pair.original} side="original" />
+        {/* Divider */}
+        <div className="hidden md:flex flex-col items-center justify-center gap-1 text-gray-300 px-1">
+          <div className="h-8 w-px bg-gray-200" />
+          <ArrowLeftRight className="h-4 w-4 text-gray-400" />
+          <div className="h-8 w-px bg-gray-200" />
+        </div>
+        {pair.mirror
+          ? <LoanCard loan={pair.mirror} side="mirror" />
+          : (
+            <div className="flex-1 rounded-xl border border-dashed border-orange-200 bg-orange-50/50 flex items-center justify-center p-6 text-sm text-orange-400">
+              Mirror loan not found in closed loans
+            </div>
+          )
+        }
+      </div>
+
+      {pair.mirrorCompany && (
+        <div className="px-4 pb-3">
+          <p className="text-xs text-gray-400 flex items-center gap-1">
+            <Building2 className="h-3 w-3" />
+            Mirror Company: <span className="font-medium text-gray-600 ml-1">{pair.mirrorCompany.name}</span>
+          </p>
+        </div>
+      )}
+    </motion.div>
+  );
+
+  // ── Standalone loan row ───────────────────────────────────────────────────
+  const StandaloneRow = ({ loan, index }: { loan: ClosedLoan; index: number }) => (
+    <motion.div
+      key={loan.id}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.03 }}
+    >
+      <LoanCard loan={loan} side="standalone" />
+    </motion.div>
+  );
+
+  const showPairs    = filter === 'all' || filter === 'offline';
+  const showOnline   = filter === 'all' || filter === 'online';
+  const showStandalone = filter === 'all' || filter === 'offline';
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <Card className="border-0 shadow-sm bg-gradient-to-r from-gray-700 to-gray-800 text-white">
+      <Card className="border-0 shadow-sm bg-gradient-to-r from-emerald-700 to-green-800 text-white">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -113,7 +255,7 @@ export default function ClosedLoansTab({
               </div>
               <div>
                 <h2 className="text-xl font-bold">Closed Loans</h2>
-                <p className="text-sm text-gray-300">Completed and fully paid loans</p>
+                <p className="text-sm text-emerald-200">Completed & fully repaid — with mirror pair view</p>
               </div>
             </div>
             <Button variant="outline" size="sm" className="bg-white/10 border-white/30 text-white hover:bg-white/20" onClick={fetchClosedLoans}>
@@ -123,238 +265,88 @@ export default function ClosedLoansTab({
         </CardContent>
       </Card>
 
-      {/* Filter Toggle Bar */}
-      <Card className="border-0 shadow-sm bg-gradient-to-r from-slate-50 to-gray-50">
+      {/* Filter */}
+      <Card className="border-0 shadow-sm">
         <CardContent className="p-4">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Filter by Type:</span>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={filter === 'all' ? 'default' : 'outline'}
-                  className={filter === 'all' ? 'bg-gray-700 hover:bg-gray-800' : ''}
-                  onClick={() => setFilter('all')}
-                >
-                  All ({stats.totalLoans})
-                </Button>
-                <Button
-                  size="sm"
-                  variant={filter === 'online' ? 'default' : 'outline'}
-                  className={filter === 'online' ? 'bg-blue-600 hover:bg-blue-700' : 'border-blue-200 text-blue-700 hover:bg-blue-50'}
-                  onClick={() => setFilter('online')}
-                >
-                  <FileText className="h-4 w-4 mr-1" />
-                  Online ({stats.totalOnline})
-                </Button>
-                <Button
-                  size="sm"
-                  variant={filter === 'offline' ? 'default' : 'outline'}
-                  className={filter === 'offline' ? 'bg-purple-600 hover:bg-purple-700' : 'border-purple-200 text-purple-700 hover:bg-purple-50'}
-                  onClick={() => setFilter('offline')}
-                >
-                  <Receipt className="h-4 w-4 mr-1" />
-                  Offline ({stats.totalOffline})
-                </Button>
-              </div>
-            </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-medium text-gray-600">Filter:</span>
+            {(['all', 'online', 'offline'] as const).map(f => (
+              <Button key={f} size="sm"
+                variant={filter === f ? 'default' : 'outline'}
+                className={filter === f ? (f === 'online' ? 'bg-blue-600' : f === 'offline' ? 'bg-purple-600' : 'bg-emerald-700') : ''}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'all' ? `All (${stats.totalLoans})` : f === 'online' ? `Online (${stats.totalOnline})` : `Offline (${stats.totalOffline})`}
+              </Button>
+            ))}
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Cards */}
+      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm border-l-4 border-l-green-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Total Closed</p>
-                <p className="text-2xl font-bold text-green-600">{stats.totalLoans}</p>
+        {[
+          { label: 'Total Closed', value: stats.totalLoans, icon: CheckCircle, color: 'green' },
+          { label: 'Mirror Pairs', value: stats.totalPairs, icon: ArrowLeftRight, color: 'blue' },
+          { label: 'Total Principal', value: formatCurrency(stats.totalAmount), icon: Wallet, color: 'amber' },
+          { label: 'Interest Earned', value: formatCurrency(stats.totalInterestCollected), icon: TrendingUp, color: 'purple' },
+        ].map(({ label, value, icon: Icon, color }) => (
+          <Card key={label} className={`border-0 shadow-sm border-l-4 border-l-${color}-500`}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">{label}</p>
+                  <p className={`text-xl font-bold text-${color}-600`}>{value}</p>
+                </div>
+                <div className={`p-2 bg-${color}-50 rounded-lg`}>
+                  <Icon className={`h-5 w-5 text-${color}-600`} />
+                </div>
               </div>
-              <div className="p-2 bg-green-50 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Total Principal</p>
-                <p className="text-lg font-bold text-blue-600">{formatCurrency(stats.totalAmount)}</p>
-              </div>
-              <div className="p-2 bg-blue-50 rounded-lg">
-                <Wallet className="h-5 w-5 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm border-l-4 border-l-amber-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Interest Collected</p>
-                <p className="text-lg font-bold text-amber-600">{formatCurrency(stats.totalInterestCollected)}</p>
-              </div>
-              <div className="p-2 bg-amber-50 rounded-lg">
-                <DollarSign className="h-5 w-5 text-amber-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm border-l-4 border-l-purple-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Online / Offline</p>
-                <p className="text-lg font-bold text-purple-600">{stats.totalOnline} / {stats.totalOffline}</p>
-              </div>
-              <div className="p-2 bg-purple-50 rounded-lg">
-                <Receipt className="h-5 w-5 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Closed Loans List */}
-      <Card className="bg-white shadow-sm border-0">
+      {/* Main list */}
+      <Card className="border-0 shadow-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-green-600" />
-            Closed Loans List
+            Closed Loans — Parallel View
           </CardTitle>
-          <CardDescription>
-            Loans that have been fully repaid and closed
-          </CardDescription>
+          <CardDescription>Mirror loan pairs are shown side by side. Standalone loans appear below.</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex items-center justify-center py-16">
               <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
             </div>
-          ) : filteredLoans.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              <p>No closed loans found</p>
+          ) : (mirrorPairs.length === 0 && standaloneOffline.length === 0 && onlineLoans.length === 0) ? (
+            <div className="text-center py-16 text-gray-400">
+              <CheckCircle className="h-14 w-14 mx-auto mb-3 text-gray-200" />
+              <p className="font-medium">No closed loans yet</p>
+              <p className="text-sm mt-1">Loans will appear here once all EMIs are paid</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
-              {filteredLoans.map((loan, index) => {
-                const isOnline = loan.loanType === 'ONLINE';
-                const isExpanded = expandedLoan === loan.id;
+            <div className="space-y-4">
+              {/* Mirror pairs (offline) */}
+              {showPairs && mirrorPairs.map((pair, i) => <MirrorPairRow key={pair.pairId} pair={pair} index={i} />)}
 
-                return (
-                  <motion.div
-                    key={`${loan.loanType}-${loan.id}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="p-4 border rounded-xl bg-green-50 border-green-200 border-l-4 border-l-green-500"
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar className="h-12 w-12 bg-gradient-to-br from-green-400 to-emerald-500">
-                          <AvatarFallback className="bg-transparent text-white font-semibold">
-                            <CheckCircle className="h-5 w-5" />
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
-                            <Badge className="bg-green-100 text-green-700 border-green-300">CLOSED</Badge>
-                            <Badge className={isOnline ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                              {loan.loanType}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-gray-500">{loan.customer?.name}</p>
-                          <div className="flex items-center gap-4 mt-1 text-xs text-gray-400">
-                            <span className="flex items-center gap-1">
-                              <User className="h-3 w-3" /> {loan.customer?.phone}
-                            </span>
-                            {loan.company && (
-                              <span className="flex items-center gap-1">
-                                <Building2 className="h-3 w-3" /> {loan.company.name}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{formatCurrency(loan.approvedAmount)}</p>
-                          <p className="text-xs text-gray-500">
-                            Closed: {formatDate(loan.closedAt)}
-                          </p>
-                          <p className="text-xs text-green-600">
-                            {loan.summary.paidEMIs}/{loan.summary.totalEMIs} EMIs Paid
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setExpandedLoan(isExpanded ? null : loan.id)}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            {isExpanded ? 'Hide' : 'Details'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
+              {/* Standalone offline */}
+              {showStandalone && standaloneOffline.length > 0 && (
+                <div className="space-y-3">
+                  {standaloneOffline.length > 0 && <p className="text-sm font-medium text-gray-500 pt-2">Offline Loans (No Mirror)</p>}
+                  {standaloneOffline.map((loan, i) => <StandaloneRow key={loan.id} loan={loan} index={i} />)}
+                </div>
+              )}
 
-                    {/* Expanded Details */}
-                    {isExpanded && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        className="mt-4 pt-4 border-t border-green-200"
-                      >
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                          <div className="p-3 bg-white rounded-lg border">
-                            <p className="text-xs text-gray-500">Interest Rate</p>
-                            <p className="font-semibold">{loan.interestRate}% p.a.</p>
-                          </div>
-                          <div className="p-3 bg-white rounded-lg border">
-                            <p className="text-xs text-gray-500">Tenure</p>
-                            <p className="font-semibold">{loan.tenure} months</p>
-                          </div>
-                          <div className="p-3 bg-white rounded-lg border">
-                            <p className="text-xs text-gray-500">EMI Amount</p>
-                            <p className="font-semibold">{formatCurrency(loan.emiAmount)}</p>
-                          </div>
-                          <div className="p-3 bg-white rounded-lg border">
-                            <p className="text-xs text-gray-500">Interest Collected</p>
-                            <p className="font-semibold text-green-600">{formatCurrency(loan.totalInterest)}</p>
-                          </div>
-                        </div>
-
-                        {/* EMI Schedule Summary */}
-                        {loan.emiSchedules && loan.emiSchedules.length > 0 && (
-                          <div className="bg-white rounded-lg border p-3">
-                            <h5 className="text-sm font-medium mb-2">EMI Payment Summary</h5>
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                              <div>
-                                <p className="text-gray-500">Total Amount</p>
-                                <p className="font-semibold">{formatCurrency(loan.summary.totalAmount)}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500">Total Paid</p>
-                                <p className="font-semibold text-green-600">{formatCurrency(loan.summary.totalPaid)}</p>
-                              </div>
-                              <div>
-                                <p className="text-gray-500">Disbursement</p>
-                                <p className="font-semibold">{loan.disbursementDate ? formatDate(loan.disbursementDate) : 'N/A'}</p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </motion.div>
-                );
-              })}
+              {/* Online loans */}
+              {showOnline && onlineLoans.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-medium text-gray-500 pt-2">Online Loans</p>
+                  {onlineLoans.map((loan, i) => <StandaloneRow key={loan.id} loan={loan} index={i} />)}
+                </div>
+              )}
             </div>
           )}
         </CardContent>

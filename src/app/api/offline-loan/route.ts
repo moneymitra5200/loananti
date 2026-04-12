@@ -2442,7 +2442,30 @@ export async function PUT(request: NextRequest) {
             where: { id: emi.offlineLoanId },
             data: { status: 'CLOSED', closedAt: now }
           });
+          console.log(`[Auto-Close] ✅ Original loan ${emi.offlineLoan.loanNumber} auto-closed — all EMIs paid`);
+
+          // Also auto-close the mirror loan if it exists
+          const mappingForClose = await tx.mirrorLoanMapping.findFirst({
+            where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true },
+            select: { mirrorLoanId: true }
+          });
+          if (mappingForClose?.mirrorLoanId) {
+            const mirrorEmis = await tx.offlineLoanEMI.findMany({
+              where: { offlineLoanId: mappingForClose.mirrorLoanId },
+              select: { paymentStatus: true }
+            });
+            const mirrorAllPaid = mirrorEmis.length === 0 ||
+              mirrorEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED');
+            if (mirrorAllPaid) {
+              await tx.offlineLoan.update({
+                where: { id: mappingForClose.mirrorLoanId },
+                data: { status: 'CLOSED', closedAt: now }
+              });
+              console.log(`[Auto-Close] ✅ Mirror loan also auto-closed alongside original`);
+            }
+          }
         }
+
 
         return updated;
       });
