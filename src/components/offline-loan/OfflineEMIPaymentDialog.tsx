@@ -66,6 +66,9 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   const [remarks, setRemarks] = useState('');
   const [paying, setPaying] = useState(false);
   const [remainingPaymentDate, setRemainingPaymentDate] = useState('');
+  // Staff-editable principal/interest split for journal entry
+  const [editedPrincipal, setEditedPrincipal] = useState<string>('');
+  const [editedInterest, setEditedInterest] = useState<string>('');
 
   // Calculate amounts
   const totalAmount = isInterestOnlyLoan ? interestOnlyAmount : (selectedEMI?.totalAmount || 0);
@@ -84,6 +87,9 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
       setPaymentRef('');
       setRemarks('');
       setRemainingPaymentDate('');
+      // Default split = EMI's own principal + interest
+      setEditedPrincipal(String(selectedEMI.principalAmount ?? ''));
+      setEditedInterest(String(selectedEMI.interestAmount ?? ''));
     }
   }, [open, selectedEMI, remainingAmount]);
 
@@ -150,6 +156,11 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         requestBody.paymentType = paymentType;
         if (paymentType === 'PARTIAL') {
           requestBody.remainingPaymentDate = remainingPaymentDate;
+        }
+        // Include staff-edited principal/interest split if provided
+        if (paymentType === 'FULL' && editedPrincipal !== '' && editedInterest !== '') {
+          requestBody.principalComponent = parseFloat(editedPrincipal) || 0;
+          requestBody.interestComponent  = parseFloat(editedInterest)  || 0;
         }
       }
 
@@ -457,6 +468,46 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
             />
           </div>
+
+          {/* Principal / Interest Split Edit — FULL payment only, not interest-only loan */}
+          {paymentType === 'FULL' && !isInterestOnlyLoan && selectedEMI && (
+            <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 space-y-3">
+              <Label className="text-indigo-800 font-semibold block">
+                📊 Edit Principal / Interest Split
+              </Label>
+              <p className="text-xs text-indigo-600">
+                Adjust how this payment is split between principal and interest in the accounting books.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-gray-600">Principal (₹)</Label>
+                  <Input
+                    type="number"
+                    value={editedPrincipal}
+                    onChange={(e) => setEditedPrincipal(e.target.value)}
+                    placeholder={String(selectedEMI.principalAmount)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-gray-600">Interest (₹)</Label>
+                  <Input
+                    type="number"
+                    value={editedInterest}
+                    onChange={(e) => setEditedInterest(e.target.value)}
+                    placeholder={String(selectedEMI.interestAmount)}
+                  />
+                </div>
+              </div>
+              {editedPrincipal !== '' && editedInterest !== '' && (
+                <p className="text-xs text-indigo-500">
+                  Split total: ₹{(parseFloat(editedPrincipal || '0') + parseFloat(editedInterest || '0')).toLocaleString('en-IN')}
+                  {Math.abs((parseFloat(editedPrincipal || '0') + parseFloat(editedInterest || '0')) - amount) > 1 && (
+                    <span className="text-amber-600 ml-2">⚠ Does not match payment amount ₹{amount}</span>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Reference */}
           <div>

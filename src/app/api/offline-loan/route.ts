@@ -2127,7 +2127,9 @@ export async function PUT(request: NextRequest) {
     // Pay EMI with partial payment support - OPTIMIZED VERSION
     if (action === 'pay-emi' && emiId && userId) {
       const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment,
-        penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode } = body;
+        penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode,
+        // Staff-editable principal/interest split for journal entry (optional)
+        principalComponent: staffPrincipal, interestComponent: staffInterest } = body;
       const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
       const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
       const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
@@ -2597,11 +2599,21 @@ export async function PUT(request: NextRequest) {
         }
         
         if (targetCompanyId) {
+          // Apply staff-override split for journal entry (FULL payment only)
+          const journalPrincipal = (paymentType === 'FULL' && staffPrincipal !== undefined && staffInterest !== undefined)
+            ? Number(staffPrincipal)
+            : paidPrincipal;
+          const journalInterest = (paymentType === 'FULL' && staffPrincipal !== undefined && staffInterest !== undefined)
+            ? Number(staffInterest)
+            : paidInterest;
+          if (staffPrincipal !== undefined) {
+            console.log(`[Offline EMI] Staff split override: P ₹${journalPrincipal} + I ₹${journalInterest}`);
+          }
           // Use the comprehensive accounting function
           const accountingResult = await recordEMIPaymentAccounting({
             amount: actualPaymentAmount,
-            principalComponent: paidPrincipal,
-            interestComponent: paidInterest,
+            principalComponent: journalPrincipal,
+            interestComponent: journalInterest,
             paymentMode: paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
             paymentType: paymentType || 'FULL',
             creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
