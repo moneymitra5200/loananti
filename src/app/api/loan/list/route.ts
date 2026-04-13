@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheKeys, CacheTTL, invalidateLoanCache } from '@/lib/cache';
 
-// Lightweight select for list view
+// List select — includes document fields needed by DisbursementDialog
 const LOAN_LIST_SELECT = {
   id: true,
   applicationNo: true,
@@ -10,25 +10,64 @@ const LOAN_LIST_SELECT = {
   loanType: true,
   requestedAmount: true,
   requestedTenure: true,
+  requestedInterestRate: true,
+  purpose: true,
   createdAt: true,
   customerId: true,
   companyId: true,
   currentHandlerId: true,
   isInterestOnlyLoan: true,
+  // Applicant personal details
+  firstName: true, middleName: true, lastName: true,
+  fatherName: true, motherName: true,
+  gender: true, maritalStatus: true,
+  panNumber: true, aadhaarNumber: true,
+  dateOfBirth: true, phone: true,
+  address: true, city: true, state: true, pincode: true,
+  // Employment
+  employmentType: true, employerName: true, designation: true,
+  yearsInEmployment: true, monthlyIncome: true, annualIncome: true,
+  otherIncome: true, incomeSource: true,
+  // Bank details (for disbursement)
+  bankAccountNumber: true, bankIfsc: true, bankName: true,
+  bankBranch: true, accountType: true, accountHolderName: true,
+  // ── DOCUMENT URLS ──────────────────────────────────────────────
+  panCardDoc: true,
+  aadhaarFrontDoc: true,
+  aadhaarBackDoc: true,
+  incomeProofDoc: true,
+  addressProofDoc: true,
+  photoDoc: true,
+  bankStatementDoc: true,
+  passbookDoc: true,
+  salarySlipDoc: true,
+  electionCardDoc: true,
+  housePhotoDoc: true,
+  otherDocs: true,
+  // References
+  reference1Name: true, reference1Phone: true,
+  reference1Relation: true, reference1Address: true,
+  reference2Name: true, reference2Phone: true,
+  reference2Relation: true, reference2Address: true,
+  // Relations
   customer: { select: { id: true, name: true, email: true, phone: true } },
-  company: { select: { id: true, name: true, code: true } },
+  company: { select: { id: true, name: true, code: true, isMirrorCompany: true } },
   sessionForm: {
     select: {
       id: true,
       approvedAmount: true,
       interestRate: true,
+      interestType: true,
       tenure: true,
       emiAmount: true,
       totalInterest: true,
       totalAmount: true,
-      processingFee: true
+      processingFee: true,
+      emiFrequency: true,
     }
-  }
+  },
+  goldLoanDetail: true,
+  vehicleLoanDetail: true,
 };
 
 export async function GET(request: NextRequest) {

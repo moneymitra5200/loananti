@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { XCircle, Loader2, Percent, History, Calendar, DollarSign } from 'lucide-react';
+import { XCircle, Loader2, Percent, History, Calendar, DollarSign, FileText, Eye } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -161,6 +161,92 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid }: Lo
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Documents */}
+              {(() => {
+                const docs = [
+                  { label: 'PAN Card',       url: loan.panCardDoc },
+                  { label: 'Aadhaar Front',  url: loan.aadhaarFrontDoc },
+                  { label: 'Aadhaar Back',   url: loan.aadhaarBackDoc },
+                  { label: 'Income Proof',   url: loan.incomeProofDoc },
+                  { label: 'Address Proof',  url: loan.addressProofDoc },
+                  { label: 'Photo',          url: loan.photoDoc },
+                  { label: 'Bank Statement', url: loan.bankStatementDoc },
+                  { label: 'Passbook',       url: loan.passbookDoc },
+                  { label: 'Salary Slip',    url: loan.salarySlipDoc },
+                  { label: 'Election Card',  url: loan.electionCardDoc },
+                  { label: 'House Photo',    url: loan.housePhotoDoc },
+                ];
+                const uploadedCount = docs.filter(d => d.url).length;
+                return (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Documents
+                        <span className="ml-auto text-xs font-normal text-gray-400">
+                          {uploadedCount}/{docs.length} uploaded
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-2">
+                        {docs.map((doc, idx) => {
+                          const isPdf = doc.url?.includes('application/pdf') || doc.url?.toLowerCase().endsWith('.pdf');
+                          const isImage = doc.url && !isPdf;
+                          return (
+                            <div key={idx} className={`rounded-lg border overflow-hidden ${
+                              doc.url ? 'border-green-200' : 'border-dashed border-gray-200'
+                            }`}>
+                              {isImage ? (
+                                <a href={doc.url!} target="_blank" rel="noopener noreferrer"
+                                  className="block w-full bg-gray-100 hover:opacity-90 transition-opacity">
+                                  <img src={doc.url!} alt={doc.label}
+                                    className="w-full h-24 object-cover"
+                                    onError={(e) => {
+                                      const t = e.target as HTMLImageElement;
+                                      t.style.display = 'none';
+                                      t.nextElementSibling?.classList.remove('hidden');
+                                    }}
+                                  />
+                                  <div className="hidden w-full h-24 flex items-center justify-center bg-gray-50">
+                                    <FileText className="h-7 w-7 text-gray-300" />
+                                  </div>
+                                </a>
+                              ) : isPdf ? (
+                                <div className="w-full h-24 flex flex-col items-center justify-center bg-red-50 gap-1">
+                                  <FileText className="h-7 w-7 text-red-400" />
+                                  <span className="text-xs text-red-500 font-medium">PDF</span>
+                                </div>
+                              ) : (
+                                <div className="w-full h-24 flex items-center justify-center bg-gray-50">
+                                  <div className="text-center">
+                                    <FileText className="h-7 w-7 text-gray-200 mx-auto" />
+                                    <p className="text-xs text-gray-300 mt-1">Not uploaded</p>
+                                  </div>
+                                </div>
+                              )}
+                              <div className={`flex items-center justify-between px-2 py-1 ${
+                                doc.url ? 'bg-green-50' : 'bg-gray-50'
+                              }`}>
+                                <p className="text-xs font-medium text-gray-600 truncate">{doc.label}</p>
+                                {doc.url ? (
+                                  <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                                    className="text-xs text-blue-500 hover:underline flex items-center gap-1 shrink-0 ml-1">
+                                    <Eye className="h-3 w-3" /> View
+                                  </a>
+                                ) : (
+                                  <span className="text-xs text-gray-300 shrink-0">—</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
 
               {/* Interest Only Loan Details */}
               {loan.isInterestOnlyLoan && (
