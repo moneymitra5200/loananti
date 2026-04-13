@@ -209,7 +209,12 @@ export async function POST(request: NextRequest) {
           db.supportTicket.deleteMany({}).then(r => { stats.supportTickets = r.count; }).catch(() => {}),
           db.ticketMessage.deleteMany({}).then(r => { stats.ticketMessages = r.count; }).catch(() => {}),
           db.ticketActivity.deleteMany({}).then(r => { stats.ticketActivities = r.count; }).catch(() => {}),
+          // Contact enquiries and general messages
+          db.contactEnquiry.deleteMany({}).then(r => { stats.contactEnquiries = r.count; }).catch(() => {}),
+          (db as any).enquiry?.deleteMany({}).then((r: any) => { stats.enquiries = r.count; }).catch(() => {}),
+          (db as any).message?.deleteMany({}).then((r: any) => { stats.messages = r.count; }).catch(() => {}),
         ]);
+
       } catch (e) {
         errors.push(`Phase 1 (notifications): ${e instanceof Error ? e.message : 'Unknown'}`);
       }

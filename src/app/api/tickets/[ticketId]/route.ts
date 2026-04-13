@@ -250,3 +250,30 @@ export async function PUT(
     );
   }
 }
+
+// DELETE — Permanently delete a ticket and all its messages/activities
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ ticketId: string }> }
+) {
+  try {
+    const { ticketId } = await params;
+
+    const ticket = await db.supportTicket.findUnique({ where: { id: ticketId } });
+    if (!ticket) {
+      return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+    }
+
+    // Delete child records first
+    await db.$transaction([
+      db.ticketMessage.deleteMany({ where: { ticketId } }),
+      db.ticketActivity.deleteMany({ where: { ticketId } }),
+      db.supportTicket.delete({ where: { id: ticketId } }),
+    ]);
+
+    return NextResponse.json({ success: true, message: 'Ticket deleted permanently' });
+  } catch (error) {
+    console.error('Error deleting ticket:', error);
+    return NextResponse.json({ error: 'Failed to delete ticket' }, { status: 500 });
+  }
+}

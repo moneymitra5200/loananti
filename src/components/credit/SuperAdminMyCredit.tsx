@@ -14,7 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { 
   Wallet, Building, User, ArrowRight, IndianRupee, Clock, CheckCircle, XCircle,
-  Banknote, FileText, TrendingUp, TrendingDown, RefreshCw, Loader2, AlertCircle,
+  FileText, TrendingUp, TrendingDown, RefreshCw, Loader2, AlertCircle,
   CreditCard, ArrowUpRight, ArrowDownRight, History, Plus, Minus
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -83,7 +83,6 @@ export default function SuperAdminMyCredit() {
   
   // Dialogs
   const [showSettlementDialog, setShowSettlementDialog] = useState(false);
-  const [showBankTransferDialog, setShowBankTransferDialog] = useState(false);
   const [showMinusCreditDialog, setShowMinusCreditDialog] = useState(false);
   const [selectedSettlement, setSelectedSettlement] = useState<Settlement | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -109,7 +108,6 @@ export default function SuperAdminMyCredit() {
   useEffect(() => {
     fetchCreditData();
     fetchPendingSettlements();
-    fetchBankAccounts();
   }, [user?.id]);
 
   const fetchCreditData = async () => {
@@ -244,58 +242,6 @@ export default function SuperAdminMyCredit() {
     }
   };
 
-  const handleBankTransfer = async () => {
-    if (!user?.id) return;
-    if (transferForm.amount <= 0) {
-      toast({ title: 'Invalid Amount', description: 'Please enter a valid amount', variant: 'destructive' });
-      return;
-    }
-    
-    const availableCredit = transferForm.creditType === 'COMPANY' ? companyCredit : personalCredit;
-    if (transferForm.amount > availableCredit) {
-      toast({ title: 'Insufficient Credit', description: `Available: ₹${formatCurrency(availableCredit)}`, variant: 'destructive' });
-      return;
-    }
-    
-    setProcessing(true);
-    try {
-      const response = await fetch('/api/credit', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          amount: transferForm.amount,
-          paymentMode: 'BANK_TRANSFER',
-          creditType: transferForm.creditType,
-          clearPersonalCredit: transferForm.creditType === 'PERSONAL',
-          bankRefNumber: transferForm.reference,
-          remarks: `Bank Transfer - ${transferForm.notes}`
-        })
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        toast({
-          title: 'Transfer Recorded',
-          description: `₹${formatCurrency(transferForm.amount)} transferred to bank account.`
-        });
-        setShowBankTransferDialog(false);
-        setTransferForm({ bankAccountId: '', amount: 0, creditType: 'COMPANY', reference: '', notes: '' });
-        fetchCreditData();
-      } else {
-        throw new Error(data.error || 'Failed to record transfer');
-      }
-    } catch (error) {
-      console.error('Error recording bank transfer:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to record bank transfer',
-        variant: 'destructive'
-      });
-    } finally {
-      setProcessing(false);
-    }
-  };
 
   const handleMinusCredit = async () => {
     if (!user?.id) return;
@@ -452,14 +398,6 @@ export default function SuperAdminMyCredit() {
             <Button 
               variant="outline" 
               className="flex items-center gap-2"
-              onClick={() => setShowBankTransferDialog(true)}
-            >
-              <Banknote className="h-4 w-4" />
-              Transfer to Bank
-            </Button>
-            <Button 
-              variant="outline" 
-              className="flex items-center gap-2"
               onClick={() => setShowMinusCreditDialog(true)}
             >
               <Minus className="h-4 w-4" />
@@ -482,7 +420,7 @@ export default function SuperAdminMyCredit() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="settlements">
-            Pending Settlements
+            Credit Requests
             {pendingSettlements.length > 0 && (
               <Badge className="ml-2 bg-red-500 text-white">{pendingSettlements.length}</Badge>
             )}
@@ -544,11 +482,11 @@ export default function SuperAdminMyCredit() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Settlement Requests
+                <CreditCard className="h-5 w-5" />
+                Credit Requests from Roles
               </CardTitle>
               <CardDescription>
-                Roles who want to clear their credit by giving you money
+                Requests from agents, staff and cashiers to settle or deduct their credit
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -738,75 +676,6 @@ export default function SuperAdminMyCredit() {
         </DialogContent>
       </Dialog>
 
-      {/* Bank Transfer Dialog */}
-      <Dialog open={showBankTransferDialog} onOpenChange={setShowBankTransferDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Banknote className="h-5 w-5 text-blue-600" />
-              Transfer to Bank Account
-            </DialogTitle>
-            <DialogDescription>
-              Record a transfer of credit to a bank account
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label>Credit Type</Label>
-              <Select 
-                value={transferForm.creditType} 
-                onValueChange={(v) => setTransferForm({ ...transferForm, creditType: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="COMPANY">Company Credit (₹{formatCurrency(companyCredit)})</SelectItem>
-                  <SelectItem value="PERSONAL">Personal Credit (₹{formatCurrency(personalCredit)})</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div>
-              <Label>Amount (₹)</Label>
-              <Input
-                type="number"
-                value={transferForm.amount || ''}
-                onChange={(e) => setTransferForm({ ...transferForm, amount: parseFloat(e.target.value) || 0 })}
-                placeholder="Enter amount"
-              />
-            </div>
-            
-            <div>
-              <Label>Bank Reference</Label>
-              <Input
-                value={transferForm.reference}
-                onChange={(e) => setTransferForm({ ...transferForm, reference: e.target.value })}
-                placeholder="Transaction ID / Reference number"
-              />
-            </div>
-            
-            <div>
-              <Label>Notes</Label>
-              <Textarea
-                value={transferForm.notes}
-                onChange={(e) => setTransferForm({ ...transferForm, notes: e.target.value })}
-                placeholder="Add notes..."
-                rows={2}
-              />
-            </div>
-          </div>
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowBankTransferDialog(false)}>Cancel</Button>
-            <Button onClick={handleBankTransfer} disabled={processing}>
-              {processing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Banknote className="h-4 w-4 mr-2" />}
-              Record Transfer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Minus Credit Dialog */}
       <Dialog open={showMinusCreditDialog} onOpenChange={setShowMinusCreditDialog}>
