@@ -13,7 +13,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Building2, FileText, CheckCircle, XCircle, Clock, Users, Wallet, AlertTriangle, Eye, TrendingUp, DollarSign, BarChart3, UserCheck, UserPlus, Target, X, Loader2, Calendar, IndianRupee, ArrowLeft, PartyPopper, Sparkles, Landmark } from 'lucide-react';
+import { Building2, FileText, CheckCircle, XCircle, Clock, Users, Wallet, AlertTriangle, Eye, TrendingUp, DollarSign, BarChart3, UserCheck, UserPlus, Target, X, Loader2, Calendar, IndianRupee, ArrowLeft, PartyPopper, Sparkles, Landmark, Trash2 } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -66,6 +66,9 @@ export default function CompanyDashboard() {
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [agentForm, setAgentForm] = useState({ name: '', email: '', password: '', commissionRate: 5 });
+  const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
+  const [deleteConfirmAgentId, setDeleteConfirmAgentId] = useState<string | null>(null);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   
   // Bulk selection state
   const [selectedLoanIds, setSelectedLoanIds] = useState<string[]>([]);
@@ -230,6 +233,25 @@ export default function CompanyDashboard() {
       toast({ title: 'Error', description: 'Failed to create agent', variant: 'destructive' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAgent = async (agentId: string) => {
+    setDeletingAgentId(agentId);
+    try {
+      const response = await fetch(`/api/user/${agentId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast({ title: 'Agent Deleted', description: 'Agent removed successfully' });
+        setDeleteConfirmAgentId(null);
+        fetchData(true);
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to delete agent', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete agent', variant: 'destructive' });
+    } finally {
+      setDeletingAgentId(null);
     }
   };
 
@@ -620,9 +642,18 @@ export default function CompanyDashboard() {
                           <p className="text-xs text-gray-400">Code: {agent.agentCode}</p>
                         </div>
                       </div>
-                      <Badge className={agent.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                        {agent.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge className={agent.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                          {agent.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <Button size="sm" variant="outline" onClick={() => setViewingAgent(agent)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50"
+                          onClick={() => setDeleteConfirmAgentId(agent.id)} disabled={deletingAgentId === agent.id}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -1537,6 +1568,61 @@ export default function CompanyDashboard() {
         description={successDialogData.description}
         icon="party"
       />
+      {/* Agent View Dialog */}
+      <Dialog open={!!viewingAgent} onOpenChange={() => setViewingAgent(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Agent Details</DialogTitle>
+            <DialogDescription>{viewingAgent?.email}</DialogDescription>
+          </DialogHeader>
+          {viewingAgent && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Name</p>
+                  <p className="font-semibold">{viewingAgent.name}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Agent Code</p>
+                  <p className="font-semibold">{viewingAgent.agentCode}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Status</p>
+                  <p className={`font-semibold ${viewingAgent.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                    {viewingAgent.isActive ? 'Active' : 'Inactive'}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Email</p>
+                  <p className="font-semibold text-sm">{viewingAgent.email}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingAgent(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Agent Confirm Dialog */}
+      <Dialog open={!!deleteConfirmAgentId} onOpenChange={() => setDeleteConfirmAgentId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2"><Trash2 className="h-5 w-5" />Delete Agent</DialogTitle>
+            <DialogDescription>Are you sure you want to delete this agent? This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmAgentId(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={!!deletingAgentId}
+              onClick={() => deleteConfirmAgentId && handleDeleteAgent(deleteConfirmAgentId)}>
+              {deletingAgentId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </DashboardLayout>
   );
 }

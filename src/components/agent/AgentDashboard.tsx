@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { User, FileText, CheckCircle, XCircle, Clock, Users, Wallet, Eye, TrendingUp, DollarSign, UserPlus, Calculator, Settings, Percent, Calendar, IndianRupee, ClipboardCheck, X, Loader2, Info, AlertTriangle, ArrowLeft, PartyPopper, Sparkles } from 'lucide-react';
+import { User, FileText, CheckCircle, XCircle, Clock, Users, Wallet, Eye, TrendingUp, DollarSign, UserPlus, Calculator, Settings, Percent, Calendar, IndianRupee, ClipboardCheck, X, Loader2, Info, AlertTriangle, ArrowLeft, PartyPopper, Sparkles, Trash2, Shield, EyeOff } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate, calculateEMI } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -61,6 +61,9 @@ export default function AgentDashboard() {
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });
+  const [viewingStaff, setViewingStaff] = useState<Staff | null>(null);
+  const [deletingStaffId, setDeletingStaffId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
   // Bulk selection state
   const [selectedLoanIds, setSelectedLoanIds] = useState<string[]>([]);
@@ -618,6 +621,25 @@ export default function AgentDashboard() {
     </Card>
   );
 
+  const handleDeleteStaff = async (staffId: string) => {
+    setDeletingStaffId(staffId);
+    try {
+      const response = await fetch(`/api/user/${staffId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast({ title: 'Staff Deleted', description: 'Staff member removed successfully' });
+        setDeleteConfirmId(null);
+        fetchData(true);
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to delete staff', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete staff', variant: 'destructive' });
+    } finally {
+      setDeletingStaffId(null);
+    }
+  };
+
   const renderStaffSection = () => (
     <Card className="bg-white shadow-sm border-0">
       <CardHeader>
@@ -652,9 +674,18 @@ export default function AgentDashboard() {
                     <p className="text-xs text-gray-400">Code: {staff.staffCode}</p>
                   </div>
                 </div>
-                <Badge className={staff.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                  {staff.isActive ? 'Active' : 'Inactive'}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge className={staff.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                    {staff.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                  <Button size="sm" variant="outline" onClick={() => setViewingStaff(staff)}>
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                  <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50"
+                    onClick={() => setDeleteConfirmId(staff.id)} disabled={deletingStaffId === staff.id}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </motion.div>
             ))}
           </div>
@@ -906,6 +937,61 @@ export default function AgentDashboard() {
         description={successDialogData.description}
         icon="sparkles"
       />
+      {/* Staff View Dialog */}
+      <Dialog open={!!viewingStaff} onOpenChange={() => setViewingStaff(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Staff Details</DialogTitle>
+            <DialogDescription>{viewingStaff?.email}</DialogDescription>
+          </DialogHeader>
+          {viewingStaff && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Name</p>
+                  <p className="font-semibold">{viewingStaff.name}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Staff Code</p>
+                  <p className="font-semibold">{viewingStaff.staffCode}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Status</p>
+                  <p className={`font-semibold ${viewingStaff.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                    {viewingStaff.isActive ? 'Active' : 'Inactive'}
+                  </p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-xl">
+                  <p className="text-xs text-gray-500">Email</p>
+                  <p className="font-semibold text-sm">{viewingStaff.email}</p>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingStaff(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2"><Trash2 className="h-5 w-5" />Delete Staff Member</DialogTitle>
+            <DialogDescription>Are you sure you want to delete this staff member? This action cannot be undone.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={!!deletingStaffId}
+              onClick={() => deleteConfirmId && handleDeleteStaff(deleteConfirmId)}>
+              {deletingStaffId ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </DashboardLayout>
   );
 }

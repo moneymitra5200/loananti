@@ -450,6 +450,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'products', label: 'Loan Products', icon: Briefcase },
     { id: 'website', label: 'Website Management', icon: Globe },
     { id: 'audit', label: 'Audit Logs', icon: Activity },
+    { id: 'receipts', label: 'Receipt Templates', icon: Receipt },
     { id: 'ai-validator', label: 'AI Validator', icon: Sparkles }
   ],
   COMPANY: [
@@ -466,8 +467,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'agents', label: 'Agent Management', icon: Users },
     { id: 'personalCredits', label: 'My Credits', icon: IndianRupee },
     { id: 'portfolio', label: 'Portfolio', icon: PieChart },
-    { id: 'risk', label: 'Risk Analysis', icon: Target },
-    { id: 'fix-accounting', label: 'Fix Mirror Accounting', icon: AlertTriangle }
+    { id: 'risk', label: 'Risk Analysis', icon: Target }
   ],
   AGENT: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -491,7 +491,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
-    { id: 'field', label: 'Field Visits', icon: MapPin }
+    { id: 'messages', label: 'Messages', icon: MessageCircle },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 }
   ],
   CASHIER: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -502,6 +503,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'history', label: 'Recent', icon: Receipt },
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
+    { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
+    { id: 'receipts', label: 'Receipt Templates', icon: Receipt },
     { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
     { id: 'tickets', label: 'Support Tickets', icon: MessageCircle },
     { id: 'messages', label: 'Messages', icon: MessageCircle },

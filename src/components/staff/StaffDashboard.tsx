@@ -6,18 +6,21 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { CheckCircle, Clock, Users, User, FileSearch, Upload, MapPin, Briefcase, Banknote, ArrowLeft, ArrowRight, Loader2, FileEdit, Sparkles, Car, ClipboardList } from 'lucide-react';
+import { CheckCircle, Clock, Users, User, FileSearch, Upload, MapPin, Briefcase, Banknote, ArrowLeft, ArrowRight, Loader2, FileEdit, Sparkles, Car, ClipboardList, BarChart3, TrendingUp, Calendar, Award } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+
 import { formatCurrency, validatePAN, validateAadhaar, validateIFSC, validatePhone } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import LoanDetailPanel from '@/components/loan/LoanDetailPanel';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
-import { DashboardTab, PendingTab, CompletedTab, ActiveLoansTab, FieldVisitsTab } from '@/components/staff/tabs';
+import { DashboardTab, PendingTab, CompletedTab, ActiveLoansTab } from '@/components/staff/tabs';
 import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { LoanFormStepContent } from '@/components/staff/modules';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
 
@@ -75,6 +78,148 @@ const getStepsForLoanType = (loanType: string) => {
 
 interface FormErrors {
   [key: string]: string;
+}
+
+
+// ── Staff Analytics Section ───────────────────────────────────────────────
+function StaffAnalyticsSection({ loans, userId, userName }: { loans: any[]; userId: string; userName: string }) {
+  const now = new Date();
+  const getMonthRange = (monthsAgo: number) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - monthsAgo + 1, 0, 23, 59, 59);
+    return { start: d, end };
+  };
+
+  const countInRange = (start: Date, end: Date) =>
+    loans.filter(l => { const d = new Date(l.createdAt); return d >= start && d <= end; }).length;
+
+  const thisMonth = getMonthRange(0);
+  const lastMonth = getMonthRange(1);
+  const twoMonthsAgo = getMonthRange(2);
+
+  const thisMonthCount = countInRange(thisMonth.start, thisMonth.end);
+  const lastMonthCount = countInRange(lastMonth.start, lastMonth.end);
+  const twoMonthsAgoCount = countInRange(twoMonthsAgo.start, twoMonthsAgo.end);
+  const totalForms = loans.filter(l => l.status !== 'AGENT_APPROVED_STAGE1').length;
+  const pendingCount = loans.filter(l => l.status === 'AGENT_APPROVED_STAGE1').length;
+  const completedCount = loans.filter(l => l.status === 'LOAN_FORM_COMPLETED').length;
+  const successRate = loans.length > 0 ? Math.round((completedCount / loans.length) * 100) : 0;
+
+  const monthName = (monthsAgo: number) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1);
+    return d.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  };
+
+  const maxCount = Math.max(thisMonthCount, lastMonthCount, twoMonthsAgoCount, 1);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <BarChart3 className="h-7 w-7 text-orange-600" />
+          My Performance Analytics
+        </h2>
+        <p className="text-gray-500 mt-1">Forms processed and loan verification statistics</p>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { label: 'Total Forms', value: loans.length, icon: ClipboardList, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Completed', value: completedCount, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50' },
+          { label: 'Pending', value: pendingCount, icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
+          { label: 'Success Rate', value: `${successRate}%`, icon: Award, color: 'text-purple-600', bg: 'bg-purple-50' },
+        ].map((stat) => (
+          <Card key={stat.label} className="border-0 shadow-sm">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">{stat.label}</p>
+                  <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                </div>
+                <div className={`p-2 rounded-lg ${stat.bg}`}>
+                  <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Monthly Bar Chart */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Calendar className="h-5 w-5 text-orange-600" />
+            Monthly Form Activity
+          </CardTitle>
+          <CardDescription>Number of loan forms you processed each month</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {[
+              { label: monthName(0), count: thisMonthCount, color: 'bg-orange-500', badge: 'This Month' },
+              { label: monthName(1), count: lastMonthCount, color: 'bg-blue-500', badge: 'Last Month' },
+              { label: monthName(2), count: twoMonthsAgoCount, color: 'bg-gray-400', badge: '2 Months Ago' },
+            ].map((month) => (
+              <div key={month.label} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-700">{month.label}</span>
+                    <span className="text-xs px-2 py-0.5 bg-gray-100 rounded-full text-gray-500">{month.badge}</span>
+                  </div>
+                  <span className="font-bold text-gray-900">{month.count} forms</span>
+                </div>
+                <div className="h-8 bg-gray-100 rounded-lg overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${(month.count / maxCount) * 100}%` }}
+                    transition={{ duration: 0.8, ease: 'easeOut' }}
+                    className={`h-full ${month.color} rounded-lg flex items-center pl-3`}
+                  >
+                    {month.count > 0 && <span className="text-xs text-white font-medium">{month.count}</span>}
+                  </motion.div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Growth indicator */}
+          {lastMonthCount > 0 && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-xl">
+              <div className="flex items-center gap-2">
+                <TrendingUp className={`h-4 w-4 ${thisMonthCount >= lastMonthCount ? 'text-green-600' : 'text-red-500'}`} />
+                <span className="text-sm text-gray-600">
+                  {thisMonthCount >= lastMonthCount
+                    ? `📈 ${thisMonthCount - lastMonthCount} more forms than last month`
+                    : `📉 ${lastMonthCount - thisMonthCount} fewer forms than last month`}
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Status Breakdown */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Loan Status Breakdown</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {Object.entries(
+              loans.reduce((acc, l) => { acc[l.status] = (acc[l.status] || 0) + 1; return acc; }, {} as Record<string, number>)
+            ).map(([status, count]) => (
+              <div key={status} className="p-3 bg-gray-50 rounded-xl text-center">
+                <p className="text-xl font-bold text-gray-900">{count as number}</p>
+                <p className="text-xs text-gray-500 mt-1">{status.replace(/_/g, ' ')}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export default function StaffDashboard() {
@@ -554,7 +699,18 @@ export default function StaffDashboard() {
       case 'activeLoans':
         return <ActiveLoansTab activeLoans={activeLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />;
       case 'field':
-        return <FieldVisitsTab />;
+        // Field visits removed — redirect to dashboard
+        return <DashboardTab loans={loans} pendingLoans={pendingLoans} setActiveTab={setActiveTab} />;
+      case 'messages':
+        return (
+          <DirectMessaging
+            userId={user?.id || ''}
+            userRole={user?.role || 'STAFF'}
+            userName={user?.name || 'Staff'}
+          />
+        );
+      case 'analytics':
+        return <StaffAnalyticsSection loans={loans} userId={user?.id || ''} userName={user?.name || ''} />;
       case 'myCredit':
         return <MyCreditPassbook />;
       case 'secondary-payment-pages':

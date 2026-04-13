@@ -3481,3 +3481,21 @@ model Message {
   @@index([createdAt])
   @@index([isRead])
 }
+
+// Receipt Template — stores receipt format (fields JSON) for EMI and Loan receipts
+model ReceiptTemplate {
+  id          String   @id @default(cuid())
+  type        String   // 'EMI' | 'LOAN'
+  name        String
+  companyName String   @default("MoneyMitra Finance")
+  bgColor     String   @default("#ffffff")
+  accentColor String   @default("#4F46E5")
+  fields      String   // JSON: ReceiptField[]
+  createdById String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([type])
+  @@map("receipt_templates")
+}

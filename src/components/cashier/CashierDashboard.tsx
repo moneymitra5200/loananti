@@ -31,6 +31,8 @@ import { useSystemSettings } from '@/hooks/useSystemSettings';
 import { useLoansStore } from '@/stores/loansStore';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
+import ReceiptTemplateSection from '@/components/receipt/ReceiptTemplateSection';
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -1007,7 +1009,12 @@ export default function CashierDashboard() {
           />
         );
 
-      case 'dashboard':
+      case 'myCredit':
+        return <MyCreditPassbook />;
+
+      case 'receipts':
+        return <ReceiptTemplateSection userId={user?.id || ''} userRole={user?.role || 'CASHIER'} />;
+
       default:
         return (
           <div className="space-y-6">
