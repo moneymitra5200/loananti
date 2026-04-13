@@ -683,7 +683,7 @@ export default function CashierDashboard() {
           <div className="text-right">
             <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}</p>
             {loan.sessionForm && (
-              <p className="text-xs text-gray-500">EMI: {formatCurrency(loan.sessionForm.emiAmount)}/mo</p>
+              <p className="text-xs text-gray-500">EMI: {formatCurrency(loan.sessionForm.emiAmount || 0)}/mo</p>
             )}
           </div>
           {actions || (
