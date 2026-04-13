@@ -1001,38 +1001,6 @@ export async function PUT(request: NextRequest) {
       }
 
 
-          // ── Check if original loan has a mirror mapping ──────────────────
-          const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-            where: { originalLoanId: loan.id }
-          });
-
-          if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
-            console.log(`[PR Accounting] Skipping — loan ${loan.id} has no mirror mapping.`);
-            return;
-          }
-
-          const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
-          const { AccountingService: AccSvc, ACCOUNT_CODES: AC } = await import('@/lib/accounting-service');
-          const accSvc = new AccSvc(mirrorCompanyId);
-          await accSvc.initializeChartOfAccounts();
-
-          // ── Helper: ensure CashBook exists ───────────────────────────────
-          const getMirrorCashBook = async () => {
-            let cb = await db.cashBook.findUnique({ where: { companyId: mirrorCompanyId } });
-            if (!cb) cb = await db.cashBook.create({ data: { companyId: mirrorCompanyId, currentBalance: 0 } });
-            return cb;
-          };
-
-          // ────────────────────────────────────────────────────────────────
-          // Get mirror EMI for this installment
-          // ────────────────────────────────────────────────────────────────
-          const mirrorEmi = await db.eMISchedule.findFirst({
-            where: {
-              loanApplicationId: mirrorMapping.mirrorLoanId,
-              installmentNumber: emi.installmentNumber
-            }
-          });
-
       return NextResponse.json({ 
         success: true, 
         message: 'Payment request approved successfully',
