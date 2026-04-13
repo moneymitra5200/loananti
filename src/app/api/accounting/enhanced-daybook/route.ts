@@ -2,36 +2,71 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 /**
- * ENHANCED DAYBOOK — reads from JournalEntry + JournalEntryLine (double-entry system)
- * and also merges CashBookEntry for cash-only transactions.
+ * ENHANCED DAYBOOK API
+ * 
+ * Opening Balance = sum of (credit - debit) for ALL entries BEFORE period start.
+ * Closing Balance = Opening Balance + period credits - period debits.
+ * Next period's Opening Balance = this period's Closing Balance.
  *
- * Each row shows:
- *   date | narration/particular | referenceType | DR amount | CR amount | runningBalance
- *
- * UI requirement: show proper CREDIT / DEBIT columns, NOT "Receive Payment" labels.
+ * If equity (capital) is added before the period, it is captured in Opening Balance.
  */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const companyId = searchParams.get('companyId');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const companyId    = searchParams.get('companyId');
+    const startDate    = searchParams.get('startDate');
+    const endDate      = searchParams.get('endDate');
     const referenceType = searchParams.get('referenceType');
-    const viewMode = searchParams.get('viewMode') || 'journal'; // 'journal' | 'cashbook' | 'all'
+    const viewMode     = searchParams.get('viewMode') || 'journal'; // 'journal' | 'cashbook' | 'all'
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
+    const periodStart = startDate ? new Date(new Date(startDate).setHours(0, 0, 0, 0)) : null;
+    const periodEnd   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
+
     const dateFilter: any = {};
-    if (startDate && endDate) {
-      dateFilter.gte = new Date(startDate);
-      dateFilter.lte = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+    if (periodStart && periodEnd) {
+      dateFilter.gte = periodStart;
+      dateFilter.lte = periodEnd;
     }
 
-    // ── 1. JOURNAL ENTRIES (double-entry) ───────────────────────────────────
+    // ── OPENING BALANCE ──────────────────────────────────────────────────────
+    // = sum of (credit − debit) for ALL journal + cashbook entries before periodStart
+    // This automatically includes equity/capital added before the period.
+    let openingBalance = 0;
+
+    if (periodStart) {
+      // Historical journal lines
+      const historicalJournals = await db.journalEntry.findMany({
+        where: { companyId, entryDate: { lt: periodStart } },
+        include: { lines: { select: { debitAmount: true, creditAmount: true } } }
+      });
+      for (const je of historicalJournals) {
+        for (const line of je.lines) {
+          openingBalance += (line.creditAmount || 0) - (line.debitAmount || 0);
+        }
+      }
+
+      // Historical cashbook entries
+      if (viewMode === 'cashbook' || viewMode === 'all') {
+        const cashBook = await db.cashBook.findUnique({ where: { companyId } });
+        if (cashBook) {
+          const historicalCash = await db.cashBookEntry.findMany({
+            where: { cashBookId: cashBook.id, entryDate: { lt: periodStart } },
+            select: { amount: true, entryType: true }
+          });
+          for (const ce of historicalCash) {
+            openingBalance += ce.entryType === 'CREDIT' ? ce.amount : -ce.amount;
+          }
+        }
+      }
+    }
+
+    // ── 1. JOURNAL ENTRIES ───────────────────────────────────────────────────
     const journalWhere: any = { companyId };
-    if (startDate && endDate) journalWhere.entryDate = dateFilter;
+    if (periodStart && periodEnd) journalWhere.entryDate = dateFilter;
     if (referenceType) journalWhere.referenceType = referenceType;
 
     const journalEntries = await db.journalEntry.findMany({
@@ -47,41 +82,38 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Convert journal entries to daybook rows
     const journalRows: any[] = journalEntries.map(je => {
       const totalDebit  = je.lines.reduce((s, l) => s + (l.debitAmount  || 0), 0);
       const totalCredit = je.lines.reduce((s, l) => s + (l.creditAmount || 0), 0);
-
-      // Determine the "other side" account for narration
       const debitLines  = je.lines.filter(l => (l.debitAmount  || 0) > 0).map(l => l.account?.accountName || '');
       const creditLines = je.lines.filter(l => (l.creditAmount || 0) > 0).map(l => l.account?.accountName || '');
 
       return {
-        id:           je.id,
-        source:       'JOURNAL',
-        date:         je.entryDate,
-        particular:   je.narration,
+        id:            je.id,
+        source:        'JOURNAL',
+        date:          je.entryDate,
+        particular:    je.narration,
         referenceType: je.referenceType,
-        referenceId:  je.referenceId,
-        debit:        totalDebit,
-        credit:       totalCredit,
+        referenceId:   je.referenceId,
+        debit:         totalDebit,
+        credit:        totalCredit,
         debitAccounts:  debitLines,
         creditAccounts: creditLines,
-        paymentMode:  je.paymentMode,
-        entryNumber:  je.entryNumber,
-        isAutoEntry:  je.isAutoEntry,
-        isApproved:   je.isApproved,
-        createdAt:    je.createdAt,
+        paymentMode:   je.paymentMode,
+        entryNumber:   je.entryNumber,
+        isAutoEntry:   je.isAutoEntry,
+        isApproved:    je.isApproved,
+        createdAt:     je.createdAt,
       };
     });
 
-    // ── 2. CASHBOOK ENTRIES (direct cash entries without full journal) ──────
+    // ── 2. CASHBOOK ENTRIES ──────────────────────────────────────────────────
     let cashRows: any[] = [];
     if (viewMode === 'cashbook' || viewMode === 'all') {
       const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
         const cashWhere: any = { cashBookId: cashBook.id };
-        if (startDate && endDate) cashWhere.entryDate = dateFilter;
+        if (periodStart && periodEnd) cashWhere.entryDate = dateFilter;
         if (referenceType) cashWhere.referenceType = referenceType;
 
         const cashEntries = await db.cashBookEntry.findMany({
@@ -91,26 +123,26 @@ export async function GET(request: NextRequest) {
         });
 
         cashRows = cashEntries.map(ce => ({
-          id:           ce.id,
-          source:       'CASHBOOK',
-          date:         ce.entryDate,
-          particular:   ce.description,
+          id:            ce.id,
+          source:        'CASHBOOK',
+          date:          ce.entryDate,
+          particular:    ce.description,
           referenceType: ce.referenceType,
-          referenceId:  ce.referenceId,
-          debit:        ce.entryType === 'DEBIT'  ? ce.amount : 0,
-          credit:       ce.entryType === 'CREDIT' ? ce.amount : 0,
+          referenceId:   ce.referenceId,
+          debit:         ce.entryType === 'DEBIT'  ? ce.amount : 0,
+          credit:        ce.entryType === 'CREDIT' ? ce.amount : 0,
           debitAccounts:  ce.entryType === 'DEBIT'  ? ['Cash Out'] : [],
           creditAccounts: ce.entryType === 'CREDIT' ? ['Cash In']  : [],
-          paymentMode:  'CASH',
-          entryNumber:  null,
-          isAutoEntry:  true,
-          isApproved:   true,
-          createdAt:    ce.createdAt,
+          paymentMode:   'CASH',
+          entryNumber:   null,
+          isAutoEntry:   true,
+          isApproved:    true,
+          createdAt:     ce.createdAt,
         }));
       }
     }
 
-    // ── 3. Merge + sort ─────────────────────────────────────────────────────
+    // ── 3. Merge + sort ascending ────────────────────────────────────────────
     let allRows = viewMode === 'cashbook'
       ? cashRows
       : viewMode === 'all'
@@ -119,8 +151,8 @@ export async function GET(request: NextRequest) {
 
     allRows.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // ── 4. Running balance (debit = money out, credit = money in) ──────────
-    let runningBalance = 0;
+    // ── 4. Running balance starting from Opening Balance ─────────────────────
+    let runningBalance = openingBalance;
     const rowsWithBalance = allRows.map(row => {
       runningBalance += (row.credit || 0) - (row.debit || 0);
       return { ...row, runningBalance };
@@ -130,8 +162,9 @@ export async function GET(request: NextRequest) {
     rowsWithBalance.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     // ── 5. Totals ────────────────────────────────────────────────────────────
-    const totalDebit  = allRows.reduce((s, r) => s + (r.debit  || 0), 0);
-    const totalCredit = allRows.reduce((s, r) => s + (r.credit || 0), 0);
+    const totalDebit    = allRows.reduce((s, r) => s + (r.debit  || 0), 0);
+    const totalCredit   = allRows.reduce((s, r) => s + (r.credit || 0), 0);
+    const closingBalance = openingBalance + totalCredit - totalDebit;
 
     // ── 6. Group by referenceType ────────────────────────────────────────────
     const byReferenceType = allRows.reduce((acc, row) => {
@@ -145,13 +178,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       entries: rowsWithBalance,
+      openingBalance,
+      closingBalance,
       summary: {
         totalEntries: allRows.length,
         totalDebit,
         totalCredit,
         netBalance: totalCredit - totalDebit,
         byReferenceType,
-        // Helpers for UI column display
         columns: { debitLabel: 'Debit (DR)', creditLabel: 'Credit (CR)' }
       }
     });
