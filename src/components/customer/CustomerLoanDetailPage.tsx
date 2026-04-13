@@ -146,6 +146,10 @@ export default function CustomerLoanDetailPage() {
   const [selectedEmi, setSelectedEmi] = useState<EMISchedule | null>(null);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
+  // Mirror loan tenure — EMIs beyond this number are "extra EMIs" going to original company
+  const [mirrorTenure, setMirrorTenure] = useState<number>(0);
+  // Original company's bank details shown on the extra-EMI secondary payment page
+  const [originalBankDetails, setOriginalBankDetails] = useState<BankDetails | null>(null);
   const [emiSpecificSettings, setEmiSpecificSettings] = useState<{
     enableFullPayment: boolean;
     enablePartialPayment: boolean;
@@ -339,6 +343,32 @@ export default function CustomerLoanDetailPage() {
   useEffect(() => {
     if (loan?.company?.id && loanId) {
       fetchCompanyBankAccount(loan.company.id, loanId);
+
+      // Fetch mirror tenure to detect extra EMIs + original company bank for secondary page
+      const fetchMirrorInfo = async () => {
+        try {
+          const res = await fetch(`/api/mirror-loan?loanId=${loanId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          // API returns { mirrorLoans: [{mirrorTenure, ...}], mappings: [{mirrorTenure,...}] }
+          const tenure = data.mirrorLoans?.[0]?.mirrorTenure || data.mappings?.[0]?.mirrorTenure || 0;
+          if (tenure) setMirrorTenure(tenure);
+          // Fetch original company bank WITHOUT loanId so mirror redirect is skipped
+          const origRes = await fetch(`/api/bank-account?companyId=${loan.company!.id}&action=default`);
+          if (origRes.ok) {
+            const origData = await origRes.json();
+            if (origData.success && origData.account) {
+              setOriginalBankDetails({
+                bankName: origData.account.bankName || '',
+                accountNumber: origData.account.accountNumber || '',
+                ifscCode: origData.account.ifscCode || '',
+                accountHolderName: origData.account.accountName || '',
+              });
+            }
+          }
+        } catch (_) { /* mirror info is optional */ }
+      };
+      fetchMirrorInfo();
     }
   }, [loan?.company?.id, loanId, fetchCompanyBankAccount]);
 
@@ -1401,112 +1431,131 @@ export default function CustomerLoanDetailPage() {
                   <Wallet className="h-5 w-5" /> Payment Methods
                 </h3>
 
-                {/* QR Code — only show when an actual QR image is configured */}
-                {paymentSettings?.companyQrCodeUrl && (
-                  <Card className="border-0 bg-gradient-to-br from-blue-50 to-indigo-50">
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-4">
-                        <div className="w-24 h-24 bg-white rounded-lg border flex items-center justify-center">
-                          <img src={paymentSettings.companyQrCodeUrl} alt="QR Code" className="w-20 h-20" />
-                        </div>
-                        <div>
-                          <p className="font-medium">Scan QR Code</p>
-                          <p className="text-sm text-gray-500">Use any UPI app to pay</p>
-                        </div>
+                {mirrorTenure > 0 && (selectedEmi?.installmentNumber ?? 0) > mirrorTenure ? (
+                  /* Secondary payment page — Extra EMI goes to original company */
+                  <Card className="border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-violet-50">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Building2 className="h-4 w-4 text-purple-600" />
+                        <span className="font-semibold text-purple-800">Pay to Original Lender</span>
+                        <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Extra EMI</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* UPI ID */}
-                {paymentSettings?.companyUpiId && (
-                  <Card className="border-0">
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-500">UPI ID</p>
-                          <p className="font-mono font-medium text-lg">{paymentSettings.companyUpiId}</p>
-                        </div>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => copyToClipboard(paymentSettings.companyUpiId || '')}
-                        >
-                          <Copy className="h-4 w-4 mr-1" /> Copy
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Bank Details */}
-                <Card className="border-0">
-                  <CardContent className="p-4">
-                    <h4 className="font-medium mb-3 flex items-center gap-2">
-                      <Building2 className="h-4 w-4" /> Bank Account Details
-                    </h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Account Holder:</span>
-                        <span className="font-medium">
-                          {bankDetails?.accountHolderName || loan.company?.name || 'Money Mitra'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-500">Bank Name:</span>
-                        <span className="font-medium">{paymentSettings?.bankName || bankDetails?.bankName || '—'}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-500">Account Number:</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono">{paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '—'}</span>
-                          {(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber) && (
-                            <button
-                              onClick={() => copyToClipboard(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '')}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-500">IFSC Code:</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono">{paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '—'}</span>
-                          {(paymentSettings?.bankIfscCode || bankDetails?.ifscCode) && (
-                            <button
-                              onClick={() => copyToClipboard(paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '')}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {paymentSettings?.bankBranch && (
+                      <p className="text-xs text-purple-500 mb-2">This EMI is beyond the mirror tenure (month {mirrorTenure}). Payment goes directly to {loan?.company?.name || 'your lender'}.</p>
+                      <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span className="text-gray-500">Branch:</span>
-                          <span className="font-medium">{paymentSettings.bankBranch}</span>
+                          <span className="text-gray-500">Account Holder:</span>
+                          <span className="font-medium">{originalBankDetails?.accountHolderName || loan?.company?.name || '—'}</span>
                         </div>
-                      )}
-                      {paymentSettings?.companyUpiId && (
-                        <div className="flex justify-between items-center pt-2 border-t">
-                          <span className="text-gray-500">UPI ID:</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-blue-700">{paymentSettings.companyUpiId}</span>
-                            <button
-                              onClick={() => copyToClipboard(paymentSettings.companyUpiId || '')}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
+                        <div className="flex justify-between">
+                          <span className="text-gray-500">Bank Name:</span>
+                          <span className="font-medium">{originalBankDetails?.bankName || '—'}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">Account No:</span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono">{originalBankDetails?.accountNumber || '—'}</span>
+                            {originalBankDetails?.accountNumber && (
+                              <button onClick={() => copyToClipboard(originalBankDetails.accountNumber)} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                            )}
                           </div>
                         </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-500">IFSC:</span>
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono">{originalBankDetails?.ifscCode || '—'}</span>
+                            {originalBankDetails?.ifscCode && (
+                              <button onClick={() => copyToClipboard(originalBankDetails.ifscCode)} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  /* Standard payment methods — regular EMI */
+                  <>
+                    {paymentSettings?.companyQrCodeUrl && (
+                      <Card className="border-0 bg-gradient-to-br from-blue-50 to-indigo-50">
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-24 h-24 bg-white rounded-lg border flex items-center justify-center">
+                              <img src={paymentSettings.companyQrCodeUrl} alt="QR Code" className="w-20 h-20" />
+                            </div>
+                            <div>
+                              <p className="font-medium">Scan QR Code</p>
+                              <p className="text-sm text-gray-500">Use any UPI app to pay</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    {paymentSettings?.companyUpiId && (
+                      <Card className="border-0">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-500">UPI ID</p>
+                              <p className="font-mono font-medium text-lg">{paymentSettings.companyUpiId}</p>
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => copyToClipboard(paymentSettings.companyUpiId || '')}>
+                              <Copy className="h-4 w-4 mr-1" /> Copy
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                    <Card className="border-0">
+                      <CardContent className="p-4">
+                        <h4 className="font-medium mb-3 flex items-center gap-2">
+                          <Building2 className="h-4 w-4" /> Bank Account Details
+                        </h4>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Account Holder:</span>
+                            <span className="font-medium">{bankDetails?.accountHolderName || loan.company?.name || 'Money Mitra'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Bank Name:</span>
+                            <span className="font-medium">{paymentSettings?.bankName || bankDetails?.bankName || '—'}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">Account Number:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono">{paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '—'}</span>
+                              {(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber) && (
+                                <button onClick={() => copyToClipboard(paymentSettings?.bankAccountNumber || bankDetails?.accountNumber || '')} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">IFSC Code:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono">{paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '—'}</span>
+                              {(paymentSettings?.bankIfscCode || bankDetails?.ifscCode) && (
+                                <button onClick={() => copyToClipboard(paymentSettings?.bankIfscCode || bankDetails?.ifscCode || '')} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                              )}
+                            </div>
+                          </div>
+                          {paymentSettings?.bankBranch && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Branch:</span>
+                              <span className="font-medium">{paymentSettings.bankBranch}</span>
+                            </div>
+                          )}
+                          {paymentSettings?.companyUpiId && (
+                            <div className="flex justify-between items-center pt-2 border-t">
+                              <span className="text-gray-500">UPI ID:</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-blue-700">{paymentSettings.companyUpiId}</span>
+                                <button onClick={() => copyToClipboard(paymentSettings.companyUpiId || '')} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
               </div>
 
               {/* Proof Upload */}
