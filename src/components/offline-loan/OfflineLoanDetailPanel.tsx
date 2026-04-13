@@ -1060,6 +1060,11 @@ export default function OfflineLoanDetailPanel({
                         <CardHeader className="pb-2">
                           <CardTitle className="text-sm flex items-center gap-2">
                             <FileText className="h-4 w-4" /> Documents
+                            <span className="ml-auto text-xs font-normal text-gray-500">
+                              {[loan.panCardDoc, loan.aadhaarFrontDoc, loan.aadhaarBackDoc, loan.incomeProofDoc,
+                                loan.addressProofDoc, loan.photoDoc, loan.electionCardDoc, loan.housePhotoDoc
+                              ].filter(Boolean).length} / 8 uploaded
+                            </span>
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
@@ -1073,20 +1078,60 @@ export default function OfflineLoanDetailPanel({
                               { label: 'Photo', url: loan.photoDoc },
                               { label: 'Election Card', url: loan.electionCardDoc },
                               { label: 'House Photo', url: loan.housePhotoDoc },
-                            ].map((doc, idx) => (
-                              <div key={idx} className={`p-3 rounded-lg border ${doc.url ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                <div className="flex items-center justify-between">
-                                  <p className="text-sm font-medium">{doc.label}</p>
-                                  {doc.url ? (
-                                    <a href={doc.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                                      <Eye className="h-3 w-3" /> View
+                            ].map((doc, idx) => {
+                              const isPdf = doc.url?.includes('application/pdf') || doc.url?.toLowerCase().endsWith('.pdf');
+                              const isImage = doc.url && !isPdf;
+                              return (
+                                <div key={idx} className={`rounded-lg border overflow-hidden ${doc.url ? 'border-green-200' : 'border-dashed border-gray-300'}`}>
+                                  {/* Thumbnail area */}
+                                  {isImage ? (
+                                    <a href={doc.url} target="_blank" rel="noopener noreferrer" className="block w-full bg-gray-100 hover:opacity-90 transition-opacity">
+                                      <img
+                                        src={doc.url!}
+                                        alt={doc.label}
+                                        className="w-full h-28 object-cover"
+                                        onError={(e) => {
+                                          const target = e.target as HTMLImageElement;
+                                          target.style.display = 'none';
+                                          target.nextElementSibling?.classList.remove('hidden');
+                                        }}
+                                      />
+                                      <div className="hidden w-full h-28 flex items-center justify-center bg-gray-50">
+                                        <FileText className="h-8 w-8 text-gray-400" />
+                                      </div>
                                     </a>
+                                  ) : isPdf ? (
+                                    <div className="w-full h-28 flex flex-col items-center justify-center bg-red-50 gap-1">
+                                      <FileText className="h-8 w-8 text-red-400" />
+                                      <span className="text-xs text-red-500 font-medium">PDF</span>
+                                    </div>
                                   ) : (
-                                    <span className="text-xs text-gray-400">Not uploaded</span>
+                                    <div className="w-full h-28 flex items-center justify-center bg-gray-50">
+                                      <div className="text-center">
+                                        <FileText className="h-8 w-8 text-gray-300 mx-auto" />
+                                        <p className="text-xs text-gray-400 mt-1">Not uploaded</p>
+                                      </div>
+                                    </div>
                                   )}
+                                  {/* Label + action row */}
+                                  <div className={`flex items-center justify-between px-2 py-1.5 ${doc.url ? 'bg-green-50' : 'bg-gray-50'}`}>
+                                    <p className="text-xs font-medium text-gray-700 truncate">{doc.label}</p>
+                                    {doc.url ? (
+                                      <a
+                                        href={doc.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1 shrink-0 ml-1"
+                                      >
+                                        <Eye className="h-3 w-3" /> View
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs text-gray-400 shrink-0">—</span>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </CardContent>
                       </Card>
