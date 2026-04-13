@@ -596,6 +596,41 @@ export default function DisbursementDialog({
                             </div>
                           ))}
                         </div>
+
+                        {/* Signatures */}
+                        {(selectedLoan.digitalSignature || selectedLoan.sessionForm?.customerSignature) && (
+                          <div className="mt-4 border-t pt-4">
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Signatures</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {selectedLoan.digitalSignature && (
+                                <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                  <p className="text-xs font-medium text-blue-700 mb-2 flex items-center gap-1">
+                                    <span>✍️</span> Applicant Signature
+                                    <span className="text-[10px] text-blue-400 ml-1">(Loan Form)</span>
+                                  </p>
+                                  <img
+                                    src={selectedLoan.digitalSignature}
+                                    alt="Applicant Signature"
+                                    className="h-20 w-full object-contain bg-white border border-blue-100 rounded"
+                                  />
+                                </div>
+                              )}
+                              {selectedLoan.sessionForm?.customerSignature && (
+                                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                                  <p className="text-xs font-medium text-emerald-700 mb-2 flex items-center gap-1">
+                                    <span>✅</span> Customer Sanction Approval
+                                    <span className="text-[10px] text-emerald-400 ml-1">(Session Approval)</span>
+                                  </p>
+                                  <img
+                                    src={selectedLoan.sessionForm.customerSignature}
+                                    alt="Customer Approval Signature"
+                                    className="h-20 w-full object-contain bg-white border border-emerald-100 rounded"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </CardContent>
                     </motion.div>
                   )}

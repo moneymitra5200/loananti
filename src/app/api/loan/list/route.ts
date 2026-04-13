@@ -44,6 +44,9 @@ const LOAN_LIST_SELECT = {
   electionCardDoc: true,
   housePhotoDoc: true,
   otherDocs: true,
+  guarantorPhotoDoc: true,
+  digitalSignature: true,
+
   // References
   reference1Name: true, reference1Phone: true,
   reference1Relation: true, reference1Address: true,
@@ -64,6 +67,7 @@ const LOAN_LIST_SELECT = {
       totalAmount: true,
       processingFee: true,
       emiFrequency: true,
+      customerSignature: true,  // Customer sanction approval signature
     }
   },
   goldLoanDetail: true,

@@ -14,7 +14,18 @@ export interface Loan {
     email: string;
     phone: string;
   };
-  sessionForm?: any;
+  sessionForm?: {
+    approvedAmount?: number;
+    interestRate?: number;
+    tenure?: number;
+    emiAmount?: number;
+    totalInterest?: number;
+    totalAmount?: number;
+    processingFee?: number;
+    emiFrequency?: string;
+    interestType?: string;
+    customerSignature?: string;  // Customer sanction approval signature
+  };
   loanForm?: any;
   company?: {
     id: string;
@@ -61,6 +72,8 @@ export interface Loan {
   passbookDoc?: string;
   guarantorPhotoDoc?: string;
   otherDocs?: string;
+  // Signatures
+  digitalSignature?: string;  // Applicant signature from staff form
   // References
   reference1Name?: string;
   reference1Phone?: string;
