@@ -308,18 +308,18 @@ model LoanApplication {
   interestRate              Float?
   emiAmount                 Float?
   processingFee             Float?
-  panCardDoc                String?
-  aadhaarFrontDoc           String?
-  aadhaarBackDoc            String?
-  incomeProofDoc            String?
-  addressProofDoc           String?
-  photoDoc                  String?
-  bankStatementDoc          String?
-  passbookDoc               String?
-  salarySlipDoc             String?
-  electionCardDoc           String?
-  housePhotoDoc             String?
-  otherDocs                 String?
+  panCardDoc                String?   @db.LongText
+  aadhaarFrontDoc           String?   @db.LongText
+  aadhaarBackDoc            String?   @db.LongText
+  incomeProofDoc            String?   @db.LongText
+  addressProofDoc           String?   @db.LongText
+  photoDoc                  String?   @db.LongText
+  bankStatementDoc          String?   @db.LongText
+  passbookDoc               String?   @db.LongText
+  salarySlipDoc             String?   @db.LongText
+  electionCardDoc           String?   @db.LongText
+  housePhotoDoc             String?   @db.LongText
+  otherDocs                 String?   @db.LongText
   reference1Name            String?
   reference1Phone           String?
   reference1Relation        String?
@@ -328,7 +328,7 @@ model LoanApplication {
   reference2Phone           String?
   reference2Relation        String?
   reference2Address         String?
-  digitalSignature          String?
+  digitalSignature          String?   @db.LongText
   signatureHash             String?
   consentGiven              Boolean                  @default(false)
   consentTimestamp          DateTime?
@@ -347,7 +347,7 @@ model LoanApplication {
   disbursedById             String?
   disbursementMode          String?
   disbursementRef           String?
-  disbursementProof         String?
+  disbursementProof         String?   @db.LongText
   submittedAt               DateTime                 @default(now())
   saApprovedAt              DateTime?
   companyApprovedAt         DateTime?
@@ -466,7 +466,7 @@ model SessionForm {
   requestedInterestRate Float?
   customerApproved      Boolean         @default(false)
   customerApprovedAt    DateTime?
-  customerSignature     String?
+  customerSignature     String?   @db.LongText
   customerSignatureHash String?
   rejected              Boolean         @default(false)
   rejectedAt            DateTime?

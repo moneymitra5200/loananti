@@ -519,17 +519,17 @@ export default function DisbursementDialog({
               {/* Documents Section */}
               <Card className="border-0 shadow-sm">
                 <button 
-                  onClick={() => toggleSection('employment')}
+                  onClick={() => toggleSection('documents')}
                   className="w-full p-4 flex items-center justify-between hover:bg-gray-50"
                 >
                   <CardTitle className="text-base flex items-center gap-2">
                     <FileImage className="h-5 w-5 text-purple-600" />
                     Documents
                   </CardTitle>
-                  {expandedSections.employment ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                  {expandedSections.documents ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
                 </button>
                 <AnimatePresence>
-                  {expandedSections.employment && (
+                  {expandedSections.documents && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
@@ -539,37 +539,62 @@ export default function DisbursementDialog({
                       <CardContent className="pt-0 border-t">
                         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 py-4">
                           {[
-                            { label: 'Photo', value: selectedLoan.photoDoc, icon: User },
-                            { label: 'PAN Card', value: selectedLoan.panCardDoc, icon: IdCard },
-                            { label: 'Aadhaar Front', value: selectedLoan.aadhaarFrontDoc, icon: IdCard },
-                            { label: 'Aadhaar Back', value: selectedLoan.aadhaarBackDoc, icon: IdCard },
-                            { label: 'Income Proof', value: selectedLoan.incomeProofDoc, icon: FileText },
-                            { label: 'Address Proof', value: selectedLoan.addressProofDoc, icon: Home },
-                            { label: 'Bank Statement', value: selectedLoan.bankStatementDoc, icon: Landmark },
-                            { label: 'Passbook', value: selectedLoan.passbookDoc, icon: Landmark },
-                            { label: 'Salary Slip', value: selectedLoan.salarySlipDoc, icon: IndianRupee },
-                            { label: 'Election Card', value: selectedLoan.electionCardDoc, icon: IdCard },
-                            { label: 'House Photo', value: selectedLoan.housePhotoDoc, icon: Home },
-                            { label: 'Guarantor Photo', value: selectedLoan.guarantorPhotoDoc, icon: Users2 },
-                            { label: 'Other Docs', value: selectedLoan.otherDocs, icon: FileText },
-                          ].filter(d => d.value).map((doc, i) => (
-                            <a key={i} href={doc.value} target="_blank" rel="noopener noreferrer" 
-                              className="p-3 bg-purple-50 rounded-lg border border-purple-100 hover:bg-purple-100 transition-colors flex flex-col items-center gap-2">
-                              <doc.icon className="h-6 w-6 text-purple-600" />
-                              <span className="text-xs font-medium text-purple-700">{doc.label}</span>
-                              <ExternalLink className="h-3 w-3 text-purple-400" />
-                            </a>
-                          ))}
-                          {![
-                             selectedLoan.photoDoc, selectedLoan.panCardDoc, selectedLoan.aadhaarFrontDoc, selectedLoan.aadhaarBackDoc, 
-                             selectedLoan.incomeProofDoc, selectedLoan.addressProofDoc, selectedLoan.bankStatementDoc, 
-                             selectedLoan.passbookDoc, selectedLoan.salarySlipDoc, selectedLoan.electionCardDoc, 
-                             selectedLoan.housePhotoDoc, selectedLoan.guarantorPhotoDoc, selectedLoan.otherDocs
-                          ].some(Boolean) && (
-                            <div className="col-span-4 text-center py-8 text-gray-500">
-                              No documents uploaded
+                            { key: 'photoDoc', label: 'Photo', icon: User },
+                            { key: 'panCardDoc', label: 'PAN Card', icon: IdCard },
+                            { key: 'aadhaarFrontDoc', label: 'Aadhaar Front', icon: IdCard },
+                            { key: 'aadhaarBackDoc', label: 'Aadhaar Back', icon: IdCard },
+                            { key: 'incomeProofDoc', label: 'Income Proof', icon: FileText },
+                            { key: 'addressProofDoc', label: 'Address Proof', icon: Home },
+                            { key: 'bankStatementDoc', label: 'Bank Statement', icon: Landmark },
+                            { key: 'passbookDoc', label: 'Passbook', icon: Landmark },
+                            { key: 'salarySlipDoc', label: 'Salary Slip', icon: IndianRupee },
+                            { key: 'electionCardDoc', label: 'Election Card', icon: IdCard },
+                            { key: 'housePhotoDoc', label: 'House Photo', icon: Home },
+                            { key: 'guarantorPhotoDoc', label: 'Guarantor Photo', icon: Users2 },
+                            { key: 'otherDocs', label: 'Other Docs', icon: FileText },
+                          ].map((doc) => (
+                            <div key={doc.key} className="p-3 bg-purple-50 rounded-lg border border-purple-100 flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <doc.icon className="h-4 w-4 text-purple-600" />
+                                <span className="text-xs font-medium text-purple-700">{doc.label}</span>
+                              </div>
+                              {selectedLoan[doc.key] ? (
+                                <a href={selectedLoan[doc.key]} target="_blank" rel="noopener noreferrer" 
+                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                                  View Document <ExternalLink className="h-3 w-3" />
+                                </a>
+                              ) : (
+                                <div className="mt-1">
+                                  <input 
+                                    type="file"
+                                    accept="image/*,application/pdf"
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0];
+                                      if (!file || !selectedLoan?.id) return;
+                                      const fd = new FormData();
+                                      fd.append('file', file);
+                                      fd.append('documentType', doc.key);
+                                      fd.append('loanId', selectedLoan.id);
+                                      try {
+                                        const r = await fetch('/api/upload/document', { method: 'POST', body: fd });
+                                        const d = await r.json();
+                                        if (d.url) {
+                                          await fetch('/api/loan/apply', {
+                                            method: 'PUT',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ loanId: selectedLoan.id, [doc.key]: d.url })
+                                          });
+                                          (selectedLoan as any)[doc.key] = d.url;
+                                        }
+                                      } catch {}
+                                      e.target.value = '';
+                                    }}
+                                    className="text-[10px] w-full file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-[10px] file:bg-purple-100 file:text-purple-700 hover:file:bg-purple-200"
+                                  />
+                                </div>
+                              )}
                             </div>
-                          )}
+                          ))}
                         </div>
                       </CardContent>
                     </motion.div>

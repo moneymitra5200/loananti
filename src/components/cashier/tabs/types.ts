@@ -175,4 +175,5 @@ export interface ExpandedSections {
   bank: boolean;
   employment: boolean;
   references: boolean;
+  documents?: boolean;
 }
