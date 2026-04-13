@@ -70,6 +70,22 @@ export async function GET(request: NextRequest) {
         }
       });
 
+      // Fetch SecondaryPaymentPage details for any mappings that have one
+      const spPageIds = mappings
+        .map(m => m.extraEMIPaymentPageId)
+        .filter((id): id is string => !!id);
+      const spPages = spPageIds.length > 0
+        ? await db.secondaryPaymentPage.findMany({
+            where: { id: { in: spPageIds } },
+            select: {
+              id: true, name: true, upiId: true, qrCodeUrl: true,
+              bankName: true, accountNumber: true, accountName: true, ifscCode: true,
+              roleId: true, roleType: true
+            }
+          })
+        : [];
+      const spPageMap = new Map(spPages.map(p => [p.id, p]));
+
       if (mappings.length === 0) {
         return NextResponse.json({ 
           success: true, 
@@ -91,6 +107,7 @@ export async function GET(request: NextRequest) {
       // Format the response to match frontend expectations
       const formattedMirrorLoans = mappings.map(m => {
         const mirrorLoan = m.mirrorLoanId ? mirrorLoanMap.get(m.mirrorLoanId) : null;
+        const spPage = m.extraEMIPaymentPageId ? spPageMap.get(m.extraEMIPaymentPageId) : null;
         return {
           id: m.id,
           mirrorType: m.mirrorType,
@@ -100,7 +117,7 @@ export async function GET(request: NextRequest) {
           mirrorTenure: m.mirrorTenure,
           originalTenure: m.originalTenure,
           originalEMIAmount: m.originalEMIAmount,
-          mirrorEMIAmount: (m as any).mirrorEMIAmount ?? m.originalEMIAmount, // Use actual mirror EMI amount
+          mirrorEMIAmount: (m as any).mirrorEMIAmount ?? m.originalEMIAmount,
           loanApplication: mirrorLoan ? {
             id: mirrorLoan.id,
             applicationNo: mirrorLoan.applicationNo,
@@ -110,7 +127,10 @@ export async function GET(request: NextRequest) {
           mirrorCompany: m.mirrorCompany,
           originalCompany: m.originalCompany,
           mirrorEMIsPaid: m.mirrorEMIsPaid,
-          extraEMIsPaid: m.extraEMIsPaid
+          extraEMIsPaid: m.extraEMIsPaid,
+          // Secondary payment page for extra EMIs
+          extraEMIPaymentPageId: m.extraEMIPaymentPageId,
+          extraEMIPaymentPage: spPage ?? null,
         };
       });
 
@@ -124,7 +144,9 @@ export async function GET(request: NextRequest) {
           mirrorInterestRate: m.mirrorInterestRate,
           mirrorTenure: m.mirrorTenure,
           originalTenure: m.originalTenure,
-          originalEMIAmount: m.originalEMIAmount
+          originalEMIAmount: m.originalEMIAmount,
+          extraEMIPaymentPageId: m.extraEMIPaymentPageId,
+          extraEMIPaymentPage: m.extraEMIPaymentPageId ? spPageMap.get(m.extraEMIPaymentPageId) ?? null : null
         }))
       });
     }

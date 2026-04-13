@@ -150,6 +150,13 @@ export default function CustomerLoanDetailPage() {
   const [mirrorTenure, setMirrorTenure] = useState<number>(0);
   // Original company's bank details shown on the extra-EMI secondary payment page
   const [originalBankDetails, setOriginalBankDetails] = useState<BankDetails | null>(null);
+  // Secondary payment page configured by cashier for extra EMIs
+  const [extraEmiPaymentPage, setExtraEmiPaymentPage] = useState<{
+    id: string; name: string;
+    upiId?: string | null; qrCodeUrl?: string | null;
+    bankName?: string | null; accountNumber?: string | null;
+    accountName?: string | null; ifscCode?: string | null;
+  } | null>(null);
   const [emiSpecificSettings, setEmiSpecificSettings] = useState<{
     enableFullPayment: boolean;
     enablePartialPayment: boolean;
@@ -353,17 +360,23 @@ export default function CustomerLoanDetailPage() {
           // API returns { mirrorLoans: [{mirrorTenure, ...}], mappings: [{mirrorTenure,...}] }
           const tenure = data.mirrorLoans?.[0]?.mirrorTenure || data.mappings?.[0]?.mirrorTenure || 0;
           if (tenure) setMirrorTenure(tenure);
-          // Fetch original company bank WITHOUT loanId so mirror redirect is skipped
-          const origRes = await fetch(`/api/bank-account?companyId=${loan.company!.id}&action=default`);
-          if (origRes.ok) {
-            const origData = await origRes.json();
-            if (origData.success && origData.account) {
-              setOriginalBankDetails({
-                bankName: origData.account.bankName || '',
-                accountNumber: origData.account.accountNumber || '',
-                ifscCode: origData.account.ifscCode || '',
-                accountHolderName: origData.account.accountName || '',
-              });
+          // Use the SecondaryPaymentPage configured by the cashier for extra EMIs
+          const spPage = data.mirrorLoans?.[0]?.extraEMIPaymentPage || data.mappings?.[0]?.extraEMIPaymentPage;
+          if (spPage) {
+            setExtraEmiPaymentPage(spPage);
+          } else {
+            // Fallback: fetch original company bank WITHOUT loanId so mirror redirect is skipped
+            const origRes = await fetch(`/api/bank-account?companyId=${loan.company!.id}&action=default`);
+            if (origRes.ok) {
+              const origData = await origRes.json();
+              if (origData.success && origData.account) {
+                setOriginalBankDetails({
+                  bankName: origData.account.bankName || '',
+                  accountNumber: origData.account.accountNumber || '',
+                  ifscCode: origData.account.ifscCode || '',
+                  accountHolderName: origData.account.accountName || '',
+                });
+              }
             }
           }
         } catch (_) { /* mirror info is optional */ }
@@ -1437,37 +1450,72 @@ export default function CustomerLoanDetailPage() {
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-center gap-2 mb-1">
                         <Building2 className="h-4 w-4 text-purple-600" />
-                        <span className="font-semibold text-purple-800">Pay to Original Lender</span>
+                        <span className="font-semibold text-purple-800">
+                          {extraEmiPaymentPage ? extraEmiPaymentPage.name : 'Pay to Original Lender'}
+                        </span>
                         <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Extra EMI</span>
                       </div>
-                      <p className="text-xs text-purple-500 mb-2">This EMI is beyond the mirror tenure (month {mirrorTenure}). Payment goes directly to {loan?.company?.name || 'your lender'}.</p>
+                      <p className="text-xs text-purple-500 mb-2">
+                        This EMI is beyond the mirror tenure (month {mirrorTenure}).
+                        {extraEmiPaymentPage
+                          ? ` Pay using the details below.`
+                          : ` Payment goes directly to ${loan?.company?.name || 'your lender'}.`}
+                      </p>
+
+                      {/* QR Code from secondary page */}
+                      {(extraEmiPaymentPage?.qrCodeUrl) && (
+                        <div className="flex justify-center">
+                          <div className="w-28 h-28 bg-white rounded-lg border flex items-center justify-center">
+                            <img src={extraEmiPaymentPage.qrCodeUrl} alt="QR Code" className="w-24 h-24" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* UPI ID from secondary page */}
+                      {extraEmiPaymentPage?.upiId && (
+                        <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
+                          <div>
+                            <p className="text-xs text-gray-400">UPI ID</p>
+                            <p className="font-mono text-sm font-medium">{extraEmiPaymentPage.upiId}</p>
+                          </div>
+                          <button onClick={() => copyToClipboard(extraEmiPaymentPage.upiId!)} className="text-gray-400 hover:text-purple-600">
+                            <Copy className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Bank details */}
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Account Holder:</span>
-                          <span className="font-medium">{originalBankDetails?.accountHolderName || loan?.company?.name || '—'}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Bank Name:</span>
-                          <span className="font-medium">{originalBankDetails?.bankName || '—'}</span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">Account No:</span>
-                          <div className="flex items-center gap-1">
-                            <span className="font-mono">{originalBankDetails?.accountNumber || '—'}</span>
-                            {originalBankDetails?.accountNumber && (
-                              <button onClick={() => copyToClipboard(originalBankDetails.accountNumber)} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
-                            )}
+                        {(extraEmiPaymentPage?.accountName || originalBankDetails?.accountHolderName) && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Account Holder:</span>
+                            <span className="font-medium">{extraEmiPaymentPage?.accountName || originalBankDetails?.accountHolderName || loan?.company?.name}</span>
                           </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-gray-500">IFSC:</span>
-                          <div className="flex items-center gap-1">
-                            <span className="font-mono">{originalBankDetails?.ifscCode || '—'}</span>
-                            {originalBankDetails?.ifscCode && (
-                              <button onClick={() => copyToClipboard(originalBankDetails.ifscCode)} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
-                            )}
+                        )}
+                        {(extraEmiPaymentPage?.bankName || originalBankDetails?.bankName) && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-500">Bank Name:</span>
+                            <span className="font-medium">{extraEmiPaymentPage?.bankName || originalBankDetails?.bankName}</span>
                           </div>
-                        </div>
+                        )}
+                        {(extraEmiPaymentPage?.accountNumber || originalBankDetails?.accountNumber) && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">Account No:</span>
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono">{extraEmiPaymentPage?.accountNumber || originalBankDetails?.accountNumber}</span>
+                              <button onClick={() => copyToClipboard(extraEmiPaymentPage?.accountNumber || originalBankDetails?.accountNumber || '')} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                            </div>
+                          </div>
+                        )}
+                        {(extraEmiPaymentPage?.ifscCode || originalBankDetails?.ifscCode) && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-gray-500">IFSC:</span>
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono">{extraEmiPaymentPage?.ifscCode || originalBankDetails?.ifscCode}</span>
+                              <button onClick={() => copyToClipboard(extraEmiPaymentPage?.ifscCode || originalBankDetails?.ifscCode || '')} className="text-gray-400 hover:text-gray-600"><Copy className="h-3 w-3" /></button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

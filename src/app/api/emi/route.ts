@@ -987,6 +987,59 @@ export async function PUT(request: NextRequest) {
         const capturedPaymentId = latestPayment?.id || null;
         const capturedCompanyId = mirrorCompanyId || emi.loanApplication?.companyId || null;
 
+        // ── EXTRA EMI: credit the secondary payment page owner ──────────────────
+        // When installmentNumber > mirrorTenure, the cashier selected a SecondaryPaymentPage
+        // during disbursement. On approval, the page's role owner gets personalCredit += EMI amount.
+        const mirrorMappingFull = await tx.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId },
+          select: { mirrorTenure: true, extraEMIPaymentPageId: true }
+        });
+        if (
+          mirrorMappingFull?.extraEMIPaymentPageId &&
+          mirrorMappingFull.mirrorTenure > 0 &&
+          emi.installmentNumber > mirrorMappingFull.mirrorTenure
+        ) {
+          const spPage = await tx.secondaryPaymentPage.findUnique({
+            where: { id: mirrorMappingFull.extraEMIPaymentPageId },
+            select: { roleId: true, name: true }
+          });
+          if (spPage?.roleId) {
+            const pageOwner = await tx.user.findUnique({
+              where: { id: spPage.roleId },
+              select: { id: true, personalCredit: true, companyCredit: true, credit: true }
+            });
+            if (pageOwner) {
+              const newPersonalCr = pageOwner.personalCredit + paidAmount;
+              const newTotalCr    = pageOwner.companyCredit + newPersonalCr;
+              await tx.user.update({
+                where: { id: pageOwner.id },
+                data: { personalCredit: newPersonalCr, credit: newTotalCr }
+              });
+              await tx.creditTransaction.create({
+                data: {
+                  userId:              pageOwner.id,
+                  transactionType:     CreditTransactionType.PERSONAL_COLLECTION,
+                  amount:              paidAmount,
+                  paymentMode:         actualPaymentMode as PaymentModeType,
+                  creditType:          CreditType.PERSONAL,
+                  companyBalanceAfter: pageOwner.companyCredit,
+                  personalBalanceAfter: newPersonalCr,
+                  balanceAfter:        newTotalCr,
+                  sourceType:          'EXTRA_EMI_SECONDARY_PAGE',
+                  sourceId:            emiId,
+                  loanApplicationId:   loanId,
+                  emiScheduleId:       emiId,
+                  installmentNumber:   emi.installmentNumber,
+                  description:         `Extra EMI #${emi.installmentNumber} collected via "${spPage.name}" page - ${emi.loanApplication?.applicationNo}`,
+                  transactionDate:     new Date()
+                }
+              });
+              console.log(`[EXTRA EMI] ✅ personalCredit of "${spPage.name}" owner (${pageOwner.id}) += ₹${paidAmount}`);
+            }
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         return { updatedEmi, capturedPaymentId, capturedCompanyId };
       }, { maxWait: 30000, timeout: 30000 });
 
