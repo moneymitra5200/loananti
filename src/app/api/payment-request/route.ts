@@ -686,6 +686,23 @@ export async function PUT(request: NextRequest) {
         return updated;
       }, { timeout: 30000 }); // 30 second timeout for complex payment processing
 
+      // ── Customer approval notification ─────────────────────────────
+      // Send APPROVED notification for FULL_EMI and PARTIAL_PAYMENT
+      if (paymentRequest.paymentType !== 'INTEREST_ONLY') {
+        const paidAmtForNotif = paymentRequest.paymentType === 'PARTIAL_PAYMENT'
+          ? (paymentRequest.partialAmount || 0)
+          : paymentRequest.requestedAmount;
+        const typeLabel = paymentRequest.paymentType === 'PARTIAL_PAYMENT' ? 'Partial Payment' : 'EMI Payment';
+        await db.notification.create({
+          data: {
+            userId: paymentRequest.customerId,
+            type: 'PAYMENT_CONFIRMATION',
+            title: `${typeLabel} Approved ✅`,
+            message: `Your payment request ${paymentRequest.requestNumber} of ₹${paidAmtForNotif.toFixed(2)} has been approved. EMI #${emi?.installmentNumber} is now updated.`
+          }
+        }).catch(e => console.error('[PR Notification] Approval notify failed:', e));
+      }
+
       // ============================================================
       // POST-APPROVAL ACCOUNTING + MIRROR SYNC
       // Runs AFTER the DB transaction so it never blocks the approval.
@@ -816,6 +833,32 @@ export async function PUT(request: NextRequest) {
             });
 
             console.log(`[PR Accounting] ✓ Mirror EMI #${emi.installmentNumber} synced & journal entry created in company ${mirrorMapping.mirrorCompanyId}`);
+
+            // ── Processing Fee on FIRST EMI ─────────────────────────
+            // When customer pays EMI #1, record processing fee in MIRROR company
+            if (emi.installmentNumber === 1 && pType !== 'INTEREST_ONLY') {
+              try {
+                const mirrorLoan = await db.loanApplication.findUnique({
+                  where: { id: mirrorMapping.mirrorLoanId! },
+                  include: { sessionForm: true }
+                });
+                const processingFee = mirrorLoan?.sessionForm?.processingFee || 0;
+                if (processingFee > 0) {
+                  await accSvc.recordProcessingFee({
+                    loanId:         mirrorMapping.mirrorLoanId!,
+                    customerId:     paymentRequest.customerId,
+                    amount:         processingFee,
+                    collectionDate: new Date(),
+                    createdById:    reviewedById,
+                    paymentMode:    payMode,
+                    reference:      `PaymentReq#${paymentRequest.requestNumber} → Mirror Processing Fee`
+                  });
+                  console.log(`[PR Accounting] ✓ Processing fee ₹${processingFee} recorded for mirror loan (EMI #1)`);
+                }
+              } catch (pfErr) {
+                console.error('[PR Accounting] Processing fee error (non-blocking):', pfErr);
+              }
+            }
           }
         } catch (accErr) {
           console.error('[PR Accounting] Error (non-blocking):', accErr);

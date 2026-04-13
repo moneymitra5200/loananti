@@ -334,11 +334,13 @@ export default function CustomerLoanDetailPage() {
   }, [fetchLoanDetails, fetchPaymentSettings]);
 
   // Once loan is loaded, fetch the company's real bank account details
+  // Pass loanId so the API resolves the mirror mapping and returns
+  // the correct mirror company bank account (QR / UPI / account number)
   useEffect(() => {
-    if (loan?.company?.id) {
-      fetchCompanyBankAccount(loan.company.id);
+    if (loan?.company?.id && loanId) {
+      fetchCompanyBankAccount(loan.company.id, loanId);
     }
-  }, [loan?.company?.id, fetchCompanyBankAccount]);
+  }, [loan?.company?.id, loanId, fetchCompanyBankAccount]);
 
   // Fetch Interest EMI data when loan is an Interest Only loan
   // This handles both ACTIVE_INTEREST_ONLY status and loans that might have incorrect status

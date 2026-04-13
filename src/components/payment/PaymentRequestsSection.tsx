@@ -96,6 +96,7 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
   const [processing, setProcessing] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settings, setSettings] = useState<PaymentSettings>({});
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
   const [settingsForm, setSettingsForm] = useState({
     companyUpiId: '',
     companyQrCodeUrl: '',
@@ -107,6 +108,12 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
 
   useEffect(() => {
     fetchRequests();
+  }, [statusFilter]);
+
+  // Auto-poll every 15 seconds so new requests appear without refresh
+  useEffect(() => {
+    const interval = setInterval(() => fetchRequests(), 15000);
+    return () => clearInterval(interval);
   }, [statusFilter]);
 
   useEffect(() => {
@@ -462,6 +469,18 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                               </Button>
                               <Button 
                                 size="sm"
+                                variant="outline"
+                                className="border-red-200 text-red-600 hover:bg-red-50"
+                                onClick={() => {
+                                  setSelectedRequest(req);
+                                  setActionType('reject');
+                                  setShowActionDialog(true);
+                                }}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" /> Reject
+                              </Button>
+                              <Button 
+                                size="sm"
                                 className="bg-emerald-500 hover:bg-emerald-600"
                                 onClick={() => {
                                   setSelectedRequest(req);
@@ -648,13 +667,21 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                     {selectedRequest.proofUrl && (
                       <div className="mt-4">
                         <p className="text-sm text-gray-500 mb-2">Payment Screenshot</p>
-                        <a href={selectedRequest.proofUrl} target="_blank" rel="noopener noreferrer" className="block">
+                        <div
+                          className="relative cursor-pointer group"
+                          onClick={() => setFullscreenPhoto(selectedRequest.proofUrl)}
+                        >
                           <img 
                             src={selectedRequest.proofUrl} 
                             alt="Payment proof" 
-                            className="max-h-60 rounded-lg border hover:opacity-80 transition-opacity cursor-pointer"
+                            className="max-h-60 w-full object-contain rounded-lg border hover:opacity-90 transition-opacity"
+                            onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
                           />
-                        </a>
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all rounded-lg flex items-center justify-center">
+                            <span className="opacity-0 group-hover:opacity-100 text-white bg-black/50 px-3 py-1 rounded text-sm font-medium transition-all">🔍 Click to enlarge</span>
+                          </div>
+                        </div>
+                        <a href={selectedRequest.proofUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 underline mt-1 inline-block">Open in new tab ↗</a>
                       </div>
                     )}
                   </CardContent>
@@ -945,6 +972,34 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Fullscreen Photo Lightbox */}
+      {fullscreenPhoto && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setFullscreenPhoto(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] w-full">
+            <button
+              className="absolute -top-10 right-0 text-white text-3xl font-bold hover:text-red-400 transition-colors"
+              onClick={() => setFullscreenPhoto(null)}
+            >✕</button>
+            <img
+              src={fullscreenPhoto}
+              alt="Payment proof full view"
+              className="max-h-[85vh] max-w-full object-contain rounded-lg mx-auto block"
+              onClick={e => e.stopPropagation()}
+            />
+            <a
+              href={fullscreenPhoto}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center mt-3 text-blue-400 underline text-sm"
+              onClick={e => e.stopPropagation()}
+            >Open original image ↗</a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

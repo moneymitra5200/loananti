@@ -50,6 +50,7 @@ export default function CashierDashboard() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const { settings } = useSettings();
   const { settings: systemSettings } = useSystemSettings();
+  const [pendingPaymentRequestCount, setPendingPaymentRequestCount] = useState(0);
   
   // CashBook state for Company 3
   const [cashBook, setCashBook] = useState<{ currentBalance: number; company?: { id: string; name: string; code: string } } | null>(null);
@@ -104,6 +105,22 @@ export default function CashierDashboard() {
   useEffect(() => {
     fetchAllData();
   }, [user]);
+
+  // Poll pending payment requests count every 30 seconds
+  useEffect(() => {
+    const fetchPendingCount = async () => {
+      try {
+        const res = await fetch('/api/payment-request?role=CASHIER&status=PENDING');
+        const data = await res.json();
+        if (data.success) {
+          setPendingPaymentRequestCount((data.paymentRequests || []).length);
+        }
+      } catch {}
+    };
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Optimized parallel fetch with caching
   const fetchAllData = useCallback(async (forceRefresh = false) => {
@@ -635,11 +652,12 @@ export default function CashierDashboard() {
 
   const menuItems = ROLE_MENU_ITEMS.CASHIER.map(item => ({
     ...item,
-    count: item.id === 'pending' ? readyForDisbursement.length : 
-           item.id === 'history' ? allDisbursed.length : 
-           item.id === 'audit' ? allDisbursed.length :
-           // Show only ORIGINAL active loans count (no mirror loans to avoid double-count)
-           item.id === 'activeLoans' ? originalActiveLoans.length : undefined
+    count: item.id === 'pending'          ? readyForDisbursement.length :
+           item.id === 'history'          ? allDisbursed.length :
+           item.id === 'audit'            ? allDisbursed.length :
+           item.id === 'activeLoans'      ? originalActiveLoans.length :
+           item.id === 'paymentRequests'  ? (pendingPaymentRequestCount || undefined) :
+           undefined
   }));
 
   const renderLoanCard = (loan: Loan, index: number, actions?: React.ReactNode) => (
@@ -988,14 +1006,7 @@ export default function CashierDashboard() {
           </div>
         );
 
-      case 'messages':
-        return (
-          <DirectMessaging
-            userId={user?.id || ''}
-            userRole={user?.role || 'CASHIER'}
-            userName={user?.name || 'Cashier'}
-          />
-        );
+      // Messages removed – messages come via notifications panel
 
       case 'profile':
         return <ProfileSection />;

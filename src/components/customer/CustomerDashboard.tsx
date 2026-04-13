@@ -207,7 +207,7 @@ export default function CustomerDashboard() {
         });
       }
 
-      if (ticketsData.success) {
+    if (ticketsData.success) {
         setTickets(ticketsData.tickets || []);
       }
     } catch (error) {
@@ -216,6 +216,21 @@ export default function CustomerDashboard() {
       setLoading(false);
     }
   }, [user]);
+
+  // Auto-poll notifications every 20 seconds so payment
+  // approval/rejection notifications appear immediately
+  useEffect(() => {
+    if (!user?.id) return;
+    const pollNotifications = async () => {
+      try {
+        const res = await fetch(`/api/notification?userId=${user.id}&limit=10`);
+        const data = await res.json();
+        if (data.notifications) setNotifications(data.notifications);
+      } catch {}
+    };
+    const interval = setInterval(pollNotifications, 20000);
+    return () => clearInterval(interval);
+  }, [user?.id]);
 
   useEffect(() => {
     fetchAllData();
@@ -919,11 +934,10 @@ export default function CustomerDashboard() {
 
   // Bottom Navigation
   const navItems = [
-    { id: 'home', label: 'Home', icon: Home },
-    { id: 'loans', label: 'My Loans', icon: Wallet },
+    { id: 'home',     label: 'Home',     icon: Home },
+    { id: 'loans',    label: 'My Loans', icon: Wallet },
     { id: 'services', label: 'Services', icon: Briefcase },
-    { id: 'messages', label: 'Messages', icon: MessageSquare },
-    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'profile',  label: 'Profile',  icon: User },
   ];
 
   const renderLoanCard = (loan: Loan, showAction: boolean = true) => (
