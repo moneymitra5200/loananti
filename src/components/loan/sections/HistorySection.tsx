@@ -1,9 +1,11 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Clock, CheckCircle, Receipt } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Clock, CheckCircle, Receipt, Eye, ImageOff } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { LoanDetails } from './types';
 
@@ -12,6 +14,8 @@ interface HistorySectionProps {
 }
 
 const HistorySection = memo(function HistorySection({ loanDetails }: HistorySectionProps) {
+  const [proofDialogUrl, setProofDialogUrl] = useState<string | null>(null);
+
   // Build timeline from workflow logs or fallback to status dates
   const timelineItems = loanDetails?.workflowLogs && loanDetails.workflowLogs.length > 0
     ? loanDetails.workflowLogs
@@ -30,6 +34,54 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
 
   return (
     <>
+      {/* Proof Image Viewer Dialog */}
+      <Dialog open={!!proofDialogUrl} onOpenChange={() => setProofDialogUrl(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-4 w-4 text-blue-600" />
+              Payment Proof Document
+            </DialogTitle>
+          </DialogHeader>
+          {proofDialogUrl && (
+            <div className="flex flex-col items-center gap-4">
+              {/* Try image first; if it fails show a link */}
+              <img
+                src={proofDialogUrl}
+                alt="Payment Proof"
+                className="max-w-full max-h-[60vh] rounded-lg border shadow-md object-contain"
+                onError={(e) => {
+                  // If native image fails, replace with a download link
+                  const target = e.currentTarget;
+                  target.style.display = 'none';
+                  target.nextElementSibling?.classList.remove('hidden');
+                }}
+              />
+              <div className="hidden flex-col items-center gap-2 text-center">
+                <ImageOff className="h-10 w-10 text-gray-400" />
+                <p className="text-sm text-gray-500">Cannot preview this file type</p>
+                <a
+                  href={proofDialogUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 underline text-sm"
+                >
+                  Open in new tab ↗
+                </a>
+              </div>
+              <a
+                href={proofDialogUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-500 underline"
+              >
+                View Full Size ↗
+              </a>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Workflow Timeline */}
       <Card className="border-0 shadow-sm mb-4">
         <CardHeader>
@@ -119,9 +171,9 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {loanDetails.payments.map((payment) => (
-                <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div>
+              {loanDetails.payments.map((payment: any) => (
+                <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+                  <div className="flex-1 min-w-0">
                     <p className="font-semibold">{formatCurrency(payment.amount)}</p>
                     <p className="text-xs text-gray-500">
                       {payment.paymentMode} • {formatDate(payment.createdAt)}
@@ -131,13 +183,35 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
                         Collected by: {payment.cashier.name}
                       </p>
                     )}
+                    {payment.paidBy && !payment.cashier && (
+                      <p className="text-xs text-gray-400">
+                        By: {payment.paidBy?.name || 'N/A'}
+                      </p>
+                    )}
+                    {payment.remarks && (
+                      <p className="text-xs text-gray-400 truncate" title={payment.remarks}>
+                        {payment.remarks}
+                      </p>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end gap-1 shrink-0">
                     <Badge className={payment.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}>
                       {payment.status}
                     </Badge>
                     {payment.receiptNumber && (
-                      <p className="text-xs text-gray-400 mt-1">{payment.receiptNumber}</p>
+                      <p className="text-xs text-gray-400">{payment.receiptNumber}</p>
+                    )}
+                    {/* ── Proof View Button ── */}
+                    {payment.proofUrl && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs mt-1 border-blue-200 text-blue-600 hover:bg-blue-50"
+                        onClick={() => setProofDialogUrl(payment.proofUrl)}
+                      >
+                        <Eye className="h-3 w-3 mr-1" />
+                        View Proof
+                      </Button>
                     )}
                   </div>
                 </div>

@@ -348,7 +348,10 @@ export async function PUT(request: NextRequest) {
     const { 
       emiId, action, data, loanId, paidAmount, paymentMode, paymentRef, 
       creditType, remarks, proofUrl, userId, paymentType, remainingAmount, 
-      remainingPaymentDate, interestAmount, mirrorCompanyId, penaltyWaiver
+      remainingPaymentDate, interestAmount, mirrorCompanyId, penaltyWaiver,
+      splitCashAmount = 0, splitOnlineAmount = 0,
+      // Optional staff-overridden principal/interest split for journal entry
+      principalComponent: staffPrincipal, interestComponent: staffInterest
     } = body;
 
     // Pay EMI - This INCREASES the user's credit
@@ -413,7 +416,9 @@ export async function PUT(request: NextRequest) {
       }
 
       // Determine payment mode
-      const actualPaymentMode = paymentMode || 'CASH';
+      // SPLIT is not a valid Prisma enum — store as ONLINE in DB but handle cash+online passbook separately
+      const isSplitMode = paymentMode === 'SPLIT';
+      const actualPaymentMode = isSplitMode ? 'ONLINE' : (paymentMode || 'CASH');
       
       // IMPORTANT: Company Credit + ONLINE = Money goes directly to bank, NO credit increase
       // This is for when customer pays directly to company bank account
@@ -989,17 +994,23 @@ export async function PUT(request: NextRequest) {
       // createEMIPaymentEntry uses global db — must NOT be inside tx (SQLite deadlock)
       const { updatedEmi: result, capturedPaymentId, capturedCompanyId } = txResult;
 
-      // Interest-first allocation rule:
-      //   • INTEREST_ONLY → all to interest, 0 to principal
-      //   • PARTIAL / FULL → cover interest first, remainder goes to principal
+      // Interest-first allocation rule (used for journal entry):
+      //   • INTEREST_ONLY   → all to interest, 0 to principal
+      //   • Staff override  → use provided principalComponent/interestComponent  
+      //   • PARTIAL / FULL  → cover interest first, remainder goes to principal
       let principalPaid: number;
       let interestPaid: number;
       if (normalizedPaymentType === 'INTEREST_ONLY') {
         interestPaid = paidAmount;
         principalPaid = 0;
+      } else if (staffPrincipal !== undefined && staffInterest !== undefined) {
+        // Staff explicitly set the split — respect it for the journal entry
+        principalPaid = Number(staffPrincipal);
+        interestPaid  = Number(staffInterest);
+        console.log(`[EMI API] Staff override: P ₹${principalPaid} + I ₹${interestPaid}`);
       } else {
-        // Pay off EMI interest first, then whatever is left goes to principal
-        interestPaid = Math.min(paidAmount, emi.interestAmount);
+        // Default: interest-first, then principal
+        interestPaid  = Math.min(paidAmount, emi.interestAmount);
         principalPaid = Math.max(0, paidAmount - interestPaid);
       }
 
@@ -1063,7 +1074,27 @@ export async function PUT(request: NextRequest) {
             const loanAppNo = emi.loanApplication?.applicationNo || loanId;
             const passbookDesc = `EMI #${emi.installmentNumber} Collection - ${loanAppNo}`;
 
-            if (isCash) {
+            // ── SPLIT: create separate cash + bank entries ────────────────────
+            if (isSplitMode && (splitCashAmount > 0 || splitOnlineAmount > 0)) {
+              // Cash portion → CashBook
+              if (splitCashAmount > 0) {
+                let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
+                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+                const newCashBal = cashBook.currentBalance + splitCashAmount;
+                await db.cashBookEntry.create({ data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: splitCashAmount, balanceAfter: newCashBal, description: `${passbookDesc} (Cash portion)`, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, entryDate: new Date() } });
+                await db.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBal, lastUpdatedById: userId, lastUpdatedAt: new Date() } });
+              }
+              // Online portion → BankAccount
+              if (splitOnlineAmount > 0) {
+                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: capturedCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
+                if (bankAcct) {
+                  const newBankBal = bankAcct.currentBalance + splitOnlineAmount;
+                  await db.bankTransaction.create({ data: { bankAccountId: bankAcct.id, transactionType: 'CREDIT', amount: splitOnlineAmount, balanceAfter: newBankBal, description: `${passbookDesc} (Online portion)`, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, transactionDate: new Date() } });
+                  await db.bankAccount.update({ where: { id: bankAcct.id }, data: { currentBalance: newBankBal } });
+                }
+              }
+              console.log(`[EMI API] ✅ SPLIT passbook: Cash ₹${splitCashAmount} + Online ₹${splitOnlineAmount}`);
+            } else if (isCash) {
               // CASH → update CashBook
               let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
               if (!cashBook) {

@@ -244,16 +244,20 @@ export async function GET(request: NextRequest) {
         },
         payments: {
           orderBy: { createdAt: 'desc' },
-          take: 10,
+          take: 20,
           select: {
             id: true,
             amount: true,
             paymentMode: true,
             status: true,
             createdAt: true,
+            proofUrl: true,
+            remarks: true,
+            paidById: true,
             cashier: { select: { id: true, name: true } }
           }
         },
+
         disbursedBy: { select: { id: true, name: true, email: true } },
         rejectedBy: { select: { id: true, name: true, email: true } },
         goldLoanDetail: true,

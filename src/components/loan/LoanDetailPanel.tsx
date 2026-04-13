@@ -77,6 +77,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   });
   const [proofPreview, setProofPreview] = useState<string | null>(null);
   const [payingEMI, setPayingEMI] = useState(false);
+  // Holds all EMIs for a multi-EMI bulk-payment flow
+  const [pendingMultiEMIs, setPendingMultiEMIs] = useState<EMISchedule[]>([]);
 
   // EMI Date Change State
   const [showDateChangeDialog, setShowDateChangeDialog] = useState(false);
@@ -428,9 +430,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   // Multi-EMI Payment
   const openMultiEMIPaymentDialog = (emis: EMISchedule[]) => {
     if (emis.length === 0) return;
-    // Calculate total amount
     const totalAmount = emis.reduce((sum, emi) => sum + (emi.emiAmount - (emi.paidAmount || 0)), 0);
-    setSelectedEMI(emis[0]); // Use first EMI for reference
+    setPendingMultiEMIs(emis);          // ← save all EMIs for sequential processing
+    setSelectedEMI(emis[0]);             // first EMI for reference display
     setEmiPaymentForm({
       amount: totalAmount,
       paymentMode: 'CASH',
@@ -535,12 +537,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
   const handleEMIPayment = async () => {
     if (!selectedEMI || !loanDetails) return;
-    
-    // Use exactly what the user selected — do NOT override based on paymentMode
+
     const actualCreditType = emiPaymentForm.creditType;
-    // Admin panel: proof is optional — only try to upload if a file was actually attached.
-    // (No proof upload field is shown in the admin dialog, so never hard-block here.)
-    const requiresProof = false;
 
     if (emiPaymentForm.paymentType === 'PARTIAL') {
       if (!emiPaymentForm.remainingPaymentDate) {
@@ -555,96 +553,101 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
     setPayingEMI(true);
     try {
+      // ── Proof upload (optional) ────────────────────────────────────────
       let proofUrl = '';
-      
-      // Try to upload proof but don't fail if upload fails
-      if (requiresProof && emiPaymentForm.proofFile) {
+      if (emiPaymentForm.proofFile) {
         try {
           const proofFormData = new FormData();
           proofFormData.append('file', emiPaymentForm.proofFile);
           proofFormData.append('documentType', 'emi_proof');
           proofFormData.append('loanId', loanDetails.id);
           proofFormData.append('uploadedBy', user?.id || '');
-
-          const uploadResponse = await fetch('/api/upload/document', {
-            method: 'POST',
-            body: proofFormData
-          });
+          const uploadResponse = await fetch('/api/upload/document', { method: 'POST', body: proofFormData });
           const uploadData = await uploadResponse.json();
-          
-          if (uploadData.success && uploadData.url) {
-            proofUrl = uploadData.url;
-            console.log('[EMI Payment] Proof uploaded:', proofUrl);
-          } else {
-            console.log('[EMI Payment] Proof upload returned no URL, continuing without proof');
-          }
+          if (uploadData.success && uploadData.url) proofUrl = uploadData.url;
         } catch (uploadError) {
           console.error('[EMI Payment] Proof upload failed, continuing without proof:', uploadError);
-          // Continue without proof - don't block the payment
         }
       }
 
-      const response = await fetch('/api/emi', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emiId: selectedEMI.id,
-          loanId: loanDetails.id,
-          paidAmount: emiPaymentForm.amount,
-          paymentMode: emiPaymentForm.paymentMode,
-          paymentRef: emiPaymentForm.paymentRef,
-          creditType: actualCreditType,
-          remarks: emiPaymentForm.remarks,
-          proofUrl: proofUrl,
-          userId: user?.id,
-          paymentType: emiPaymentForm.paymentType,
-          remainingAmount: emiPaymentForm.remainingAmount,
-          remainingPaymentDate: emiPaymentForm.remainingPaymentDate,
-          interestAmount: emiPaymentForm.paymentType === 'INTEREST_ONLY' ? selectedEMI.interestAmount : 0,
-          penaltyWaiver: emiPaymentForm.penaltyWaiver || 0,
-          // Penalty accounting
-          penaltyAmount: selectedEMI.lateFee || 0,
-          penaltyPaymentMode: emiPaymentForm.paymentMode === 'SPLIT' ? 'CASH' : (emiPaymentForm.penaltyPaymentMode || 'CASH'),
-          // Split payment
-          splitCashAmount: emiPaymentForm.splitCashAmount || 0,
-          splitOnlineAmount: emiPaymentForm.splitOnlineAmount || 0,
-          // Mirror company — accounting entries go to mirror company's books when loan has mirror
-          ...(hasMirrorLoan && mirrorCompanyInfo?.id ? { mirrorCompanyId: mirrorCompanyInfo.id } : {}),
-        })
-      });
+      // ── Determine which EMIs to pay ────────────────────────────────────
+      // Multi-EMI: pay each EMI individually at its own full remaining amount.
+      // Single-EMI: pay selectedEMI with whatever the form says.
+      const emisToPay = pendingMultiEMIs.length > 1 ? pendingMultiEMIs : [selectedEMI];
 
+      const commonPayload = {
+        loanId: loanDetails.id,
+        paymentMode: emiPaymentForm.paymentMode,
+        paymentRef: emiPaymentForm.paymentRef,
+        creditType: actualCreditType,
+        proofUrl,
+        userId: user?.id,
+        paymentType: emiPaymentForm.paymentType,
+        penaltyWaiver: 0,         // penalties handled per-EMI below
+        splitCashAmount: emiPaymentForm.splitCashAmount || 0,
+        splitOnlineAmount: emiPaymentForm.splitOnlineAmount || 0,
+        ...(hasMirrorLoan && mirrorCompanyInfo?.id ? { mirrorCompanyId: mirrorCompanyInfo.id } : {}),
+      };
 
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        let description = `₹${formatCurrency(emiPaymentForm.amount)} collected for EMI #${selectedEMI.emiNumber}. Your ${actualCreditType.toLowerCase()} credit increased.`;
-        
-        if (emiPaymentForm.paymentType === 'PARTIAL') {
-          description += ` Remaining ₹${formatCurrency(emiPaymentForm.remainingAmount)} due on ${formatCurrency(new Date(emiPaymentForm.remainingPaymentDate).getTime())}.`;
-        } else if (emiPaymentForm.paymentType === 'INTEREST_ONLY') {
-          description += ' EMI shifted to next month.';
-        }
-        
-        toast({ 
-          title: 'EMI Collected Successfully', 
-          description 
+      let lastError: string | null = null;
+      let paidCount = 0;
+
+      for (const emi of emisToPay) {
+        const emiRemaining = emi.emiAmount - (emi.paidAmount || 0);
+        // For multi-EMI always pay full remaining; for single EMI use form amount
+        const paidAmount = emisToPay.length > 1 ? emiRemaining : emiPaymentForm.amount;
+
+        const response = await fetch('/api/emi', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...commonPayload,
+            emiId: emi.id,
+            paidAmount,
+            remarks: emiPaymentForm.remarks || `EMI #${emi.emiNumber} payment`,
+            remainingAmount: emisToPay.length > 1 ? 0 : emiPaymentForm.remainingAmount,
+            remainingPaymentDate: emisToPay.length > 1 ? '' : emiPaymentForm.remainingPaymentDate,
+            interestAmount: emiPaymentForm.paymentType === 'INTEREST_ONLY' ? emi.interestAmount : 0,
+            penaltyWaiver: emisToPay.length > 1 ? 0 : (emiPaymentForm.penaltyWaiver || 0),
+            penaltyAmount: emi.lateFee || 0,
+            penaltyPaymentMode: emiPaymentForm.paymentMode === 'SPLIT' ? 'CASH' : (emiPaymentForm.penaltyPaymentMode || 'CASH'),
+            // Custom principal/interest split (single-EMI only)
+            ...(emisToPay.length === 1 && emiPaymentForm.editedPrincipal !== undefined ? { principalComponent: emiPaymentForm.editedPrincipal } : {}),
+            ...(emisToPay.length === 1 && emiPaymentForm.editedInterest !== undefined ? { interestComponent: emiPaymentForm.editedInterest } : {}),
+          })
         });
+
+        const data = await response.json();
+        if (response.ok && data.success) {
+          paidCount++;
+        } else {
+          lastError = data.error || `Failed to process EMI #${emi.emiNumber}`;
+          console.error(`[Multi-EMI] Failed for EMI #${emi.emiNumber}:`, lastError);
+          // Continue paying the rest even if one fails
+        }
+      }
+
+      if (paidCount > 0) {
+        const desc = emisToPay.length > 1
+          ? `${paidCount}/${emisToPay.length} EMIs paid successfully.${lastError ? ` (${lastError})` : ''}`
+          : `₹${formatCurrency(emiPaymentForm.amount)} collected for EMI #${selectedEMI.emiNumber}.`;
+        toast({ title: 'EMI Collected Successfully', description: desc });
+        setPendingMultiEMIs([]);  // reset multi-EMI list
         setShowEMIPaymentDialog(false);
-        // Force refresh all data to ensure instant reflection
         fetchEMISchedules(true);
         fetchLoanDetails();
         fetchCreditInfo();
         if (onEMIPaid) onEMIPaid();
         if (onPaymentSuccess) onPaymentSuccess();
       } else {
-        throw new Error(data.error || 'Failed to process payment');
+        throw new Error(lastError || 'All payments failed');
       }
     } catch (error) {
       console.error('Error processing EMI payment:', error);
-      toast({ 
-        title: 'Payment Failed', 
-        description: error instanceof Error ? error.message : 'Failed to process EMI payment', 
-        variant: 'destructive' 
+      toast({
+        title: 'Payment Failed',
+        description: error instanceof Error ? error.message : 'Failed to process EMI payment',
+        variant: 'destructive'
       });
     } finally {
       setPayingEMI(false);

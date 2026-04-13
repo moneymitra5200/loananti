@@ -1098,12 +1098,14 @@ function BankSection({
                       </div>
                     )}
                     {bank.qrCodeUrl && (
-                      <div className="mt-2">
+                      <div className="mt-2 flex flex-col gap-1">
                         <img 
                           src={bank.qrCodeUrl} 
                           alt="QR Code" 
                           className="w-20 h-20 rounded border object-cover"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden'); }}
                         />
+                        <span className="hidden text-xs text-amber-500">⚠ QR not found — please re-upload</span>
                       </div>
                     )}
                   </div>
@@ -1296,8 +1298,10 @@ function BankSection({
                         src={bankForm.qrCodeUrl} 
                         alt="QR Code" 
                         className="w-24 h-24 rounded border object-cover"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     )}
+
                     <div className="flex-1">
                       <Input 
                         type="file" 

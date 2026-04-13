@@ -293,5 +293,9 @@ export interface EMIPaymentForm {
   splitCashAmount?: number;
   /** Online portion for split payment mode */
   splitOnlineAmount?: number;
+  /** Staff-overridden principal component (optional — used only when staff edits the split) */
+  editedPrincipal?: number;
+  /** Staff-overridden interest component (optional — used only when staff edits the split) */
+  editedInterest?: number;
 }
 
