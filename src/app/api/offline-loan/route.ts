@@ -2278,10 +2278,21 @@ export async function PUT(request: NextRequest) {
         creditTypeUsed = 'PERSONAL';
         console.log(`[EMI Payment] EMI #${emi.installmentNumber} is EXTRA EMI - forcing PERSONAL credit`);
       }
-      
-      const creditUpdateData = creditTypeUsed === 'COMPANY' 
-        ? { companyCredit: (user.companyCredit || 0) + actualPaymentAmount }
-        : { personalCredit: (user.personalCredit || 0) + actualPaymentAmount };
+
+      // ONLINE payment: money goes directly to bank — NO credit increase for any role
+      const isOnlinePayment = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
+      const creditIncreaseAmount = isOnlinePayment ? 0 : actualPaymentAmount;
+
+      const newCompanyCr  = creditTypeUsed === 'COMPANY'  && !isOnlinePayment
+        ? (user.companyCredit  || 0) + creditIncreaseAmount : (user.companyCredit  || 0);
+      const newPersonalCr = creditTypeUsed === 'PERSONAL' && !isOnlinePayment
+        ? (user.personalCredit || 0) + creditIncreaseAmount : (user.personalCredit || 0);
+
+      const creditUpdateData = isOnlinePayment
+        ? {} // No credit change — money went to bank directly
+        : creditTypeUsed === 'COMPANY'
+          ? { companyCredit: newCompanyCr }
+          : { personalCredit: newPersonalCr };
 
       // ============ STEP 4: PROCESS PAYMENT IN TRANSACTION ============
       const updatedEmi = await db.$transaction(async (tx) => {
@@ -2318,16 +2329,18 @@ export async function PUT(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId,
-            transactionType: 'CREDIT_INCREASE',
-            amount: paymentAmount,
+            transactionType: isOnlinePayment ? 'BANK_DIRECT' : 'CREDIT_INCREASE',
+            amount: creditIncreaseAmount, // 0 for online (no credit change)
             paymentMode: paymentMode || 'CASH',
             creditType: creditTypeUsed,
-            companyBalanceAfter: creditTypeUsed === 'COMPANY' ? (user.companyCredit || 0) + paymentAmount : user.companyCredit,
-            personalBalanceAfter: creditTypeUsed === 'PERSONAL' ? (user.personalCredit || 0) + paymentAmount : user.personalCredit,
-            balanceAfter: (user.credit || 0) + paymentAmount,
+            companyBalanceAfter:  newCompanyCr,
+            personalBalanceAfter: newPersonalCr,
+            balanceAfter: newCompanyCr + newPersonalCr,
             sourceType: 'EMI_PAYMENT',
             sourceId: emi.id,
-            description: `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber} (${creditTypeUsed} credit)`,
+            description: isOnlinePayment
+              ? `EMI #${emi.installmentNumber} online payment for ${emi.offlineLoan.loanNumber} (direct to bank — no credit change)`
+              : `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber} (${creditTypeUsed} credit)`,
             loanApplicationNo: emi.offlineLoan.loanNumber,
             emiDueDate: emi.dueDate,
             emiAmount: emi.totalAmount,

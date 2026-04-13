@@ -551,12 +551,13 @@ export default function OfflineLoanDetailPanel({
         if (!selectedEmi) return;
         requestBody.emiId = selectedEmi.id;
         requestBody.paymentType = paymentType;
+        // Always send amount: for FULL it's the remaining (not total), fixing post-partial full payment
+        requestBody.amount = paymentAmount;
         if (paymentType === 'PARTIAL') {
-          requestBody.amount = paymentAmount;
           requestBody.remainingPaymentDate = remainingPaymentDate;
         }
         if (paymentType === 'INTEREST_ONLY') {
-          requestBody.amount = selectedEmi.interestAmount;  // Send interest amount
+          requestBody.amount = selectedEmi.interestAmount;
           requestBody.interestAmount = selectedEmi.interestAmount;
         }
       }
