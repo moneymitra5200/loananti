@@ -587,12 +587,35 @@ export default function StaffDashboard() {
     setSubmitError(null);
     
     try {
+      // Map uploadedDocs keys → DB field names
+      const DOC_KEY_MAP: Record<string, string> = {
+        pan_card:       'panCardDoc',
+        aadhaar_front:  'aadhaarFrontDoc',
+        aadhaar_back:   'aadhaarBackDoc',
+        income_proof:   'incomeProofDoc',
+        address_proof:  'addressProofDoc',
+        photo:          'photoDoc',
+        election_card:  'electionCardDoc',
+        house_photo:    'housePhotoDoc',
+        guarantor_photo:'photoDoc',   // fallback to photoDoc
+        passbook_photo: 'passbookDoc',
+        bank_statement: 'bankStatementDoc',
+        salary_slip:    'salarySlipDoc',
+        other:          'otherDocs',
+      };
+      const docFields: Record<string, string> = {};
+      for (const [key, docObj] of Object.entries(uploadedDocs)) {
+        const dbField = DOC_KEY_MAP[key];
+        if (dbField && docObj.url) docFields[dbField] = docObj.url;
+      }
+
       const response = await fetch('/api/loan/apply', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           loanId: selectedLoan.id,
           ...loanForm,
+          ...docFields,           // ← document URLs mapped to proper DB field names
           status: 'LOAN_FORM_COMPLETED',
           userId: user?.id,
           // Include gold/vehicle loan details based on loan type
