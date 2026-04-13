@@ -30,6 +30,9 @@ const SCENARIO_LIST = [
   { key: 'credit_request', label: 'Credit Request by Role', icon: TrendingUp, color: 'text-cyan-600', bg: 'bg-cyan-50', desc: 'Super Admin notified when any role requests a credit adjustment' },
 ];
 
+// Default theme color
+const DEFAULT_THEME_COLOR = '#4F46E5'; // indigo-600
+
 interface SystemSettings {
   id?: string;
   penaltyPerDay: number;
@@ -46,8 +49,10 @@ interface SystemSettings {
   sendEMISameDayReminder: boolean;
   sendPenaltyNotify: boolean;
   penaltyNotifyIntervalHrs: number;
-  onlineProcessingFeeMode: string;
-  offlineProcessingFeeMode: string;
+  // Scenario toggles stored as JSON
+  notificationScenarios?: Record<string, boolean>;
+  // Theme color
+  themeColor?: string;
 }
 
 const DEFAULT_SETTINGS: SystemSettings = {
@@ -65,9 +70,11 @@ const DEFAULT_SETTINGS: SystemSettings = {
   sendEMISameDayReminder: true,
   sendPenaltyNotify: true,
   penaltyNotifyIntervalHrs: 24,
-  onlineProcessingFeeMode: 'AT_DISBURSEMENT',
-  offlineProcessingFeeMode: 'AT_CREATION',
+  notificationScenarios: {},
+  themeColor: DEFAULT_THEME_COLOR,
 };
+
+const DEFAULT_SCENARIO_TOGGLES = SCENARIO_LIST.reduce((acc, s) => ({ ...acc, [s.key]: true }), {} as Record<string, boolean>);
 
 interface Props {
   userId: string;
@@ -79,29 +86,40 @@ export default function NotificationManagementSection({ userId }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [applyingPenalty, setApplyingPenalty] = useState(false);
-  const [scenarioToggles, setScenarioToggles] = useState<Record<string, boolean>>({
-    emi_due_3days: true,
-    emi_due_1day: true,
-    emi_due_today: true,
-    emi_overdue: true,
-    loan_passed: true,
-    loan_approved: true,
-    payment_received: true,
-    penalty_waiver: true,
-    loan_rejected: true,
-    credit_request: true,
-  });
+  const [scenarioToggles, setScenarioToggles] = useState<Record<string, boolean>>(DEFAULT_SCENARIO_TOGGLES);
+  const [themeColor, setThemeColor] = useState(DEFAULT_THEME_COLOR);
 
   const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch('/api/system-settings');
       const data = await res.json();
-      if (data.success) setSettings(data.settings);
+      if (data.success) {
+        setSettings(data.settings);
+        // Restore scenario toggles from saved settings
+        if (data.settings.notificationScenarios && Object.keys(data.settings.notificationScenarios).length > 0) {
+          setScenarioToggles({ ...DEFAULT_SCENARIO_TOGGLES, ...data.settings.notificationScenarios });
+        }
+        // Restore theme color
+        if (data.settings.themeColor) {
+          setThemeColor(data.settings.themeColor);
+          applyThemeColor(data.settings.themeColor);
+        }
+      }
     } catch { /* use defaults */ }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchSettings(); }, [fetchSettings]);
+
+  const applyThemeColor = (color: string) => {
+    // Apply to CSS root variable immediately
+    document.documentElement.style.setProperty('--primary-color', color);
+  };
+
+  const handleColorChange = (color: string) => {
+    setThemeColor(color);
+    applyThemeColor(color);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -109,12 +127,19 @@ export default function NotificationManagementSection({ userId }: Props) {
       const res = await fetch('/api/system-settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...settings, updatedById: userId })
+        body: JSON.stringify({
+          ...settings,
+          notificationScenarios: scenarioToggles,
+          themeColor,
+          updatedById: userId
+        })
       });
       const data = await res.json();
       if (data.success) {
-        toast({ title: '✅ Settings Saved', description: 'All notification and penalty settings have been updated.' });
+        toast({ title: '✅ Settings Saved', description: 'All notification, penalty and color settings have been updated.' });
         setSettings(data.settings);
+      } else {
+        throw new Error(data.error || 'Save failed');
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to save settings', variant: 'destructive' });
@@ -131,7 +156,7 @@ export default function NotificationManagementSection({ userId }: Props) {
       if (data.success) {
         toast({
           title: '✅ Penalty Applied',
-          description: `Updated ${data.summary.total} EMIs. Online: ${data.summary.updatedOnline}, Offline: ${data.summary.updatedOffline}`
+          description: `Updated ${data.summary.total} EMIs. Online: ${data.summary.updatedOnline}, Offline: ${data.summary.updatedOffline}. ${data.summary.tierFormula}`
         });
       }
     } catch {
@@ -143,6 +168,18 @@ export default function NotificationManagementSection({ userId }: Props) {
 
   const update = (key: keyof SystemSettings, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const toggleScenario = (key: string, value: boolean) => {
+    setScenarioToggles(prev => ({ ...prev, [key]: value }));
+  };
+
+  const enableAllScenarios = () => {
+    setScenarioToggles(SCENARIO_LIST.reduce((acc, s) => ({ ...acc, [s.key]: true }), {}));
+  };
+
+  const disableAllScenarios = () => {
+    setScenarioToggles(SCENARIO_LIST.reduce((acc, s) => ({ ...acc, [s.key]: false }), {}));
   };
 
   if (loading) {
@@ -162,10 +199,10 @@ export default function NotificationManagementSection({ userId }: Props) {
             <Bell className="h-7 w-7 text-indigo-600" />
             Notification & System Settings
           </h2>
-          <p className="text-gray-500 mt-1">Control all automated alerts, penalties, and role access settings</p>
+          <p className="text-gray-500 mt-1">Control all automated alerts, penalties, colors and role access settings</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setSettings(DEFAULT_SETTINGS)}>
+          <Button variant="outline" onClick={() => { setSettings(DEFAULT_SETTINGS); setScenarioToggles(DEFAULT_SCENARIO_TOGGLES); setThemeColor(DEFAULT_THEME_COLOR); }}>
             <RotateCcw className="h-4 w-4 mr-2" />Reset Defaults
           </Button>
           <Button onClick={handleSave} disabled={saving} className="bg-indigo-600 hover:bg-indigo-700">
@@ -187,13 +224,21 @@ export default function NotificationManagementSection({ userId }: Props) {
         <TabsContent value="scenarios" className="space-y-4">
           <Card className="border border-indigo-100">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Bell className="h-5 w-5 text-indigo-600" />
-                Notification Scenarios
-              </CardTitle>
-              <CardDescription>
-                Choose which events trigger automatic notifications. Each notification goes to the relevant role <strong>and</strong> the customer.
-              </CardDescription>
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Bell className="h-5 w-5 text-indigo-600" />
+                    Notification Scenarios
+                  </CardTitle>
+                  <CardDescription>
+                    Choose which events trigger automatic notifications. Changes are saved when you click "Save All Settings".
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={enableAllScenarios}>Enable All</Button>
+                  <Button size="sm" variant="outline" onClick={disableAllScenarios}>Disable All</Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="space-y-3">
               {SCENARIO_LIST.map((scenario, i) => (
@@ -213,10 +258,15 @@ export default function NotificationManagementSection({ userId }: Props) {
                       <p className="text-xs text-gray-400">{scenario.desc}</p>
                     </div>
                   </div>
-                  <Switch
-                    checked={scenarioToggles[scenario.key]}
-                    onCheckedChange={(v) => setScenarioToggles(prev => ({ ...prev, [scenario.key]: v }))}
-                  />
+                  <div className="flex items-center gap-2">
+                    <Badge className={scenarioToggles[scenario.key] ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}>
+                      {scenarioToggles[scenario.key] ? 'ON' : 'OFF'}
+                    </Badge>
+                    <Switch
+                      checked={scenarioToggles[scenario.key] ?? true}
+                      onCheckedChange={(v) => toggleScenario(scenario.key, v)}
+                    />
+                  </div>
                 </motion.div>
               ))}
             </CardContent>
@@ -266,21 +316,31 @@ export default function NotificationManagementSection({ userId }: Props) {
                 Penalty Configuration
               </CardTitle>
               <CardDescription>
-                Penalty is automatically added when an EMI is overdue. Roles can edit it during payment — Super Admin gets notified if reduced.
+                Penalty is automatically calculated using a tiered formula based on loan amount. Roles can edit it during payment — Super Admin gets notified if reduced.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label>Penalty Per Day (₹)</Label>
-                  <Input
-                    type="number"
-                    value={settings.penaltyPerDay}
-                    onChange={e => update('penaltyPerDay', parseFloat(e.target.value) || 0)}
-                    className="font-semibold text-red-700"
-                  />
-                  <p className="text-xs text-gray-400">Added daily after due date</p>
+              {/* Tiered penalty info */}
+              <div className="p-4 bg-red-50 border border-red-100 rounded-xl">
+                <p className="text-sm font-semibold text-red-700 mb-3">📊 Tiered Penalty Formula</p>
+                <div className="grid grid-cols-3 gap-3 text-center text-sm">
+                  <div className="bg-white rounded-lg p-3 border border-red-100">
+                    <p className="font-bold text-red-600">₹100/day</p>
+                    <p className="text-xs text-gray-500 mt-1">Loan ≤ ₹1 Lakh</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-red-100">
+                    <p className="font-bold text-red-600">₹200/day</p>
+                    <p className="text-xs text-gray-500 mt-1">₹1L – ₹3 Lakh</p>
+                  </div>
+                  <div className="bg-white rounded-lg p-3 border border-red-100">
+                    <p className="font-bold text-red-600">₹100×lakhs/day</p>
+                    <p className="text-xs text-gray-500 mt-1">Above ₹3 Lakh</p>
+                  </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">Example: 4L loan = ₹400/day | 5L loan = ₹500/day</p>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Grace Period (Days)</Label>
                   <Input
@@ -288,7 +348,7 @@ export default function NotificationManagementSection({ userId }: Props) {
                     value={settings.penaltyGraceDays}
                     onChange={e => update('penaltyGraceDays', parseInt(e.target.value) || 0)}
                   />
-                  <p className="text-xs text-gray-400">Days after due before penalty starts</p>
+                  <p className="text-xs text-gray-400">Days after due date before penalty starts</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Maximum Penalty Cap (₹)</Label>
@@ -299,24 +359,6 @@ export default function NotificationManagementSection({ userId }: Props) {
                     onChange={e => update('penaltyMaxAmount', e.target.value ? parseFloat(e.target.value) : null)}
                   />
                   <p className="text-xs text-gray-400">Leave empty for no cap</p>
-                </div>
-              </div>
-
-              {/* Penalty example calculator */}
-              <div className="p-4 bg-red-50 rounded-xl border border-red-100">
-                <p className="text-sm font-semibold text-red-700 mb-2">📊 Penalty Preview</p>
-                <div className="grid grid-cols-4 gap-3 text-center">
-                  {[1, 3, 7, 15].map(days => (
-                    <div key={days} className="bg-white rounded-lg p-2 border border-red-100">
-                      <p className="text-xs text-gray-500">{days} day{days>1?'s':''} overdue</p>
-                      <p className="font-bold text-red-600">
-                        ₹{Math.min(
-                          days * settings.penaltyPerDay,
-                          settings.penaltyMaxAmount || Infinity
-                        ).toLocaleString('en-IN')}
-                      </p>
-                    </div>
-                  ))}
                 </div>
               </div>
 
@@ -337,17 +379,13 @@ export default function NotificationManagementSection({ userId }: Props) {
                 </div>
               </div>
 
-              {/* Manual penalty apply button */}
+              {/* Manual penalty apply */}
               <div className="border-t pt-4">
                 <p className="text-sm text-gray-600 mb-3">
                   <Info className="inline h-4 w-4 mb-0.5 mr-1 text-blue-500" />
-                  Penalty is auto-applied daily. You can also trigger it manually:
+                  Penalty is auto-applied daily via cron. You can also apply it manually:
                 </p>
-                <Button
-                  onClick={handleApplyPenalty}
-                  disabled={applyingPenalty}
-                  className="bg-red-600 hover:bg-red-700"
-                >
+                <Button onClick={handleApplyPenalty} disabled={applyingPenalty} className="bg-red-600 hover:bg-red-700">
                   <Zap className="h-4 w-4 mr-2" />
                   {applyingPenalty ? 'Applying...' : 'Apply Penalty Now (All Overdue EMIs)'}
                 </Button>
@@ -358,6 +396,78 @@ export default function NotificationManagementSection({ userId }: Props) {
 
         {/* ── Colors Tab ───────────────────────────────────────────── */}
         <TabsContent value="colors" className="space-y-4">
+          {/* ── Theme Color Picker ── */}
+          <Card className="border border-purple-100">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Palette className="h-5 w-5 text-purple-600" />
+                App Theme Color
+              </CardTitle>
+              <CardDescription>
+                Change the primary accent color of the entire app. Click "Save All Settings" to persist.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex flex-wrap items-center gap-6">
+                <div className="text-center">
+                  <p className="text-sm text-gray-600 mb-2">Custom Color</p>
+                  <input
+                    type="color"
+                    value={themeColor}
+                    onChange={(e) => handleColorChange(e.target.value)}
+                    className="w-20 h-20 rounded-xl cursor-pointer border-2 border-gray-200 p-1"
+                    style={{ backgroundColor: themeColor }}
+                  />
+                  <p className="text-xs text-gray-500 mt-1 font-mono">{themeColor}</p>
+                </div>
+
+                {/* Preset colors */}
+                <div className="flex-1">
+                  <p className="text-sm text-gray-600 mb-3">Quick Presets</p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {[
+                      { name: 'Indigo', color: '#4F46E5' },
+                      { name: 'Blue', color: '#2563EB' },
+                      { name: 'Emerald', color: '#059669' },
+                      { name: 'Violet', color: '#7C3AED' },
+                      { name: 'Rose', color: '#E11D48' },
+                      { name: 'Amber', color: '#D97706' },
+                      { name: 'Teal', color: '#0D9488' },
+                      { name: 'Cyan', color: '#0891B2' },
+                      { name: 'Orange', color: '#EA580C' },
+                      { name: 'Fuchsia', color: '#A21CAF' },
+                    ].map((preset) => (
+                      <button
+                        key={preset.color}
+                        onClick={() => handleColorChange(preset.color)}
+                        className={`w-10 h-10 rounded-lg border-2 transition-all hover:scale-110 ${themeColor === preset.color ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+                        style={{ backgroundColor: preset.color }}
+                        title={preset.name}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div className="p-4 rounded-xl border" style={{ borderColor: themeColor + '40' }}>
+                <p className="text-sm font-medium text-gray-700 mb-3">Live Preview</p>
+                <div className="flex flex-wrap gap-3">
+                  <Button style={{ backgroundColor: themeColor, color: 'white', borderColor: themeColor }}>
+                    Primary Button
+                  </Button>
+                  <Badge style={{ backgroundColor: themeColor + '20', color: themeColor }}>
+                    Badge Example
+                  </Badge>
+                  <div className="flex items-center gap-2 text-sm" style={{ color: themeColor }}>
+                    <Settings className="h-4 w-4" /> Accent Text
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── EMI Color System ── */}
           <Card className="border border-green-100">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -474,71 +584,6 @@ export default function NotificationManagementSection({ userId }: Props) {
                   </div>
                 </motion.div>
               ))}
-            </CardContent>
-          </Card>
-
-          {/* Processing Fee Config */}
-          <Card className="border border-indigo-100">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-indigo-600" />
-                Processing Fee Collection Mode
-              </CardTitle>
-              <CardDescription>When should processing fee be recorded as income?</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <Label className="text-sm">Online Loans</Label>
-                <div className="flex gap-2 mt-2">
-                  {['AT_DISBURSEMENT', 'AT_EMI1'].map(mode => (
-                    <button
-                      key={mode}
-                      onClick={() => update('onlineProcessingFeeMode', mode)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                        settings.onlineProcessingFeeMode === mode
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                      }`}
-                    >
-                      {mode === 'AT_DISBURSEMENT' ? '🏦 At Disbursement' : '📅 At EMI #1'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <Label className="text-sm">Offline Loans</Label>
-                <div className="flex gap-2 mt-2">
-                  {['AT_CREATION', 'MANUAL'].map(mode => (
-                    <button
-                      key={mode}
-                      onClick={() => update('offlineProcessingFeeMode', mode)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                        settings.offlineProcessingFeeMode === mode
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300'
-                      }`}
-                    >
-                      {mode === 'AT_CREATION' ? '✏️ At Loan Creation' : '🖐 Manual'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Test Notification button */}
-          <Card className="border border-gray-200 bg-gray-50">
-            <CardContent className="pt-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm text-gray-800">Test Penalty Engine</p>
-                  <p className="text-xs text-gray-500">Apply penalty to all currently overdue EMIs right now</p>
-                </div>
-                <Button onClick={handleApplyPenalty} disabled={applyingPenalty} variant="outline" className="border-red-200 text-red-600 hover:bg-red-50">
-                  <Send className="h-4 w-4 mr-2" />
-                  {applyingPenalty ? 'Running...' : 'Run Penalty Engine'}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>

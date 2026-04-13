@@ -662,15 +662,6 @@ export default function CreditManagementPage() {
             <BookOpen className="h-4 w-4" />
             Loan Passbook
           </TabsTrigger>
-          <TabsTrigger value="requests" className="flex items-center gap-2 relative">
-            <ArrowUpRight className="h-4 w-4" />
-            Credit Requests
-            {creditRequests.filter(r => r.status === 'PENDING').length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold bg-red-500 text-white rounded-full">
-                {creditRequests.filter(r => r.status === 'PENDING').length}
-              </span>
-            )}
-          </TabsTrigger>
         </TabsList>
 
         {/* Users Tab */}

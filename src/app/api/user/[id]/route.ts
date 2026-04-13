@@ -10,6 +10,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(request.url);
+    const includePassword = searchParams.get('includePassword') === 'true';
 
     if (!id) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -36,6 +38,8 @@ export async function GET(
         personalCredit: true,
         credit: true,
         profilePicture: true,
+        // Only include plainPassword for Super Admin view
+        plainPassword: includePassword,
         company: {
           select: { id: true, name: true, code: true }
         },

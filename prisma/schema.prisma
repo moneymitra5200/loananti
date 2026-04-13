@@ -3418,6 +3418,10 @@ model SystemSettings {
   // Processing fee config
   onlineProcessingFeeMode   String   @default("AT_DISBURSEMENT") // AT_DISBURSEMENT | AT_EMI1
   offlineProcessingFeeMode  String   @default("AT_CREATION") // AT_CREATION | MANUAL
+  // Notification scenario toggles (JSON: {emi_due_3days: true, ...})
+  notificationScenarios     String?  // JSON: Record<string, boolean> for each scenario key
+  // Theme color (hex color code for app primary color)
+  themeColor                String   @default("#4F46E5")
   // Meta
   updatedById               String?
   createdAt                 DateTime @default(now())

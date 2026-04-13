@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { 
-  Users, Building2, User, UserPlus, Eye, Trash2, Edit, Shield, AlertTriangle, Search, X
+  Users, Building2, User, UserPlus, Eye, EyeOff, Trash2, Edit, Shield, AlertTriangle, Search, X, KeyRound, Copy, Lock, Unlock
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
@@ -66,6 +66,8 @@ function EditUserDialog({
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Update form when user changes
@@ -74,6 +76,12 @@ function EditUserDialog({
       setName(user.name || '');
       setPhone(user.phone || '');
       setPassword('');
+      setShowPassword(false);
+      // Fetch current password for display
+      fetch(`/api/user/${user.id}?includePassword=true`)
+        .then(r => r.json())
+        .then(d => { if (d.user?.plainPassword) setCurrentPassword(d.user.plainPassword); })
+        .catch(() => {});
     }
   });
 
@@ -132,13 +140,36 @@ function EditUserDialog({
           
           <div className="space-y-2">
             <Label>New Password</Label>
-            <Input 
-              type="password" 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-              placeholder="Leave blank to keep current" 
-            />
+            <div className="relative">
+              <Input 
+                type={showPassword ? 'text' : 'password'} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                placeholder="Leave blank to keep current" 
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <p className="text-xs text-gray-500">Leave blank to keep current password</p>
+            {currentPassword && (
+              <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                <KeyRound className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                <span className="text-sm text-amber-700 font-mono">{showPassword ? currentPassword : '••••••••'}</span>
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(currentPassword); toast({ title: 'Copied!', description: 'Password copied to clipboard' }); }}
+                  className="ml-auto text-amber-600 hover:text-amber-700"
+                >
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </div>
           
           <div className="bg-gray-50 p-3 rounded-lg text-sm">
