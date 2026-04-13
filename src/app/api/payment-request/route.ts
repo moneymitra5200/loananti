@@ -705,62 +705,59 @@ export async function PUT(request: NextRequest) {
 
       // ============================================================
       // POST-APPROVAL ACCOUNTING + MIRROR SYNC
-      // Runs AFTER the DB transaction so it never blocks the approval.
+      // Runs AFTER the DB transaction — never blocks the approval response.
       //
-      // Flow:
-      //  1. Customer pays on ORIGINAL loan via payment request
-      //  2. Cashier approves → EMI marked paid above
-      //  3. Below: find mirror mapping → sync mirror EMI → record
-      //     accounting in MIRROR company (Dr Cash/Bank, Cr Interest)
-      //  4. If no mirror: no journal entry (original loan policy)
+      // CONTRACT (same as emi/pay/route.ts):
+      //  • Original company gets NO accounting entries (customer-payment policy)
+      //  • Mirror company gets:
+      //      – CashBook credit for mirror interest income
+      //      – Double-entry journal (DR Cash, CR Loans Receivable + CR Interest)
+      //      – Processing fee on EMI #1 (CashBook + journal + flag guard)
+      //  • Mirror EMI + MirrorLoanMapping counters are kept in sync
+      //  • Mirror Payment record is created for audit trail
       // ============================================================
       setImmediate(async () => {
         try {
           const loan = paymentRequest.loanApplication;
           if (!loan?.companyId) return;
 
-          const pType = paymentRequest.paymentType;
-          const payMode = paymentRequest.paymentMethod || 'UPI';
-          const paidAmt  = pType === 'PARTIAL_PAYMENT'
-            ? (paymentRequest.partialAmount || 0)
-            : pType === 'INTEREST_ONLY'
-              ? emi.interestAmount
-              : paymentRequest.requestedAmount;
+          const pType   = paymentRequest.paymentType;
+          const payMode = (paymentRequest.paymentMethod || 'UPI').toUpperCase();
 
-          // ── Interest-first split for accounting ─────────────────
-          const interestFirst = emi.interestAmount;
-          let accPaidInterest: number;
-          let accPaidPrincipal: number;
-          if (pType === 'INTEREST_ONLY') {
-            accPaidInterest  = paidAmt;
-            accPaidPrincipal = 0;
-          } else if (pType === 'PARTIAL_PAYMENT') {
-            if (paidAmt <= interestFirst) {
-              accPaidInterest  = paidAmt;
-              accPaidPrincipal = 0;
-            } else {
-              accPaidInterest  = interestFirst;
-              accPaidPrincipal = paidAmt - interestFirst;
-            }
-          } else {
-            // FULL_EMI
-            accPaidInterest  = emi.interestAmount;
-            accPaidPrincipal = emi.principalAmount;
-          }
+          // ── Fetch the Payment record just created inside the transaction ───
+          // We need its ID for journal entry referenceId (NOT the paymentRequest ID)
+          const recentPayment = await db.payment.findFirst({
+            where: { emiScheduleId: emi.id, status: 'COMPLETED' },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true }
+          });
+          const paymentId = recentPayment?.id || `PR-${paymentRequest.id}`;
 
-          // ── Check if original loan has a mirror mapping ──────────
+          // ── Check if original loan has a mirror mapping ──────────────────
           const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-            where: { originalLoanId: loan.id }   // ← correct direction
+            where: { originalLoanId: loan.id }
           });
 
-          if (!mirrorMapping) {
-            // No mirror — no accounting entry per business rule
-            console.log(`[PR Accounting] Skipping — original loan ${loan.id} has no mirror.`);
+          if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
+            console.log(`[PR Accounting] Skipping — loan ${loan.id} has no mirror mapping.`);
             return;
           }
 
-          // ── Sync mirror EMI ─────────────────────────────────────
-          if (!mirrorMapping.mirrorLoanId) return; // guard against null
+          const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
+          const { AccountingService: AccSvc, ACCOUNT_CODES: AC } = await import('@/lib/accounting-service');
+          const accSvc = new AccSvc(mirrorCompanyId);
+          await accSvc.initializeChartOfAccounts();
+
+          // ── Helper: ensure CashBook exists ───────────────────────────────
+          const getMirrorCashBook = async () => {
+            let cb = await db.cashBook.findUnique({ where: { companyId: mirrorCompanyId } });
+            if (!cb) cb = await db.cashBook.create({ data: { companyId: mirrorCompanyId, currentBalance: 0 } });
+            return cb;
+          };
+
+          // ────────────────────────────────────────────────────────────────
+          // Get mirror EMI for this installment
+          // ────────────────────────────────────────────────────────────────
           const mirrorEmi = await db.eMISchedule.findFirst({
             where: {
               loanApplicationId: mirrorMapping.mirrorLoanId,
@@ -768,102 +765,280 @@ export async function PUT(request: NextRequest) {
             }
           });
 
-          if (mirrorEmi) {
-            const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
-            const mirrorInterest = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
-            const mirrorPrincipal = mirrorEmi.principalAmount || 0;
+          // ============================================================
+          // FULL_EMI  ─ same logic as emi/pay/route.ts (lines 1029-1122)
+          // ============================================================
+          if (pType === 'FULL_EMI') {
+            if (mirrorEmi) {
+              const mirrorMonthlyRate = (mirrorMapping.mirrorInterestRate || 0) / 12 / 100;
+              const mirrorInterest    = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
+              const mirrorPrincipal   = Math.min(
+                (mirrorEmi.totalAmount || 0) - mirrorInterest,
+                mirrorEmi.outstandingPrincipal || 0
+              );
 
-            if (pType === 'FULL_EMI') {
+              // 1. CashBook credit for mirror interest income
+              if (mirrorInterest > 0) {
+                const cb       = await getMirrorCashBook();
+                const newBal   = cb.currentBalance + mirrorInterest;
+                await db.cashBook.update({ where: { id: cb.id }, data: { currentBalance: newBal } });
+                await db.cashBookEntry.create({
+                  data: {
+                    cashBookId:    cb.id,
+                    entryType:     'CREDIT',
+                    amount:        mirrorInterest,
+                    balanceAfter:  newBal,
+                    description:   `MIRROR INTEREST INCOME - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
+                    referenceType: 'MIRROR_INTEREST_INCOME',
+                    referenceId:   paymentId,
+                    createdById:   reviewedById
+                  }
+                });
+                console.log(`[PR Accounting] CashBook ✓ mirror interest ₹${mirrorInterest}`);
+              }
+
+              // 2. Mark mirror EMI as PAID
               await db.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus: 'PAID',
-                  paidAmount: mirrorEmi.totalAmount,
+                  paidAmount:    mirrorEmi.totalAmount,
                   paidPrincipal: mirrorPrincipal,
-                  paidInterest: mirrorInterest,
-                  paidDate: new Date(),
-                  paymentMode: payMode,
-                  notes: `[MIRROR SYNC via Payment Request] EMI #${emi.installmentNumber}`
+                  paidInterest:  mirrorInterest,
+                  paidDate:      new Date(),
+                  paymentMode:   payMode,
+                  notes:         `[MIRROR SYNC via Payment Request] PR#${paymentRequest.requestNumber}`
                 }
               });
-            } else if (pType === 'PARTIAL_PAYMENT') {
-              const ratio = Math.min(paidAmt / emi.totalAmount, 1);
-              await db.eMISchedule.update({
-                where: { id: mirrorEmi.id },
+
+              // 3. Increment mirror EMI counter on mapping
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorMapping.id },
+                data: { mirrorEMIsPaid: { increment: 1 } }
+              });
+
+              // 4. Create mirror Payment record for audit trail
+              await db.payment.create({
                 data: {
-                  paymentStatus: 'PARTIALLY_PAID',
-                  paidAmount: Math.round(mirrorEmi.totalAmount * ratio * 100) / 100,
-                  paidPrincipal: Math.round(mirrorPrincipal * ratio * 100) / 100,
-                  paidInterest: Math.round(mirrorInterest * ratio * 100) / 100,
-                  paidDate: new Date(),
-                  paymentMode: payMode,
-                  notes: `[MIRROR SYNC via Payment Request] Partial ${Math.round(ratio*100)}%`
+                  loanApplicationId: mirrorMapping.mirrorLoanId,
+                  emiScheduleId:     mirrorEmi.id,
+                  customerId:        paymentRequest.customerId,
+                  amount:            mirrorEmi.totalAmount,
+                  principalComponent: mirrorPrincipal,
+                  interestComponent:  mirrorInterest,
+                  paymentMode:       payMode,
+                  status:            'COMPLETED',
+                  receiptNumber:     `RCP-MIRROR-${Date.now()}`,
+                  paidById:          reviewedById,
+                  remarks:           `Auto-synced via PaymentReq ${paymentRequest.requestNumber}`,
+                  paymentType:       'FULL_EMI'
                 }
               });
-            } else if (pType === 'INTEREST_ONLY') {
-              await db.eMISchedule.update({
-                where: { id: mirrorEmi.id },
-                data: {
-                  paymentStatus: 'INTEREST_ONLY_PAID',
-                  paidAmount: mirrorInterest,
-                  paidPrincipal: 0,
-                  paidInterest: mirrorInterest,
-                  paidDate: new Date(),
-                  paymentMode: payMode,
-                  notes: `[MIRROR SYNC via Payment Request] Interest only`
-                }
+
+              // 5. Double-entry journal in mirror company (MIRROR amounts, not original!)
+              //    DR Cash/Bank → CR Loans Receivable (principal) + CR Interest Income
+              await accSvc.recordEMIPayment({
+                loanId:             mirrorMapping.mirrorLoanId,
+                customerId:         paymentRequest.customerId,
+                paymentId,
+                totalAmount:        mirrorEmi.totalAmount,
+                principalComponent: mirrorPrincipal,
+                interestComponent:  mirrorInterest,
+                paymentDate:        new Date(),
+                paymentMode:        payMode,
+                createdById:        reviewedById,
+                reference:          `PaymentReq#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`
               });
+              console.log(`[PR Accounting] ✓ FULL_EMI journal ₹${mirrorEmi.totalAmount} in mirror company ${mirrorCompanyId}`);
+
+              // 6. Mirror loan closure check
+              const allMirrorEmis = await db.eMISchedule.findMany({
+                where: { loanApplicationId: mirrorMapping.mirrorLoanId }
+              });
+              if (allMirrorEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')) {
+                await db.loanApplication.update({
+                  where: { id: mirrorMapping.mirrorLoanId },
+                  data: { status: 'CLOSED' }
+                });
+                console.log(`[PR Accounting] Mirror loan ${mirrorMapping.mirrorLoanId} CLOSED`);
+              }
             }
 
-            // ── Mirror company journal entry ─────────────────────
-            const { AccountingService } = await import('@/lib/accounting-service');
-            const accSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
-            await accSvc.initializeChartOfAccounts();
-            await accSvc.recordEMIPayment({
-              loanId:             mirrorMapping.mirrorLoanId!,
-              customerId:         paymentRequest.customerId,
-              paymentId:          (result as any).id as string,
-              totalAmount:        paidAmt,
-              principalComponent: accPaidPrincipal,
-              interestComponent:  accPaidInterest,
-              paymentDate:        new Date(),
-              paymentMode:        payMode,
-              createdById:        reviewedById,
-              reference: `PaymentReq#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`
-            });
-
-            console.log(`[PR Accounting] ✓ Mirror EMI #${emi.installmentNumber} synced & journal entry created in company ${mirrorMapping.mirrorCompanyId}`);
-
-            // ── Processing Fee on FIRST EMI ─────────────────────────
-            // When customer pays EMI #1, record processing fee in MIRROR company
-            if (emi.installmentNumber === 1 && pType !== 'INTEREST_ONLY') {
+            // ─────────────────────────────────────────────────────────────
+            // PROCESSING FEE on EMI #1 — exact copy of emi/pay/route.ts
+            //   Uses mirrorMapping.mirrorProcessingFee (= originalEMI - lastMirrorEMI)
+            //   Guards with processingFeeRecorded flag to prevent double-entry
+            // ─────────────────────────────────────────────────────────────
+            if (emi.installmentNumber === 1 && !mirrorMapping.processingFeeRecorded && (mirrorMapping.mirrorProcessingFee ?? 0) > 0) {
               try {
-                const mirrorLoan = await db.loanApplication.findUnique({
-                  where: { id: mirrorMapping.mirrorLoanId! },
-                  include: { sessionForm: true }
+                const procFee = mirrorMapping.mirrorProcessingFee!;
+
+                // 6a. CashBook credit in mirror company
+                const pfCb    = await getMirrorCashBook();
+                const pfBal   = pfCb.currentBalance + procFee;
+                await db.cashBook.update({ where: { id: pfCb.id }, data: { currentBalance: pfBal } });
+                await db.cashBookEntry.create({
+                  data: {
+                    cashBookId:    pfCb.id,
+                    entryType:     'CREDIT',
+                    amount:        procFee,
+                    balanceAfter:  pfBal,
+                    description:   `Processing Fee Income - PR#${paymentRequest.requestNumber} (EMI #1)`,
+                    referenceType: 'PROCESSING_FEE',
+                    referenceId:   loan.id,
+                    createdById:   reviewedById
+                  }
                 });
-                const processingFee = mirrorLoan?.sessionForm?.processingFee || 0;
-                if (processingFee > 0) {
-                  await accSvc.recordProcessingFee({
-                    loanId:         mirrorMapping.mirrorLoanId!,
-                    customerId:     paymentRequest.customerId,
-                    amount:         processingFee,
-                    collectionDate: new Date(),
-                    createdById:    reviewedById,
-                    paymentMode:    payMode,
-                    reference:      `PaymentReq#${paymentRequest.requestNumber} → Mirror Processing Fee`
-                  });
-                  console.log(`[PR Accounting] ✓ Processing fee ₹${processingFee} recorded for mirror loan (EMI #1)`);
-                }
+
+                // 6b. DR Cash in Hand (1101) → CR Processing Fee Income (4121)
+                await accSvc.createJournalEntry({
+                  entryDate:     new Date(),
+                  referenceType: 'PROCESSING_FEE_COLLECTION',
+                  referenceId:   `${loan.id}-MIR-PF-PR`,
+                  narration:     `Processing Fee Income - PR#${paymentRequest.requestNumber} (Mirror EMI #1)`,
+                  createdById:   reviewedById,
+                  lines: [
+                    { accountCode: AC.CASH_IN_HAND,           debitAmount: procFee, creditAmount: 0,        narration: 'Processing fee collected' },
+                    { accountCode: AC.PROCESSING_FEE_INCOME,  debitAmount: 0,       creditAmount: procFee,  narration: 'Processing fee income recognised' }
+                  ]
+                });
+
+                // 6c. Mark flag so we never double-record
+                await db.mirrorLoanMapping.update({
+                  where: { id: mirrorMapping.id },
+                  data: { processingFeeRecorded: true }
+                });
+                console.log(`[PR Accounting] ✓ Processing fee ₹${procFee} (mirrorProcessingFee) recorded for EMI #1`);
               } catch (pfErr) {
                 console.error('[PR Accounting] Processing fee error (non-blocking):', pfErr);
               }
             }
           }
+
+          // ============================================================
+          // PARTIAL_PAYMENT  ─ same logic as emi/pay/route.ts (lines 1127-1199)
+          // ============================================================
+          else if (pType === 'PARTIAL_PAYMENT' && mirrorEmi && mirrorEmi.paymentStatus !== 'PAID') {
+            const partialAmt         = paymentRequest.partialAmount || 0;
+            const mirrorMonthlyRate  = (mirrorMapping.mirrorInterestRate || 0) / 12 / 100;
+            const mirrorInterestFull = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
+            const ratio              = partialAmt / (emi.totalAmount || 1);
+            const mirrorPartialAmt   = Math.round((mirrorEmi.totalAmount || 0) * ratio * 100) / 100;
+            const mirrorPaidInterest = Math.min(mirrorPartialAmt, mirrorInterestFull);
+            const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorInterestFull);
+            const mirrorIsFullyPaid  = mirrorPartialAmt >= (mirrorEmi.totalAmount || 0) - 1;
+
+            // 1. Update mirror EMI
+            await db.eMISchedule.update({
+              where: { id: mirrorEmi.id },
+              data: {
+                paymentStatus:  mirrorIsFullyPaid ? 'PAID' : 'PARTIALLY_PAID',
+                paidAmount:     (mirrorEmi.paidAmount    || 0) + mirrorPartialAmt,
+                paidPrincipal:  (mirrorEmi.paidPrincipal || 0) + mirrorPaidPrincipal,
+                paidInterest:   (mirrorEmi.paidInterest  || 0) + mirrorPaidInterest,
+                paidDate:       new Date(),
+                paymentMode:    payMode,
+                isPartialPayment: !mirrorIsFullyPaid,
+                notes: `[MIRROR SYNC Partial] PR#${paymentRequest.requestNumber} (${Math.round(ratio * 100)}%)`
+              }
+            });
+
+            // 2. CashBook credit for mirror interest portion
+            if (mirrorPaidInterest > 0) {
+              const cb    = await getMirrorCashBook();
+              const newBal = cb.currentBalance + mirrorPaidInterest;
+              await db.cashBook.update({ where: { id: cb.id }, data: { currentBalance: newBal } });
+              await db.cashBookEntry.create({
+                data: {
+                  cashBookId:    cb.id,
+                  entryType:     'CREDIT',
+                  amount:        mirrorPaidInterest,
+                  balanceAfter:  newBal,
+                  description:   `MIRROR PARTIAL INTEREST - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
+                  referenceType: 'MIRROR_INTEREST_INCOME',
+                  referenceId:   paymentId,
+                  createdById:   reviewedById
+                }
+              });
+            }
+
+            // 3. Double-entry journal with mirror amounts
+            await accSvc.recordEMIPayment({
+              loanId:             mirrorMapping.mirrorLoanId,
+              customerId:         paymentRequest.customerId,
+              paymentId:          `${paymentId}-PARTIAL`,
+              totalAmount:        mirrorPartialAmt,
+              principalComponent: mirrorPaidPrincipal,
+              interestComponent:  mirrorPaidInterest,
+              paymentDate:        new Date(),
+              paymentMode:        payMode,
+              createdById:        reviewedById,
+              reference:          `PaymentReq#${paymentRequest.requestNumber} → Mirror Partial ${Math.round(ratio * 100)}%`
+            });
+            console.log(`[PR Accounting] ✓ PARTIAL mirror journal ₹${mirrorPartialAmt} in mirror company`);
+          }
+
+          // ============================================================
+          // INTEREST_ONLY  ─ same as emi/pay/route.ts interest-only section
+          // ============================================================
+          else if (pType === 'INTEREST_ONLY' && mirrorEmi) {
+            const mirrorMonthlyRate = (mirrorMapping.mirrorInterestRate || 0) / 12 / 100;
+            const mirrorInterest    = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
+
+            // 1. Update mirror EMI with interest-only status
+            await db.eMISchedule.update({
+              where: { id: mirrorEmi.id },
+              data: {
+                paymentStatus: 'INTEREST_ONLY_PAID',
+                paidAmount:    mirrorInterest,
+                paidPrincipal: 0,
+                paidInterest:  mirrorInterest,
+                paidDate:      new Date(),
+                paymentMode:   payMode,
+                notes:         `[MIRROR SYNC Interest-Only] PR#${paymentRequest.requestNumber}`
+              }
+            });
+
+            // 2. CashBook credit for mirror interest
+            if (mirrorInterest > 0) {
+              const cb    = await getMirrorCashBook();
+              const newBal = cb.currentBalance + mirrorInterest;
+              await db.cashBook.update({ where: { id: cb.id }, data: { currentBalance: newBal } });
+              await db.cashBookEntry.create({
+                data: {
+                  cashBookId:    cb.id,
+                  entryType:     'CREDIT',
+                  amount:        mirrorInterest,
+                  balanceAfter:  newBal,
+                  description:   `MIRROR INTEREST (Interest-Only) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
+                  referenceType: 'MIRROR_INTEREST_INCOME',
+                  referenceId:   paymentId,
+                  createdById:   reviewedById
+                }
+              });
+            }
+
+            // 3. Double-entry journal
+            await accSvc.recordEMIPayment({
+              loanId:             mirrorMapping.mirrorLoanId,
+              customerId:         paymentRequest.customerId,
+              paymentId:          `${paymentId}-IO`,
+              totalAmount:        mirrorInterest,
+              principalComponent: 0,
+              interestComponent:  mirrorInterest,
+              paymentDate:        new Date(),
+              paymentMode:        payMode,
+              createdById:        reviewedById,
+              reference:          `PaymentReq#${paymentRequest.requestNumber} → Mirror Interest-Only`
+            });
+            console.log(`[PR Accounting] ✓ INTEREST_ONLY mirror journal ₹${mirrorInterest} in mirror company`);
+          }
+
         } catch (accErr) {
           console.error('[PR Accounting] Error (non-blocking):', accErr);
         }
       });
+
 
       return NextResponse.json({ 
         success: true, 
