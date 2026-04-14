@@ -396,7 +396,18 @@ export default function OfflineLoanDetailPanel({
     setCreditType('COMPANY');
     setPaymentReference('');
     setRemainingPaymentDate('');
-    setPaymentRemarks(`Payment for ${selectedEmis.length} EMIs: #${selectedEmis.map(e => e.installmentNumber).join(', #')}`);
+    // FIX-49: Build descriptive remarks that distinguish advance (principal-only) from full EMI payments
+    const advanceEmis = selectedEmis.filter(e => isEmiAdvancePayment(e));
+    const fullEmis = selectedEmis.filter(e => !isEmiAdvancePayment(e));
+    let autoRemarks = '';
+    if (advanceEmis.length > 0 && fullEmis.length > 0) {
+      autoRemarks = `Full EMIs: #${fullEmis.map(e => e.installmentNumber).join(', #')} | Advance (Principal only): #${advanceEmis.map(e => e.installmentNumber).join(', #')}`;
+    } else if (advanceEmis.length > 0) {
+      autoRemarks = `ADVANCE PAYMENT (Principal only) for ${advanceEmis.length} EMI(s): #${advanceEmis.map(e => e.installmentNumber).join(', #')}`;
+    } else {
+      autoRemarks = `Payment for ${selectedEmis.length} EMI(s): #${selectedEmis.map(e => e.installmentNumber).join(', #')}`;
+    }
+    setPaymentRemarks(autoRemarks);
     setProofFile(null);
     setProofPreview(null);
     setPaymentDialogOpen(true);

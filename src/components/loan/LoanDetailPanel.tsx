@@ -38,6 +38,7 @@ import {
   FormSection
 } from './sections';
 import ReceiptSection from '@/components/receipt/ReceiptSection';
+import CloseLoanDialog from '@/components/shared/CloseLoanDialog'; // FIX-03
 
 interface LoanDetailPanelProps {
   loanId: string | null;
@@ -100,6 +101,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
   const [deletingLoan, setDeletingLoan] = useState(false);
+
+  // FIX-03: Close Loan (Foreclosure) state
+  const [showCloseLoanDialog, setShowCloseLoanDialog] = useState(false);
 
   // Start Loan State
   const [showStartLoanDialog, setShowStartLoanDialog] = useState(false);
@@ -751,6 +755,18 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 Start Loan
               </Button>
             )}
+            {/* FIX-03: Close Loan button — SA and Cashier on active loans */}
+            {(currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'CASHIER') &&
+             !isMirrorLoan && loanDetails &&
+             ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY'].includes(loanDetails.status) && (
+              <Button
+                size="sm"
+                className="bg-red-500/80 text-white hover:bg-red-600/90 border border-red-300/30"
+                onClick={() => setShowCloseLoanDialog(true)}
+              >
+                <Calculator className="h-4 w-4 mr-1" /> Close Loan
+              </Button>
+            )}
             {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
             {currentUserRole === 'SUPER_ADMIN' && !isMirrorLoan && loanDetails && (
               <Button
@@ -1114,6 +1130,25 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    {/* FIX-03: Close Loan (Foreclosure) Dialog */}
+    {loanDetails && showCloseLoanDialog && (
+      <CloseLoanDialog
+        open={showCloseLoanDialog}
+        onOpenChange={setShowCloseLoanDialog}
+        loanId={loanDetails.id}
+        userId={currentUserId}
+        companyId={loanDetails.company?.id}
+        onLoanClosed={() => {
+          setShowCloseLoanDialog(false);
+          fetchLoanDetails();
+          fetchEMISchedules(true);
+          if (onEMIPaid) onEMIPaid();
+          if (onPaymentSuccess) onPaymentSuccess();
+        }}
+      />
+    )}
   </>
   );
 }
+

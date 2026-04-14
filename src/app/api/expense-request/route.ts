@@ -2,26 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
 
-// Expense type → account code mapping
+// Expense type → account code mapping (must match DEFAULT_CHART_OF_ACCOUNTS in accounting-service.ts)
 const EXPENSE_ACCOUNT_CODES: Record<string, string> = {
-  SALARY: '4000',
-  OFFICE_RENT: '4100',
-  MARKETING: '4200',
-  COMMISSION: '4300',
-  SOFTWARE: '4400',
-  BANK_CHARGES: '4500',
-  UTILITIES: '4600',
-  TRAVEL: '4700',
-  MISCELLANEOUS: '4800',
-  OFFICE_SUPPLIES: '4800',
-  TELECOMMUNICATION: '4600',
-  PROFESSIONAL_FEES: '4800',
-  INSURANCE: '4800',
-  TAX_PAID: '4800',
-  MAINTENANCE: '4800',
-  CONVEYANCE: '4700',
-  ADVERTISEMENT: '4200',
+  SALARY:            '5101', // Salaries & Wages
+  OFFICE_RENT:       '5102', // Rent Expense
+  UTILITIES:         '5103', // Electricity & Utilities
+  TELECOMMUNICATION: '5103', // Utilities
+  OFFICE_SUPPLIES:   '5104', // Office Supplies
+  TRAVEL:            '5106', // Travel & Conveyance
+  CONVEYANCE:        '5106', // Travel & Conveyance
+  MARKETING:         '5107', // Marketing Expense
+  ADVERTISEMENT:     '5107', // Marketing Expense
+  BANK_CHARGES:      '5203', // Bank Charges
+  COMMISSION:        '5202', // Commission Paid
+  SOFTWARE:          '5400', // Miscellaneous Expense
+  PROFESSIONAL_FEES: '5400', // Miscellaneous Expense
+  INSURANCE:         '5400', // Miscellaneous Expense
+  TAX_PAID:          '5400', // Miscellaneous Expense
+  MAINTENANCE:       '5100', // Operating Expenses
+  MISCELLANEOUS:     '5400', // Miscellaneous Expense
 };
+
 
 // Helper: post accounting journal + deduct from bank/cash
 async function postToAccounting(tx: any, expenseId: string, expense: any, adminId: string, bankAccount: any | null, paymentSource: string) {

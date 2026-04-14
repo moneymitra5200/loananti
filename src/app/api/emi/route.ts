@@ -498,6 +498,11 @@ export async function PUT(request: NextRequest) {
       // Start transaction with extended timeout for complex operations
       const txResult = await db.$transaction(async (tx) => {
         // Prepare update data for EMI
+        // FIX-26: Calculate paidPrincipal/paidInterest using actual EMI breakdown
+        const emiPrincipal = emi.principalAmount || 0;
+        const emiInterest = emi.interestAmount || 0;
+        const emiTotal = emi.totalAmount || (emiPrincipal + emiInterest) || 1;
+
         const updateData: Record<string, unknown> = {
           paymentStatus: newPaymentStatus,
           paidAmount: updatedPaidAmount,
@@ -512,6 +517,16 @@ export async function PUT(request: NextRequest) {
             waivedAmount: penaltyWaiver
           })
         };
+
+        // FIX-26: Set paidPrincipal + paidInterest proportionally for FULL payments
+        if (normalizedPaymentType !== 'INTEREST_ONLY') {
+          const principalRatio = emiPrincipal / emiTotal;
+          const paidPrincipal = Math.round(paidAmount * principalRatio * 100) / 100;
+          const paidInterest = Math.round((paidAmount - paidPrincipal) * 100) / 100;
+          updateData.paidPrincipal = (emi.paidPrincipal || 0) + paidPrincipal;
+          updateData.paidInterest  = (emi.paidInterest  || 0) + paidInterest;
+        }
+
 
         // Add INTEREST_ONLY specific fields
         if (normalizedPaymentType === 'INTEREST_ONLY') {

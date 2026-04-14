@@ -104,7 +104,9 @@ export function formatDate(date: Date | string): string {
   });
 }
 
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number | undefined | null): string {
+  // FIX-46: Guard against undefined/null to prevent NaN display
+  if (amount === undefined || amount === null || isNaN(amount)) return '₹0';
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',

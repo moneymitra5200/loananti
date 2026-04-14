@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import ExpenseRequestPanel, { EXPENSE_HEADS } from '@/components/expense/ExpenseRequestPanel';
 
+interface Company { id: string; name: string; code: string; }
+
 interface ExpenseRecord {
   id: string;
   expenseNumber: string;
@@ -49,7 +51,7 @@ function headLabel(v: string) {
   return EXPENSE_HEADS.find(h => h.value === v)?.label || v;
 }
 
-export default function SuperAdminExpenseSection({ adminId, companyId }: Props) {
+export default function SuperAdminExpenseSection({ adminId, companyId: propCompanyId }: Props) {
   const [requests, setRequests] = useState<ExpenseRecord[]>([]);
   const [history, setHistory] = useState<ExpenseRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,6 +61,25 @@ export default function SuperAdminExpenseSection({ adminId, companyId }: Props) 
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Company selector for SA direct expenses
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(propCompanyId || '');
+
+  // Load companies list once
+  useEffect(() => {
+    fetch('/api/company')
+      .then(r => r.json())
+      .then(d => {
+        const list: Company[] = d.companies || d.data || [];
+        setCompanies(list);
+        if (!selectedCompanyId && list.length > 0) setSelectedCompanyId(list[0].id);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Use selectedCompanyId for all expense operations
+  const activeCompanyId = selectedCompanyId || propCompanyId;
+
   const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
   // Fetch pending requests from cashiers
@@ -67,8 +88,8 @@ export default function SuperAdminExpenseSection({ adminId, companyId }: Props) 
       setLoading(true);
       try {
         const [pendingRes, historyRes] = await Promise.all([
-          fetch(`/api/expense-request?role=SUPER_ADMIN&status=PENDING${companyId ? `&companyId=${companyId}` : ''}`),
-          fetch(`/api/expense-request?status=ALL${companyId ? `&companyId=${companyId}` : ''}&limit=200`),
+          fetch(`/api/expense-request?role=SUPER_ADMIN&status=PENDING${activeCompanyId ? `&companyId=${activeCompanyId}` : ''}`),
+          fetch(`/api/expense-request?status=ALL${activeCompanyId ? `&companyId=${activeCompanyId}` : ''}&limit=200`),
         ]);
         const [pendingData, historyData] = await Promise.all([pendingRes.json(), historyRes.json()]);
         setRequests(pendingData.requests || []);
@@ -78,7 +99,7 @@ export default function SuperAdminExpenseSection({ adminId, companyId }: Props) 
       finally { setLoading(false); }
     };
     fetchData();
-  }, [refreshKey, companyId]);
+  }, [refreshKey, activeCompanyId]);
 
   const handleAction = async (id: string, action: 'APPROVE' | 'REJECT') => {
     setActionLoading(id + action);
@@ -105,26 +126,45 @@ export default function SuperAdminExpenseSection({ adminId, companyId }: Props) 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <TrendingDown className="h-6 w-6 text-rose-600" /> Expense Management
-          </h2>
-          <p className="text-gray-500 text-sm mt-0.5">Manage expense requests from cashiers · Add direct expenses</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={refresh} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <ExpenseRequestPanel
-            role="SUPER_ADMIN"
-            userId={adminId}
-            companyId={companyId}
-            triggerLabel="Add Direct Expense"
-            onSuccess={refresh}
-          />
-        </div>
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <TrendingDown className="h-6 w-6 text-rose-600" /> Expense Management
+        </h2>
+        <p className="text-gray-500 text-sm mt-0.5">Manage expense requests from cashiers · Add direct expenses</p>
       </div>
+
+      {/* Company Selector — required for SA direct expenses */}
+
+      {companies.length > 0 && (
+        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-2xl">
+          <Building2 className="h-5 w-5 text-blue-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-semibold text-blue-700 mb-1">Select Company for Expense</p>
+            <select
+              value={selectedCompanyId}
+              onChange={e => setSelectedCompanyId(e.target.value)}
+              className="w-full border border-blue-200 rounded-xl px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-blue-400 focus:outline-none"
+            >
+              <option value="">-- All Companies (view only) --</option>
+              {companies.map(c => (
+                <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={refresh} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <ExpenseRequestPanel
+              role="SUPER_ADMIN"
+              userId={adminId}
+              companyId={activeCompanyId}
+              triggerLabel="Add Direct Expense"
+              onSuccess={refresh}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-4">
