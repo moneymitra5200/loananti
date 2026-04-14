@@ -1,7 +1,6 @@
 'use client';
 
 import { memo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Clock, Eye } from 'lucide-react';
@@ -34,59 +33,54 @@ const getStatusBadge = (status: string) => {
 
 function InProgressSectionComponent({ loans, onView }: InProgressSectionProps) {
   return (
-    <Card className="bg-white shadow-sm border-0">
-      <CardHeader>
-        <CardTitle>In Progress Applications</CardTitle>
-        <CardDescription>Applications currently moving through the workflow</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loans.length === 0 ? (
-          <div className="text-center py-12 text-gray-500">
-            <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-            <p>No applications in progress</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {loans.map((loan, index) => (
-              <motion.div
-                key={loan.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.02 }}
-                className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-all bg-white"
-              >
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="h-10 w-10 bg-gradient-to-br from-amber-400 to-orange-500">
-                      <AvatarFallback className="bg-transparent text-white font-semibold text-sm">
-                        {loan.customer?.name?.charAt(0) || 'U'}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
-                        {getStatusBadge(loan.status)}
-                      </div>
-                      <p className="text-sm text-gray-500">{loan.customer?.name}</p>
-                      {loan.company && <p className="text-xs text-gray-400">{loan.company.name}</p>}
+    <div className="w-full">
+      {loans.length === 0 ? (
+        <div className="text-center py-12 text-gray-500">
+          <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+          <p>No applications in progress</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {loans.map((loan, index) => (
+            <motion.div
+              key={loan.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.02 }}
+              className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-all bg-white"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <Avatar className="h-10 w-10 bg-gradient-to-br from-amber-400 to-orange-500">
+                    <AvatarFallback className="bg-transparent text-white font-semibold text-sm">
+                      {loan.customer?.name?.charAt(0) || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
+                      {getStatusBadge(loan.status)}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="font-bold text-gray-900">{formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}</p>
-                    </div>
-                    <Badge variant="outline" className="cursor-pointer" onClick={() => onView(loan)}>
-                      <Eye className="h-3 w-3 mr-1" />View
-                    </Badge>
+                    <p className="text-sm text-gray-500">{loan.customer?.name}</p>
+                    {loan.company && <p className="text-xs text-gray-400">{loan.company.name}</p>}
                   </div>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="font-bold text-gray-900">{formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}</p>
+                  </div>
+                  <Badge variant="outline" className="cursor-pointer" onClick={() => onView(loan)}>
+                    <Eye className="h-3 w-3 mr-1" />View
+                  </Badge>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
 export default memo(InProgressSectionComponent);
+

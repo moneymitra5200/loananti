@@ -1109,13 +1109,40 @@ export async function PUT(request: NextRequest) {
                 paymentMode: actualPaymentMode,
               });
               console.log(`[EMI API] ✅ Processing fee ₹${processingFeeAmount} journal entry created (EMI #1)`);
+
+              // ── Also update the physical Cashbook / BankAccount passbook ──
+              // (journal entry alone doesn't update the passbook balances)
+              const pfDesc = `Processing Fee Collection - ${emi.loanApplication?.applicationNo || loanId}`;
+              const pfRef = `PF-${loanId}`;
+              if (actualPaymentMode === 'CASH') {
+                // Cash → CashBook
+                let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
+                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+                const newCashBal = cashBook.currentBalance + processingFeeAmount;
+                await db.cashBookEntry.create({
+                  data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: processingFeeAmount, balanceAfter: newCashBal, description: pfDesc, referenceType: 'PROCESSING_FEE', referenceId: pfRef, createdById: userId, entryDate: new Date() }
+                });
+                await db.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBal, lastUpdatedById: userId, lastUpdatedAt: new Date() } });
+                console.log(`[EMI API] ✅ Processing fee CashBook entry: +₹${processingFeeAmount}`);
+              } else {
+                // Online/Cheque → BankAccount
+                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: capturedCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
+                if (bankAcct) {
+                  const newBankBal = bankAcct.currentBalance + processingFeeAmount;
+                  await db.bankTransaction.create({
+                    data: { bankAccountId: bankAcct.id, transactionType: 'CREDIT', amount: processingFeeAmount, balanceAfter: newBankBal, description: pfDesc, referenceType: 'PROCESSING_FEE', referenceId: pfRef, createdById: userId, transactionDate: new Date() }
+                  });
+                  await db.bankAccount.update({ where: { id: bankAcct.id }, data: { currentBalance: newBankBal } });
+                  console.log(`[EMI API] ✅ Processing fee BankTransaction: +₹${processingFeeAmount} → ${bankAcct.bankName}`);
+                }
+              }
             } else {
               console.log(`[EMI API] ℹ️ Processing fee entry already exists for loan ${loanId}, skipping`);
             }
           } catch (pfError) {
             console.error('[EMI API] ⚠️ Processing fee journal entry failed:', pfError);
           }
-        } // end if (capturedPaymentId && capturedCompanyId)
+        } // end processing fee block
 
         // ── BANK / CASHBOOK PASSBOOK UPDATE ──────────────────────────────────────
         // Update the physical passbook records so EMI payments show up in

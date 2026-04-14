@@ -542,14 +542,28 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                   {hasMirrorLoan && mirrorCompany 
                     ? (emiPaymentForm.paymentMode === 'ONLINE' 
                       ? `${mirrorCompany.name}'s Bank Account` 
-                      : `${mirrorCompany.name}'s Cashbook`)
+                      : emiPaymentForm.paymentMode === 'SPLIT'
+                        ? `${mirrorCompany.name}'s Cash + Bank`
+                        : `${mirrorCompany.name}'s Cashbook`)
                     : (emiPaymentForm.paymentMode === 'ONLINE' 
                       ? "Loan Company's Bank Account" 
-                      : "Loan Company's Cashbook")}
+                      : emiPaymentForm.paymentMode === 'SPLIT'
+                        ? "Loan Company's Cash + Bank"
+                        : "Loan Company's Cashbook")}
                 </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  +₹{formatCurrency(emiPaymentForm.amount)} will be added to Company Credit
-                </p>
+                {emiPaymentForm.paymentMode === 'CASH' ? (
+                  <p className="text-xs text-blue-600 mt-1">
+                    +₹{formatCurrency(emiPaymentForm.amount)} will be added to Company Credit
+                  </p>
+                ) : emiPaymentForm.paymentMode === 'ONLINE' ? (
+                  <p className="text-xs text-gray-500 mt-1">
+                    ℹ️ Online payment — money goes to Bank. No credit balance change.
+                  </p>
+                ) : emiPaymentForm.paymentMode === 'SPLIT' ? (
+                  <p className="text-xs text-orange-600 mt-1">
+                    +₹{formatCurrency(emiPaymentForm.splitCashAmount || 0)} credit (cash portion only)
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
