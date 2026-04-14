@@ -79,7 +79,9 @@ export async function GET(request: NextRequest) {
           emis: {
             orderBy: { installmentNumber: 'asc' }
           },
-          company: { select: { id: true, name: true, code: true } }
+          company: { select: { id: true, name: true, code: true } },
+          goldLoanDetail: true,
+          vehicleLoanDetail: true
         }
       });
 

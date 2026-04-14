@@ -15,7 +15,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
-  Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark
+  Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
+  Printer, Trophy, Car, Weight, Scale
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -117,6 +118,19 @@ interface LoanDetail {
   mirrorCompanyCode?: string | null; // Mirror company code for UI display
   mirrorInterestRate?: number | null; // Mirror interest rate
   applicationLocation?: string | null; // Location captured during application
+  goldLoanDetail?: {
+    id: string; grossWeight: number; netWeight: number; goldRate: number;
+    valuationAmount: number; loanAmount: number; ownerName?: string;
+    goldItemPhoto?: string; karat?: number; numberOfItems?: number;
+    itemDescription?: string; verificationDate?: string; verifiedBy?: string; remarks?: string;
+  } | null;
+  vehicleLoanDetail?: {
+    id: string; vehicleType: string; vehicleNumber?: string; manufacturer?: string;
+    model?: string; yearOfManufacture?: number; valuationAmount: number; loanAmount: number;
+    ownerName?: string; rcBookPhoto?: string; vehiclePhoto?: string;
+    chassisNumber?: string; engineNumber?: string; fuelType?: string; color?: string;
+    verificationDate?: string; verifiedBy?: string; remarks?: string;
+  } | null;
 }
 
 interface EMI {
@@ -1058,10 +1072,139 @@ export default function OfflineLoanDetailPanel({
 
                     {/* Documents Tab */}
                     <TabsContent value="documents" className="m-0">
+                      <div className="space-y-4">
+
+                      {/* ── GOLD LOAN RECEIPT ── */}
+                      {(loan.loanType === 'GOLD' || loan.loanType?.includes('GOLD')) && loan.goldLoanDetail && (() => {
+                        const g = loan.goldLoanDetail!;
+                        const openGoldReceipt = () => {
+                          const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+                          const photoHtml = g.goldItemPhoto ? `<div style="text-align:center;margin:20px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">GOLD ITEM PHOTOGRAPH</p><img src="${g.goldItemPhoto}" style="max-width:300px;max-height:300px;object-fit:contain;border:2px solid #d97706;border-radius:8px;padding:4px" alt="Gold Item"/></div>` : '';
+                          const w = window.open('', '_blank');
+                          if (!w) return;
+                          w.document.write(`<!DOCTYPE html><html><head><title>Gold Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#b45309,#d97706);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#b45309;text-transform:uppercase;border-bottom:2px solid #fde68a;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.f{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f.bl{background:#eff6ff;border-color:#93c5fd}.f label{font-size:11px;color:#92400e;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:140px}.footer{background:#fffbeb;border-top:2px dashed #fde68a;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🏅 GOLD LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="g2"><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="ir"><span>Address</span><strong>${loan.customerAddress || 'N/A'}</strong></div></div><div class="st">Loan Details</div><div class="grid"><div class="f bl"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f bl"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Gold Collateral</div><div class="grid"><div class="f"><label>Gross Weight</label><p>${g.grossWeight}g</p></div><div class="f"><label>Net Weight</label><p>${g.netWeight}g</p></div><div class="f"><label>Purity</label><p>${g.karat || 22}K</p></div><div class="f"><label>Gold Rate/g</label><p>₹${g.goldRate.toLocaleString('en-IN')}</p></div><div class="f gr"><label>Valuation</label><p>₹${g.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Loan Approved</label><p>₹${g.loanAmount.toLocaleString('en-IN')}</p></div></div>${g.ownerName ? `<div class="st">Additional</div><div><div class="ir"><span>Gold Owner</span><strong>${g.ownerName}</strong></div>${g.numberOfItems ? `<div class="ir"><span>No. of Items</span><strong>${g.numberOfItems}</strong></div>` : ''}${g.itemDescription ? `<div class="ir"><span>Description</span><strong>${g.itemDescription}</strong></div>` : ''}${g.remarks ? `<div class="ir"><span>Remarks</span><strong>${g.remarks}</strong></div>` : ''}</div>` : ''}${photoHtml}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#92400e"><p style="font-weight:700">GOLD HELD AS COLLATERAL</p><p>To be returned upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#b45309;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
+                          w.document.close();
+                        };
+                        const openDocInner = (url: string) => { const w2 = window.open('', '_blank'); if (w2) { w2.document.write(url.startsWith('data:application/pdf') ? `<html><body style="margin:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>` : `<html><head><title>Gold Item</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`); w2.document.close(); } };
+                        return (
+                          <Card key="gold" className="border-0 shadow-sm border-l-4 border-l-amber-500">
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-sm flex items-center gap-2">
+                                <Trophy className="h-4 w-4 text-amber-600" /> Gold Loan Receipt
+                                <button type="button" onClick={openGoldReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700 transition-colors font-medium">
+                                  <Printer className="h-3 w-3" /> View Full Receipt
+                                </button>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gross Weight</div><div className="font-bold">{g.grossWeight}g</div></div>
+                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Net Weight</div><div className="font-bold">{g.netWeight}g</div></div>
+                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gold Rate/g</div><div className="font-bold">₹{g.goldRate}</div></div>
+                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Purity</div><div className="font-bold">{g.karat || 22}K</div></div>
+                                <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{g.valuationAmount.toLocaleString('en-IN')}</div></div>
+                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{g.loanAmount.toLocaleString('en-IN')}</div></div>
+                              </div>
+                              {g.goldItemPhoto && (
+                                <div className="mt-3 flex items-start gap-3 p-3 border border-amber-200 rounded-lg bg-amber-50/40">
+                                  <button type="button" onClick={() => openDocInner(g.goldItemPhoto!)} className="shrink-0">
+                                    <img src={g.goldItemPhoto} alt="Gold Item" className="w-20 h-20 object-cover rounded-lg border-2 border-amber-300 hover:opacity-90 transition-opacity" />
+                                  </button>
+                                  <div className="flex flex-col gap-2">
+                                    <p className="text-xs font-medium text-gray-700">Gold Item Photo</p>
+                                    <button type="button" onClick={() => openDocInner(g.goldItemPhoto!)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-700 text-xs rounded-lg hover:bg-amber-200">
+                                      <Eye className="h-3 w-3" /> View Photo
+                                    </button>
+                                    <button type="button" onClick={openGoldReceipt} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700">
+                                      <Printer className="h-3 w-3" /> Print Receipt
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                              {g.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{g.ownerName}</strong></p>}
+                              {g.remarks && <p className="mt-1 text-xs text-gray-400 italic">{g.remarks}</p>}
+                            </CardContent>
+                          </Card>
+                        );
+                      })()}
+
+                      {/* ── VEHICLE LOAN RECEIPT ── */}
+                      {(loan.loanType === 'VEHICLE' || loan.loanType?.includes('VEHICLE')) && loan.vehicleLoanDetail && (() => {
+                        const v = loan.vehicleLoanDetail!;
+                        const openVehicleReceipt = () => {
+                          const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+                          const vPhotoHtml = v.vehiclePhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">VEHICLE PHOTOGRAPH</p><img src="${v.vehiclePhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #3b82f6;border-radius:8px;padding:4px" alt="Vehicle"/></div>` : '';
+                          const rcPhotoHtml = v.rcBookPhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">RC BOOK</p><img src="${v.rcBookPhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #10b981;border-radius:8px;padding:4px" alt="RC Book"/></div>` : '';
+                          const w = window.open('', '_blank');
+                          if (!w) return;
+                          w.document.write(`<!DOCTYPE html><html><head><title>Vehicle Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#1e40af;text-transform:uppercase;border-bottom:2px solid #bfdbfe;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.f{background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f label{font-size:11px;color:#1e40af;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:160px}.footer{background:#eff6ff;border-top:2px dashed #93c5fd;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🚗 VEHICLE LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="st">Loan Details</div><div class="grid"><div class="f"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Vehicle Details</div><div class="grid"><div class="f"><label>Vehicle Type</label><p>${v.vehicleType}</p></div><div class="f"><label>Reg. Number</label><p>${v.vehicleNumber || 'N/A'}</p></div><div class="f"><label>Manufacturer</label><p>${v.manufacturer || 'N/A'}</p></div><div class="f"><label>Model</label><p>${v.model || 'N/A'}</p></div><div class="f"><label>Year</label><p>${v.yearOfManufacture || 'N/A'}</p></div>${v.fuelType ? `<div class="f"><label>Fuel Type</label><p>${v.fuelType}</p></div>` : ''}<div class="f gr"><label>Valuation</label><p>₹${v.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Approved Loan</label><p>₹${v.loanAmount.toLocaleString('en-IN')}</p></div></div>${v.chassisNumber || v.engineNumber || v.ownerName ? `<div class="st">ID Numbers</div><div>${v.ownerName ? `<div class="ir"><span>Registered Owner</span><strong>${v.ownerName}</strong></div>` : ''}${v.chassisNumber ? `<div class="ir"><span>Chassis No</span><strong>${v.chassisNumber}</strong></div>` : ''}${v.engineNumber ? `<div class="ir"><span>Engine No</span><strong>${v.engineNumber}</strong></div>` : ''}</div>` : ''}${vPhotoHtml || rcPhotoHtml ? `<div class="st">Photos</div><div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap">${vPhotoHtml}${rcPhotoHtml}</div>` : ''}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#1e40af"><p style="font-weight:700">VEHICLE HYPOTHECATED TO LENDER</p><p>To be released upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
+                          w.document.close();
+                        };
+                        const openDocInner = (url: string) => { const w2 = window.open('', '_blank'); if (w2) { w2.document.write(`<html><head><title>Vehicle</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`); w2.document.close(); } };
+                        return (
+                          <Card key="vehicle" className="border-0 shadow-sm border-l-4 border-l-blue-500">
+                            <CardHeader className="pb-2">
+                              <CardTitle className="text-sm flex items-center gap-2">
+                                <Car className="h-4 w-4 text-blue-600" /> Vehicle Loan Receipt
+                                <button type="button" onClick={openVehicleReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                  <Printer className="h-3 w-3" /> View Full Receipt
+                                </button>
+                              </CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Vehicle Type</div><div className="font-bold">{v.vehicleType}</div></div>
+                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Reg. Number</div><div className="font-bold">{v.vehicleNumber || 'N/A'}</div></div>
+                                <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Manufacturer</div><div className="font-bold">{v.manufacturer || 'N/A'}</div></div>
+                                <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Model</div><div className="font-bold">{v.model || 'N/A'}</div></div>
+                                <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{v.valuationAmount.toLocaleString('en-IN')}</div></div>
+                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{v.loanAmount.toLocaleString('en-IN')}</div></div>
+                              </div>
+                              {(v.vehiclePhoto || v.rcBookPhoto) && (
+                                <div className="mt-3 flex flex-wrap gap-3">
+                                  {v.vehiclePhoto && (
+                                    <div className="flex items-start gap-2 p-2.5 border border-blue-200 rounded-lg bg-blue-50/40">
+                                      <button type="button" onClick={() => openDocInner(v.vehiclePhoto!)} className="shrink-0">
+                                        <img src={v.vehiclePhoto} alt="Vehicle" className="w-20 h-20 object-cover rounded-lg border-2 border-blue-300 hover:opacity-90 transition-opacity" />
+                                      </button>
+                                      <div className="flex flex-col gap-1.5">
+                                        <p className="text-xs font-medium text-gray-700">Vehicle Photo</p>
+                                        <button type="button" onClick={() => openDocInner(v.vehiclePhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg hover:bg-blue-200">
+                                          <Eye className="h-3 w-3" /> View
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {v.rcBookPhoto && (
+                                    <div className="flex items-start gap-2 p-2.5 border border-emerald-200 rounded-lg bg-emerald-50/40">
+                                      <button type="button" onClick={() => openDocInner(v.rcBookPhoto!)} className="shrink-0">
+                                        <img src={v.rcBookPhoto} alt="RC Book" className="w-20 h-20 object-cover rounded-lg border-2 border-emerald-300 hover:opacity-90 transition-opacity" />
+                                      </button>
+                                      <div className="flex flex-col gap-1.5">
+                                        <p className="text-xs font-medium text-gray-700">RC Book</p>
+                                        <button type="button" onClick={() => openDocInner(v.rcBookPhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-lg hover:bg-emerald-200">
+                                          <Eye className="h-3 w-3" /> View
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <button type="button" onClick={openVehicleReceipt} className="self-center inline-flex items-center gap-1 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
+                                    <Printer className="h-3 w-3" /> Print Full Receipt
+                                  </button>
+                                </div>
+                              )}
+                              {v.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{v.ownerName}</strong></p>}
+                              {v.remarks && <p className="mt-1 text-xs text-gray-400 italic">{v.remarks}</p>}
+                            </CardContent>
+                          </Card>
+                        );
+                      })()}
+
+                      {/* ── KYC Documents ── */}
                       <Card>
                         <CardHeader className="pb-2">
                           <CardTitle className="text-sm flex items-center gap-2">
-                            <FileText className="h-4 w-4" /> Documents
+                            <FileText className="h-4 w-4" /> KYC Documents
                             <span className="ml-auto text-xs font-normal text-gray-500">
                               {[loan.panCardDoc, loan.aadhaarFrontDoc, loan.aadhaarBackDoc, loan.incomeProofDoc,
                                 loan.addressProofDoc, loan.photoDoc, loan.electionCardDoc, loan.housePhotoDoc,
@@ -1087,44 +1230,26 @@ export default function OfflineLoanDetailPanel({
                               const isPdf = doc.url?.includes('application/pdf') || doc.url?.toLowerCase().endsWith('.pdf');
                                 const isImage = doc.url && !isPdf;
                                 const openDoc = (url: string) => {
-                                  if (url.startsWith('data:')) {
-                                    const isPdf = url.startsWith('data:application/pdf');
-                                    const w = window.open('', '_blank');
-                                    if (w) {
-                                      if (isPdf) {
-                                        w.document.write(`<html><body style="margin:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
-                                      } else {
-                                        w.document.write(`<html><head><title>Document</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`);
-                                      }
-                                      w.document.close();
-                                    }
+                                  const w = window.open('', '_blank');
+                                  if (!w) return;
+                                  if (url.startsWith('data:application/pdf')) {
+                                    w.document.write(`<html><body style="margin:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
                                   } else {
-                                    window.open(url, '_blank');
+                                    w.document.write(`<html><head><title>${doc.label}</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`);
                                   }
+                                  w.document.close();
                                 };
                                 return (
                                 <div key={idx} className={`rounded-lg border overflow-hidden ${doc.url ? 'border-green-200' : 'border-dashed border-gray-300'}`}>
-                                  {/* Thumbnail area */}
                                   {isImage ? (
                                     <button type="button" onClick={() => openDoc(doc.url!)} className="block w-full bg-gray-100 hover:opacity-90 transition-opacity cursor-pointer">
-                                      <img
-                                        src={doc.url!}
-                                        alt={doc.label}
-                                        className="w-full h-28 object-cover"
-                                        onError={(e) => {
-                                          const target = e.target as HTMLImageElement;
-                                          target.style.display = 'none';
-                                          target.nextElementSibling?.classList.remove('hidden');
-                                        }}
-                                      />
-                                      <div className="hidden w-full h-28 flex items-center justify-center bg-gray-50">
-                                        <FileText className="h-8 w-8 text-gray-400" />
-                                      </div>
-                                      </button>
+                                      <img src={doc.url!} alt={doc.label} className="w-full h-28 object-cover"
+                                        onError={(e) => { const t = e.target as HTMLImageElement; t.style.display='none'; t.nextElementSibling?.classList.remove('hidden'); }} />
+                                      <div className="hidden w-full h-28 flex items-center justify-center bg-gray-50"><FileText className="h-8 w-8 text-gray-400" /></div>
+                                    </button>
                                   ) : isPdf ? (
                                     <div className="w-full h-28 flex flex-col items-center justify-center bg-red-50 gap-1">
-                                      <FileText className="h-8 w-8 text-red-400" />
-                                      <span className="text-xs text-red-500 font-medium">PDF</span>
+                                      <FileText className="h-8 w-8 text-red-400" /><span className="text-xs text-red-500 font-medium">PDF</span>
                                     </div>
                                   ) : (
                                     <div className="w-full h-28 flex items-center justify-center bg-gray-50">
@@ -1134,15 +1259,10 @@ export default function OfflineLoanDetailPanel({
                                       </div>
                                     </div>
                                   )}
-                                  {/* Label + action row */}
                                   <div className={`flex items-center justify-between px-2 py-1.5 ${doc.url ? 'bg-green-50' : 'bg-gray-50'}`}>
                                     <p className="text-xs font-medium text-gray-700 truncate">{doc.label}</p>
                                     {doc.url ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => openDoc(doc.url!)}
-                                        className="text-xs text-blue-600 hover:underline flex items-center gap-1 shrink-0 ml-1"
-                                      >
+                                      <button type="button" onClick={() => openDoc(doc.url!)} className="text-xs text-blue-600 hover:underline flex items-center gap-1 shrink-0 ml-1">
                                         <Eye className="h-3 w-3" /> View
                                       </button>
                                     ) : (
@@ -1155,6 +1275,7 @@ export default function OfflineLoanDetailPanel({
                           </div>
                         </CardContent>
                       </Card>
+                      </div>
                     </TabsContent>
 
                     {/* EMI Tab */}
