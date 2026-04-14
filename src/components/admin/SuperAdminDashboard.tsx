@@ -70,6 +70,7 @@ const FinalTab = lazy(() => import('./modules/FinalTab'));
 const SimpleTabs = lazy(() => import('./modules/SimpleTabs'));
 const WorkflowValidatorDashboard = lazy(() => import('./modules/WorkflowValidatorDashboard'));
 const ReceiptTemplateSection = lazy(() => import('@/components/receipt/ReceiptTemplateSection'));
+const SuperAdminExpenseSection = lazy(() => import('@/components/expense/SuperAdminExpenseSection'));
 
 // Eager load components used in dialogs
 import SystemResetDialog, { ResetOptions } from './modules/SystemResetDialog';
@@ -1656,6 +1657,16 @@ export default function SuperAdminDashboard() {
         return (
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}>
             <ReceiptTemplateSection userId={user?.id || ''} userRole={user?.role || 'SUPER_ADMIN'} />
+          </Suspense>
+        );
+
+      case 'expense':
+        return (
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-rose-600" /></div>}>
+            <SuperAdminExpenseSection
+              adminId={user?.id || ''}
+              companyId={undefined}
+            />
           </Suspense>
         );
 

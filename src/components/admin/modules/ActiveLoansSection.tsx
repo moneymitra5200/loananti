@@ -15,6 +15,7 @@ import {
   Settings, ToggleLeft, ToggleRight, Info
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
+import { openDoc } from '@/utils/openDoc';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from '@/hooks/use-toast';
 import { getEMIDueStatus, getEMIRowClass, getEMIBadgeConfig } from '@/utils/emi-due-utils';
@@ -1076,61 +1077,61 @@ export function ActiveLoansSection({
                               
                               {/* Documents Tab */}
                               <TabsContent value="documents">
-                                <h5 className="font-medium text-gray-700 mb-3">Documents & Signature</h5>
-                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <h5 className="font-medium text-gray-700 mb-3">Documents &amp; Signature</h5>
+                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                   {loan.panCardDoc && (
-                                    <a href={loan.panCardDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.panCardDoc!)} className="p-3 bg-blue-50 rounded-lg border border-blue-200 hover:bg-blue-100 transition text-left">
                                       <FileText className="h-5 w-5 text-blue-600 mb-1" />
                                       <p className="text-xs font-medium text-blue-700">PAN Card</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.aadhaarFrontDoc && (
-                                    <a href={loan.aadhaarFrontDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.aadhaarFrontDoc!)} className="p-3 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition text-left">
                                       <FileText className="h-5 w-5 text-green-600 mb-1" />
                                       <p className="text-xs font-medium text-green-700">Aadhaar Front</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.aadhaarBackDoc && (
-                                    <a href={loan.aadhaarBackDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.aadhaarBackDoc!)} className="p-3 bg-green-50 rounded-lg border border-green-200 hover:bg-green-100 transition text-left">
                                       <FileText className="h-5 w-5 text-green-600 mb-1" />
                                       <p className="text-xs font-medium text-green-700">Aadhaar Back</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.photoDoc && (
-                                    <a href={loan.photoDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-purple-50 rounded-lg border border-purple-200 hover:bg-purple-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.photoDoc!)} className="p-3 bg-purple-50 rounded-lg border border-purple-200 hover:bg-purple-100 transition text-left">
                                       <FileText className="h-5 w-5 text-purple-600 mb-1" />
                                       <p className="text-xs font-medium text-purple-700">Photo</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.incomeProofDoc && (
-                                    <a href={loan.incomeProofDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-amber-50 rounded-lg border border-amber-200 hover:bg-amber-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.incomeProofDoc!)} className="p-3 bg-amber-50 rounded-lg border border-amber-200 hover:bg-amber-100 transition text-left">
                                       <FileText className="h-5 w-5 text-amber-600 mb-1" />
                                       <p className="text-xs font-medium text-amber-700">Income Proof</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.addressProofDoc && (
-                                    <a href={loan.addressProofDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-cyan-50 rounded-lg border border-cyan-200 hover:bg-cyan-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.addressProofDoc!)} className="p-3 bg-cyan-50 rounded-lg border border-cyan-200 hover:bg-cyan-100 transition text-left">
                                       <FileText className="h-5 w-5 text-cyan-600 mb-1" />
                                       <p className="text-xs font-medium text-cyan-700">Address Proof</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.bankStatementDoc && (
-                                    <a href={loan.bankStatementDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-teal-50 rounded-lg border border-teal-200 hover:bg-teal-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.bankStatementDoc!)} className="p-3 bg-teal-50 rounded-lg border border-teal-200 hover:bg-teal-100 transition text-left">
                                       <FileText className="h-5 w-5 text-teal-600 mb-1" />
                                       <p className="text-xs font-medium text-teal-700">Bank Statement</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.salarySlipDoc && (
-                                    <a href={loan.salarySlipDoc} target="_blank" rel="noopener noreferrer" className="p-3 bg-orange-50 rounded-lg border border-orange-200 hover:bg-orange-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.salarySlipDoc!)} className="p-3 bg-orange-50 rounded-lg border border-orange-200 hover:bg-orange-100 transition text-left">
                                       <FileText className="h-5 w-5 text-orange-600 mb-1" />
                                       <p className="text-xs font-medium text-orange-700">Salary Slip</p>
-                                    </a>
+                                    </button>
                                   )}
                                   {loan.otherDocs && (
-                                    <a href={loan.otherDocs} target="_blank" rel="noopener noreferrer" className="p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition">
+                                    <button type="button" onClick={() => openDoc(loan.otherDocs!)} className="p-3 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition text-left">
                                       <FileText className="h-5 w-5 text-gray-600 mb-1" />
                                       <p className="text-xs font-medium text-gray-700">Other Docs</p>
-                                    </a>
+                                    </button>
                                   )}
                                 </div>
                                 

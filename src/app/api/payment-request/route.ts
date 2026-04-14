@@ -848,45 +848,71 @@ export async function PUT(request: NextRequest) {
               }
 
               // =================================================================
-              // PROCESSING FEE — EMI #1 only (same as emi/pay/route.ts lines 867-937)
-              // mirrorProcessingFee = originalEMI - lastMirrorEMI (stored on mapping)
-              // Always goes to BANK since customer pays online
+              // PROCESSING FEE — EMI #1 only
+              // DYNAMIC CALC: processingFee = regularEMI - lastMirrorEMI (installment #1)
+              // The mirror schedule is shifted so position #1 = the smallest (last) EMI.
               // =================================================================
-              if (emi.installmentNumber === 1 && !mirrorMapping.processingFeeRecorded && (mirrorMapping.mirrorProcessingFee ?? 0) > 0) {
+              if (emi.installmentNumber === 1 && !mirrorMapping.processingFeeRecorded) {
                 try {
-                  const procFee = mirrorMapping.mirrorProcessingFee!;
+                  // regularEMI = the standard EMI amount of the original loan
+                  const regularEMI = loan.sessionForm?.emiAmount ?? (emi?.totalAmount ?? 0);
 
-                  // 6a. Bank transaction for processing fee (customer pays online)
-                  await recordBankTransaction({
-                    companyId:       mirrorCompanyId,
-                    transactionType: 'CREDIT',
-                    amount:          procFee,
-                    description:     `Processing Fee (UPI) - PR#${paymentRequest.requestNumber} EMI #1`,
-                    referenceType:   'PROCESSING_FEE',
-                    referenceId:     `${loan.id}-PF-PR`,
-                    createdById:     reviewedById
-                  });
+                  // lastMirrorEMI = mirror installment #1 (shifted from last position)
+                  let dynamicProcFee = 0;
+                  if (mirrorEmi) {
+                    dynamicProcFee = Math.max(0, Math.round((regularEMI - mirrorEmi.totalAmount) * 100) / 100);
+                  }
 
-                  // 6b. Journal: DR Bank 1102 → CR Processing Fee Income 4121
-                  await accSvc.createJournalEntry({
-                    entryDate:     new Date(),
-                    referenceType: 'PROCESSING_FEE_COLLECTION',
-                    referenceId:   `${loan.id}-MIR-PF-PR`,
-                    narration:     `Processing Fee (Mirror) - PR#${paymentRequest.requestNumber} EMI #1 ₹${procFee}`,
-                    createdById:   reviewedById,
-                    isAutoEntry:   true,
-                    lines: [
-                      { accountCode: AC.BANK_ACCOUNT,           debitAmount: procFee, creditAmount: 0,        narration: 'Processing fee received via bank' },
-                      { accountCode: AC.PROCESSING_FEE_INCOME,  debitAmount: 0,       creditAmount: procFee,  narration: 'Processing fee income recognised' }
-                    ]
-                  });
+                  // Fallback to stored value if dynamic calc gives 0
+                  const procFee = dynamicProcFee > 0 ? dynamicProcFee : (mirrorMapping.mirrorProcessingFee ?? 0);
 
-                  // 6c. Mark flag — never double-record
-                  await db.mirrorLoanMapping.update({
-                    where: { id: mirrorMapping.id },
-                    data: { processingFeeRecorded: true }
-                  });
-                  console.log(`[PR Accounting] ✓ Processing fee ₹${procFee} (mirrorProcessingFee) → Bank + Journal`);
+                  console.log(`[PR Accounting] Processing fee dynamic calc: regularEMI=₹${regularEMI} - lastMirrorEMI=₹${mirrorEmi?.totalAmount ?? 0} = ₹${procFee}`);
+
+                  if (procFee > 0) {
+                    // Store the dynamically-calculated fee back on the mapping
+                    await db.mirrorLoanMapping.update({
+                      where: { id: mirrorMapping.id },
+                      data: { mirrorProcessingFee: procFee }
+                    });
+
+                    // 6a. Bank transaction for processing fee (customer pays online)
+                    await recordBankTransaction({
+                      companyId:       mirrorCompanyId,
+                      transactionType: 'CREDIT',
+                      amount:          procFee,
+                      description:     `Processing Fee Collection (UPI) - ${loan.applicationNo} EMI #1 (Last EMI ₹${mirrorEmi?.totalAmount ?? 0} vs Regular EMI ₹${regularEMI})`,
+                      referenceType:   'PROCESSING_FEE',
+                      referenceId:     `${loan.id}-PF-PR`,
+                      createdById:     reviewedById
+                    });
+
+                    // 6b. Journal: DR Bank 1102 → CR Processing Fee Income 4121
+                    await accSvc.createJournalEntry({
+                      entryDate:     new Date(),
+                      referenceType: 'PROCESSING_FEE_COLLECTION',
+                      referenceId:   `${loan.id}-MIR-PF-PR`,
+                      narration:     `Processing Fee (Mirror) - ${loan.applicationNo} EMI #1 ₹${procFee} (Regular EMI ₹${regularEMI} - Last Mirror EMI ₹${mirrorEmi?.totalAmount ?? 0})`,
+                      createdById:   reviewedById,
+                      isAutoEntry:   true,
+                      lines: [
+                        { accountCode: AC.BANK_ACCOUNT,           debitAmount: procFee, creditAmount: 0,       narration: `Processing fee = Regular ₹${regularEMI} - Last Mirror EMI ₹${mirrorEmi?.totalAmount ?? 0}` },
+                        { accountCode: AC.PROCESSING_FEE_INCOME,  debitAmount: 0,       creditAmount: procFee, narration: 'Processing fee income recognised (Last EMI adjustment)' }
+                      ]
+                    });
+
+                    // 6c. Mark flag — never double-record
+                    await db.mirrorLoanMapping.update({
+                      where: { id: mirrorMapping.id },
+                      data: { processingFeeRecorded: true }
+                    });
+                    console.log(`[PR Accounting] ✓ Processing fee ₹${procFee} (dynamic: lastEMI method) → Bank + Journal`);
+                  } else {
+                    await db.mirrorLoanMapping.update({
+                      where: { id: mirrorMapping.id },
+                      data: { processingFeeRecorded: true }
+                    });
+                    console.log(`[PR Accounting] Processing fee ₹0 — skipping (regularEMI=${regularEMI})`);
+                  }
                 } catch (pfErr) {
                   console.error('[PR Accounting] Processing fee error (non-blocking):', pfErr);
                 }

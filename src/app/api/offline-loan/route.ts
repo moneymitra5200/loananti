@@ -2514,61 +2514,99 @@ export async function PUT(request: NextRequest) {
 
       // ============================================
       // PROCESSING FEE INCOME — Only for EMI #1 on mirror loans
-      // processingFee = originalEMI - lastMirrorEMI (e.g. 1200 - 1014.2 = 185.8)
-      // Recorded as income for the MIRROR company (not original)
+      // DYNAMIC CALC: processingFee = regularEMI - lastMirrorEMI
+      // "Last EMI" was shifted to installment #1 in the mirror schedule.
+      // Recorded as income for the MIRROR company (not original).
       // ============================================
       if (paymentStatus === 'PAID' && emi.installmentNumber === 1 && mirrorLoanMapping) {
         try {
           const fullMapping = await db.mirrorLoanMapping.findFirst({
             where: { id: mirrorLoanMapping.id },
-            select: { mirrorProcessingFee: true, processingFeeRecorded: true, mirrorCompanyId: true }
+            select: { mirrorProcessingFee: true, processingFeeRecorded: true, mirrorCompanyId: true, mirrorLoanId: true }
           });
 
-          if (fullMapping && !fullMapping.processingFeeRecorded && (fullMapping.mirrorProcessingFee ?? 0) > 0) {
-            const procFee = fullMapping.mirrorProcessingFee;
-            const mirrorCoId = fullMapping.mirrorCompanyId; // ← MIRROR company, not original
+          if (fullMapping && !fullMapping.processingFeeRecorded) {
+            const mirrorCoId = fullMapping.mirrorCompanyId;
 
-            try {
-              await recordCashBookEntry({
-                companyId: mirrorCoId,
-                entryType: 'CREDIT',
-                amount: procFee,
-                description: `Mirror Loan Processing Fee - ${emi.offlineLoan.loanNumber} (EMI #1)`,
-                referenceType: 'PROCESSING_FEE',
-                referenceId: emi.offlineLoanId,
-                createdById: userId
+            // ── DYNAMIC CALCULATION ──────────────────────────────────────────
+            // regularEMI = the standard EMI amount of the original offline loan
+            const regularEMI = emi.offlineLoan.emiAmount ?? emi.totalAmount;
+
+            // lastMirrorEMI = mirror installment #1 (shifted from last position)
+            let dynamicProcFee = 0;
+            if (fullMapping.mirrorLoanId) {
+              const firstMirrorEMI = await db.offlineLoanEMI.findFirst({
+                where: {
+                  offlineLoanId: fullMapping.mirrorLoanId,
+                  installmentNumber: 1        // shifted last EMI → position 1
+                },
+                select: { totalAmount: true }
               });
-            } catch (cbErr) {
-              console.warn('[Processing Fee] Cashbook entry failed (non-critical):', cbErr);
+              if (firstMirrorEMI) {
+                dynamicProcFee = Math.max(0, Math.round((regularEMI - firstMirrorEMI.totalAmount) * 100) / 100);
+              }
             }
 
-            // Mark as recorded to prevent double-booking
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorLoanMapping.id },
-              data: { processingFeeRecorded: true }
-            });
+            // Fallback to stored value if dynamic calc gives 0
+            const procFee = dynamicProcFee > 0 ? dynamicProcFee : (fullMapping.mirrorProcessingFee ?? 0);
 
-            // ── Journal Entry for Processing Fee in MIRROR company ──────────
-            // Dr: Cash in Hand (1101)    → money received
-            // Cr: Processing Fees (4121) → income recognised
-            try {
-              const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
-              const pfAccService = new PFAccSvc(mirrorCoId);
-              await pfAccService.initializeChartOfAccounts();
-              await pfAccService.recordProcessingFee({
-                loanId: emi.offlineLoanId,
-                customerId: emi.offlineLoan.customerId || '',
-                amount: procFee,
-                collectionDate: new Date(),
-                createdById: userId || 'SYSTEM',
-                paymentMode: paymentMode || 'CASH',
+            console.log(`[Processing Fee] Dynamic calc: regularEMI=₹${regularEMI} - lastMirrorEMI=₹${regularEMI - procFee} = ₹${procFee}`);
+
+            if (procFee > 0) {
+              // Store the dynamically-calculated fee back on the mapping
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorLoanMapping.id },
+                data: { mirrorProcessingFee: procFee }
               });
-              console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for MIRROR company ${mirrorCoId}`);
-            } catch (pfJournalErr) {
-              console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
-            }
 
-            console.log(`[Processing Fee] ₹${procFee} income recorded for MIRROR company ${mirrorCoId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
+              try {
+                await recordCashBookEntry({
+                  companyId: mirrorCoId,
+                  entryType: 'CREDIT',
+                  amount: procFee,
+                  description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
+                  referenceType: 'PROCESSING_FEE',
+                  referenceId: emi.offlineLoanId,
+                  createdById: userId
+                });
+              } catch (cbErr) {
+                console.warn('[Processing Fee] Cashbook entry failed (non-critical):', cbErr);
+              }
+
+              // Mark as recorded to prevent double-booking
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorLoanMapping.id },
+                data: { processingFeeRecorded: true }
+              });
+
+              // ── Journal Entry for Processing Fee in MIRROR company ──────────
+              // Dr: Cash in Hand (1101)    → money received
+              // Cr: Processing Fees (4121) → income recognised
+              try {
+                const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
+                const pfAccService = new PFAccSvc(mirrorCoId);
+                await pfAccService.initializeChartOfAccounts();
+                await pfAccService.recordProcessingFee({
+                  loanId: emi.offlineLoanId,
+                  customerId: emi.offlineLoan.customerId || '',
+                  amount: procFee,
+                  collectionDate: new Date(),
+                  createdById: userId || 'SYSTEM',
+                  paymentMode: paymentMode || 'CASH',
+                });
+                console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for MIRROR company ${mirrorCoId}`);
+              } catch (pfJournalErr) {
+                console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
+              }
+
+              console.log(`[Processing Fee] ₹${procFee} income recorded for MIRROR company ${mirrorCoId} on EMI#1 of ${emi.offlineLoan.loanNumber}`);
+            } else {
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorLoanMapping.id },
+                data: { processingFeeRecorded: true }
+              });
+              console.log(`[Processing Fee] ₹0 fee — skipping (regularEMI=${regularEMI})`);
+            }
           }
         } catch (pfErr) {
           console.error('[Processing Fee] Failed to record processing fee (non-critical):', pfErr);

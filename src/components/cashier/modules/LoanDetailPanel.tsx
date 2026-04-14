@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { XCircle, Loader2, Percent, History, Calendar, DollarSign, FileText, Eye } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
+import { openDoc } from '@/utils/openDoc';
 
 interface InterestPayment {
   id: string;
@@ -199,8 +200,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid }: Lo
                               doc.url ? 'border-green-200' : 'border-dashed border-gray-200'
                             }`}>
                               {isImage ? (
-                                <a href={doc.url!} target="_blank" rel="noopener noreferrer"
-                                  className="block w-full bg-gray-100 hover:opacity-90 transition-opacity">
+                                <button type="button" onClick={() => openDoc(doc.url!)}
+                                  className="block w-full bg-gray-100 hover:opacity-90 transition-opacity cursor-pointer">
                                   <img src={doc.url!} alt={doc.label}
                                     className="w-full h-24 object-cover"
                                     onError={(e) => {
@@ -212,7 +213,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid }: Lo
                                   <div className="hidden w-full h-24 flex items-center justify-center bg-gray-50">
                                     <FileText className="h-7 w-7 text-gray-300" />
                                   </div>
-                                </a>
+                                </button>
                               ) : isPdf ? (
                                 <div className="w-full h-24 flex flex-col items-center justify-center bg-red-50 gap-1">
                                   <FileText className="h-7 w-7 text-red-400" />
@@ -231,10 +232,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid }: Lo
                               }`}>
                                 <p className="text-xs font-medium text-gray-600 truncate">{doc.label}</p>
                                 {doc.url ? (
-                                  <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                                  <button type="button" onClick={() => openDoc(doc.url!)}
                                     className="text-xs text-blue-500 hover:underline flex items-center gap-1 shrink-0 ml-1">
                                     <Eye className="h-3 w-3" /> View
-                                  </a>
+                                  </button>
                                 ) : (
                                   <span className="text-xs text-gray-300 shrink-0">—</span>
                                 )}

@@ -14,7 +14,7 @@ import {
   Settings, LogOut, Menu, Search, Edit, Calculator, MapPin, AlertTriangle, PieChart,
   CreditCard, Banknote, User, ClipboardCheck, Calendar, Receipt, TrendingUp,
   Target, FileCheck, Activity, Briefcase, BookOpen, IndianRupee, Landmark, Percent,
-  FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles, MessageSquare, MessageCircle
+  FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles, MessageSquare, MessageCircle, TrendingDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '@/components/ui/input';
@@ -434,6 +434,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'progress', label: 'In Progress', icon: Clock },
     { id: 'activeLoans', label: 'Active Loans', icon: Wallet },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
+    { id: 'expense', label: 'Expenses', icon: TrendingDown },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'creditManagement', label: 'Credit Management', icon: CreditCard },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -497,6 +498,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
   CASHIER: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'pending', label: 'Pending Disbursement', icon: Clock },
+    { id: 'expense', label: 'Expense Requests', icon: TrendingDown },
     { id: 'paymentRequests', label: 'Payment Requests', icon: FileText },
     { id: 'secondary-payment-pages', label: 'Payment Pages', icon: Banknote },
     { id: 'offline-loans', label: 'Offline Loans', icon: FileText },

@@ -28,6 +28,7 @@ import {
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import ManualJournalEntryDialog from '@/components/accounting/ManualJournalEntryDialog';
+import ExpenseRequestPanel from '@/components/expense/ExpenseRequestPanel';
 
 // ============================================
 // TYPES
@@ -2590,6 +2591,103 @@ function BalanceSheetSection({
 // ============================================
 // MAIN COMPONENT
 // ============================================
+// ACCOUNTANT EXPENSE SECTION
+// ============================================
+function AccountantExpenseSection({ userId, companyId }: { userId: string; companyId?: string }) {
+  const [history, setHistory] = React.useState<any[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [refreshKey, setRefreshKey] = React.useState(0);
+
+  React.useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const url = `/api/expense-request?status=APPROVED${companyId ? `&companyId=${companyId}` : ''}&limit=100`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setHistory(data.requests || []);
+      } catch {}
+      finally { setLoading(false); }
+    };
+    load();
+  }, [refreshKey, companyId]);
+
+  const total = history.reduce((s: number, r: any) => s + r.amount, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">Expense Management</h2>
+          <p className="text-sm text-gray-500 mt-0.5">Record direct expenses — posted immediately to accounting</p>
+        </div>
+        <ExpenseRequestPanel
+          role="ACCOUNTANT"
+          userId={userId}
+          companyId={companyId}
+          triggerLabel="Add Expense"
+          onSuccess={() => setRefreshKey(k => k + 1)}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-xs text-red-600 font-medium">Total Expenses Posted</p>
+            <p className="text-2xl font-bold text-red-700 mt-1">{history.length}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-orange-50 border-orange-200">
+          <CardContent className="p-4">
+            <p className="text-xs text-orange-600 font-medium">Total Amount</p>
+            <p className="text-2xl font-bold text-orange-700 mt-1">₹{total.toLocaleString('en-IN')}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-lg">Expense History (Approved)</CardTitle></CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="py-12 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" /></div>
+          ) : history.length === 0 ? (
+            <div className="py-12 text-center text-gray-400">
+              <Receipt className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No expenses recorded yet</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50">
+                    <TableHead className="text-xs uppercase">No.</TableHead>
+                    <TableHead className="text-xs uppercase">Type</TableHead>
+                    <TableHead className="text-xs uppercase">Description</TableHead>
+                    <TableHead className="text-xs uppercase">Source</TableHead>
+                    <TableHead className="text-right text-xs uppercase">Amount</TableHead>
+                    <TableHead className="text-xs uppercase">Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((r: any, i: number) => (
+                    <TableRow key={r.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <TableCell className="font-mono text-xs text-gray-500">{r.expenseNumber}</TableCell>
+                      <TableCell><span className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded">{r.expenseType}</span></TableCell>
+                      <TableCell className="max-w-[200px] truncate text-sm">{r.description}</TableCell>
+                      <TableCell className="text-xs text-gray-500">{r.payeeName === 'BANK' ? '🏦 Bank' : '💵 Cash'}</TableCell>
+                      <TableCell className="text-right font-semibold text-red-700">₹{r.amount.toLocaleString('en-IN')}</TableCell>
+                      <TableCell className="text-xs text-gray-400">{new Date(r.createdAt).toLocaleDateString('en-IN')}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 export default function UnifiedAccountantDashboard() {
   const { user, signOut } = useAuth();
@@ -2725,6 +2823,13 @@ export default function UnifiedAccountantDashboard() {
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
             formatDate={formatDate}
+          />
+        );
+      case 'expenses':
+        return (
+          <AccountantExpenseSection
+            userId={user?.id || ''}
+            companyId={selectedCompanyId || undefined}
           />
         );
       default:
