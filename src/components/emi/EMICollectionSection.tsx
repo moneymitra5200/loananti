@@ -200,50 +200,9 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         }
       }
 
-      // Create credit transaction with dual credit system
-      const customerName = selectedType === 'offline'
-        ? selectedEmi.offlineLoan?.customerName
-        : `${selectedEmi.loanApplication?.firstName || ''} ${selectedEmi.loanApplication?.lastName || ''}`.trim();
-      const customerPhone = selectedType === 'offline'
-        ? selectedEmi.offlineLoan?.customerPhone
-        : selectedEmi.loanApplication?.phone;
-      const loanNo = selectedType === 'offline'
-        ? selectedEmi.offlineLoan?.loanNumber
-        : selectedEmi.loanApplication?.applicationNo;
-
-      // Create credit transaction
-      const creditRes = await fetch('/api/credit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          amount: payingAmount,
-          paymentMode,
-          creditType,
-          sourceType: 'EMI_PAYMENT',
-          loanApplicationId: selectedType === 'online' ? selectedEmi.loanApplication?.id : null,
-          emiScheduleId: selectedEmi.id,
-          customerId: selectedType === 'online' ? selectedEmi.loanApplication?.id : null,
-          installmentNumber: selectedEmi.installmentNumber,
-          customerName,
-          customerPhone,
-          loanApplicationNo: loanNo,
-          emiDueDate: selectedEmi.dueDate,
-          emiAmount: payingAmount,
-          chequeNumber: paymentMode === 'CHEQUE' ? chequeNumber : null,
-          utrNumber: ['ONLINE', 'UPI', 'BANK_TRANSFER'].includes(paymentMode) ? utrNumber : null,
-          proofDocument: proofDocumentPath,
-          proofType: proofFile?.type,
-          description: `EMI #${selectedEmi.installmentNumber} collection`,
-          remarks
-        })
-      });
-
-      const creditData = await creditRes.json();
-
-      if (!creditData.success) {
-        throw new Error(creditData.error || 'Failed to update credit');
-      }
+      // NOTE: Credit is handled internally by /api/emi/pay (online) and
+      // PUT /api/offline-loan (offline). Do NOT call /api/credit separately
+      // here — that would create duplicate credit transactions.
 
       if (selectedType === 'offline') {
         const res = await fetch('/api/offline-loan', {

@@ -381,10 +381,11 @@ const EMISection = memo(function EMISection({
                                 variant="outline" 
                                 size="sm"
                                 className="h-7 text-xs border-green-300 text-green-600 hover:bg-green-50"
+                                onClick={() => markAsReceived(emi.id)}
                                 disabled={loadingReceipt === emi.id}
                               >
                                 <Check className="h-3 w-3 mr-1" />
-                                Received
+                                {loadingReceipt === emi.id ? 'Marking...' : 'Received'}
                               </Button>
                             </div>
                           )}
@@ -419,10 +420,11 @@ const EMISection = memo(function EMISection({
                                 variant="outline" 
                                 size="sm"
                                 className="h-7 text-xs border-green-300 text-green-600 hover:bg-green-50"
+                                onClick={() => markAsReceived(emi.id)}
                                 disabled={loadingReceipt === emi.id}
                               >
                                 <Check className="h-3 w-3 mr-1" />
-                                Received
+                                {loadingReceipt === emi.id ? 'Marking...' : 'Received'}
                               </Button>
                             </div>
                           )}
