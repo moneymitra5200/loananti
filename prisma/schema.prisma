@@ -2145,17 +2145,17 @@ model OfflineLoan {
   notes                     String?
   internalNotes             String?
   // Documents
-  panCardDoc                String?
-  aadhaarFrontDoc           String?
-  aadhaarBackDoc            String?
-  incomeProofDoc            String?
-  addressProofDoc           String?
-  photoDoc                  String?
-  electionCardDoc           String?
-  housePhotoDoc             String?
-  guarantorPhotoDoc         String?
-  passbookPhotoDoc          String?
-  otherDocs                 String?
+  panCardDoc                String?   @db.LongText
+  aadhaarFrontDoc           String?   @db.LongText
+  aadhaarBackDoc            String?   @db.LongText
+  incomeProofDoc            String?   @db.LongText
+  addressProofDoc           String?   @db.LongText
+  photoDoc                  String?   @db.LongText
+  electionCardDoc           String?   @db.LongText
+  housePhotoDoc             String?   @db.LongText
+  guarantorPhotoDoc         String?   @db.LongText
+  passbookPhotoDoc          String?   @db.LongText
+  otherDocs                 String?   @db.LongText
   applicationLocation       String?
   // Product reference
   productId                 String? // Reference to CMSService (loan product)

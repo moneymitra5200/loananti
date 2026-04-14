@@ -340,77 +340,70 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   
   if (isMirrorPayment && mirrorCompanyId && mirrorInterest !== undefined) {
     const effectiveMirrorPrincipal = mirrorPrincipal ?? 0;
-    const mirrorEMITotal = effectiveMirrorPrincipal + mirrorInterest;
-    console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording FULL mirror EMI ₹${mirrorEMITotal} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest}) to mirror company`);
+    const fullMirrorEMITotal = effectiveMirrorPrincipal + mirrorInterest;
+
+    // For PARTIAL payments, scale the mirror amounts proportionally
+    // so the cashbook/bank entry reflects only what was actually paid
+    let recordAmount = fullMirrorEMITotal;
+    let recordPrincipal = effectiveMirrorPrincipal;
+    let recordInterest = mirrorInterest;
+
+    if (paymentType === 'PARTIAL' && amount > 0 && fullMirrorEMITotal > 0) {
+      // Use same partial ratio as original loan
+      // `amount` here is the actual partial amount passed by the caller (originalPartialAmount / originalEMITotal * mirrorEMITotal)
+      // But since the caller passes amount = actualPaymentAmount which is the ORIGINAL partial amount,
+      // we scale by ratio: partialAmount / originalEMITotal ≈ mirrorRatio
+      const ratio = Math.min(amount / fullMirrorEMITotal, 1);
+      // Actually use `amount` directly if it <= fullMirrorEMITotal, else proportional
+      if (amount <= fullMirrorEMITotal) {
+        // Scale interest and principal proportionally
+        const payRatio = amount / fullMirrorEMITotal;
+        recordAmount    = Math.round(amount * 100) / 100;
+        recordInterest  = Math.round(mirrorInterest  * payRatio * 100) / 100;
+        recordPrincipal = Math.round(effectiveMirrorPrincipal * payRatio * 100) / 100;
+      }
+      console.log(`[Accounting] MIRROR PARTIAL: ₹${recordAmount} of ₹${fullMirrorEMITotal} (ratio: ${Math.round((recordAmount/fullMirrorEMITotal)*100)}%) → P:₹${recordPrincipal} I:₹${recordInterest}`);
+    } else {
+      console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording FULL mirror EMI ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) to mirror company`);
+    }
+
     console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
-    
+
     // ONLINE/BANK_TRANSFER/UPI payments go to Bank Account
     if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
       result.bankTransaction = await recordBankTransaction({
         companyId: mirrorCompanyId,
         transactionType: 'CREDIT',
-        amount: mirrorEMITotal,  // Full mirror EMI (principal + interest)
-        description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest})`,
+        amount: recordAmount,
+        description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
         referenceType: 'MIRROR_EMI_PAYMENT',
         referenceId: paymentId,
         createdById: userId
       });
-      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorEMITotal} in Mirror Company BANK ACCOUNT`);
+      console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company BANK ACCOUNT`);
     } else {
       // CASH/CHEQUE payments go to Cash Book
       result.cashBookEntry = await recordCashBookEntry({
         companyId: mirrorCompanyId,
         entryType: 'CREDIT',
-        amount: mirrorEMITotal,  // Full mirror EMI (principal + interest)
-        description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest})`,
+        amount: recordAmount,
+        description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
         referenceType: 'MIRROR_EMI_PAYMENT',
         referenceId: paymentId,
         createdById: userId
       });
-      console.log(`[Accounting] MIRROR: Recorded ₹${mirrorEMITotal} in Mirror Company CASH BOOK`);
+      console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company CASH BOOK`);
     }
     
     // Double-entry journal for Mirror Company:
-    //   Dr  Cash/Bank                = full mirror EMI
-    //   Cr  Interest Income          = mirror interest (our income)
-    //   Cr  Loans Receivable         = mirror principal (loan asset reduces)
+    //   Dr  Cash/Bank                = actual paid amount (recordAmount)
+    //   Cr  Interest Income          = proportional mirror interest
+    //   Cr  Loans Receivable         = proportional mirror principal
 
     // Declared outside try so the catch block can log them for diagnostics
     const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
       ? ACCOUNT_CODES.BANK_ACCOUNT 
       : ACCOUNT_CODES.CASH_IN_HAND;
-
-    const journalLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [
-      {
-        accountCode: debitAccountCode,
-        debitAmount: mirrorEMITotal,
-        creditAmount: 0,
-        loanId,
-        customerId,
-        narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
-          ? `Bank received - Mirror EMI #${installmentNumber}`
-          : `Cash received - Mirror EMI #${installmentNumber}`
-      },
-      {
-        accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-        debitAmount: 0,
-        creditAmount: mirrorInterest,
-        loanId,
-        customerId,
-        narration: `Mirror interest income - EMI #${installmentNumber}`
-      }
-    ];
-
-    if (effectiveMirrorPrincipal > 0) {
-      journalLines.push({
-        accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-        debitAmount: 0,
-        creditAmount: effectiveMirrorPrincipal,
-        loanId,
-        customerId,
-        narration: `Mirror loan principal repayment - EMI #${installmentNumber}`
-      });
-    }
 
     // ── DIRECT DB JOURNAL — bypasses AccountingService entirely to avoid silent failures ──
     try {
@@ -460,17 +453,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           });
         }
 
-        // Build journal lines for direct create
+        // Build journal lines using ACTUAL paid amounts (recordAmount/recordPrincipal/recordInterest)
         const directLines: any[] = [
-          { accountId: debitAccId, debitAmount: mirrorEMITotal, creditAmount: 0, loanId: loanId || null, customerId: customerId || null,
-            narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
-              ? `Bank received - Mirror EMI #${installmentNumber}` : `Cash received - Mirror EMI #${installmentNumber}` },
-          { accountId: interestAccId, debitAmount: 0, creditAmount: mirrorInterest, loanId: loanId || null, customerId: customerId || null,
-            narration: `Mirror interest income - EMI #${installmentNumber}` },
+          { accountId: debitAccId, debitAmount: recordAmount, creditAmount: 0, loanId: loanId || null, customerId: customerId || null,
+            narration: (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
+              ? `Bank received - Mirror EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`
+              : `Cash received - Mirror EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` },
+          { accountId: interestAccId, debitAmount: 0, creditAmount: recordInterest, loanId: loanId || null, customerId: customerId || null,
+            narration: `Mirror interest income - EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` },
         ];
-        if (effectiveMirrorPrincipal > 0 && loanAccId) {
-          directLines.push({ accountId: loanAccId, debitAmount: 0, creditAmount: effectiveMirrorPrincipal, loanId: loanId || null, customerId: customerId || null,
-            narration: `Mirror principal repayment - EMI #${installmentNumber}` });
+        if (recordPrincipal > 0 && loanAccId) {
+          directLines.push({ accountId: loanAccId, debitAmount: 0, creditAmount: recordPrincipal, loanId: loanId || null, customerId: customerId || null,
+            narration: `Mirror principal repayment - EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` });
         }
 
         const je = await db.journalEntry.create({
@@ -480,9 +474,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             entryDate: now,
             referenceType: 'MIRROR_EMI_PAYMENT',
             referenceId: paymentId,
-            narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${mirrorEMITotal} (P:₹${effectiveMirrorPrincipal} + I:₹${mirrorInterest}) [${paymentMode}]`,
-            totalDebit: mirrorEMITotal,
-            totalCredit: mirrorInterest + effectiveMirrorPrincipal,
+            narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) [${paymentMode}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+            totalDebit: recordAmount,
+            totalCredit: recordInterest + recordPrincipal,
             isAutoEntry: true,
             isApproved: true,
             createdById: userId || 'SYSTEM',
@@ -493,14 +487,14 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
         result.journalEntryId = je.id;
 
-        // Update account balances
-        await db.chartOfAccount.update({ where: { id: debitAccId }, data: { currentBalance: { increment: mirrorEMITotal } } });
-        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: mirrorInterest } } });
-        if (effectiveMirrorPrincipal > 0 && loanAccId) {
-          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: effectiveMirrorPrincipal } } });
+        // Update account balances with ACTUAL paid amounts
+        await db.chartOfAccount.update({ where: { id: debitAccId }, data: { currentBalance: { increment: recordAmount } } });
+        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
+        if (recordPrincipal > 0 && loanAccId) {
+          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
         }
 
-        console.log(`[Accounting] ✅ MIRROR: Journal entry ${je.id} created directly — Dr ${debitAccountCode} ₹${mirrorEMITotal}, Cr 4110 ₹${mirrorInterest}, Cr 1200 ₹${effectiveMirrorPrincipal}`);
+        console.log(`[Accounting] ✅ MIRROR: Journal entry ${je.id} created — Dr ${debitAccountCode} ₹${recordAmount}, Cr 4110 ₹${recordInterest}, Cr 1200 ₹${recordPrincipal}${paymentType === 'PARTIAL' ? ' [PARTIAL PAYMENT]' : ''}`);
       }
     } catch (journalError: any) {
       console.error('[Accounting] ❌ MIRROR EMI journal FAILED (direct DB write also failed):', {
