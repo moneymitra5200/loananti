@@ -140,7 +140,7 @@ export default function DirectMessaging({ userId, userRole, userName }: DirectMe
     if (selectedContact) {
       loadMessages(selectedContact.id);
       // Poll every 5s for new messages
-      pollRef.current = setInterval(() => loadMessages(selectedContact.id), 5000);
+      pollRef.current = setInterval(() => loadMessages(selectedContact.id), 30000);
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [selectedContact, loadMessages]);

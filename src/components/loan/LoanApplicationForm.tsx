@@ -118,6 +118,7 @@ interface LoanApplicationFormProps {
       totalInterest: number;
       processingFee?: number;
       startDate?: string;
+      customerSignature?: string;
     };
   };
   companyLogo?: string;
@@ -614,7 +615,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
           </div>
 
           {/* Signature Section */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 md:gap-10 mt-6 md:mt-8 pt-6 border-t border-gray-200">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 md:gap-10 mt-6 md:mt-8 pt-6 border-t border-gray-200">
             <div className="text-center">
               {loanData.applicantSignature ? (
                 <img src={loanData.applicantSignature} alt="Applicant Signature" className="h-16 mx-auto" />
@@ -622,7 +623,16 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
                 <div className="h-16 border-b-2 border-gray-300"></div>
               )}
               <p className="text-sm text-gray-600 mt-2">Applicant's Signature</p>
-              <p className="text-xs text-gray-400 mt-1">{getApplicantName()}</p>
+              <p className="text-xs text-gray-400 mt-1">(Application Form)</p>
+            </div>
+            <div className="text-center">
+              {loanData.sessionForm?.customerSignature ? (
+                <img src={loanData.sessionForm.customerSignature} alt="Sanction Signature" className="h-16 mx-auto" />
+              ) : (
+                <div className="h-16 border-b-2 border-gray-300"></div>
+              )}
+              <p className="text-sm text-gray-600 mt-2">Sanction Signature</p>
+              <p className="text-xs text-gray-400 mt-1">(Sanction Approval)</p>
             </div>
             <div className="text-center">
               <div className="h-16 border-b-2 border-gray-300"></div>

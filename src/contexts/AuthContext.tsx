@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { auth, signInWithGoogle, signInWithEmail } from '@/lib/firebase';
 import { UserRole } from '@prisma/client';
+import { useDeployLogout } from '@/hooks/useDeployLogout';
 
 export interface User {
   id: string;
@@ -89,6 +90,9 @@ function getInitialLoading(): boolean {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Detect redeployment and auto-logout for security
+  useDeployLogout();
+
   // Use lazy initializers to read from sessionStorage during initial render
   const [user, setUser] = useState<User | null>(null);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);

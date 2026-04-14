@@ -613,7 +613,7 @@ export default function CreditManagementPage() {
             <Pause className="h-4 w-4 text-gray-400" />
           )}
           <span className="text-sm font-medium">
-            {autoRefresh ? 'Auto-refresh ON (every 1 second)' : 'Auto-refresh OFF'}
+            {autoRefresh ? 'Auto-refresh ON (every 30s)' : 'Auto-refresh OFF'}
           </span>
           <Button
             size="sm"

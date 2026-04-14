@@ -123,7 +123,7 @@ const ALLOWED_ACTIONS: Record<string, Record<string, {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { loanId, loanIds, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, isBulk, mirrorLoanConfig } = body;
+    const { loanId, loanIds, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, isBulk, mirrorLoanConfig, signatureData } = body;
 
     // Handle bulk approval
     if (isBulk && loanIds && Array.isArray(loanIds) && loanIds.length > 0) {
@@ -142,6 +142,7 @@ export async function POST(request: NextRequest) {
             staffId,
             disbursementData,
             mirrorLoanConfig,
+            signatureData,
             request
           });
           results.push({ id, success: true });
@@ -165,7 +166,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await processSingleApproval({
-      loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, request
+      loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request
     });
 
     return NextResponse.json({ success: true, loan: { id: loanId, status: result.nextStatus } });
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function processSingleApproval({
-  loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, request
+  loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request
 }: {
   loanId: string;
   action: string;
@@ -197,6 +198,7 @@ async function processSingleApproval({
     cashAmount?: number;
   };
   mirrorLoanConfig?: { enabled: boolean; mirrorCompanyId?: string; mirrorType?: string };
+  signatureData?: string;
   request: NextRequest;
 }): Promise<{ nextStatus: LoanStatus }> {
 
@@ -298,7 +300,9 @@ async function processSingleApproval({
       }
       break;
     case LoanStatus.SESSION_CREATED: updateData.sessionCreatedAt = new Date(); break;
-    case LoanStatus.CUSTOMER_SESSION_APPROVED: updateData.customerApprovedAt = new Date(); break;
+    case LoanStatus.CUSTOMER_SESSION_APPROVED: 
+      updateData.customerApprovedAt = new Date(); 
+      break;
     case LoanStatus.FINAL_APPROVED: updateData.finalApprovedAt = new Date(); break;
     case LoanStatus.ACTIVE:
     case LoanStatus.ACTIVE_INTEREST_ONLY:
@@ -385,6 +389,14 @@ async function processSingleApproval({
   await db.$transaction(async (tx) => {
     // Update loan
     await tx.loanApplication.update({ where: { id: loanId }, data: updateData });
+
+    if (nextStatus === LoanStatus.CUSTOMER_SESSION_APPROVED && signatureData) {
+      await tx.sessionForm.update({
+        where: { loanApplicationId: loanId },
+        data: { customerSignature: signatureData }
+      });
+      console.log(`[WORKFLOW] Saved customer signature to SessionForm for loan ${loanId}`);
+    }
 
     // Create first Interest EMI for Interest Only loans
     if (loan.isInterestOnlyLoan && (nextStatus === LoanStatus.ACTIVE || nextStatus === LoanStatus.ACTIVE_INTEREST_ONLY)) {

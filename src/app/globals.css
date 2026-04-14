@@ -82,8 +82,8 @@
 }
 
 html {
-  /* Smooth scaling baseline — bumped ~20% larger for better legibility */
-  font-size: clamp(15px, 1.6vw, 20px);
+  /* Smooth scaling baseline — 20% reduced for better fit */
+  font-size: clamp(12px, 1.3vw, 16px);
   scroll-behavior: smooth;
 }
 

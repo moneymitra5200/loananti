@@ -59,7 +59,7 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
 
   useEffect(() => {
     fetchSessions();
-    const interval = setInterval(fetchSessions, 5000);
+    const interval = setInterval(fetchSessions, 30000);
     return () => clearInterval(interval);
   }, [fetchSessions]);
 

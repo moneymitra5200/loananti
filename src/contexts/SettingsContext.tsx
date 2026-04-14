@@ -49,7 +49,7 @@ export interface AppSettings {
 // Default settings with sensible defaults
 const defaultSettings: AppSettings = {
   companyName: 'MM Square',
-  companyLogo: '/logo.png',
+  companyLogo: '/mm-logo.png',  // Permanent MM logo
   companyTagline: 'Your Trusted Financial Partner',
   companyEmail: 'support@mmsquare.com',
   companyPhone: '+91 1800-123-4567',
@@ -74,8 +74,8 @@ const defaultSettings: AppSettings = {
 const SETTINGS_STORAGE_KEY = 'app_settings_cache';
 const SETTINGS_TIMESTAMP_KEY = 'app_settings_timestamp';
 
-// Cache duration in milliseconds (5 minutes)
-const CACHE_DURATION = 5 * 60 * 1000;
+// Cache duration in milliseconds (15 minutes — reduces DB queries)
+const CACHE_DURATION = 15 * 60 * 1000;
 
 // Memory cache for current session
 let memoryCache: AppSettings | null = null;

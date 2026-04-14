@@ -228,7 +228,7 @@ export default function CustomerDashboard() {
         if (data.notifications) setNotifications(data.notifications);
       } catch {}
     };
-    const interval = setInterval(pollNotifications, 20000);
+    const interval = setInterval(pollNotifications, 60000);
     return () => clearInterval(interval);
   }, [user?.id]);
 

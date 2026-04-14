@@ -171,6 +171,7 @@ export async function GET(request: NextRequest) {
         electionCardDoc: true,
         housePhotoDoc: true,
         otherDocs: true,
+        digitalSignature: true,
         customer: {
           select: {
             id: true,
@@ -215,6 +216,7 @@ export async function GET(request: NextRequest) {
             totalInterest: true,
             totalAmount: true,
             processingFee: true,
+            customerSignature: true,
             agent: {
               select: {
                 id: true,
