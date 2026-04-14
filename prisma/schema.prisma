@@ -1178,7 +1178,7 @@ model BankAccount {
 
   // Payment Display Settings (for customer payment page)
   upiId     String? // UPI ID for receiving payments
-  qrCodeUrl String? // QR Code image URL
+  qrCodeUrl String? @db.Text // QR Code image (base64 data URL or file URL)
 
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -2682,7 +2682,7 @@ model CompanyPaymentPage {
 
   // Payment Display Details (what customer sees)
   upiId     String? // UPI ID for receiving payments
-  qrCodeUrl String? // QR Code image URL
+  qrCodeUrl String? @db.Text // QR Code image (base64 data URL or file URL)
 
   // Bank Details (from company's bank account)
   bankAccountId String? @unique // Linked bank account
@@ -2723,7 +2723,7 @@ model SecondaryPaymentPage {
 
   // Payment Display Details (what customer sees)
   upiId         String? // UPI ID shown to customer
-  qrCodeUrl     String? // QR Code image shown to customer
+  qrCodeUrl     String? @db.Text // QR Code image shown to customer
   bankName      String? // Bank name shown to customer
   accountNumber String? // Account number shown to customer
   accountName   String? // Account holder name shown to customer

@@ -247,8 +247,8 @@ export async function GET(request: NextRequest) {
     const id = searchParams.get('id');
     const isActive = searchParams.get('isActive');
 
-    // Run ensurePermanentProducts in background (don't block)
-    ensurePermanentProducts().catch(console.error);
+    // Run ensurePermanentProducts SYNCHRONOUSLY so products always exist before returning
+    await ensurePermanentProducts();
 
     if (id) {
       const product = await db.cMSService.findUnique({
@@ -274,7 +274,7 @@ export async function GET(request: NextRequest) {
             icon: true,
             code: true,
             loanType: true,
-            isInterestOnly: true, // Include Interest Only flag
+            isInterestOnly: true,
             minInterestRate: true,
             maxInterestRate: true,
             defaultInterestRate: true,
@@ -289,8 +289,12 @@ export async function GET(request: NextRequest) {
             order: true
           }
         }),
-        300000 // 5 minutes cache
+        300000
       );
+      // Fallback: if DB returned empty (e.g. fresh DB, seeding race), return in-memory constants
+      if (!products || products.length === 0) {
+        return NextResponse.json({ products: PERMANENT_PRODUCTS.map((p, i) => ({ ...p, id: `temp_${i}` })) });
+      }
       return NextResponse.json({ products });
     }
 

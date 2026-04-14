@@ -396,7 +396,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     remarks: ''
   });
 
-  // Fetch companies and products on mount
+  // Fetch companies and products on dialog open
   useEffect(() => {
     if (open) {
       fetchCompanies();
@@ -420,10 +420,17 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     }
   };
 
-  // Fetch bank accounts AND cashbook when company is selected (for ALL companies)
+  // Re-fetch payment sources when dialog opens (fresh balances every time)
+  useEffect(() => {
+    if (open && formData.companyId) {
+      fetchPaymentSources(formData.companyId);
+      fetchCashbookBalance(formData.companyId);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch bank accounts AND cashbook when company changes
   useEffect(() => {
     if (formData.companyId) {
-      // Fetch combined payment sources (Bank + Cash)
       fetchPaymentSources(formData.companyId);
       fetchCashbookBalance(formData.companyId);
       // Reset split payment states
@@ -435,7 +442,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       setPaymentSources([]);
       setCashbookBalance(null);
     }
-  }, [formData.companyId, companies.length]);
+  }, [formData.companyId]); // removed companies.length dependency that caused stale fetches
 
   // Fetch bank accounts when mirror company is selected (for mirror loan disbursement)
   useEffect(() => {
