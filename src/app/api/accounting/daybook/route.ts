@@ -4,13 +4,13 @@ import { db } from '@/lib/db';
 /**
  * DAYBOOK / PASSBOOK API
  *
- * Returns cashbook entries + bank transactions for a company in a date range.
+ * Returns cashbook entries + bank transactions + journal entries for a company in a date range.
  * Also returns the opening balance (balance before the start of the period).
  *
  * Format:
  * {
  *   openingBalance: number,
- *   entries: [...cashBookEntry, ...bankTransaction],
+ *   entries: [...cashBookEntry, ...bankTransaction, ...journalEntry],
  * }
  */
 export async function GET(request: NextRequest) {
@@ -119,8 +119,66 @@ export async function GET(request: NextRequest) {
       balanceAfter: e.balanceAfter,
     }));
 
-    // ── 5. Merge and sort by date ───────────────────────────────────────────
-    const allEntries = [...cashMapped, ...bankMapped].sort(
+    // ── 5. FIX-ISSUE-5/10: Fetch JournalEntry lines that have NO cashbook/bank entry ──
+    // These are entries created by AccountingService.recordProcessingFee, recordEMIPayment etc.
+    // that may not have a corresponding cashbook/bank row (e.g. when journal was created directly)
+    const journalEntries = await db.journalEntry.findMany({
+      where: {
+        companyId,
+        ...(Object.keys(dateFilter).length > 0 ? { entryDate: dateFilter } : {}),
+        isReversed: false,
+      },
+      include: {
+        lines: {
+          select: {
+            id: true,
+            accountId: true,
+            debitAmount: true,
+            creditAmount: true,
+            narration: true,
+            account: { select: { accountCode: true, accountName: true } },
+          },
+        },
+      },
+      orderBy: { entryDate: 'asc' },
+    });
+
+    // Build set of referenceIds already covered by cashbook/bank entries
+    const coveredRefs = new Set<string>();
+    cashMapped.forEach(e => { if (e.referenceId) coveredRefs.add(e.referenceId); });
+    bankMapped.forEach(e => { if (e.referenceId) coveredRefs.add(e.referenceId); });
+
+    // Only include journal entries whose referenceId is NOT already in cashbook/bank
+    const journalMapped = journalEntries
+      .filter(je => !je.referenceId || !coveredRefs.has(je.referenceId))
+      .map(je => {
+        // Sum up debit lines as the "amount" for display
+        const totalDebit  = je.lines.reduce((s, l) => s + (l.debitAmount || 0), 0);
+        const totalCredit = je.lines.reduce((s, l) => s + (l.creditAmount || 0), 0);
+        const amount = Math.max(totalDebit, totalCredit);
+        // DR > 0 means money went out (DEBIT), CR > 0 means money came in (CREDIT)
+        const entryType = totalCredit >= totalDebit ? 'CREDIT' : 'DEBIT';
+        const lineDesc = je.lines.map(l => l.narration || l.account?.accountName || l.account?.accountCode || '').filter(Boolean).join('; ');
+        return {
+          id: je.id,
+          source: 'JOURNAL',
+          entryDate: je.entryDate,
+          transactionDate: je.entryDate,
+          createdAt: je.createdAt,
+          description: je.narration + (lineDesc ? ` [${lineDesc}]` : ''),
+          referenceType: je.referenceType,
+          referenceId: je.referenceId,
+          amount,
+          entryType,
+          transactionType: null,
+          balanceAfter: null,
+          entryNumber: je.entryNumber,
+          lines: je.lines,
+        };
+      });
+
+    // ── 6. Merge and sort by date ───────────────────────────────────────────
+    const allEntries = [...cashMapped, ...bankMapped, ...journalMapped].sort(
       (a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()
     );
 
@@ -138,3 +196,5 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
+

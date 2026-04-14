@@ -2166,6 +2166,10 @@ model OfflineLoan {
   // Mirror Loan Flag - READ-ONLY if true (EMI payments only on original loan)
   isMirrorLoan              Boolean            @default(false) // TRUE = This is a mirror loan (READ-ONLY, cannot pay EMI directly)
   originalLoanId            String? // If this is a mirror loan, reference to the original loan
+  // Secondary Payment Page for C3 non-mirror loans
+  // When C3 has no bank account, customer pays → cashbook entry + credit goes to this page's user
+  secondaryPaymentPageId    String? // SecondaryPaymentPage.id for routing credit on C3 non-mirror EMI payments
+  processingFeeRecorded     Boolean            @default(false) // Has processing fee been posted to accounting?
   // Timestamps
   createdAt                 DateTime           @default(now())
   updatedAt                 DateTime           @updatedAt
@@ -2175,6 +2179,7 @@ model OfflineLoan {
   company                   Company?           @relation(fields: [companyId], references: [id])
   customer                  User?              @relation("OfflineLoanCustomer", fields: [customerId], references: [id])
   product                   CMSService?        @relation(fields: [productId], references: [id])
+  secondaryPaymentPage      SecondaryPaymentPage? @relation("OfflineLoanSecondaryPage", fields: [secondaryPaymentPageId], references: [id])
   // Loan Type Specific Details
   goldLoanDetail            GoldLoanDetail?
   vehicleLoanDetail         VehicleLoanDetail?
@@ -2737,6 +2742,7 @@ model SecondaryPaymentPage {
   creator            User?               @relation(fields: [createdById], references: [id])
   role               User?               @relation("PaymentPageRole", fields: [roleId], references: [id])
   emiPaymentSettings EMIPaymentSetting[]
+  offlineLoans       OfflineLoan[]       @relation("OfflineLoanSecondaryPage")
 
   @@index([companyId])
   @@index([isActive])

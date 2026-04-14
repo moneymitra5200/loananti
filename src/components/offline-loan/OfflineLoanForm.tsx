@@ -154,6 +154,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
 
+  // Secondary payment pages for C3 non-mirror loans
+  const [secondaryPaymentPages, setSecondaryPaymentPages] = useState<any[]>([]);
+  const [selectedSecondaryPageId, setSelectedSecondaryPageId] = useState('');
+  const [loadingSecPages, setLoadingSecPages] = useState(false);
+
   // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
   // Form data - declared before useMemo hooks that depend on it
@@ -396,8 +401,24 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     if (open) {
       fetchCompanies();
       fetchLoanProducts();
+      fetchSecondaryPaymentPages();
     }
   }, [open]);
+
+  const fetchSecondaryPaymentPages = async () => {
+    try {
+      setLoadingSecPages(true);
+      const res = await fetch('/api/secondary-payment-pages?activeOnly=true');
+      if (res.ok) {
+        const data = await res.json();
+        setSecondaryPaymentPages(data.pages || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch secondary payment pages:', e);
+    } finally {
+      setLoadingSecPages(false);
+    }
+  };
 
   // Fetch bank accounts AND cashbook when company is selected (for ALL companies)
   useEffect(() => {
@@ -819,6 +840,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         customerMonthlyIncome: formData.customerMonthlyIncome ? parseFloat(formData.customerMonthlyIncome) : null,
         customerDOB: formData.customerDOB || null,
         bankAccountId: formData.bankAccountId || null,
+        // Secondary payment page for C3 non-mirror loans
+        secondaryPaymentPageId: (isSelectedCompany3() && !isMirrorLoan) ? selectedSecondaryPageId || null : null,
         // Documents
         documents: uploadedDocs,
         // Interest Only Loan
@@ -1395,6 +1418,66 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 </div>
               )}
             </div>
+
+            {/* ═══ C3 NON-MIRROR: Secondary Payment Page ═══════════════════════════════ */}
+            {/* When Company 3 is selected WITHOUT mirror loan → ask for secondary payment page.
+                Customer pays → entry in cashbook & daybook, money credited to this page's owner. */}
+            {!isInterestOnly && isSelectedCompany3() && !isMirrorLoan && (
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex items-center gap-2">
+                  <Landmark className="h-5 w-5 text-violet-600" />
+                  <h3 className="font-semibold text-violet-800">Payment Collection Page</h3>
+                  <Badge className="bg-violet-100 text-violet-700 text-xs">Required for C3 Loans</Badge>
+                </div>
+                <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
+                  <p className="text-sm text-violet-700">
+                    Since <strong>Company 3 (PD Rangani)</strong> has no bank account, all EMI payments will be recorded
+                    in the <strong>Cashbook</strong> and <strong>DayBook</strong>. The money the customer pays will 
+                    go to the selected payment page owner's <strong>personal credit</strong>.
+                  </p>
+                  <div>
+                    <Label className="font-medium text-violet-800">
+                      Select Secondary Payment Page <span className="text-red-500">*</span>
+                    </Label>
+                    <Select
+                      value={selectedSecondaryPageId}
+                      onValueChange={setSelectedSecondaryPageId}
+                    >
+                      <SelectTrigger className="mt-1 border-violet-300">
+                        <SelectValue placeholder={loadingSecPages ? 'Loading…' : 'Select payment collection page…'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {secondaryPaymentPages.map(page => (
+                          <SelectItem key={page.id} value={page.id}>
+                            {page.name} {page.upiId ? `— UPI: ${page.upiId}` : ''} {page.accountNumber ? `— Acc: ${page.accountNumber}` : ''}
+                          </SelectItem>
+                        ))}
+                        {secondaryPaymentPages.length === 0 && !loadingSecPages && (
+                          <SelectItem value="__none" disabled>No pages found — create one first</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {secondaryPaymentPages.length === 0 && !loadingSecPages && (
+                      <p className="text-xs text-red-500 mt-1">
+                        ⚠️ No secondary payment pages configured. Please create one in the payment pages section.
+                      </p>
+                    )}
+                    {selectedSecondaryPageId && (() => {
+                      const pg = secondaryPaymentPages.find(p => p.id === selectedSecondaryPageId);
+                      if (!pg) return null;
+                      return (
+                        <div className="mt-2 p-3 bg-white rounded-lg border border-violet-200 text-sm">
+                          <p className="font-semibold text-violet-800">{pg.name}</p>
+                          {pg.upiId && <p className="text-violet-600">UPI: <code>{pg.upiId}</code></p>}
+                          {pg.bankName && <p className="text-violet-600">Bank: {pg.bankName} | {pg.accountNumber}</p>}
+                          {pg.ifscCode && <p className="text-violet-600">IFSC: {pg.ifscCode}</p>}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Gold Loan Receipt - Shows when loan type is GOLD */}
             {formData.loanType === 'GOLD' && (

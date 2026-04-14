@@ -902,38 +902,46 @@ export async function POST(request: NextRequest) {
           console.log(`[Processing Fee] Dynamic calc: regularEMI=₹${regularEMI} - lastMirrorEMI=₹${regularEMI - procFee} = ₹${procFee}`);
 
           if (procFee > 0) {
-            // ── Store the dynamically-calculated fee back on the mapping ──────
-            await db.mirrorLoanMapping.update({
-              where: { id: mirrorMapping.id },
-              data: { mirrorProcessingFee: procFee }
-            });
-
-            // 1. CashBook entry in mirror company
-            let mirrorCashBook = await db.cashBook.findUnique({ where: { companyId: mirrorCompanyId } });
-            if (!mirrorCashBook) {
-              mirrorCashBook = await db.cashBook.create({ data: { companyId: mirrorCompanyId, currentBalance: 0 } });
-            }
-            const newPFBalance = mirrorCashBook.currentBalance + procFee;
-            await db.cashBookEntry.create({
-              data: {
-                cashBookId: mirrorCashBook.id,
-                entryType: 'CREDIT',
-                amount: procFee,
-                balanceAfter: newPFBalance,
-                description: `Processing Fee Collection - ${emi.loanApplication?.applicationNo} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
-                referenceType: 'PROCESSING_FEE',
-                referenceId: loanId,
-                createdById: paidBy
+            // FIX-ISSUE-6: Atomic — cashbook entry + processingFeeRecorded in same $transaction
+            await db.$transaction(async (pfTx) => {
+              // Idempotency: skip if already recorded (referenceId = loanId + '-MIR-PF')
+              const existingPF = await pfTx.cashBookEntry.findFirst({
+                where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-MIR-PF` }
+              });
+              if (!existingPF) {
+                // Store dynamic fee on mapping
+                await pfTx.mirrorLoanMapping.update({
+                  where: { id: mirrorMapping.id },
+                  data: { mirrorProcessingFee: procFee }
+                });
+                // 1. CashBook entry in mirror company
+                const mirrorCashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCompanyId } })
+                  ?? await pfTx.cashBook.create({ data: { companyId: mirrorCompanyId, currentBalance: 0 } });
+                const newPFBalance = mirrorCashBook.currentBalance + procFee;
+                await pfTx.cashBookEntry.create({
+                  data: {
+                    cashBookId: mirrorCashBook.id,
+                    entryType: 'CREDIT',
+                    amount: procFee,
+                    balanceAfter: newPFBalance,
+                    description: `Processing Fee Collection - ${emi.loanApplication?.applicationNo} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
+                    referenceType: 'PROCESSING_FEE',
+                    referenceId: `${loanId}-MIR-PF`,
+                    createdById: paidBy
+                  }
+                });
+                await pfTx.cashBook.update({ where: { id: mirrorCashBook.id }, data: { currentBalance: newPFBalance } });
+                // ATOMICALLY mark as recorded
+                await pfTx.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
               }
             });
-            await db.cashBook.update({ where: { id: mirrorCashBook.id }, data: { currentBalance: newPFBalance } });
 
-            // 2. Double-entry journal in mirror company:
-            //    DR Cash in Hand (1101) → CR Processing Fee Income (4121)
+            // 2. Double-entry journal in mirror company (FIX-ISSUE-13: correct DR account for payment mode)
             try {
               const { AccountingService: PFSvc, ACCOUNT_CODES: PF_CODES } = await import('@/lib/accounting-service');
               const pfAccSvc = new PFSvc(mirrorCompanyId);
               await pfAccSvc.initializeChartOfAccounts();
+              const isOnlinePF = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS'].includes((paymentMode||'').toUpperCase());
               await pfAccSvc.createJournalEntry({
                 entryDate: new Date(),
                 referenceType: 'PROCESSING_FEE_COLLECTION',
@@ -942,10 +950,11 @@ export async function POST(request: NextRequest) {
                 createdById: paidBy,
                 lines: [
                   {
-                    accountCode: PF_CODES.CASH_IN_HAND,
+                    // FIX-ISSUE-13: Use correct DR account based on payment mode
+                    accountCode: isOnlinePF ? PF_CODES.BANK_ACCOUNT : PF_CODES.CASH_IN_HAND,
                     debitAmount: procFee,
                     creditAmount: 0,
-                    narration: `Processing fee = Regular EMI ₹${regularEMI} - Last Mirror EMI ₹${regularEMI - procFee}`,
+                    narration: `Processing fee = Regular EMI ₹${regularEMI} - Last Mirror EMI ₹${regularEMI - procFee} [${isOnlinePF ? 'Bank' : 'Cash'}]`,
                   },
                   {
                     accountCode: PF_CODES.PROCESSING_FEE_INCOME,
@@ -955,12 +964,11 @@ export async function POST(request: NextRequest) {
                   },
                 ],
               });
-              console.log(`[Processing Fee] ₹${procFee} journal + cashbook recorded in MIRROR company ${mirrorCompanyId}`);
+              console.log(`[Processing Fee] ₹${procFee} journal + cashbook atomically recorded in MIRROR company ${mirrorCompanyId}`);
             } catch (pfJEErr) {
               console.error('[Processing Fee] Journal entry failed (non-critical):', pfJEErr);
             }
 
-            await db.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
           } else {
             console.log(`[Processing Fee] Skipping — fee is ₹0 (regularEMI=${regularEMI})`);
             await db.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
@@ -970,6 +978,7 @@ export async function POST(request: NextRequest) {
         console.error('[Processing Fee] Failed (non-critical):', pfErr);
       }
     }
+
 
 
 
@@ -1305,9 +1314,10 @@ export async function POST(request: NextRequest) {
       }
 
       const { AccountingService } = await import('@/lib/accounting-service');
+      // FIX-ISSUE-1/12: Always use loan's OWN companyId (from DB), never trust client-provided companyId
       const companyIdToUse = isMirrorPayment
         ? mirrorMappingForAccounting!.mirrorCompanyId
-        : (emi.loanApplication?.companyId || companyId);
+        : emi.loanApplication?.companyId;  // FIX: removed '|| companyId' fallback (client-provided is untrusted)
 
       // ── EXTRA EMIs: already fully handled by the extra EMI block above ──
       // CashBook + Day Book journal are recorded there in original company.
@@ -1375,19 +1385,26 @@ export async function POST(request: NextRequest) {
             });
             const procFee = (loanData?.processingFee || 0);
             if (procFee > 0) {
-              // FIX-10: Check idempotency — skip if already recorded for this loan
-              const existingPFEntry = await db.cashBookEntry.findFirst({
-                where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` }
-              });
+              // FIX-ISSUE-5/8: Check BOTH cashBookEntry AND bankTransaction for same referenceId
+              // so we don't double-record when EMI #1 is paid via ONLINE mode
+              const [existingPFCb, existingPFBank] = await Promise.all([
+                db.cashBookEntry.findFirst({
+                  where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` }
+                }),
+                db.bankTransaction.findFirst({
+                  where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` }
+                })
+              ]);
+              const existingPFEntry = existingPFCb || existingPFBank;
               if (!existingPFEntry) {
                 const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
                 const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
                 if (isPfOnline) {
-                  await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: procFee,
+                  await recordBankTransaction({ companyId: companyIdToUse!, transactionType: 'CREDIT', amount: procFee,
                     description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
                     referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
                 } else {
-                  await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: procFee,
+                  await recordCashBookEntry({ companyId: companyIdToUse!, entryType: 'CREDIT', amount: procFee,
                     description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
                     referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
                 }
@@ -1403,7 +1420,7 @@ export async function POST(request: NextRequest) {
                 });
                 console.log(`[Processing Fee] ₹${procFee} journal + ${isPfOnline ? 'bank' : 'cashbook'} recorded for loan ${loanId}`);
               } else {
-                console.log(`[Processing Fee] Skipping — already recorded for loan ${loanId} (FIX-10 idempotency guard)`);
+                console.log(`[Processing Fee] Skipping — already recorded for loan ${loanId} (FIX-5/8 dual idempotency)`);
               }
             }
           } catch (pfErr) {

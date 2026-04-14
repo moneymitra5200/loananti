@@ -553,6 +553,8 @@ export async function POST(request: NextRequest) {
       mirrorInterestRate,
       mirrorInterestType,
       extraEmiPaymentPageId,
+      // C3 Non-Mirror: secondary payment page for EMI credit routing
+      secondaryPaymentPageId,
       // Split Payment
       useSplitPayment = false,
       bankAmount = 0,
@@ -731,6 +733,8 @@ export async function POST(request: NextRequest) {
         notes,
         internalNotes,
         bankAccountId: bankAccountId || null,
+        // C3 non-mirror secondary payment page
+        secondaryPaymentPageId: secondaryPaymentPageId || null,
         // Interest Only Loan fields
         isInterestOnlyLoan,
         interestOnlyStartDate: isInterestOnlyLoan ? new Date(disbursementDate) : null,
@@ -1737,8 +1741,22 @@ export async function POST(request: NextRequest) {
         console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}`);
 
         // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
+        // FIX-ISSUE-2: Record processing fee at disbursement + mark processingFeeRecorded=true
         if (processingFee && processingFee > 0) {
           try {
+            // 1. Cashbook or bank entry so it appears in DayBook
+            const { recordCashBookEntry: pfCb, recordBankTransaction: pfBank } = await import('@/lib/simple-accounting');
+            const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((effectiveDisbursementMode||'').toUpperCase());
+            if (isPfOnline) {
+              await pfBank({ companyId, transactionType: 'CREDIT', amount: processingFee,
+                description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
+                referenceId: `${loan.id}-PF`, createdById }).catch(e => console.error('[PF Bank]', e));
+            } else {
+              await pfCb({ companyId, entryType: 'CREDIT', amount: processingFee,
+                description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
+                referenceId: `${loan.id}-PF`, createdById }).catch(e => console.error('[PF CB]', e));
+            }
+            // 2. Double-entry journal for processing fee
             await accountingService.recordProcessingFee({
               loanId: loan.id,
               customerId: customerId,
@@ -1749,15 +1767,18 @@ export async function POST(request: NextRequest) {
               bankAccountId: bankAccountIdUsed || undefined,
               reference: `Processing Fee: ${loanNumber}`
             });
-            console.log(`[Accounting] ✓ Processing fee journal: ₹${processingFee} for ${loanNumber}`);
+            // 3. Mark fee as recorded on the loan
+            await db.offlineLoan.update({ where: { id: loan.id }, data: { processingFeeRecorded: true } as any });
+            console.log(`[Accounting] ✓ Processing fee: ₹${processingFee} for ${loanNumber}`);
           } catch (pfError) {
-            console.error('[Accounting] Processing fee journal failed:', pfError);
+            console.error('[Accounting] Processing fee recording failed:', pfError);
           }
         }
       } catch (accountingError) {
         console.error('Journal entry creation failed:', accountingError);
       }
     }
+
 
     // Log action for undo
     await db.actionLog.create({
@@ -2553,30 +2574,37 @@ export async function PUT(request: NextRequest) {
             console.log(`[Processing Fee] Dynamic calc: regularEMI=₹${regularEMI} - lastMirrorEMI=₹${regularEMI - procFee} = ₹${procFee}`);
 
             if (procFee > 0) {
-              // Store the dynamically-calculated fee back on the mapping
-              await db.mirrorLoanMapping.update({
-                where: { id: mirrorLoanMapping.id },
-                data: { mirrorProcessingFee: procFee }
-              });
-
-              try {
-                await recordCashBookEntry({
-                  companyId: mirrorCoId,
-                  entryType: 'CREDIT',
-                  amount: procFee,
-                  description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
-                  referenceType: 'PROCESSING_FEE',
-                  referenceId: emi.offlineLoanId,
-                  createdById: userId
+              // FIX-ISSUE-11: ATOMIC operation — cashbook entry + flag in same $transaction
+              await db.$transaction(async (pfTx) => {
+                // Check idempotency inside transaction
+                const existingPF = await pfTx.cashBookEntry.findFirst({
+                  where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
                 });
-              } catch (cbErr) {
-                console.warn('[Processing Fee] Cashbook entry failed (non-critical):', cbErr);
-              }
 
-              // Mark as recorded to prevent double-booking
-              await db.mirrorLoanMapping.update({
-                where: { id: mirrorLoanMapping.id },
-                data: { processingFeeRecorded: true }
+                if (!existingPF) {
+                  const cashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCoId } })
+                    || await pfTx.cashBook.create({ data: { companyId: mirrorCoId, currentBalance: 0 } });
+
+                  const newBal = cashBook.currentBalance + procFee;
+                  await pfTx.cashBookEntry.create({
+                    data: {
+                      cashBookId: cashBook.id,
+                      entryType: 'CREDIT',
+                      amount: procFee,
+                      balanceAfter: newBal,
+                      description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
+                      referenceType: 'PROCESSING_FEE',
+                      referenceId: emi.offlineLoanId,
+                      createdById: userId
+                    }
+                  });
+                  await pfTx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newBal } });
+                  // Mark as recorded ATOMICALLY with the cashbook entry
+                  await pfTx.mirrorLoanMapping.update({
+                    where: { id: mirrorLoanMapping!.id },
+                    data: { processingFeeRecorded: true }
+                  });
+                }
               });
 
               // ── Journal Entry for Processing Fee in MIRROR company ──────────
@@ -2617,9 +2645,48 @@ export async function PUT(request: NextRequest) {
 
       try {
         const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
-        const targetCompanyId = isMirrorLoan 
-          ? mirrorLoanMapping!.mirrorCompanyId 
-          : (creditTypeUsed === 'PERSONAL' ? company3Id : emi.offlineLoan.companyId);
+
+        // ── Determine effective company for accounting ────────────────────────
+        // For C3 (PD Rangani) non-mirror loans: ALWAYS go to C3 cashbook (no bank)
+        // loanCompanyId can be null for legacy loans — use company3Id as fallback
+        const loanCompanyId = emi.offlineLoan.companyId || company3Id || '';
+        const isLoanFromC3 = company3Id && loanCompanyId === company3Id;
+
+        // FIX-ISSUE-3: Force CASH mode for C3 loans (C3 has no bank account)
+        const effectivePaymentMode = (isLoanFromC3 && !isMirrorLoan)
+          ? 'CASH'
+          : (paymentMode as string);
+
+        const targetCompanyId = isMirrorLoan
+          ? mirrorLoanMapping!.mirrorCompanyId
+          : loanCompanyId;
+
+        // ── FIX-ISSUE-4: Secondary payment page credit for C3 non-mirror loans ──
+        // If this is a C3 non-mirror loan with a secondaryPaymentPageId, route credit to that user
+        // emi.offlineLoan is already fetched via include: { offlineLoan: true } above
+        const c3SecondaryPageId = (!isMirrorLoan && isLoanFromC3)
+          ? (emi.offlineLoan as any).secondaryPaymentPageId || null
+          : null;
+
+        let c3SecondaryRoleId: string | null = null;
+        if (c3SecondaryPageId) {
+          const secPage = await db.secondaryPaymentPage.findUnique({
+            where: { id: c3SecondaryPageId },
+            select: { roleId: true }
+          });
+          c3SecondaryRoleId = secPage?.roleId || null;
+          if (c3SecondaryRoleId) {
+            // Increase personal credit of secondary page owner
+            await db.user.update({
+              where: { id: c3SecondaryRoleId },
+              data: {
+                personalCredit: { increment: actualPaymentAmount },
+                credit: { increment: actualPaymentAmount },
+              }
+            });
+            console.log(`[C3 Secondary Page] ₹${actualPaymentAmount} credited to secondary page user ${c3SecondaryRoleId}`);
+          }
+        }
         
         // ============================================
         // CRITICAL: Calculate MIRROR INTEREST for mirror loans
@@ -2665,15 +2732,17 @@ export async function PUT(request: NextRequest) {
             console.log(`[Offline EMI] Staff split override: P ₹${journalPrincipal} + I ₹${journalInterest}`);
           }
           // Use the comprehensive accounting function
+          // FIX-ISSUE-3: Pass effectivePaymentMode (forced CASH for C3) so journal debits correct account
+          // FIX-ISSUE-7: null-guard company3Id to prevent silent accounting skip
           const accountingResult = await recordEMIPaymentAccounting({
             amount: actualPaymentAmount,
             principalComponent: journalPrincipal,
             interestComponent: journalInterest,
-            paymentMode: paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+            paymentMode: (effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
             paymentType: paymentType || 'FULL',
             creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-            loanCompanyId: emi.offlineLoan.companyId || company3Id || '',
-            company3Id: company3Id || '',
+            loanCompanyId: loanCompanyId || (company3Id ?? ''),   // FIX: guaranteed non-null
+            company3Id: company3Id || loanCompanyId,               // FIX: fallback to loan company
             loanId: emi.offlineLoanId,
             emiId: emi.id,
             paymentId: updatedEmi.id,
