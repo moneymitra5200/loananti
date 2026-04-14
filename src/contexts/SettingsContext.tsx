@@ -223,6 +223,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
         // Merge with defaults to ensure all fields are present
         const mergedSettings: AppSettings = { ...defaultSettings, ...data.settings };
         
+        // HARDCODE permanent logo to ensure it's not overridden by DB settings
+        mergedSettings.companyLogo = '/mm-logo.png';
+        
         // Update state
         setSettings(mergedSettings);
         

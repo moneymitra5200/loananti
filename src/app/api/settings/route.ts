@@ -21,6 +21,8 @@ export async function GET() {
       settingsObj[setting.key] = setting.value;
     }
 
+    settingsObj['companyLogo'] = '/mm-logo.png';
+
     return NextResponse.json({ settings: settingsObj });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
