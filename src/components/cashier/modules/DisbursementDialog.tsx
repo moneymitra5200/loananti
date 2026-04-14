@@ -22,25 +22,7 @@ import {
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections, SecondaryPaymentPage } from '../tabs/types';
-
-// Opens a document or image URL safely — handles base64 data: URLs which can't be used as href targets
-const openDoc = (url: string) => {
-  if (!url) return;
-  if (url.startsWith('data:')) {
-    const isPdf = url.startsWith('data:application/pdf');
-    const w = window.open('', '_blank');
-    if (w) {
-      if (isPdf) {
-        w.document.write(`<html><body style="margin:0;padding:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
-      } else {
-        w.document.write(`<html><head><title>Document</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain;border-radius:4px"/></body></html>`);
-      }
-      w.document.close();
-    }
-  } else {
-    window.open(url, '_blank');
-  }
-};
+import { openDoc } from '@/utils/openDoc';
 
 // Payment Source Type - Combined Bank + Cash
 interface PaymentSource {
