@@ -44,7 +44,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onNotification,
     onDashboardRefresh,
     onCreditUpdated,
-    pollInterval = 120_000,  // 2 min default — reduces DB queries significantly
+    pollInterval = 300_000,  // 5 min default — reduces DB queries significantly
   } = options;
 
   const callbacksRef = useRef({

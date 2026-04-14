@@ -44,7 +44,6 @@ const LOAN_LIST_SELECT = {
   electionCardDoc: true,
   housePhotoDoc: true,
   otherDocs: true,
-  guarantorPhotoDoc: true,
   digitalSignature: true,
 
   // References

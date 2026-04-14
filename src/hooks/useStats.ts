@@ -37,7 +37,7 @@ export function useStats({
   role = 'SUPER_ADMIN',
   userId = '',
   companyId = '',
-  refetchInterval = 30_000,
+  refetchInterval = 300_000,
   enabled = true,
 }: UseStatsOptions = {}) {
   const params = new URLSearchParams();
