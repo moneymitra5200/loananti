@@ -140,25 +140,79 @@ export async function POST(request: NextRequest) {
       narration: description || 'Owner\'s capital investment'
     });
 
+    // ── Re-initialize chart of accounts AFTER creating any new accounts ──
+    // This ensures all dynamically-created accounts (like 1401) are in the cache
+    console.log('[add-equity] Step 2b: Re-initializing chart of accounts after dynamic account creation');
+    await accountingService.initializeChartOfAccounts();
+
     // Create the journal entry
     console.log('[add-equity] Step 3: Creating journal entry, lines:', JSON.stringify(lines));
     let journalEntryId: string;
     try {
-      journalEntryId = await accountingService.createJournalEntry({
-        entryDate,
-        referenceType: 'OPENING_BALANCE',
-        narration: description || `Owner's Equity Investment - Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
-        lines,
-        createdById: createdById || 'system',
-        paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-        bankAccountId: bankAccountId || undefined,
-        isAutoEntry: true
+      // Use direct DB write to bypass cache issues with dynamic account codes
+      const accountCodes = lines.map(l => l.accountCode);
+      const accounts = await db.chartOfAccount.findMany({
+        where: { companyId, accountCode: { in: accountCodes } },
+        select: { id: true, accountCode: true }
       });
-      console.log('[add-equity] Step 3: Journal entry created:', journalEntryId);
+      const accMap = new Map(accounts.map(a => [a.accountCode, a.id]));
+
+      // Validate all accounts exist
+      for (const line of lines) {
+        if (!accMap.get(line.accountCode)) {
+          throw new Error(`Chart of account not found for code: ${line.accountCode}. Please initialize accounts first.`);
+        }
+      }
+
+      const jeCount = await db.journalEntry.count({ where: { companyId } });
+      const entryNum = `JE${String(jeCount + 1).padStart(6, '0')}`;
+
+      const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
+      const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
+
+      const je = await db.journalEntry.create({
+        data: {
+          companyId,
+          entryNumber: entryNum,
+          entryDate,
+          referenceType: 'EQUITY_INVESTMENT',
+          referenceId: `${companyId}-EQ-${Date.now()}`,
+          narration: description || `Owner's Equity Investment - Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
+          totalDebit,
+          totalCredit,
+          isAutoEntry: true,
+          isApproved: true,
+          createdById: createdById || 'system',
+          paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+          lines: {
+            create: lines.map(l => ({
+              accountId: accMap.get(l.accountCode)!,
+              debitAmount:  l.debitAmount,
+              creditAmount: l.creditAmount,
+              narration: l.narration || ''
+            }))
+          }
+        }
+      });
+
+      journalEntryId = je.id;
+
+      // Update chart of account balances
+      for (const line of lines) {
+        const accId = accMap.get(line.accountCode)!;
+        const delta = line.debitAmount - line.creditAmount;
+        await db.chartOfAccount.update({
+          where: { id: accId },
+          data: { currentBalance: { increment: delta } }
+        });
+      }
+
+      console.log('[add-equity] Step 3: Journal entry created directly:', journalEntryId);
     } catch (jeErr) {
       console.error('[add-equity] Step 3 FAILED - createJournalEntry:', jeErr);
       throw jeErr;
     }
+
 
     // Update bank account balance if bank amount provided
     if (bank > 0 && bankAccountId) {
