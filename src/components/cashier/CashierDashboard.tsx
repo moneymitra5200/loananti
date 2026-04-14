@@ -943,8 +943,18 @@ export default function CashierDashboard() {
                           originalCompanyId: mapping.originalCompanyId,
                         } : null}
                         onViewOriginal={() => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}
-                        onViewMirror={() => {}}
-                        showPayButton={false}
+                        onViewMirror={() => {
+                          // For mirror loan: open detail panel with mirror loan id if available
+                          const mirrorId = mapping?.mirrorLoanId;
+                          if (mirrorId) {
+                            setSelectedLoan({ id: mirrorId } as any);
+                          } else {
+                            setSelectedLoan(loan);
+                          }
+                          setShowLoanDetailPanel(true);
+                        }}
+                        onPayEmi={(l) => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}
+                        showPayButton={true}
                         showEmiProgress={true}
                       />
                     );
