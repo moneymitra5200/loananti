@@ -182,227 +182,239 @@ function DayBookSection({
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const entriesPerPage = 50;
+  const DAYS_PER_PAGE = 7;
 
   const loadEntries = useCallback(async () => {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/journal-entries?companyId=${selectedCompanyId}&limit=500`);
+      const res = await fetch(`/api/accounting/daybook?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}`);
       const data = await res.json();
       setEntries(data.entries || []);
+      setOpeningBalance(data.openingBalance || 0);
     } catch (error) {
-      console.error('Error loading entries:', error);
+      console.error('Error loading daybook:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, startDate, endDate]);
 
-  useEffect(() => {
-    loadEntries();
-  }, [loadEntries]);
+  useEffect(() => { loadEntries(); }, [loadEntries]);
+  useEffect(() => { setCurrentPage(1); }, [startDate, endDate, selectedCompanyId]);
 
-  // Filter entries
-  const filteredEntries = entries.filter(entry => {
-    const entryDate = new Date(entry.entryDate);
-    const start = startOfDay(new Date(startDate));
-    const end = endOfDay(new Date(endDate));
-    
-    if (entryDate < start || entryDate > end) return false;
-    
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      return (
-        entry.entryNumber?.toLowerCase().includes(term) ||
-        entry.narration?.toLowerCase().includes(term) ||
-        entry.referenceType?.toLowerCase().includes(term)
-      );
-    }
-    return true;
-  });
-
-  // Pagination
-  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage);
-  const paginatedEntries = filteredEntries.slice(
-    (currentPage - 1) * entriesPerPage,
-    currentPage * entriesPerPage
+  // Filter by search
+  const filteredEntries = entries.filter(e =>
+    !searchTerm ||
+    e.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    e.referenceType?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const totalDebits  = filteredEntries.reduce((s, e) => s + (e.totalDebit  || 0), 0);
-  const totalCredits = filteredEntries.reduce((s, e) => s + (e.totalCredit || 0), 0);
+  // Group by date
+  const groupedByDay = filteredEntries.reduce((acc, entry) => {
+    const day = format(new Date(entry.entryDate || entry.transactionDate || entry.createdAt), 'yyyy-MM-dd');
+    if (!acc[day]) acc[day] = [];
+    acc[day].push(entry);
+    return acc;
+  }, {} as Record<string, any[]>);
 
-  const getReferenceLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      'LOAN_DISBURSEMENT': 'Loan Disbursement',
-      'EMI_PAYMENT': 'EMI Payment',
-      'MIRROR_EMI_PAYMENT': 'Mirror EMI',
-      'EXTRA_EMI_PAYMENT': 'Extra EMI',
-      'PROCESSING_FEE_COLLECTION': 'Processing Fee',
-      'PROCESSING_FEE': 'Processing Fee',
-      'EXPENSE_ENTRY': 'Expense',
-      'OPENING_BALANCE': 'Opening Balance',
-      'MANUAL_ENTRY': 'Manual Entry',
-      'EQUITY_INVESTMENT': 'Equity',
-    };
-    return labels[type] || type || 'Entry';
-  };
+  const sortedDays = Object.keys(groupedByDay).sort((a, b) => a.localeCompare(b));
+
+  // Build running balance across all days
+  let runningBalance = openingBalance;
+  const dayBalances: Record<string, { open: number; close: number; rows: any[] }> = {};
+  for (const day of sortedDays) {
+    const dayOpen = runningBalance;
+    const rows = groupedByDay[day].map((entry: any) => {
+      const credit = entry.entryType === 'CREDIT' ? (entry.amount || 0) : (entry.transactionType === 'CREDIT' ? (entry.amount || 0) : 0);
+      const debit  = entry.entryType === 'DEBIT'  ? (entry.amount || 0) : (entry.transactionType === 'DEBIT'  ? (entry.amount || 0) : 0);
+      runningBalance = runningBalance + credit - debit;
+      return { ...entry, credit, debit, balanceAfter: runningBalance };
+    });
+    dayBalances[day] = { open: dayOpen, close: runningBalance, rows };
+  }
+
+  // Pagination by days
+  const totalPages = Math.ceil(sortedDays.length / DAYS_PER_PAGE);
+  const pagedDays = sortedDays.slice((currentPage - 1) * DAYS_PER_PAGE, currentPage * DAYS_PER_PAGE);
+
+  // Summary
+  const totalCredit = filteredEntries.reduce((s, e) => s + (e.entryType === 'CREDIT' || e.transactionType === 'CREDIT' ? (e.amount || 0) : 0), 0);
+  const totalDebit  = filteredEntries.reduce((s, e) => s + (e.entryType === 'DEBIT'  || e.transactionType === 'DEBIT'  ? (e.amount || 0) : 0), 0);
+  const closingBalance = openingBalance + totalCredit - totalDebit;
+
+  const getTypeLabel = (type: string) => ({
+    'EMI_PAYMENT': 'EMI', 'LOAN_DISBURSEMENT': 'Disbursement', 'PROCESSING_FEE': 'Proc. Fee',
+    'OPENING_BALANCE': 'Opening Bal', 'MANUAL_ENTRY': 'Manual', 'MIRROR_EMI_PAYMENT': 'Mirror EMI',
+    'EXPENSE': 'Expense', 'PENALTY_INCOME': 'Penalty', 'MIRROR_INTEREST_INCOME': 'Mirror Int.',
+  }[type] || type?.replace(/_/g, ' ') || 'â€”');
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-xl font-semibold flex items-center gap-2">
           <BookOpen className="h-5 w-5" />
-          Day Book — Debit / Credit Ledger
+          Day Book â€” Passbook View
         </h2>
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search..."
-              className="w-48 pl-9"
-            />
+            <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search..." className="w-44 pl-9 h-9" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">From:</span>
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-36" />
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500">From:</span>
+            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-36 h-9" />
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">To:</span>
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-36" />
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500">To:</span>
+            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36 h-9" />
           </div>
-          <Button variant="outline" size="sm" onClick={loadEntries}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
+          <Button variant="outline" size="sm" className="h-9" onClick={loadEntries}>
+            <RefreshCw className="h-4 w-4 mr-1" />Refresh
           </Button>
         </div>
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="bg-blue-50 border-blue-100">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="bg-gray-50 border-gray-200">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Debit</p>
-              <ArrowDownRight className="h-4 w-4 text-blue-600" />
-            </div>
-            <p className="text-xl font-bold text-blue-600">{formatCurrency(totalDebits)}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Opening Balance</p>
+            <p className="text-lg font-bold text-gray-700">{formatCurrency(openingBalance)}</p>
           </CardContent>
         </Card>
-        <Card className="bg-green-50 border-green-100">
+        <Card className="bg-green-50 border-green-200">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">Total Credit</p>
-              <ArrowUpRight className="h-4 w-4 text-green-600" />
-            </div>
-            <p className="text-xl font-bold text-green-600">{formatCurrency(totalCredits)}</p>
+            <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Total Credit (In)</p>
+            <p className="text-lg font-bold text-green-700">+{formatCurrency(totalCredit)}</p>
           </CardContent>
         </Card>
-        <Card className="bg-gray-50 border-gray-100">
+        <Card className="bg-red-50 border-red-200">
           <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Journal Entries</p>
-            <p className="text-xl font-bold text-gray-700">{filteredEntries.length}</p>
+            <p className="text-xs text-red-600 font-medium uppercase tracking-wide">Total Debit (Out)</p>
+            <p className="text-lg font-bold text-red-700">-{formatCurrency(totalDebit)}</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">Closing Balance</p>
+            <p className={`text-lg font-bold ${closingBalance < 0 ? 'text-red-700' : 'text-blue-700'}`}>{formatCurrency(closingBalance)}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Day Book Table — per Journal Line (Debit/Credit view) */}
+      {/* Passbook Table */}
       <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Ledger Entries</CardTitle>
-            <Badge variant="outline">{filteredEntries.length} journal entries</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[540px]">
-            <Table>
-              <TableHeader className="sticky top-0 bg-white z-10">
-                <TableRow className="bg-gray-50">
-                  <TableHead className="w-[90px]">Date</TableHead>
-                  <TableHead className="w-[100px]">Entry No.</TableHead>
-                  <TableHead className="w-[130px]">Type</TableHead>
-                  <TableHead>Account Name</TableHead>
-                  <TableHead className="text-right w-[130px] text-blue-700 font-semibold">Debit (Dr)</TableHead>
-                  <TableHead className="text-right w-[130px] text-green-700 font-semibold">Credit (Cr)</TableHead>
-                  <TableHead className="max-w-[180px]">Narration</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin mx-auto text-emerald-500" />
-                    </TableCell>
-                  </TableRow>
-                ) : paginatedEntries.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
-                      No transactions found
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  paginatedEntries.flatMap((entry) => {
-                    const lines = entry.lines || [];
-                    if (lines.length === 0) {
-                      // Fallback: single row from totals
-                      return [(
-                        <TableRow key={entry.id} className="hover:bg-gray-50 border-b border-dashed">
-                          <TableCell className="font-mono text-xs text-gray-500">{formatDateShort(entry.entryDate)}</TableCell>
-                          <TableCell className="font-mono text-xs text-gray-400">{entry.entryNumber}</TableCell>
-                          <TableCell><Badge variant="outline" className="text-xs">{getReferenceLabel(entry.referenceType)}</Badge></TableCell>
-                          <TableCell className="text-sm text-gray-500 italic">{entry.narration || '—'}</TableCell>
-                          <TableCell className="text-right text-blue-700 font-semibold">{entry.totalDebit > 0 ? formatCurrency(entry.totalDebit) : '—'}</TableCell>
-                          <TableCell className="text-right text-green-700 font-semibold">{entry.totalCredit > 0 ? formatCurrency(entry.totalCredit) : '—'}</TableCell>
-                          <TableCell className="text-xs text-gray-400">—</TableCell>
-                        </TableRow>
-                      )];
-                    }
-                    return lines.map((line: any, li: number) => (
-                      <TableRow
-                        key={`${entry.id}-${li}`}
-                        className={`hover:bg-gray-50 ${li === lines.length - 1 ? 'border-b-2 border-gray-200' : 'border-b border-dashed border-gray-100'}`}
-                      >
-                        <TableCell className="font-mono text-xs text-gray-500">{li === 0 ? formatDateShort(entry.entryDate) : ''}</TableCell>
-                        <TableCell className="font-mono text-xs text-gray-400">{li === 0 ? entry.entryNumber : ''}</TableCell>
-                        <TableCell>{li === 0 ? <Badge variant="outline" className="text-xs">{getReferenceLabel(entry.referenceType)}</Badge> : ''}</TableCell>
-                        <TableCell className="font-medium text-sm">
-                          {line.debitAmount > 0
-                            ? <span className="text-blue-800">{line.account?.accountName || '—'}</span>
-                            : <span className="text-green-800 pl-4">↳ {line.account?.accountName || '—'}</span>
-                          }
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-blue-700">
-                          {line.debitAmount > 0 ? formatCurrency(line.debitAmount) : ''}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-green-700">
-                          {line.creditAmount > 0 ? formatCurrency(line.creditAmount) : ''}
-                        </TableCell>
-                        <TableCell className="text-xs text-gray-500 max-w-[180px] truncate">
-                          {li === 0 ? (entry.narration || '—') : (line.narration || '')}
-                        </TableCell>
-                      </TableRow>
-                    ));
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </ScrollArea>
+        <CardContent className="p-0 overflow-x-auto">
+          {loading ? (
+            <div className="py-16 text-center">
+              <Loader2 className="h-7 w-7 animate-spin mx-auto text-emerald-500 mb-2" />
+              <p className="text-sm text-gray-400">Loading passbook...</p>
+            </div>
+          ) : pagedDays.length === 0 ? (
+            <div className="py-16 text-center text-gray-400">
+              <BookOpen className="h-10 w-10 mx-auto mb-2 opacity-30" />
+              <p>No transactions in this period</p>
+            </div>
+          ) : (
+            <div>
+              {pagedDays.map(day => {
+                const { open, close, rows } = dayBalances[day];
+                const dayLabel = format(new Date(day), 'EEEE, dd MMMM yyyy');
+                const dayCredit = rows.reduce((s, r) => s + r.credit, 0);
+                const dayDebit  = rows.reduce((s, r) => s + r.debit,  0);
+                return (
+                  <div key={day} className="border-b border-gray-100 last:border-b-0">
+                    {/* Day Header - Opening Balance */}
+                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 text-white px-4 py-2 flex items-center justify-between">
+                      <span className="font-semibold text-sm">{dayLabel}</span>
+                      <span className="text-xs bg-white/20 rounded px-2 py-0.5">
+                        Opening: <span className="font-bold">{formatCurrency(open)}</span>
+                      </span>
+                    </div>
+
+                    {/* Table */}
+                    <table className="passbook-table w-full">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="text-left text-gray-500 w-24">Time</th>
+                          <th className="text-left text-gray-500">Description</th>
+                          <th className="text-center text-gray-500 w-20">Type</th>
+                          <th className="text-right text-green-700 w-28">Credit (IN)</th>
+                          <th className="text-right text-red-700 w-28">Debit (OUT)</th>
+                          <th className="text-right text-blue-700 w-32">Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row: any, idx: number) => (
+                          <tr key={row.id || idx} className={`border-b border-dashed border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-blue-50/30 transition-colors`}>
+                            <td className="text-gray-400 font-mono text-xs">
+                              {format(new Date(row.entryDate || row.transactionDate || row.createdAt), 'HH:mm')}
+                            </td>
+                            <td>
+                              <p className="text-sm font-medium text-gray-800 truncate max-w-xs">{row.description || row.narration || 'â€”'}</p>
+                              {row.referenceType && (
+                                <span className="text-xs text-gray-400">{getTypeLabel(row.referenceType)}</span>
+                              )}
+                            </td>
+                            <td className="text-center">
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                                (row.entryType === 'CREDIT' || row.transactionType === 'CREDIT')
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {row.entryType || row.transactionType || 'â€”'}
+                              </span>
+                            </td>
+                            <td className="text-right">
+                              {row.credit > 0
+                                ? <span className="font-semibold text-green-600">+{formatCurrency(row.credit)}</span>
+                                : <span className="text-gray-300">â€”</span>}
+                            </td>
+                            <td className="text-right">
+                              {row.debit > 0
+                                ? <span className="font-semibold text-red-600">-{formatCurrency(row.debit)}</span>
+                                : <span className="text-gray-300">â€”</span>}
+                            </td>
+                            <td className={`text-right font-bold ${row.balanceAfter < 0 ? 'text-red-700' : 'text-blue-700'}`}>
+                              {formatCurrency(row.balanceAfter)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    {/* Day Footer - Closing Balance */}
+                    <div className="bg-blue-50 border-t border-blue-100 px-4 py-2 flex items-center justify-between">
+                      <div className="flex gap-4 text-xs text-gray-500">
+                        <span>Transactions: <b className="text-gray-700">{rows.length}</b></span>
+                        <span className="text-green-600">Total In: <b>+{formatCurrency(dayCredit)}</b></span>
+                        <span className="text-red-600">Total Out: <b>-{formatCurrency(dayDebit)}</b></span>
+                      </div>
+                      <span className={`text-sm font-bold ${close < 0 ? 'text-red-700' : 'text-blue-700'}`}>
+                        Closing Balance: {formatCurrency(close)}
+      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <div className="text-sm text-gray-500">
-                Showing {(currentPage - 1) * entriesPerPage + 1} to {Math.min(currentPage * entriesPerPage, filteredEntries.length)} of {filteredEntries.length}
-              </div>
+            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+              <span className="text-sm text-gray-500">
+                Day {(currentPage - 1) * DAYS_PER_PAGE + 1}â€“{Math.min(currentPage * DAYS_PER_PAGE, sortedDays.length)} of {sortedDays.length} days
+              </span>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
+                <Button variant="outline" size="sm" className="h-8" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <span className="text-sm">Page {currentPage} of {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+                <Button variant="outline" size="sm" className="h-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -413,6 +425,8 @@ function DayBookSection({
     </div>
   );
 }
+
+
 
 
 // Cash Book Section - For Company 3 (Cash Only)
@@ -602,7 +616,7 @@ function CashBookSection({
                             +{formatCurrency(entry.amount)}
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">â€”</span>
                         )}
                       </TableCell>
                       <TableCell className="text-right">
@@ -611,7 +625,7 @@ function CashBookSection({
                             {formatCurrency(entry.amount)}
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">â€”</span>
                         )}
                       </TableCell>
                       <TableCell className={`text-right font-bold ${(entry.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-blue-700'}`}>
@@ -802,19 +816,18 @@ function BankSection({
     try {
       const formDataUpload = new FormData();
       formDataUpload.append('file', file);
-      formDataUpload.append('type', 'qr-code');
 
-      const res = await fetch('/api/upload/document', {
+      const res = await fetch('/api/upload/qr-code', {
         method: 'POST',
         body: formDataUpload
       });
 
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (data.success && data.url) {
         setBankForm(prev => ({ ...prev, qrCodeUrl: data.url }));
         toast.success('QR Code uploaded successfully');
       } else {
-        toast.error('Failed to upload QR Code');
+        toast.error(data.error || 'Failed to upload QR Code');
       }
     } catch (error) {
       toast.error('Failed to upload QR Code');
@@ -1105,7 +1118,7 @@ function BankSection({
                           className="w-20 h-20 rounded border object-cover"
                           onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden'); }}
                         />
-                        <span className="hidden text-xs text-amber-500">⚠ QR not found — please re-upload</span>
+                        <span className="hidden text-xs text-amber-500">âš  QR not found â€” please re-upload</span>
                       </div>
                     )}
                   </div>
@@ -1116,7 +1129,7 @@ function BankSection({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Bank Transactions — Passbook</CardTitle>
+              <CardTitle className="text-lg">Bank Transactions â€” Passbook</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-96">
@@ -1152,14 +1165,14 @@ function BankSection({
                                   {txn.transactionType === 'CREDIT' ? (
                                     <span className="font-semibold text-emerald-600">+{formatCurrency(txn.amount)}</span>
                                   ) : (
-                                    <span className="text-gray-300">—</span>
+                                    <span className="text-gray-300">â€”</span>
                                   )}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {txn.transactionType === 'DEBIT' ? (
                                     <span className="font-semibold text-red-600">{formatCurrency(txn.amount)}</span>
                                   ) : (
-                                    <span className="text-gray-300">—</span>
+                                    <span className="text-gray-300">â€”</span>
                                   )}
                                 </TableCell>
                                 <TableCell className={`text-right font-bold ${(txn.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-blue-700'}`}>
@@ -1472,7 +1485,7 @@ function BankSection({
                 <li>Debit: Bank Account (money IN)</li>
                 <li>Credit: Liability Account (money OWED)</li>
               </ul>
-              <p className="mt-2 text-orange-600 font-medium">⚠️ This is NOT income - you must repay this!</p>
+              <p className="mt-2 text-orange-600 font-medium">âš ï¸ This is NOT income - you must repay this!</p>
             </div>
             
             <div className="space-y-2">
@@ -2062,8 +2075,8 @@ function TrialBalanceSection({
                       <TableHead className="w-24">Code</TableHead>
                       <TableHead className="min-w-[200px]">Account Name</TableHead>
                       <TableHead className="w-32">Type</TableHead>
-                      <TableHead className="text-right w-40">Debit (₹)</TableHead>
-                      <TableHead className="text-right w-40">Credit (₹)</TableHead>
+                      <TableHead className="text-right w-40">Debit (â‚¹)</TableHead>
+                      <TableHead className="text-right w-40">Credit (â‚¹)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2252,7 +2265,7 @@ function ProfitLossSection({
                     ) : (
                       <TableRow>
                         <TableCell className="text-gray-500">No income recorded</TableCell>
-                        <TableCell className="text-right">₹0.00</TableCell>
+                        <TableCell className="text-right">â‚¹0.00</TableCell>
                       </TableRow>
                     )}
                     <TableRow className="bg-green-50 font-bold">
@@ -2287,7 +2300,7 @@ function ProfitLossSection({
                     ) : (
                       <TableRow>
                         <TableCell className="text-gray-500">No expenses recorded</TableCell>
-                        <TableCell className="text-right">₹0.00</TableCell>
+                        <TableCell className="text-right">â‚¹0.00</TableCell>
                       </TableRow>
                     )}
                     <TableRow className="bg-red-50 font-bold">
@@ -2486,7 +2499,7 @@ function BalanceSheetSection({
                           rows.push(
                             <TableRow key={`sub-${idx}-${si}`} className="bg-slate-50/50">
                               <TableCell className="pl-8 text-sm text-gray-600">
-                                ↳ {sub.accountName}
+                                â†³ {sub.accountName}
                               </TableCell>
                               <TableCell className={`text-right text-sm ${sub.amount < 0 ? 'text-red-500' : 'text-slate-600'}`}>
                                 {formatCurrency(sub.amount)}
@@ -2500,7 +2513,7 @@ function BalanceSheetSection({
                   ) : (
                     <TableRow>
                       <TableCell className="text-gray-500">No assets recorded</TableCell>
-                      <TableCell className="text-right">₹0.00</TableCell>
+                      <TableCell className="text-right">â‚¹0.00</TableCell>
                     </TableRow>
                   )}
                   <TableRow className="bg-blue-50 font-bold">
@@ -2536,7 +2549,7 @@ function BalanceSheetSection({
                   ) : (
                     <TableRow>
                       <TableCell className="text-gray-500">No liabilities</TableCell>
-                      <TableCell className="text-right">₹0.00</TableCell>
+                      <TableCell className="text-right">â‚¹0.00</TableCell>
                     </TableRow>
                   )}
                   <TableRow className="bg-red-50">
@@ -2652,7 +2665,7 @@ export default function UnifiedAccountantDashboard() {
     }
   }, [selectedCompany, companyType, menuItems.length]);
 
-  // Auto-Fix removed — idempotency guards now prevent all duplicate entries at the source
+  // Auto-Fix removed â€” idempotency guards now prevent all duplicate entries at the source
 
 
 

@@ -318,8 +318,12 @@ body {
    RESPONSIVE BUTTONS
 ══════════════════════════════════════════════════════════ */
 button, [role="button"] {
-  min-height: clamp(32px, 3.5vh, 48px);
   font-size: var(--text-sm);
+}
+
+/* Only apply min-height to standalone buttons, NOT icon buttons inside tables */
+.btn-standalone {
+  min-height: clamp(32px, 3.5vh, 48px);
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -504,5 +508,59 @@ label {
   -webkit-overflow-scrolling: touch;
   border-radius: calc(var(--radius));
 }
+
+/* ══════════════════════════════════════════════════════════
+   TABLE OVERFLOW FIX — prevents text/icon overlap
+══════════════════════════════════════════════════════════ */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: auto;
+}
+
+table th,
+table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  padding: 6px 8px;
+}
+
+/* Prevent badge/icon inside th from overflowing */
+table th {
+  white-space: nowrap;
+}
+
+/* Currency / amount columns should never wrap */
+table td[class*="text-right"],
+table th[class*="text-right"] {
+  white-space: nowrap;
+}
+
+/* Fix icon buttons in table — no min-height override */
+table button,
+table [role="button"] {
+  min-height: unset !important;
+  height: auto;
+  padding: 4px;
+  line-height: 1;
+}
+
+/* Passbook table specific */
+.passbook-table th {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.passbook-table td {
+  font-size: 13px;
+  padding: 7px 10px;
+  vertical-align: middle;
+}
+
 /* end of globals.css */
 
