@@ -15,17 +15,15 @@ interface DocumentsSectionProps {
 const openDoc = (url: string) => {
   if (!url) return;
   if (url.startsWith('data:')) {
-    try {
-      const arr = url.split(',');
-      const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-      const bstr = atob(arr[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while (n--) u8arr[n] = bstr.charCodeAt(n);
-      const blob = new Blob([u8arr], { type: mime });
-      window.open(URL.createObjectURL(blob), '_blank');
-    } catch {
-      window.open(url, '_blank');
+    const isPdf = url.startsWith('data:application/pdf');
+    const w = window.open('', '_blank');
+    if (w) {
+      if (isPdf) {
+        w.document.write(`<html><body style="margin:0;padding:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
+      } else {
+        w.document.write(`<html><head><title>Document</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain;border-radius:4px"/></body></html>`);
+      }
+      w.document.close();
     }
   } else {
     window.open(url, '_blank');

@@ -542,15 +542,16 @@ export default function ComprehensiveLoanDialog({
                                     type="button"
                                     onClick={() => {
                                       if (docUrl.startsWith('data:')) {
-                                        try {
-                                          const arr = docUrl.split(',');
-                                          const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
-                                          const bstr = atob(arr[1]);
-                                          let n = bstr.length;
-                                          const u8arr = new Uint8Array(n);
-                                          while (n--) u8arr[n] = bstr.charCodeAt(n);
-                                          window.open(URL.createObjectURL(new Blob([u8arr], { type: mime })), '_blank');
-                                        } catch { window.open(docUrl, '_blank'); }
+                                        const isPdf = docUrl.startsWith('data:application/pdf');
+                                        const w = window.open('', '_blank');
+                                        if (w) {
+                                          if (isPdf) {
+                                            w.document.write(`<html><body style="margin:0"><embed src="${docUrl}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
+                                          } else {
+                                            w.document.write(`<html><head><title>Document</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${docUrl}" style="max-width:100%;max-height:100vh;object-fit:contain"/></body></html>`);
+                                          }
+                                          w.document.close();
+                                        }
                                       } else { window.open(docUrl, '_blank'); }
                                     }}
                                   >
