@@ -1252,7 +1252,20 @@ export async function POST(request: NextRequest) {
         if (mirrorEMIForCalc) {
           const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
           calculatedMirrorInterest = Math.round(mirrorEMIForCalc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-          mirrorEMIAmounts = { totalAmount: mirrorEMIForCalc.totalAmount, principalAmount: mirrorEMIForCalc.principalAmount };
+
+          // For partial payments: scale mirror amounts proportionally to actual payment
+          if (isPartialPayment && mirrorEMIForCalc.totalAmount > 0) {
+            const ratio = paidAmount / (emi.totalAmount || 1);
+            const scaledTotal = Math.round(mirrorEMIForCalc.totalAmount * ratio * 100) / 100;
+            const scaledPrincipal = Math.round(mirrorEMIForCalc.principalAmount * ratio * 100) / 100;
+            // Interest-first: cover interest first, then principal
+            const scaledInterest = Math.min(calculatedMirrorInterest, scaledTotal);
+            const scaledPrincipalActual = Math.max(0, scaledTotal - scaledInterest);
+            calculatedMirrorInterest = scaledInterest;
+            mirrorEMIAmounts = { totalAmount: scaledTotal, principalAmount: scaledPrincipalActual };
+          } else {
+            mirrorEMIAmounts = { totalAmount: mirrorEMIForCalc.totalAmount, principalAmount: mirrorEMIForCalc.principalAmount };
+          }
         }
       }
 

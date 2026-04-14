@@ -1423,10 +1423,24 @@ export default function OfflineLoanDetailPanel({
                                         </div>
                                         <div className="flex items-center gap-3">
                                           <div className="text-right">
-                                            <p className="font-bold text-lg">{formatCurrency(emi.totalAmount)}</p>
-                                            <p className="text-xs text-gray-500">
-                                              P: {formatCurrency(emi.principalAmount)} | I: {formatCurrency(emi.interestAmount)}
-                                            </p>
+                                            {emi.paymentStatus === 'PARTIALLY_PAID' ? (
+                                              <>
+                                                <p className="font-bold text-lg text-amber-600">
+                                                  {formatCurrency(emi.totalAmount - (emi.paidAmount || 0))}
+                                                  <span className="text-xs font-normal text-gray-400 ml-1">remaining</span>
+                                                </p>
+                                                <p className="text-xs text-green-600">
+                                                  ✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.totalAmount)}
+                                                </p>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <p className="font-bold text-lg">{formatCurrency(emi.totalAmount)}</p>
+                                                <p className="text-xs text-gray-500">
+                                                  P: {formatCurrency(emi.principalAmount)} | I: {formatCurrency(emi.interestAmount)}
+                                                </p>
+                                              </>
+                                            )}
                                           </div>
                                           {/* Pay Button - Available for all unpaid EMIs (no sequential restriction) */}
                                           {/* Mirror loans cannot be paid directly - they sync from original */}

@@ -294,7 +294,17 @@ const EMISection = memo(function EMISection({
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
+                      {emi.status === 'PARTIALLY_PAID' ? (
+                        <>
+                          <p className="font-bold text-lg text-amber-600">
+                            {formatCurrency((emi.emiAmount - (emi.paidAmount || 0)))}
+                            <span className="text-xs font-normal text-gray-400 ml-1">remaining</span>
+                          </p>
+                          <p className="text-xs text-green-600">✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.emiAmount)}</p>
+                        </>
+                      ) : (
+                        <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
+                      )}
                       <div className="flex gap-2 mt-2 justify-end flex-wrap">
                         {/* EMI Settings Button - Available for all roles (but not for mirror loans or PAID EMIs) */}
                         {companyId && !isMirrorLoan && !isPaid && (
