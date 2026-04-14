@@ -23,6 +23,25 @@ import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections, SecondaryPaymentPage } from '../tabs/types';
 
+// Opens a document or image URL safely — handles base64 data: URLs which can't be used as href targets
+const openDoc = (url: string) => {
+  if (!url) return;
+  if (url.startsWith('data:')) {
+    const isPdf = url.startsWith('data:application/pdf');
+    const w = window.open('', '_blank');
+    if (w) {
+      if (isPdf) {
+        w.document.write(`<html><body style="margin:0;padding:0"><embed src="${url}" type="application/pdf" width="100%" height="100%" style="position:fixed;top:0;left:0;width:100%;height:100%"/></body></html>`);
+      } else {
+        w.document.write(`<html><head><title>Document</title></head><body style="margin:0;background:#1a1a1a;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${url}" style="max-width:100%;max-height:100vh;object-fit:contain;border-radius:4px"/></body></html>`);
+      }
+      w.document.close();
+    }
+  } else {
+    window.open(url, '_blank');
+  }
+};
+
 // Payment Source Type - Combined Bank + Cash
 interface PaymentSource {
   id: string;
@@ -392,44 +411,57 @@ export default function DisbursementDialog({
                           </div>
                         </div>
 
-                        {/* Employment Details */}
+                        {/* Employment Details — show only relevant fields based on employment type */}
                         <div className="py-4 border-b">
                           <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
                             <Briefcase className="h-4 w-4" /> Employment Details
                           </h4>
                           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            {/* Employment Type — always shown */}
                             <div className="p-3 bg-blue-50 rounded-lg">
                               <p className="text-xs text-gray-500">Employment Type</p>
                               <p className="font-medium">{selectedLoan.employmentType || 'N/A'}</p>
                             </div>
-                            <div className="p-3 bg-blue-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Employer Name</p>
-                              <p className="font-medium">{selectedLoan.employerName || 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-blue-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Designation</p>
-                              <p className="font-medium">{selectedLoan.designation || 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-blue-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Years in Employment</p>
-                              <p className="font-medium">{selectedLoan.yearsInEmployment ? `${selectedLoan.yearsInEmployment} years` : 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-green-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Monthly Income</p>
-                              <p className="font-medium text-green-600">{selectedLoan.monthlyIncome ? formatCurrency(selectedLoan.monthlyIncome) : 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-green-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Annual Income</p>
-                              <p className="font-medium text-green-600">{selectedLoan.annualIncome ? formatCurrency(selectedLoan.annualIncome) : 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-green-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Other Income</p>
-                              <p className="font-medium">{selectedLoan.otherIncome ? formatCurrency(selectedLoan.otherIncome) : 'N/A'}</p>
-                            </div>
-                            <div className="p-3 bg-green-50 rounded-lg">
-                              <p className="text-xs text-gray-500">Income Source</p>
-                              <p className="font-medium">{selectedLoan.incomeSource || 'N/A'}</p>
-                            </div>
+
+                            {/* EMPLOYED or SALARIED: show employer fields */}
+                            {['EMPLOYED', 'SALARIED', 'GOVERNMENT', 'PRIVATE_SECTOR'].includes(selectedLoan.employmentType || '') && (
+                              <>
+                                {selectedLoan.employerName && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Employer Name</p><p className="font-medium">{selectedLoan.employerName}</p></div>}
+                                {selectedLoan.designation && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Designation</p><p className="font-medium">{selectedLoan.designation}</p></div>}
+                                {selectedLoan.yearsInEmployment && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Years in Employment</p><p className="font-medium">{selectedLoan.yearsInEmployment} years</p></div>}
+                                {selectedLoan.monthlyIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Monthly Income</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.monthlyIncome)}</p></div>}
+                                {selectedLoan.annualIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Annual Income</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.annualIncome)}</p></div>}
+                              </>
+                            )}
+
+                            {/* SELF_EMPLOYED / BUSINESS: show business fields */}
+                            {['SELF_EMPLOYED', 'BUSINESS', 'ENTREPRENEUR'].includes(selectedLoan.employmentType || '') && (
+                              <>
+                                {selectedLoan.businessName && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Business Name</p><p className="font-medium">{selectedLoan.businessName}</p></div>}
+                                {selectedLoan.businessType && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Business Type</p><p className="font-medium">{selectedLoan.businessType}</p></div>}
+                                {selectedLoan.yearsInBusiness && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Years in Business</p><p className="font-medium">{selectedLoan.yearsInBusiness} years</p></div>}
+                                {selectedLoan.annualTurnover && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Annual Turnover</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.annualTurnover)}</p></div>}
+                                {selectedLoan.monthlyIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Monthly Income</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.monthlyIncome)}</p></div>}
+                              </>
+                            )}
+
+                            {/* UNEMPLOYED / STUDENT / RETIRED / HOUSEWIFE: show income/source only */}
+                            {['UNEMPLOYED', 'STUDENT', 'RETIRED', 'HOUSEWIFE', 'HOMEMAKER'].includes(selectedLoan.employmentType || '') && (
+                              <>
+                                {selectedLoan.incomeSource && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Income Source</p><p className="font-medium">{selectedLoan.incomeSource}</p></div>}
+                                {selectedLoan.otherIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Other Income</p><p className="font-medium">{formatCurrency(selectedLoan.otherIncome)}</p></div>}
+                                {selectedLoan.monthlyIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Monthly Income</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.monthlyIncome)}</p></div>}
+                              </>
+                            )}
+
+                            {/* Fallback for any other type: show all non-null fields */}
+                            {!['EMPLOYED','SALARIED','GOVERNMENT','PRIVATE_SECTOR','SELF_EMPLOYED','BUSINESS','ENTREPRENEUR','UNEMPLOYED','STUDENT','RETIRED','HOUSEWIFE','HOMEMAKER'].includes(selectedLoan.employmentType || '') && (
+                              <>
+                                {selectedLoan.employerName && <div className="p-3 bg-blue-50 rounded-lg"><p className="text-xs text-gray-500">Employer Name</p><p className="font-medium">{selectedLoan.employerName}</p></div>}
+                                {selectedLoan.monthlyIncome && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Monthly Income</p><p className="font-medium text-green-600">{formatCurrency(selectedLoan.monthlyIncome)}</p></div>}
+                                {selectedLoan.incomeSource && <div className="p-3 bg-green-50 rounded-lg"><p className="text-xs text-gray-500">Income Source</p><p className="font-medium">{selectedLoan.incomeSource}</p></div>}
+                              </>
+                            )}
                           </div>
                         </div>
 
@@ -673,9 +705,9 @@ export default function DisbursementDialog({
                       {selectedLoan.goldLoanDetail.goldItemPhoto && (
                         <div className="p-3 bg-white rounded-lg col-span-2">
                           <p className="text-xs text-gray-500 mb-1">Gold Item Photo</p>
-                          <a href={selectedLoan.goldLoanDetail.goldItemPhoto} target="_blank" className="text-blue-600 text-sm flex items-center gap-1">
+                          <button type="button" onClick={() => openDoc(selectedLoan.goldLoanDetail!.goldItemPhoto!)} className="text-blue-600 text-sm flex items-center gap-1 hover:text-blue-800">
                             <ExternalLink className="h-4 w-4" /> View Photo
-                          </a>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -727,17 +759,17 @@ export default function DisbursementDialog({
                       {selectedLoan.vehicleLoanDetail.rcBookPhoto && (
                         <div className="p-3 bg-white rounded-lg">
                           <p className="text-xs text-gray-500 mb-1">RC Book</p>
-                          <a href={selectedLoan.vehicleLoanDetail.rcBookPhoto} target="_blank" className="text-blue-600 text-sm flex items-center gap-1">
+                          <button type="button" onClick={() => openDoc(selectedLoan.vehicleLoanDetail!.rcBookPhoto!)} className="text-blue-600 text-sm flex items-center gap-1 hover:text-blue-800">
                             <ExternalLink className="h-4 w-4" /> View
-                          </a>
+                          </button>
                         </div>
                       )}
                       {selectedLoan.vehicleLoanDetail.vehiclePhoto && (
                         <div className="p-3 bg-white rounded-lg">
                           <p className="text-xs text-gray-500 mb-1">Vehicle Photo</p>
-                          <a href={selectedLoan.vehicleLoanDetail.vehiclePhoto} target="_blank" className="text-blue-600 text-sm flex items-center gap-1">
+                          <button type="button" onClick={() => openDoc(selectedLoan.vehicleLoanDetail!.vehiclePhoto!)} className="text-blue-600 text-sm flex items-center gap-1 hover:text-blue-800">
                             <ExternalLink className="h-4 w-4" /> View
-                          </a>
+                          </button>
                         </div>
                       )}
                     </div>
@@ -793,10 +825,13 @@ export default function DisbursementDialog({
                             <p className="text-gray-500 text-sm">Purpose</p>
                             <p className="font-medium">{selectedLoan.purpose || 'N/A'}</p>
                           </div>
-                          <div>
-                            <p className="text-gray-500 text-sm">Processing Fee</p>
-                            <p className="font-medium">{formatCurrency(selectedLoan.sessionForm?.processingFee || 0)}</p>
-                          </div>
+                          {/* Hide processing fee for mirror loans — it belongs to the original loan only */}
+                          {!mirrorLoanInfo?.isMirrorLoan && (
+                            <div>
+                              <p className="text-gray-500 text-sm">Processing Fee</p>
+                              <p className="font-medium">{formatCurrency(selectedLoan.sessionForm?.processingFee || 0)}</p>
+                            </div>
+                          )}
                           <div>
                             <p className="text-gray-500 text-sm">Application Date</p>
                             <p className="font-medium">{formatDate(selectedLoan.createdAt)}</p>

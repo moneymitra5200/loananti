@@ -28,6 +28,8 @@ const LOAN_LIST_SELECT = {
   employmentType: true, employerName: true, designation: true,
   yearsInEmployment: true, monthlyIncome: true, annualIncome: true,
   otherIncome: true, incomeSource: true,
+  // Business fields (SELF_EMPLOYED / BUSINESS)
+  businessName: true, businessType: true, yearsInBusiness: true, annualTurnover: true,
   // Bank details (for disbursement)
   bankAccountNumber: true, bankIfsc: true, bankName: true,
   bankBranch: true, accountType: true, accountHolderName: true,

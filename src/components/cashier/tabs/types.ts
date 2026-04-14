@@ -94,6 +94,11 @@ export interface Loan {
   annualIncome?: number;
   otherIncome?: number;
   incomeSource?: string;
+  // Business fields (for SELF_EMPLOYED / BUSINESS employment type)
+  businessName?: string;
+  businessType?: string;
+  yearsInBusiness?: number;
+  annualTurnover?: number;
   // Loan type specific
   goldLoanDetail?: any;
   vehicleLoanDetail?: any;

@@ -5,7 +5,7 @@ import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardL
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Banknote, FileText, CheckCircle, CreditCard, DollarSign, 
   TrendingUp, Eye, Receipt, Send, Activity, Landmark, Percent, PartyPopper
@@ -666,7 +666,8 @@ export default function CashierDashboard() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Avatar className="h-12 w-12 bg-gradient-to-br from-orange-400 to-red-500">
-            <AvatarFallback className="bg-transparent text-white font-semibold">
+            <AvatarImage src={loan.photoDoc || ''} alt={loan.customer?.name || ''} className="object-cover" />
+            <AvatarFallback className="bg-gradient-to-br from-orange-400 to-red-500 text-white font-semibold">
               {loan.customer?.name?.charAt(0) || 'U'}
             </AvatarFallback>
           </Avatar>
