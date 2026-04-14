@@ -148,9 +148,43 @@ export async function GET(request: NextRequest) {
     cashMapped.forEach(e => { if (e.referenceId) coveredRefs.add(e.referenceId); });
     bankMapped.forEach(e => { if (e.referenceId) coveredRefs.add(e.referenceId); });
 
-    // Only include journal entries whose referenceId is NOT already in cashbook/bank
+    // Also build set of referenceTypes covered by cashbook/bank (for type-level de-dup)
+    const coveredRefTypes = new Set<string>();
+    cashMapped.forEach(e => { if (e.referenceType) coveredRefTypes.add(e.referenceType); });
+    bankMapped.forEach(e => { if (e.referenceType) coveredRefTypes.add(e.referenceType); });
+
+    // These referenceTypes ALWAYS create a real cashbook OR bank entry alongside their journal.
+    // Showing their journal separately in DayBook would double-count the amount.
+    // Only "pure journal" types (depreciation, accruals, adjustments) should show standalone.
+    const ALWAYS_HAS_REAL_ENTRY = new Set([
+      'EQUITY_INVESTMENT',
+      'CAPITAL_INVESTMENT',
+      'EMI_PAYMENT',
+      'LOAN_DISBURSEMENT',
+      'PROCESSING_FEE',
+      'PROCESSING_FEE_COLLECTION',
+      'EXPENSE',
+      'EXPENSE_PAYMENT',
+      'INTEREST_INCOME',
+      'PENALTY_PAYMENT',
+      'LOAN_CLOSURE',
+      'SETTLEMENT',
+      'CASH_DEPOSIT',
+      'CASH_WITHDRAWAL',
+      'BANK_DEPOSIT',
+      'INTEREST_ONLY_PAYMENT',
+      'PERSONAL_CLEARANCE',
+    ]);
+
+    // Only include journal entries that:
+    // 1. Are NOT in the "always has real entry" blocklist, AND
+    // 2. Their specific referenceId is NOT already covered by cashbook/bank
     const journalMapped = journalEntries
-      .filter(je => !je.referenceId || !coveredRefs.has(je.referenceId))
+      .filter(je =>
+        !ALWAYS_HAS_REAL_ENTRY.has(je.referenceType || '') &&
+        (!je.referenceId || !coveredRefs.has(je.referenceId))
+      )
+
       .map(je => {
         // Sum up debit lines as the "amount" for display
         const totalDebit  = je.lines.reduce((s, l) => s + (l.debitAmount || 0), 0);
