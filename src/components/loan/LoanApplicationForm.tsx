@@ -223,7 +223,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
       };
     } else if (loanData.employmentType === 'Student') {
       return {
-        label: 'Guardian Income',
+        label: 'Guarantor Income',
         value: loanData.guardianIncome ? formatCurrency(parseFloat(loanData.guardianIncome)) : 'N/A'
       };
     }
@@ -461,8 +461,8 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
                     <div><p className="text-xs text-gray-500">Institution Name</p><p className="font-medium">{loanData.institutionName}</p></div>
                     <div><p className="text-xs text-gray-500">Course/Program</p><p className="font-medium">{loanData.courseProgram}</p></div>
                     <div><p className="text-xs text-gray-500">Expected Completion</p><p className="font-medium">{loanData.expectedCompletion}</p></div>
-                    <div><p className="text-xs text-gray-500">Guardian Name</p><p className="font-medium">{loanData.guardianName}</p></div>
-                    <div><p className="text-xs text-gray-500">Guardian Income</p><p className="font-bold text-emerald-700">{loanData.guardianIncome ? formatCurrency(parseFloat(loanData.guardianIncome)) : 'N/A'}</p></div>
+                    <div><p className="text-xs text-gray-500">Guarantor Name</p><p className="font-medium">{loanData.guardianName}</p></div>
+                    <div><p className="text-xs text-gray-500">Guarantor Income</p><p className="font-bold text-emerald-700">{loanData.guardianIncome ? formatCurrency(parseFloat(loanData.guardianIncome)) : 'N/A'}</p></div>
                   </>
                 )}
                 {loanData.employmentType === 'Retired' && (
@@ -514,7 +514,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
           {/* Reference/Guardian Details */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-white bg-emerald-600 px-3 py-2 rounded-t-lg flex items-center gap-2">
-              <Users className="h-4 w-4" /> REFERENCES / GUARDIANS
+              <Users className="h-4 w-4" /> REFERENCES / GUARANTORS
             </h3>
             <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">

@@ -304,7 +304,7 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="h-4 w-4 text-orange-600" />
-            Guardians
+            Guarantors
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -314,7 +314,7 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
             <div className="grid grid-cols-2 gap-4">
               {loanDetails?.reference1Name && (
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-2">Guardian 1</p>
+                  <p className="text-xs text-gray-500 mb-2">Guarantor 1</p>
                   <p className="font-semibold">{loanDetails.reference1Name}</p>
                   <p className="text-sm text-gray-500">{loanDetails.reference1Phone}</p>
                   <p className="text-xs text-gray-400">{loanDetails.reference1Relation}</p>
@@ -325,7 +325,7 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
               )}
               {loanDetails?.reference2Name && (
                 <div className="p-4 bg-gray-50 rounded-lg">
-                  <p className="text-xs text-gray-500 mb-2">Guardian 2</p>
+                  <p className="text-xs text-gray-500 mb-2">Guarantor 2</p>
                   <p className="font-semibold">{loanDetails.reference2Name}</p>
                   <p className="text-sm text-gray-500">{loanDetails.reference2Phone}</p>
                   <p className="text-xs text-gray-400">{loanDetails.reference2Relation}</p>

@@ -112,6 +112,8 @@ const DOCUMENT_TYPES = [
   { id: 'photo', name: 'Photo', desc: 'Passport size', required: false },
   { id: 'election_card', name: 'Election Card', desc: 'Voter ID', required: false },
   { id: 'house_photo', name: 'House Photo', desc: 'Residence photo', required: false },
+  { id: 'guarantor_photo', name: 'Guarantor Photo', desc: 'Guarantor passport photo', required: false },
+  { id: 'passbook_photo', name: 'Passbook Photo', desc: 'Bank passbook front page', required: false },
 ];
 
 export default function OfflineLoanForm({ createdById, createdByRole, onLoanCreated }: OfflineLoanFormProps) {
@@ -1054,12 +1056,6 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2"><Label>Customer Name *</Label><Input value={formData.customerName} onChange={(e) => handleInputChange('customerName', e.target.value)} placeholder="Full name" /></div>
                 <div className="space-y-2"><Label>Phone Number *</Label><Input value={formData.customerPhone} onChange={(e) => handleInputChange('customerPhone', e.target.value)} placeholder="10-digit number" /></div>
-                <div className="space-y-2 lg:col-span-2">
-                  <Label className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-emerald-500" /> Location *
-                  </Label>
-                  <Input value={formData.customerLocation} onChange={(e) => handleInputChange('customerLocation', e.target.value)} placeholder="e.g. Indiranagar, Bangalore" />
-                </div>
                 <div className="space-y-2"><Label>Email</Label><Input type="email" value={formData.customerEmail} onChange={(e) => handleInputChange('customerEmail', e.target.value)} /></div>
                 <div className="space-y-2"><Label>PAN Number</Label><Input value={formData.customerPan} onChange={(e) => handleInputChange('customerPan', e.target.value.toUpperCase())} maxLength={10} /></div>
                 <div className="space-y-2"><Label>Aadhaar Number</Label><Input value={formData.customerAadhaar} onChange={(e) => handleInputChange('customerAadhaar', e.target.value)} maxLength={12} /></div>
@@ -1092,8 +1088,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="FLAT">Flat Interest</SelectItem>
-                      <SelectItem value="REDUCING">Reducing Balance</SelectItem>
+                      <SelectItem value="FLAT">Flat Rate</SelectItem>
+                      <SelectItem value="REDUCING">Reduce Rate</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-gray-500">
@@ -1849,7 +1845,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               {showAdvanced && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <Label>Guardian 1</Label>
+                    <Label>Guarantor 1</Label>
                     <div className="grid grid-cols-3 gap-2">
                       <Input placeholder="Name" value={formData.reference1Name} onChange={(e) => handleInputChange('reference1Name', e.target.value)} />
                       <Input placeholder="Phone" value={formData.reference1Phone} onChange={(e) => handleInputChange('reference1Phone', e.target.value)} />
@@ -1857,7 +1853,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Guardian 2</Label>
+                    <Label>Guarantor 2</Label>
                     <div className="grid grid-cols-3 gap-2">
                       <Input placeholder="Name" value={formData.reference2Name} onChange={(e) => handleInputChange('reference2Name', e.target.value)} />
                       <Input placeholder="Phone" value={formData.reference2Phone} onChange={(e) => handleInputChange('reference2Phone', e.target.value)} />
