@@ -302,7 +302,7 @@ export default function CreditManagementPage() {
     if (autoRefresh) {
       intervalRef.current = setInterval(() => {
         fetchData(true);
-      }, 30000); // Refresh every 30 seconds (reduced from 1 second)
+      }, 300000); // Refresh every 5 minutes
       
       return () => {
         if (intervalRef.current) {

@@ -112,7 +112,7 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
 
   // Auto-poll every 60 seconds so new requests appear without refresh
   useEffect(() => {
-    const interval = setInterval(() => fetchRequests(), 60000);
+    const interval = setInterval(() => fetchRequests(), 180000);
     return () => clearInterval(interval);
   }, [statusFilter]);
 
