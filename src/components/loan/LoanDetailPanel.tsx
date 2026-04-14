@@ -564,7 +564,13 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       let lastError: string | null = null;
       let paidCount = 0;
 
-      for (const emi of emisToPay) {
+      for (let i = 0; i < emisToPay.length; i++) {
+        const emi = emisToPay[i];
+        // FIX-24: Show progress for multi-EMI bulk payment
+        if (emisToPay.length > 1) {
+          toast({ title: `Paying EMI ${i + 1} of ${emisToPay.length}...`, description: `EMI #${emi.emiNumber}` });
+        }
+
         const emiRemaining = emi.emiAmount - (emi.paidAmount || 0);
         // For multi-EMI always pay full remaining; for single EMI use form amount
         const paidAmount = emisToPay.length > 1 ? emiRemaining : emiPaymentForm.amount;
@@ -902,7 +908,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       onPay={handleEMIPayment}
       hasMirrorLoan={hasMirrorLoan}
       mirrorCompany={mirrorCompanyInfo}
-      originalCompanyName={loanDetails?.company?.name || 'Company 3'}
+      originalCompanyName={loanDetails?.company?.name || 'Your Company'}
     />
 
     {/* EMI Date Change Dialog */}

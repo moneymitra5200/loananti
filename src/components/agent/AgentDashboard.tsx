@@ -741,7 +741,7 @@ export default function AgentDashboard() {
               userId={user?.id || ''} 
               userRole={user?.role || 'AGENT'}
               onPaymentComplete={() => {
-                toast({ title: 'Payment Collected', description: 'EMI payment collected and credit updated' });
+                fetchData(true); // FIX-29: Refresh all loan data after payment
               }}
             />
           </div>
@@ -774,7 +774,12 @@ export default function AgentDashboard() {
               <OfflineLoanForm 
                 createdById={user?.id || ''} 
                 createdByRole={user?.role || 'AGENT'}
-                companyId={user?.companyId || ''}
+                companyId={
+                  // FIX-37: try user.companyId first, then fall back to first loan's companyId
+                  user?.companyId ||
+                  (loans.find((l: any) => l.companyId) as any)?.companyId ||
+                  ''
+                }
                 onLoanCreated={() => setOfflineLoansRefreshKey(k => k + 1)}
               />
             </div>

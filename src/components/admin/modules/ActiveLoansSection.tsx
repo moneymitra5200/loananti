@@ -592,15 +592,25 @@ export function ActiveLoansSection({
     const paidAmount = selectedEmi.paidAmount || 0;
     const remaining = totalAmount - paidAmount;
     
+    // FIX-32: Use actual EMI breakdown instead of hardcoded 70/30 split
+    const emiPrincipal = selectedEmi.principalAmount || 0;
+    const emiInterest = selectedEmi.interestAmount || 0;
+    // Derive ratio from actual EMI amounts; fallback to 70/30 only if both are 0
+    const principalRatio = (emiPrincipal + emiInterest > 0)
+      ? emiPrincipal / (emiPrincipal + emiInterest)
+      : 0.7;
+    const interestRatio = 1 - principalRatio;
+
     if (paymentType === 'FULL_EMI') {
-      return { amount: remaining, remaining: 0, principal: remaining * 0.7, interest: remaining * 0.3 };
+      return { amount: remaining, remaining: 0, principal: remaining * principalRatio, interest: remaining * interestRatio };
     } else if (paymentType === 'PARTIAL_PAYMENT') {
       const partial = parseFloat(partialAmount) || 0;
-      return { amount: partial, remaining: remaining - partial, principal: partial * 0.7, interest: partial * 0.3 };
+      return { amount: partial, remaining: remaining - partial, principal: partial * principalRatio, interest: partial * interestRatio };
     } else {
-      return { amount: remaining * 0.3, remaining: remaining, principal: 0, interest: remaining * 0.3 };
+      return { amount: remaining * interestRatio, remaining: remaining, principal: 0, interest: remaining * interestRatio };
     }
   };
+
 
   return (
     <div className="space-y-6">

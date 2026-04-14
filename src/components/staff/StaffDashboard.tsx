@@ -689,11 +689,19 @@ export default function StaffDashboard() {
       AGENT_APPROVED_STAGE1: { className: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Pending Form' },
       LOAN_FORM_COMPLETED: { className: 'bg-violet-100 text-violet-700 border-violet-200', label: 'Form Completed' },
       SESSION_CREATED: { className: 'bg-amber-100 text-amber-700 border-amber-200', label: 'Sanction Created' },
+      CUSTOMER_SESSION_APPROVED: { className: 'bg-teal-100 text-teal-700 border-teal-200', label: 'Customer Approved' },
+      FINAL_APPROVED: { className: 'bg-green-100 text-green-700 border-green-200', label: 'Final Approved' },
+      DISBURSED: { className: 'bg-blue-100 text-blue-700 border-blue-200', label: 'Disbursed' },
+      ACTIVE: { className: 'bg-emerald-100 text-emerald-700 border-emerald-200', label: 'Active' },
+      ACTIVE_INTEREST_ONLY: { className: 'bg-cyan-100 text-cyan-700 border-cyan-200', label: 'Interest Only' },
+      CLOSED: { className: 'bg-gray-200 text-gray-700 border-gray-300', label: 'Closed ✓' }, // FIX-35
       REJECTED_FINAL: { className: 'bg-red-100 text-red-700 border-red-200', label: 'Rejected' },
+      REJECTED_BY_SA: { className: 'bg-red-100 text-red-700 border-red-200', label: 'Rejected' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700 border-gray-200', label: status };
     return <Badge className={c.className} variant="outline">{c.label}</Badge>;
   };
+
 
   const pendingLoans = loans.filter(l => l.status === 'AGENT_APPROVED_STAGE1');
   const completedLoans = loans.filter(l => l.status === 'LOAN_FORM_COMPLETED');

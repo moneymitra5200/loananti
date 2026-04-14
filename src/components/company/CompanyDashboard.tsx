@@ -332,8 +332,10 @@ export default function CompanyDashboard() {
       SESSION_CREATED: { className: 'bg-amber-100 text-amber-700', label: 'Sanction Created' },
       CUSTOMER_SESSION_APPROVED: { className: 'bg-green-100 text-green-700', label: 'Customer Approved' },
       FINAL_APPROVED: { className: 'bg-green-100 text-green-700', label: 'Final Approved' },
-      DISBURSED: { className: 'bg-green-100 text-green-700', label: 'Disbursed' },
-      ACTIVE: { className: 'bg-green-100 text-green-700', label: 'Active' },
+      DISBURSED: { className: 'bg-blue-100 text-blue-700', label: 'Disbursed' },
+      ACTIVE: { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
+      ACTIVE_INTEREST_ONLY: { className: 'bg-cyan-100 text-cyan-700', label: 'Interest Only' },
+      CLOSED: { className: 'bg-gray-200 text-gray-700', label: 'Closed ✓' }, // FIX-34
       REJECTED_BY_SA: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
       REJECTED_BY_COMPANY: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
       REJECTED_FINAL: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
@@ -341,6 +343,7 @@ export default function CompanyDashboard() {
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
     return <Badge className={c.className}>{c.label}</Badge>;
   };
+
 
   // Filter loans by status
   const pendingForCompany = loans.filter(l => l.status === 'SA_APPROVED');

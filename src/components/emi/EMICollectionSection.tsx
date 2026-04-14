@@ -25,6 +25,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import EMISettingsButton from '@/components/shared/EMISettingsButton';
 import { useSystemSettings } from '@/hooks/useSystemSettings';
+import { formatCurrency, formatDate } from '@/utils/helpers';
 
 interface EMIItem {
   id: string;
@@ -95,6 +96,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   // Split payment
   const [splitCashAmount, setSplitCashAmount] = useState<number>(0);
   const [splitOnlineAmount, setSplitOnlineAmount] = useState<number>(0);
+  // FIX-19: user-controlled next payment date for partial payments
+  const [nextPaymentDate, setNextPaymentDate] = useState<string>('');
+
+  // Role-based permissions (FIX-48)
+  const canWaivePenalty = userRole === 'SUPER_ADMIN' || userRole === 'CASHIER';
 
 
   // File input ref
@@ -139,6 +145,9 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       setSplitCashAmount(0);
       setSplitOnlineAmount(0);
       setPayingAmount(0);
+      setNextPaymentDate('');
+      // FIX-50: Reset the file input so the same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = '';
 
       fetchEmisByDate();
       onPaymentComplete?.();
@@ -212,10 +221,12 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
             action: 'pay-emi',
             emiId: selectedEmi.id,
             userId,
+            userRole,          // FIX-20: pass role
+            creditType,        // FIX-20: pass credit type
             paymentMode,
             paymentType: payingAmount < selectedEmi.totalAmount ? 'PARTIAL' : 'FULL',
             amount: payingAmount,
-            penaltyWaiver
+            penaltyWaiver: canWaivePenalty ? penaltyWaiver : 0
           })
         });
 
@@ -239,9 +250,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         if (payingAmount < selectedEmi.totalAmount) {
           formData.append('paymentType', 'PARTIAL_PAYMENT');
           formData.append('partialAmount', payingAmount.toString());
-          const nextDate = new Date();
-          nextDate.setDate(nextDate.getDate() + 7);
-          formData.append('nextPaymentDate', nextDate.toISOString()); // Default padding for partial
+          // FIX-19: use user-selected date, fallback to +7 days
+          const partialNextDate = nextPaymentDate
+            ? new Date(nextPaymentDate).toISOString()
+            : (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString(); })();
+          formData.append('nextPaymentDate', partialNextDate);
         } else {
           formData.append('paymentType', 'FULL_EMI');
         }
@@ -302,18 +315,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
-  const formatDate = (date: string) => {
-    const d = new Date(date);
-    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  };
+  // FIX-18: removed local formatCurrency and formatDate — now imported from @/utils/helpers.
 
   const openPaymentDialog = (emi: EMIItem, type: 'online' | 'offline') => {
     setSelectedEmi(emi);
@@ -324,8 +326,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     setPenaltyPaymentMode('CASH');
     setSplitCashAmount(0);
     setSplitOnlineAmount(0);
+    setNextPaymentDate('');
+    // FIX-50: Clear previous file selection
+    if (fileInputRef.current) fileInputRef.current.value = '';
     setPaymentDialogOpen(true);
-
   };
 
   const getCreditInfo = () => {
@@ -625,7 +629,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                     className="font-bold text-lg h-12"
                   />
                 </div>
-                {selectedEmi.penaltyAmount ? (
+                {/* Penalty waiver — only for SUPER_ADMIN and CASHIER (FIX-48) */}
+                {selectedEmi.penaltyAmount && canWaivePenalty ? (
                   <div className="space-y-2">
                     <Label className="text-red-600">Waiver (Penalty Discount)</Label>
                     <Input
@@ -637,6 +642,22 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   </div>
                 ) : null}
               </div>
+
+              {/* FIX-19: Next payment date picker — only for partial payments */}
+              {payingAmount > 0 && payingAmount < ((selectedEmi.totalAmount + (selectedEmi.penaltyAmount || 0)) - (selectedEmi.paidAmount || 0)) && (
+                <div className="space-y-2">
+                  <Label className="text-amber-700">Next Payment Date (Partial)</Label>
+                  <Input
+                    type="date"
+                    value={nextPaymentDate}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setNextPaymentDate(e.target.value)}
+                    className="border-amber-300 focus:ring-amber-400"
+                  />
+                  <p className="text-xs text-amber-600">Leave blank to default to 7 days from today</p>
+                </div>
+              )}
+
 
               {/* Payment Mode Selection */}
               <div className="space-y-2">

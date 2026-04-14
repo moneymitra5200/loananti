@@ -56,7 +56,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
   onPay,
   hasMirrorLoan = false,
   mirrorCompany = null,
-  originalCompanyName = 'Company 3'
+  originalCompanyName = 'Your Company'
 }: EMIPaymentDialogProps) {
   // Calculate remaining amount
   const totalAmount = (selectedEMI?.emiAmount || 0) + (selectedEMI?.lateFee || 0);
@@ -312,7 +312,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     <span>CASH only</span>
                   </div>
                   <div className="text-gray-500">
-                    Entry: Company 3 Cashbook
+                    Entry: {originalCompanyName} Cashbook
                   </div>
                   <div className="font-medium text-amber-700">
                     Current: ₹{formatCurrency(personalCredit)}
@@ -373,7 +373,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
               </div>
               <div className="mt-3 p-3 bg-amber-100 rounded-lg">
                 <p className="text-xs text-amber-700">
-                  <strong>Entry will be recorded in:</strong> {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name} Cashbook` : 'Company 3 Cashbook'}
+                  <strong>Entry will be recorded in:</strong> {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name} Cashbook` : `${originalCompanyName} Cashbook`}
                 </p>
                 <p className="text-xs text-amber-600 mt-1">
                   +₹{formatCurrency(emiPaymentForm.amount)} will be added to your Personal Credit

@@ -86,8 +86,13 @@ const EMISection = memo(function EMISection({
   const paidCount = emiSchedules.filter(e => e.status === 'PAID' || e.status === 'INTEREST_ONLY_PAID').length;
   const interestOnlyCount = emiSchedules.filter(e => e.status === 'INTEREST_ONLY_PAID').length;
 
-  // Get payable EMIs (unpaid ones)
-  const payableEMIs = emiSchedules.filter(e => e.status !== 'PAID' && e.status !== 'INTEREST_ONLY_PAID');
+  // FIX-22: Single source-of-truth for which EMIs can be selected/paid.
+  // This MUST match the checkbox render condition at line ~252 exactly.
+  const isPayableStatus = (s: string) => s !== 'PAID' && s !== 'INTEREST_ONLY_PAID';
+  const payableEMIs = emiSchedules.filter(e => isPayableStatus(e.status));
+
+  // FIX-33: Accountant may view loans but CANNOT pay any EMI
+  const canPayEMI = currentUserRole !== 'ACCOUNTANT';
 
   // Multi-EMI selection handlers
   const toggleEMISelection = (emiId: string) => {
@@ -118,9 +123,7 @@ const EMISection = memo(function EMISection({
       onPayMultiEMI(selectedEMIList);
     }
     setSelectedEMIs(new Set());
-  };
-
-  const getTotalSelectedAmount = () => {
+  };  const getTotalSelectedAmount = () => {
     return emiSchedules
       .filter(e => selectedEMIs.has(e.id))
       .reduce((sum, e) => sum + e.emiAmount, 0);
@@ -197,7 +200,7 @@ const EMISection = memo(function EMISection({
               </CardDescription>
             </div>
             {/* Multi-EMI Pay Button */}
-            {!isMirrorLoan && selectedEMIs.size > 0 && onPayMultiEMI && (
+            {!isMirrorLoan && canPayEMI && selectedEMIs.size > 0 && onPayMultiEMI && (
               <Button 
                 className="bg-emerald-500 hover:bg-emerald-600"
                 onClick={handleMultiPay}
@@ -207,8 +210,8 @@ const EMISection = memo(function EMISection({
               </Button>
             )}
           </div>
-          {/* Select All Checkbox */}
-          {!isMirrorLoan && payableEMIs.length > 0 && onPayMultiEMI && (
+          {/* Select All Checkbox — FIX-22: uses same isPayableStatus predicate */}
+          {!isMirrorLoan && canPayEMI && payableEMIs.length > 0 && onPayMultiEMI && (
             <div className="flex items-center gap-2 mt-2 pt-2 border-t">
               <Checkbox
                 id="select-all-emi"
@@ -248,8 +251,8 @@ const EMISection = memo(function EMISection({
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      {/* Checkbox for multi-selection (only for unpaid EMIs) */}
-                      {!isMirrorLoan && !isPaid && onPayMultiEMI && (
+                      {/* Checkbox for multi-selection (only for payable EMIs, not for ACCOUNTANT) */}
+                      {!isMirrorLoan && canPayEMI && isPayableStatus(emi.status) && onPayMultiEMI && (
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleEMISelection(emi.id)}
@@ -317,9 +320,9 @@ const EMISection = memo(function EMISection({
                             isPartialPayment={emi.isPartialPayment || false}
                           />
                         )}
-                        {/* Mirror loans are read-only - no payment buttons */}
+                        {/* Mirror loans are read-only - no payment buttons. ACCOUNTANT is read-only too. */}
                         {/* Also hide Pay button for INTEREST_ONLY_PAID EMIs */}
-                        {!isMirrorLoan && !isPaid && (
+                        {!isMirrorLoan && canPayEMI && !isPaid && (
                           <>
                             <Button 
                               size="sm" 
@@ -350,9 +353,11 @@ const EMISection = memo(function EMISection({
                       {emi.status === 'PAID' && (
                         <div className="text-xs text-green-600 space-y-1 mt-2">
                           <p>Paid: {formatDate(emi.paidDate!)}</p>
-                          {/* Show principal and interest breakdown */}
+                          {/* FIX-43: Show actual paidPrincipal/paidInterest, fallback to schedule amounts */}
                           <p className="text-gray-500">
-                            Principal: ₹{formatCurrency(emi.principalAmount || 0)} | Interest: ₹{formatCurrency(emi.interestAmount || 0)}
+                            Principal: ₹{formatCurrency(emi.paidPrincipal && emi.paidPrincipal > 0 ? emi.paidPrincipal : emi.principalAmount)}
+                            {' | '}
+                            Interest: ₹{formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount)}
                           </p>
                           {/* Receipt Button - Only show in mirror loan EMI schedule */}
                           {showReceiptButton && (

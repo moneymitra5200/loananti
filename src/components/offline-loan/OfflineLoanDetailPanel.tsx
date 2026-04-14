@@ -313,10 +313,15 @@ export default function OfflineLoanDetailPanel({
     setSelectedEmiIds(newSelected);
   };
 
+  // FIX-47: Single source-of-truth predicate for payable EMIs (matches checkbox checked state)
+  const isOfflineEmiPayable = (e: EMI) => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID';
+
   const selectAllPayableEmis = () => {
     if (!loan) return;
-    const payableEmis = loan.emis.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID');
-    if (selectedEmiIds.size === payableEmis.length) {
+    const payableEmis = loan.emis.filter(isOfflineEmiPayable);
+    // Count how many payable IDs are currently in the selection
+    const selectedPayableCount = payableEmis.filter(e => selectedEmiIds.has(e.id)).length;
+    if (selectedPayableCount === payableEmis.length) {
       setSelectedEmiIds(new Set());
     } else {
       setSelectedEmiIds(new Set(payableEmis.map(e => e.id)));
@@ -717,9 +722,9 @@ export default function OfflineLoanDetailPanel({
   const getStatusBadge = (status: string) => {
     const config: Record<string, { className: string; label: string }> = {
       PENDING: { className: 'bg-yellow-100 text-yellow-700', label: 'Pending' },
-      ACTIVE: { className: 'bg-green-100 text-green-700', label: 'Active' },
+      ACTIVE: { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
       INTEREST_ONLY: { className: 'bg-purple-100 text-purple-700', label: 'Interest Only' },
-      CLOSED: { className: 'bg-gray-100 text-gray-700', label: 'Closed' },
+      CLOSED: { className: 'bg-gray-200 text-gray-700 font-semibold', label: 'Closed ✓' }, // FIX-05
       DEFAULTED: { className: 'bg-red-100 text-red-700', label: 'Defaulted' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
@@ -1465,16 +1470,20 @@ export default function OfflineLoanDetailPanel({
                                 </Button>
                               )}
                             </div>
-                            {/* Select All Checkbox */}
-                            {loan.emis.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID').length > 0 && (
+                            {/* Select All Checkbox - FIX-47: uses isOfflineEmiPayable predicate */}
+                            {loan.emis.filter(isOfflineEmiPayable).length > 0 && (
                               <div className="flex items-center gap-2 mt-2 pt-2 border-t">
                                 <Checkbox
                                   id="select-all-offline-emi"
-                                  checked={selectedEmiIds.size === loan.emis.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID').length}
+                                  checked={
+                                    // FIX-47: count how many payable EMIs are selected (ignore stale non-payable IDs)
+                                    loan.emis.filter(isOfflineEmiPayable).length > 0 &&
+                                    loan.emis.filter(isOfflineEmiPayable).every(e => selectedEmiIds.has(e.id))
+                                  }
                                   onCheckedChange={selectAllPayableEmis}
                                 />
                                 <label htmlFor="select-all-offline-emi" className="text-sm text-gray-600 cursor-pointer">
-                                  Select All Payable EMIs ({loan.emis.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID').length} available)
+                                  Select All Payable EMIs ({loan.emis.filter(isOfflineEmiPayable).length} available)
                                 </label>
                               </div>
                             )}

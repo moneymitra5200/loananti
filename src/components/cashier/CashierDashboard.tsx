@@ -85,10 +85,12 @@ export default function CashierDashboard() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [successDialogData, setSuccessDialogData] = useState({ title: '', description: '' });
 
-  // Daily limits
+  // Daily limits — computed from REAL disbursements today (FIX-07)
   const dailyLimit = (user as any)?.dailyLimit || 500000;
-  const todayDisbursed = 0;
-  const remainingLimit = dailyLimit - todayDisbursed;
+  // `disbursedToday` is computed below (line ~656) from the loans array.
+  // We forward-ref it via a derived variable after the loans state is defined.
+  // The actual remaining limit is calculated after `totalDisbursedToday` is known.
+  const remainingLimit = dailyLimit; // will be recalculated in stats
 
   // Real-time updates hook
   useRealtime({
@@ -643,9 +645,12 @@ export default function CashierDashboard() {
     const config: Record<string, { className: string; label: string }> = {
       FINAL_APPROVED: { className: 'bg-green-100 text-green-700', label: 'Ready for Disbursement' },
       DISBURSED: { className: 'bg-blue-100 text-blue-700', label: 'Disbursed' },
-      ACTIVE: { className: 'bg-green-100 text-green-700', label: 'Active' },
+      ACTIVE: { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
+      ACTIVE_INTEREST_ONLY: { className: 'bg-cyan-100 text-cyan-700', label: 'Interest Only' },
+      CLOSED: { className: 'bg-gray-200 text-gray-700', label: 'Closed ✓' },
       SESSION_CREATED: { className: 'bg-amber-100 text-amber-700', label: 'Sanction Created' },
       CUSTOMER_SESSION_APPROVED: { className: 'bg-teal-100 text-teal-700', label: 'Customer Approved' },
+      REJECTED_FINAL: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
     return <Badge className={c.className}>{c.label}</Badge>;
@@ -664,10 +669,13 @@ export default function CashierDashboard() {
   const originalActiveLoans = (activeLoans as any[]).filter(l => !l.isMirrorLoan);
   const mirrorActiveLoans = (activeLoans as any[]).filter(l => l.isMirrorLoan);
 
+  // FIX-07: real remaining limit uses totalDisbursedToday computed from actual loans
+  const actualRemainingLimit = dailyLimit - totalDisbursedToday;
+
   const stats = [
     { label: 'Ready for Disbursement', value: readyForDisbursement.length, icon: CreditCard, color: 'text-green-600', bg: 'bg-green-50', onClick: () => setActiveTab('pending') },
     { label: 'Today\'s Disbursement', value: formatCurrency(totalDisbursedToday), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Daily Limit', value: formatCurrency(remainingLimit), icon: Banknote, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Remaining Daily Limit', value: formatCurrency(actualRemainingLimit), icon: Banknote, color: actualRemainingLimit < dailyLimit * 0.2 ? 'text-red-600' : 'text-purple-600', bg: actualRemainingLimit < dailyLimit * 0.2 ? 'bg-red-50' : 'bg-purple-50' },
     { label: 'Total Disbursed', value: formatCurrency(totalDisbursedAll), icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('history') }
   ];
 
@@ -1174,7 +1182,9 @@ export default function CashierDashboard() {
           loanId={selectedLoan.id}
           open={showLoanDetailPanel}
           onClose={() => { setShowLoanDetailPanel(false); setSelectedLoan(null); }}
-          onEMIPaid={() => { fetchLoans(); fetchActiveLoans(); }}
+          onEMIPaid={() => fetchAllData(true)} // FIX-08: refresh all data after EMI payment
+          userId={user?.id}
+          userRole={user?.role || 'CASHIER'}
         />
       )}
 
