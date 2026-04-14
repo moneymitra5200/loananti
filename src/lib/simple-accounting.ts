@@ -349,20 +349,12 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     let recordInterest = mirrorInterest;
 
     if (paymentType === 'PARTIAL' && amount > 0 && fullMirrorEMITotal > 0) {
-      // Use same partial ratio as original loan
-      // `amount` here is the actual partial amount passed by the caller (originalPartialAmount / originalEMITotal * mirrorEMITotal)
-      // But since the caller passes amount = actualPaymentAmount which is the ORIGINAL partial amount,
-      // we scale by ratio: partialAmount / originalEMITotal ≈ mirrorRatio
-      const ratio = Math.min(amount / fullMirrorEMITotal, 1);
-      // Actually use `amount` directly if it <= fullMirrorEMITotal, else proportional
-      if (amount <= fullMirrorEMITotal) {
-        // Scale interest and principal proportionally
-        const payRatio = amount / fullMirrorEMITotal;
-        recordAmount    = Math.round(amount * 100) / 100;
-        recordInterest  = Math.round(mirrorInterest  * payRatio * 100) / 100;
-        recordPrincipal = Math.round(effectiveMirrorPrincipal * payRatio * 100) / 100;
-      }
-      console.log(`[Accounting] MIRROR PARTIAL: ₹${recordAmount} of ₹${fullMirrorEMITotal} (ratio: ${Math.round((recordAmount/fullMirrorEMITotal)*100)}%) → P:₹${recordPrincipal} I:₹${recordInterest}`);
+      // Scale mirror interest/principal proportionally to the actual partial payment
+      const payRatio = Math.min(amount / fullMirrorEMITotal, 1);
+      recordAmount    = Math.round(amount * 100) / 100;
+      recordInterest  = Math.round(mirrorInterest           * payRatio * 100) / 100;
+      recordPrincipal = Math.round(effectiveMirrorPrincipal * payRatio * 100) / 100;
+      console.log(`[Accounting] MIRROR PARTIAL: ₹${recordAmount} of ₹${fullMirrorEMITotal} (${Math.round(payRatio*100)}%) → P:₹${recordPrincipal} I:₹${recordInterest}`);
     } else {
       console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording FULL mirror EMI ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) to mirror company`);
     }
@@ -500,7 +492,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       console.error('[Accounting] ❌ MIRROR EMI journal FAILED (direct DB write also failed):', {
         message: journalError?.message,
         code: journalError?.code,
-        mirrorCompanyId, paymentId, mirrorEMITotal, mirrorInterest, effectiveMirrorPrincipal,
+        mirrorCompanyId, paymentId, fullMirrorEMITotal, mirrorInterest, effectiveMirrorPrincipal,
       });
     }
 
