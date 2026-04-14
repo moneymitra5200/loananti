@@ -148,6 +148,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [bankAmount, setBankAmount] = useState(0);
   const [cashAmount, setCashAmount] = useState(0);
 
+  // GPS Location states
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+
   // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
   // Form data - declared before useMemo hooks that depend on it

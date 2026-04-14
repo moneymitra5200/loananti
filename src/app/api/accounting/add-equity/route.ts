@@ -42,12 +42,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bank account ID is required when bank amount is provided' }, { status: 400 });
     }
 
+    // Verify company exists first
+    const company = await db.company.findUnique({ where: { id: companyId }, select: { id: true } });
+    if (!company) {
+      return NextResponse.json({ error: `Company not found: ${companyId}` }, { status: 404 });
+    }
+
     // Initialize accounting service
+    console.log('[add-equity] Step 1: Initializing AccountingService for company:', companyId);
     const accountingService = new AccountingService(companyId);
-    await accountingService.initializeChartOfAccounts();
+    try {
+      await accountingService.initializeChartOfAccounts();
+      console.log('[add-equity] Step 1: Chart of accounts initialized OK');
+    } catch (initErr) {
+      console.error('[add-equity] Step 1 FAILED - initializeChartOfAccounts:', initErr);
+      throw initErr;
+    }
 
     const entryDate = date ? new Date(date) : new Date();
     const entryNumber = await accountingService.generateEntryNumber();
+    console.log('[add-equity] Step 2: Entry number generated:', entryNumber);
 
     // Build journal entry lines
     const lines: Array<{
@@ -127,16 +141,24 @@ export async function POST(request: NextRequest) {
     });
 
     // Create the journal entry
-    const journalEntryId = await accountingService.createJournalEntry({
-      entryDate,
-      referenceType: 'OPENING_BALANCE',
-      narration: description || `Owner's Equity Investment - Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
-      lines,
-      createdById: createdById || 'system',
-      paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-      bankAccountId: bankAccountId || undefined,
-      isAutoEntry: true
-    });
+    console.log('[add-equity] Step 3: Creating journal entry, lines:', JSON.stringify(lines));
+    let journalEntryId: string;
+    try {
+      journalEntryId = await accountingService.createJournalEntry({
+        entryDate,
+        referenceType: 'OPENING_BALANCE',
+        narration: description || `Owner's Equity Investment - Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
+        lines,
+        createdById: createdById || 'system',
+        paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+        bankAccountId: bankAccountId || undefined,
+        isAutoEntry: true
+      });
+      console.log('[add-equity] Step 3: Journal entry created:', journalEntryId);
+    } catch (jeErr) {
+      console.error('[add-equity] Step 3 FAILED - createJournalEntry:', jeErr);
+      throw jeErr;
+    }
 
     // Update bank account balance if bank amount provided
     if (bank > 0 && bankAccountId) {
@@ -147,7 +169,11 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Create a bank transaction record
+      // Create a bank transaction record (only schema-valid fields)
+      const updatedBankForBalance = await db.bankAccount.findUnique({
+        where: { id: bankAccountId },
+        select: { currentBalance: true }
+      });
       await db.bankTransaction.create({
         data: {
           bankAccountId,
@@ -157,21 +183,10 @@ export async function POST(request: NextRequest) {
           referenceType: 'OPENING_BALANCE',
           referenceId: journalEntryId,
           transactionDate: entryDate,
-          balanceAfter: 0, // Will be updated
-          createdById: createdById || 'system'
+          balanceAfter: updatedBankForBalance?.currentBalance || bank,
+          createdById: createdById || 'system',
         }
       });
-
-      // Update balance after
-      const updatedBank = await db.bankAccount.findUnique({
-        where: { id: bankAccountId }
-      });
-      if (updatedBank) {
-        await db.bankTransaction.updateMany({
-          where: { bankAccountId },
-          data: { balanceAfter: updatedBank.currentBalance }
-        });
-      }
     }
 
     // Update CashBook if cash amount provided
@@ -239,7 +254,18 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error adding equity:', error);
+    console.error('[add-equity] Error adding equity:', error);
+    // Log specific Prisma errors
+    if (error instanceof Error) {
+      console.error('[add-equity] Error message:', error.message);
+      console.error('[add-equity] Error stack:', error.stack);
+      // Check for known Prisma error codes
+      const prismaError = error as any;
+      if (prismaError.code) {
+        console.error('[add-equity] Prisma error code:', prismaError.code);
+        console.error('[add-equity] Prisma meta:', prismaError.meta);
+      }
+    }
     return NextResponse.json({
       error: 'Failed to add equity',
       details: error instanceof Error ? error.message : 'Unknown error'

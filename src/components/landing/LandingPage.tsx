@@ -6,9 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { 
-  Wallet, Shield, Clock, Users, TrendingUp, Phone, Mail, MapPin, ArrowRight, 
-  FileText, User, Lock, Calculator, Award, CheckCircle2, Zap, 
+import {
+  Wallet, Shield, Clock, Users, TrendingUp, Phone, Mail, MapPin, ArrowRight,
+  FileText, User, Lock, Calculator, Award, CheckCircle2, Zap,
   Target, Handshake, Send, Building2, Star,
   IndianRupee, Menu, X,
   FileCheck, CreditCard, BadgeCheck, Headphones, Facebook, Twitter, Linkedin, Instagram, Loader2
@@ -32,7 +32,7 @@ function EMICalculator() {
     const calculatedEmi = principal * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1);
     const total = calculatedEmi * n;
     const interest = total - principal;
-    
+
     return {
       emi: Math.round(calculatedEmi),
       totalInterest: Math.round(interest),
@@ -64,7 +64,7 @@ function EMICalculator() {
                 <span>₹1,00,00,000</span>
               </div>
             </div>
-            
+
             <div>
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700">Interest Rate (% p.a.)</label>
@@ -84,7 +84,7 @@ function EMICalculator() {
                 <span>30%</span>
               </div>
             </div>
-            
+
             <div>
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700">Tenure (Months)</label>
@@ -104,13 +104,13 @@ function EMICalculator() {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 sm:p-6 flex flex-col justify-center">
             <div className="text-center mb-6 md:mb-8">
               <p className="text-gray-600 mb-2 text-sm">Your Monthly EMI</p>
               <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-emerald-600">₹{calculations.emi.toLocaleString()}</p>
             </div>
-            
+
             <div className="space-y-3 sm:space-y-4">
               <div className="flex justify-between items-center p-3 sm:p-4 bg-white rounded-xl shadow-sm">
                 <span className="text-gray-600 text-sm sm:text-base">Principal Amount</span>
@@ -135,12 +135,12 @@ function EMICalculator() {
 // Moving Staff Carousel
 function StaffCarousel({ staffList }: { staffList: any[] }) {
   const [duplicatedStaff] = useState(() => [...staffList, ...staffList, ...staffList]);
-  
+
   if (staffList.length === 0) return null;
-  
+
   return (
     <div className="overflow-hidden py-8">
-      <div 
+      <div
         className="flex gap-6 animate-scroll"
         style={{
           animation: 'scroll 30s linear infinite',
@@ -196,43 +196,43 @@ export default function LandingPage() {
   // Fetch CMS data
   useEffect(() => {
     if (authView !== 'landing') return;
-    
+
     const controller = new AbortController();
     let isMounted = true;
-    
+
     const fetchData = async () => {
       try {
         const [productsRes, statsRes] = await Promise.all([
           fetch('/api/cms/product?isActive=true', { signal: controller.signal }),
           fetch('/api/cms/service?type=all', { signal: controller.signal })
         ]);
-        
+
         if (!isMounted) return;
-        
+
         const productsData = await productsRes.json();
         const statsData = await statsRes.json();
-        
+
         setServices(productsData.products || []);
         setStats(statsData.stats || { totalLoans: 0, totalDisbursed: 0, activeCustomers: 0, companies: 0 });
-        
+
         // Fetch staff
         try {
           const staffRes = await fetch('/api/user?role=STAFF', { signal: controller.signal });
           const agentRes = await fetch('/api/user?role=AGENT', { signal: controller.signal });
           const cashierRes = await fetch('/api/user?role=CASHIER', { signal: controller.signal });
-          
+
           if (!isMounted) return;
-          
+
           const staffData = await staffRes.json();
           const agentData = await agentRes.json();
           const cashierData = await cashierRes.json();
-          
+
           const allStaff = [
             ...(staffData.users || []),
             ...(agentData.users || []),
             ...(cashierData.users || [])
           ].filter((u: any) => u.name && u.isActive);
-          
+
           setStaffList(allStaff);
         } catch (staffError) {
           const err = staffError as Error;
@@ -247,7 +247,7 @@ export default function LandingPage() {
         }
       }
     };
-    
+
     fetchData();
 
     return () => {
@@ -277,7 +277,7 @@ export default function LandingPage() {
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormLoading(true);
-    
+
     try {
       // Send enquiry to cashier
       const response = await fetch('/api/enquiry', {
@@ -290,9 +290,9 @@ export default function LandingPage() {
           message: contactForm.message
         })
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setFormSubmitted(true);
         setTimeout(() => setFormSubmitted(false), 3000);
@@ -318,10 +318,10 @@ export default function LandingPage() {
             {/* Logo & Brand */}
             <div className="flex items-center gap-3 sm:gap-4 md:gap-6">
               {settings.companyLogo ? (
-                <img 
-                  src={settings.companyLogo} 
-                  alt={settings.companyName || 'Company'} 
-                  className="h-10 sm:h-12 md:h-16 lg:h-20 w-auto object-contain max-w-[120px] sm:max-w-[160px] md:max-w-[200px] lg:max-w-[240px]" 
+                <img
+                  src={settings.companyLogo}
+                  alt={settings.companyName || 'Company'}
+                  className="h-10 sm:h-12 md:h-16 lg:h-20 w-auto object-contain max-w-[120px] sm:max-w-[160px] md:max-w-[200px] lg:max-w-[240px]"
                 />
               ) : (
                 <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg">
@@ -337,7 +337,7 @@ export default function LandingPage() {
                 </div>
               )}
             </div>
-            
+
             {/* Desktop Navigation */}
             <nav className="hidden xl:flex items-center gap-8 lg:gap-10">
               <a href="#home" className="text-sm font-medium text-gray-700 hover:text-emerald-600 transition-colors">Home</a>
@@ -348,22 +348,22 @@ export default function LandingPage() {
               <a href="#staff" className="text-sm font-medium text-gray-700 hover:text-emerald-600 transition-colors">Our Team</a>
               <a href="#contact" className="text-sm font-medium text-gray-700 hover:text-emerald-600 transition-colors">Contact</a>
             </nav>
-            
+
             <div className="hidden lg:flex items-center gap-3">
               <Button variant="outline" className="border-emerald-500 text-emerald-600 hover:bg-emerald-50 font-medium px-4 lg:px-6 text-sm" onClick={() => setAuthView('staff-login')}>
-                <User className="h-4 w-4 mr-2" />Staff Login
+                <User className="h-4 w-4 mr-2" />Office Login
               </Button>
               <Button className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg px-4 lg:px-6 text-sm" onClick={() => setAuthView('customer-login')}>
                 <Lock className="h-4 w-4 mr-2" />Customer Login
               </Button>
             </div>
-            
+
             <Button variant="ghost" className="lg:hidden p-2" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
               {mobileMenuOpen ? <X className="h-5 w-5 sm:h-6 sm:w-6" /> : <Menu className="h-5 w-5 sm:h-6 sm:w-6" />}
             </Button>
           </div>
         </div>
-        
+
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="lg:hidden bg-white border-t border-gray-100 shadow-lg">
@@ -397,22 +397,22 @@ export default function LandingPage() {
             <div className="absolute top-20 left-10 w-72 h-72 bg-emerald-400 rounded-full filter blur-3xl"></div>
             <div className="absolute bottom-20 right-10 w-96 h-96 bg-teal-400 rounded-full filter blur-3xl"></div>
           </div>
-          
+
           <div className="relative w-full px-4 sm:px-6 md:px-8 lg:px-12 xl:px-16 py-12 sm:py-16 md:py-20">
             <div className="text-center max-w-4xl mx-auto">
               <Badge className="bg-emerald-100 text-emerald-700 px-3 sm:px-4 py-1 sm:py-1.5 text-xs sm:text-sm font-medium mb-4 sm:mb-6">
                 Trusted by 5+ Lakh Customers Across India
               </Badge>
-              
+
               <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-bold text-gray-900 mb-4 sm:mb-6 leading-tight">
                 Get Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-teal-600">Dream Loan</span>
                 <br className="hidden sm:block" />in 59 Minutes
               </h1>
-              
+
               <p className="text-base sm:text-lg md:text-xl text-gray-600 mb-6 sm:mb-8 max-w-2xl mx-auto leading-relaxed px-4 sm:px-0">
                 {settings.companyTagline || 'Quick approvals. Low interest rates. Minimal documentation. Experience hassle-free lending.'}
               </p>
-              
+
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center mb-6 sm:mb-8 md:mb-12 px-4 sm:px-0">
                 <Button size="lg" className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white px-6 sm:px-10 py-4 sm:py-6 text-sm sm:text-lg shadow-xl" onClick={() => setAuthView('customer-login')}>
                   Apply Now <ArrowRight className="ml-2 h-4 w-4 sm:h-5 sm:w-5" />
@@ -421,7 +421,7 @@ export default function LandingPage() {
                   <Calculator className="mr-2 h-4 w-4 sm:h-5 sm:w-5" />Calculate EMI
                 </Button>
               </div>
-              
+
               {/* Quick Stats */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6 max-w-3xl mx-auto px-4 sm:px-0">
                 <div className="text-center p-3 sm:p-4 bg-white/50 rounded-xl">
@@ -481,10 +481,10 @@ export default function LandingPage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">How It Works</h2>
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Get your loan approved in just 4 simple steps</p>
             </div>
-            
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6 md:gap-8 relative">
               <div className="hidden md:block absolute top-16 left-[12%] right-[12%] h-0.5 bg-gradient-to-r from-emerald-200 via-emerald-400 to-emerald-200"></div>
-              
+
               {processSteps.map((step, index) => (
                 <div key={step.title} className="relative text-center">
                   <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 mx-auto mb-3 sm:mb-4 md:mb-6 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg sm:rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg relative z-10">
@@ -508,7 +508,7 @@ export default function LandingPage() {
               <Badge className="bg-emerald-100 text-emerald-700 mb-3 sm:mb-4 text-xs sm:text-sm">Why Choose Us</Badge>
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">The {settings.companyName || 'MM Square'} Advantage</h2>
             </div>
-            
+
             <div className="grid sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 md:gap-6">
               {[
                 { icon: Clock, title: 'Quick Approval', desc: 'Get loan approval in just 59 minutes' },
@@ -542,7 +542,7 @@ export default function LandingPage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Loan Products for Every Need</h2>
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Choose from our wide range of customized loan products</p>
             </div>
-            
+
             {displayServices.length > 0 ? (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
                 {displayServices.map((product: any) => (
@@ -554,7 +554,7 @@ export default function LandingPage() {
                       </div>
                       <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 mb-2 sm:mb-3">{product.title}</h3>
                       <p className="text-gray-600 text-xs sm:text-sm mb-4 sm:mb-6 leading-relaxed">{product.description}</p>
-                      
+
                       <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
                         <div className="flex justify-between items-center py-1 sm:py-2 border-b border-gray-100">
                           <span className="text-gray-500 text-xs sm:text-sm">Interest Rate</span>
@@ -569,7 +569,7 @@ export default function LandingPage() {
                           <span className="font-semibold text-gray-800 text-xs sm:text-sm">{product.minTenure || 6} - {product.maxTenure || 84} Months</span>
                         </div>
                       </div>
-                      
+
                       <Button className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white shadow-lg text-sm sm:text-base" onClick={() => setAuthView('customer-login')}>
                         Apply Now <ArrowRight className="ml-2 h-4 w-4" />
                       </Button>
@@ -613,7 +613,7 @@ export default function LandingPage() {
                 <p className="text-gray-600 text-xs sm:text-sm md:text-base leading-relaxed mb-6 sm:mb-8">
                   With over a decade of experience, we have helped thousands of customers realize their dreams. Our mission is to make credit accessible to everyone.
                 </p>
-                
+
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   {[
                     { value: '10+', label: 'Years Experience' },
@@ -628,7 +628,7 @@ export default function LandingPage() {
                   ))}
                 </div>
               </div>
-              
+
               <div className="relative">
                 <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl p-6 sm:p-8 text-white">
                   <h3 className="text-lg sm:text-xl md:text-2xl font-bold mb-4 sm:mb-6">Our Mission</h3>
@@ -660,7 +660,7 @@ export default function LandingPage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Meet Our Expert Team</h2>
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Our dedicated professionals are here to help you</p>
             </div>
-            
+
             {staffList.length > 0 ? (
               <StaffCarousel staffList={staffList} />
             ) : (
@@ -680,11 +680,11 @@ export default function LandingPage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Our Location</h2>
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Visit our office for personalized assistance</p>
             </div>
-            
+
             <div className="grid lg:grid-cols-2 gap-6 sm:gap-8">
               <Card className="border-0 shadow-lg overflow-hidden order-2 lg:order-1">
                 <div className="h-64 sm:h-72 md:h-80 bg-gray-200">
-                  <iframe 
+                  <iframe
                     src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(settings.companyAddress || 'Bhavnagar, Gujarat, India')}`}
                     width="100%"
                     height="100%"
@@ -695,7 +695,7 @@ export default function LandingPage() {
                   ></iframe>
                 </div>
               </Card>
-              
+
               <div className="space-y-4 sm:space-y-6 order-1 lg:order-2">
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 sm:p-6">
@@ -710,7 +710,7 @@ export default function LandingPage() {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 sm:p-6">
                     <div className="flex items-start gap-3 sm:gap-4">
@@ -724,7 +724,7 @@ export default function LandingPage() {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 sm:p-6">
                     <div className="flex items-start gap-3 sm:gap-4">
@@ -738,7 +738,7 @@ export default function LandingPage() {
                     </div>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="border-0 shadow-md">
                   <CardContent className="p-4 sm:p-6">
                     <div className="flex items-start gap-3 sm:gap-4">
@@ -766,12 +766,12 @@ export default function LandingPage() {
               <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Contact Us</h2>
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Have questions? We are here to help.</p>
             </div>
-            
+
             <div className="max-w-2xl mx-auto">
               <Card className="border-0 shadow-xl bg-white">
                 <CardContent className="p-6 sm:p-8">
                   <h3 className="text-lg sm:text-xl font-bold text-gray-800 mb-6">Send us a Message</h3>
-                  
+
                   {formSubmitted ? (
                     <div className="text-center py-8 sm:py-12">
                       <CheckCircle2 className="h-12 w-12 sm:h-16 sm:w-16 mx-auto mb-3 sm:mb-4 text-emerald-500" />
@@ -785,7 +785,7 @@ export default function LandingPage() {
                         <Input
                           placeholder="Enter your full name"
                           value={contactForm.name}
-                          onChange={(e) => setContactForm({...contactForm, name: e.target.value})}
+                          onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
                           className="h-10 sm:h-12 text-sm sm:text-base"
                           required
                         />
@@ -797,7 +797,7 @@ export default function LandingPage() {
                             placeholder="your@email.com"
                             type="email"
                             value={contactForm.email}
-                            onChange={(e) => setContactForm({...contactForm, email: e.target.value})}
+                            onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
                             className="h-10 sm:h-12 text-sm sm:text-base"
                             required
                           />
@@ -807,7 +807,7 @@ export default function LandingPage() {
                           <Input
                             placeholder="+91 9876543210"
                             value={contactForm.phone}
-                            onChange={(e) => setContactForm({...contactForm, phone: e.target.value})}
+                            onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
                             className="h-10 sm:h-12 text-sm sm:text-base"
                             required
                           />
@@ -819,7 +819,7 @@ export default function LandingPage() {
                           placeholder="How can we help you?"
                           rows={4}
                           value={contactForm.message}
-                          onChange={(e) => setContactForm({...contactForm, message: e.target.value})}
+                          onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
                           className="text-sm sm:text-base"
                           required
                         />
@@ -831,7 +831,7 @@ export default function LandingPage() {
                   )}
                 </CardContent>
               </Card>
-              
+
               {/* FAQ Section */}
               <Card className="border-0 shadow-lg bg-white mt-6 sm:mt-8">
                 <CardContent className="p-6 sm:p-8">
@@ -850,7 +850,7 @@ export default function LandingPage() {
                   </div>
                 </CardContent>
               </Card>
-              
+
               {/* Social Links */}
               <Card className="border-0 shadow-lg bg-white mt-6 sm:mt-8">
                 <CardContent className="p-4 sm:p-6">
@@ -896,7 +896,7 @@ export default function LandingPage() {
                 ))}
               </div>
             </div>
-            
+
             {/* Quick Links */}
             <div>
               <h4 className="font-semibold text-base sm:text-lg mb-4 sm:mb-6">Quick Links</h4>
@@ -910,7 +910,7 @@ export default function LandingPage() {
                 ))}
               </ul>
             </div>
-            
+
             {/* Loan Products */}
             <div>
               <h4 className="font-semibold text-base sm:text-lg mb-4 sm:mb-6">Loan Products</h4>
@@ -924,7 +924,7 @@ export default function LandingPage() {
                 ))}
               </ul>
             </div>
-            
+
             {/* Contact */}
             <div>
               <h4 className="font-semibold text-base sm:text-lg mb-4 sm:mb-6">Contact Info</h4>
@@ -944,7 +944,7 @@ export default function LandingPage() {
               </ul>
             </div>
           </div>
-          
+
           <div className="border-t border-gray-800 mt-8 sm:mt-12 pt-6 sm:pt-8">
             <div className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
               <p className="text-gray-400 text-xs sm:text-sm text-center md:text-left">
