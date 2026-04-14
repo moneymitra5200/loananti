@@ -102,6 +102,8 @@ interface LoanDetail {
   photoDoc?: string;
   electionCardDoc?: string;
   housePhotoDoc?: string;
+  guarantorPhotoDoc?: string;
+  passbookPhotoDoc?: string;
   emis: EMI[];
   isMirrored?: boolean; // Is this loan mirrored to another company? (this is original)
   isMirrorLoan?: boolean; // Is this a mirror loan? (cannot pay directly)
@@ -1062,8 +1064,9 @@ export default function OfflineLoanDetailPanel({
                             <FileText className="h-4 w-4" /> Documents
                             <span className="ml-auto text-xs font-normal text-gray-500">
                               {[loan.panCardDoc, loan.aadhaarFrontDoc, loan.aadhaarBackDoc, loan.incomeProofDoc,
-                                loan.addressProofDoc, loan.photoDoc, loan.electionCardDoc, loan.housePhotoDoc
-                              ].filter(Boolean).length} / 8 uploaded
+                                loan.addressProofDoc, loan.photoDoc, loan.electionCardDoc, loan.housePhotoDoc,
+                                loan.guarantorPhotoDoc, loan.passbookPhotoDoc
+                              ].filter(Boolean).length} / 10 uploaded
                             </span>
                           </CardTitle>
                         </CardHeader>
@@ -1078,14 +1081,30 @@ export default function OfflineLoanDetailPanel({
                               { label: 'Photo', url: loan.photoDoc },
                               { label: 'Election Card', url: loan.electionCardDoc },
                               { label: 'House Photo', url: loan.housePhotoDoc },
+                              { label: 'Guarantor Photo', url: loan.guarantorPhotoDoc },
+                              { label: 'Passbook', url: loan.passbookPhotoDoc },
                             ].map((doc, idx) => {
                               const isPdf = doc.url?.includes('application/pdf') || doc.url?.toLowerCase().endsWith('.pdf');
-                              const isImage = doc.url && !isPdf;
-                              return (
+                                const isImage = doc.url && !isPdf;
+                                const openDoc = (url: string) => {
+                                  if (url.startsWith('data:')) {
+                                    const arr = url.split(',');
+                                    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+                                    const bstr = atob(arr[1]);
+                                    let n = bstr.length;
+                                    const u8arr = new Uint8Array(n);
+                                    while (n--) u8arr[n] = bstr.charCodeAt(n);
+                                    const blob = new Blob([u8arr], { type: mime });
+                                    window.open(URL.createObjectURL(blob), '_blank');
+                                  } else {
+                                    window.open(url, '_blank');
+                                  }
+                                };
+                                return (
                                 <div key={idx} className={`rounded-lg border overflow-hidden ${doc.url ? 'border-green-200' : 'border-dashed border-gray-300'}`}>
                                   {/* Thumbnail area */}
                                   {isImage ? (
-                                    <a href={doc.url} target="_blank" rel="noopener noreferrer" className="block w-full bg-gray-100 hover:opacity-90 transition-opacity">
+                                    <button type="button" onClick={() => openDoc(doc.url!)} className="block w-full bg-gray-100 hover:opacity-90 transition-opacity cursor-pointer">
                                       <img
                                         src={doc.url!}
                                         alt={doc.label}
@@ -1099,7 +1118,7 @@ export default function OfflineLoanDetailPanel({
                                       <div className="hidden w-full h-28 flex items-center justify-center bg-gray-50">
                                         <FileText className="h-8 w-8 text-gray-400" />
                                       </div>
-                                    </a>
+                                      </button>
                                   ) : isPdf ? (
                                     <div className="w-full h-28 flex flex-col items-center justify-center bg-red-50 gap-1">
                                       <FileText className="h-8 w-8 text-red-400" />
@@ -1117,14 +1136,13 @@ export default function OfflineLoanDetailPanel({
                                   <div className={`flex items-center justify-between px-2 py-1.5 ${doc.url ? 'bg-green-50' : 'bg-gray-50'}`}>
                                     <p className="text-xs font-medium text-gray-700 truncate">{doc.label}</p>
                                     {doc.url ? (
-                                      <a
-                                        href={doc.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
+                                      <button
+                                        type="button"
+                                        onClick={() => openDoc(doc.url!)}
                                         className="text-xs text-blue-600 hover:underline flex items-center gap-1 shrink-0 ml-1"
                                       >
                                         <Eye className="h-3 w-3" /> View
-                                      </a>
+                                      </button>
                                     ) : (
                                       <span className="text-xs text-gray-400 shrink-0">—</span>
                                     )}

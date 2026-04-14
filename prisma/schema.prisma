@@ -2153,6 +2153,8 @@ model OfflineLoan {
   photoDoc                  String?
   electionCardDoc           String?
   housePhotoDoc             String?
+  guarantorPhotoDoc         String?
+  passbookPhotoDoc          String?
   otherDocs                 String?
   applicationLocation       String?
   // Product reference

@@ -535,10 +535,26 @@ export default function ComprehensiveLoanDialog({
                               </div>
                               {docUrl ? (
                                 <div className="flex gap-2">
-                                  <Button size="sm" variant="outline" className="flex-1 h-7 text-xs" asChild>
-                                    <a href={docUrl} target="_blank" rel="noopener noreferrer">
-                                      <Eye className="h-3 w-3 mr-1" />View
-                                    </a>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="flex-1 h-7 text-xs"
+                                    type="button"
+                                    onClick={() => {
+                                      if (docUrl.startsWith('data:')) {
+                                        try {
+                                          const arr = docUrl.split(',');
+                                          const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+                                          const bstr = atob(arr[1]);
+                                          let n = bstr.length;
+                                          const u8arr = new Uint8Array(n);
+                                          while (n--) u8arr[n] = bstr.charCodeAt(n);
+                                          window.open(URL.createObjectURL(new Blob([u8arr], { type: mime })), '_blank');
+                                        } catch { window.open(docUrl, '_blank'); }
+                                      } else { window.open(docUrl, '_blank'); }
+                                    }}
+                                  >
+                                    <Eye className="h-3 w-3 mr-1" />View
                                   </Button>
                                 </div>
                               ) : (

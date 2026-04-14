@@ -649,7 +649,9 @@ export async function POST(request: NextRequest) {
         'address_proof': 'addressProofDoc',
         'photo': 'photoDoc',
         'election_card': 'electionCardDoc',
-        'house_photo': 'housePhotoDoc'
+        'house_photo': 'housePhotoDoc',
+        'guarantor_photo': 'guarantorPhotoDoc',
+        'passbook_photo': 'passbookPhotoDoc'
       };
       
       for (const [docType, docData] of Object.entries(documents)) {
