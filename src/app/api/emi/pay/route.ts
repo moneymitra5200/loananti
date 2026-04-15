@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
-import { getCompany3Id } from '@/lib/simple-accounting';
+import { getCompany3Id, recordEMIPaymentAccounting, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 
 export async function POST(request: NextRequest) {
@@ -1285,248 +1285,258 @@ export async function POST(request: NextRequest) {
     }).catch(e => console.error('[ActionLog] Failed (non-critical):', e));
 
     // ============================================
-    // RECORD ACCOUNTING ENTRIES
+    // RECORD ACCOUNTING ENTRIES — unified with offline loan accounting
+    // ============================================
+    // Rules (same as offline loan / recordEMIPaymentAccounting):
+    //
+    // NON-MIRROR:
+    //   CASH         → original company Cashbook + Journal (P + I income)
+    //   ONLINE/UPI   → original company Bank + Journal
+    //   PERSONAL CR  → Company3 Cashbook + Journal
+    //   PRINCIPAL_ONLY → cash/bank + Irrecoverable Debt write-off journal
+    //
+    // MIRROR (within tenure):
+    //   ALL modes → mirror company Cash/Bank + Journal (mirror P + I)
+    //   PRINCIPAL_ONLY → mirror company write-off too
+    //
+    // EXTRA EMI (beyond mirror tenure):
+    //   Profit already recorded in the extra-EMI block above — skip here.
     // ============================================
     try {
-      // 1. Identify mirror settings for accounting
-      // PERFORMANCE: Reuse mirrorMapping fetched at top of handler
       const mirrorMappingForAccounting = mirrorMapping;
       const isExtraEMI2 = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
       const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI2;
-      
-      let calculatedMirrorInterest: number | undefined = undefined;
-      // Issue 2 Fix: Also capture mirror EMI amounts for correct journal entry values
-      let mirrorEMIAmounts: { totalAmount: number; principalAmount: number } | null = null;
-      if (isMirrorPayment && mirrorMappingForAccounting?.mirrorLoanId) {
-        const mirrorEMIForCalc = await db.eMISchedule.findFirst({
-          where: {
-            loanApplicationId: mirrorMappingForAccounting.mirrorLoanId,
-            installmentNumber: emi.installmentNumber
-          }
-        });
-        if (mirrorEMIForCalc) {
-          const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
-          calculatedMirrorInterest = Math.round(mirrorEMIForCalc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
 
-          // For partial payments: scale mirror amounts proportionally to actual payment
-          if (isPartialPayment && mirrorEMIForCalc.totalAmount > 0) {
+      // Always use DB-sourced company — never trust client-provided companyId
+      const loanCompanyId = emi.loanApplication?.companyId || '';
+      const company3Id = await getCompany3Id() || loanCompanyId;
+
+      // Resolve mirror company amounts for accounting
+      let mirrorInterestForAccounting: number | undefined;
+      let mirrorPrincipalForAccounting: number | undefined;
+
+      if (isMirrorPayment && mirrorMappingForAccounting?.mirrorLoanId) {
+        const mirrorEmiForAcc = await db.eMISchedule.findFirst({
+          where: { loanApplicationId: mirrorMappingForAccounting.mirrorLoanId, installmentNumber: emi.installmentNumber }
+        });
+        if (mirrorEmiForAcc) {
+          const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
+          mirrorInterestForAccounting = Math.round(mirrorEmiForAcc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          mirrorPrincipalForAccounting = Math.min(
+            mirrorEmiForAcc.totalAmount - mirrorInterestForAccounting,
+            mirrorEmiForAcc.outstandingPrincipal
+          );
+          // For partial: scale proportionally
+          if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0) {
             const ratio = paidAmount / (emi.totalAmount || 1);
-            const scaledTotal = Math.round(mirrorEMIForCalc.totalAmount * ratio * 100) / 100;
-            const scaledPrincipal = Math.round(mirrorEMIForCalc.principalAmount * ratio * 100) / 100;
-            // Interest-first: cover interest first, then principal
-            const scaledInterest = Math.min(calculatedMirrorInterest, scaledTotal);
-            const scaledPrincipalActual = Math.max(0, scaledTotal - scaledInterest);
-            calculatedMirrorInterest = scaledInterest;
-            mirrorEMIAmounts = { totalAmount: scaledTotal, principalAmount: scaledPrincipalActual };
-          } else {
-            mirrorEMIAmounts = { totalAmount: mirrorEMIForCalc.totalAmount, principalAmount: mirrorEMIForCalc.principalAmount };
+            const scaledTotal = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
+            mirrorInterestForAccounting = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal) * 100) / 100;
+            mirrorPrincipalForAccounting = Math.round(Math.max(0, scaledTotal - mirrorInterestForAccounting) * 100) / 100;
           }
         }
       }
 
-      const { AccountingService } = await import('@/lib/accounting-service');
-      // FIX-ISSUE-1/12: Always use loan's OWN companyId (from DB), never trust client-provided companyId
-      const companyIdToUse = isMirrorPayment
-        ? mirrorMappingForAccounting!.mirrorCompanyId
-        : emi.loanApplication?.companyId;  // FIX: removed '|| companyId' fallback (client-provided is untrusted)
-
-      // ── EXTRA EMIs: already fully handled by the extra EMI block above ──
-      // CashBook + Day Book journal are recorded there in original company.
-      // Skip here to avoid duplicate journal entries.
       if (isExtraEMI2) {
-        console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — accounting already recorded in original company block above. Skipping main block.`);
-      } else if (companyIdToUse) {
-        const accountingService = new AccountingService(companyIdToUse);
-        await accountingService.initializeChartOfAccounts();
+        // Extra EMI profit already recorded in the extra-EMI block above — skip
+        console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
+      } else if (paymentType === 'PRINCIPAL_ONLY') {
+        // ── PRINCIPAL-ONLY: cash/bank receipt + interest write-off ────────────
+        const targetCompanyId = isMirrorPayment
+          ? mirrorMappingForAccounting!.mirrorCompanyId
+          : loanCompanyId;
 
-        // ── CASHBOOK / BANK ENTRY for regular (non-mirror) loans ────────
-        // Mirror loans already record cashbook in the mirror sync block above.
-        // For regular loans we must record here so Day Book / Cash Book shows the receipt.
-        if (!isMirrorPayment && paidAmount > 0) {
-          try {
-            const isOnlinePayment = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'CHEQUE'].includes(
-              (paymentMode || '').toUpperCase()
-            );
-            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-            if (isSplitPayment && splitCashAmount > 0 && splitOnlineAmount > 0) {
-              await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: splitCashAmount,
-                description: `EMI #${emi.installmentNumber} Cash - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'EMI_PAYMENT', referenceId: `${payment.id}-CASH`, createdById: paidBy });
-              await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: splitOnlineAmount,
-                description: `EMI #${emi.installmentNumber} Online - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'EMI_PAYMENT', referenceId: `${payment.id}-ONLINE`, createdById: paidBy });
-            } else if (isOnlinePayment) {
-              await recordBankTransaction({ companyId: companyIdToUse, transactionType: 'CREDIT', amount: paidAmount,
-                description: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
-            } else {
-              await recordCashBookEntry({ companyId: companyIdToUse, entryType: 'CREDIT', amount: paidAmount,
-                description: `EMI #${emi.installmentNumber} Cash - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
-            }
-            console.log(`[CashBook/Bank] ₹${paidAmount} recorded for regular loan EMI #${emi.installmentNumber}`);
-          } catch (cbErr) {
-            console.error('[CashBook/Bank] Entry failed (non-critical):', cbErr);
-          }
+        const isOnlinePO = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS'].includes((paymentMode||'').toUpperCase());
+
+        // Cash/bank receipt for principal collected
+        if (isOnlinePO) {
+          await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: paidPrincipal,
+            description: `PRINCIPAL ONLY - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber} (I:₹${remainingInterest} written off)`,
+            referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
+        } else {
+          await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: paidPrincipal,
+            description: `PRINCIPAL ONLY - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber} (I:₹${remainingInterest} written off)`,
+            referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
         }
-        
-        
-        // ── EMI PAYMENT JOURNAL ENTRY (Principal + Interest) ──────────
-        // Works for ALL loan types — mirror uses mirror amounts, regular uses actual amounts.
-        if (paymentType === 'PRINCIPAL_ONLY' && !isMirrorPayment) {
-          // PRINCIPAL-ONLY: principal collected + interest written off as Irrecoverable Debt
-          await accountingService.recordPrincipalOnlyPayment({
-            loanId,
+
+        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debts → Cr Interest Receivable
+        const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
+        const poSvc = new PoAccSvc(targetCompanyId);
+        await poSvc.initializeChartOfAccounts();
+        await poSvc.recordPrincipalOnlyPayment({
+          loanId,
+          customerId: emi.loanApplication?.customerId || '',
+          paymentId: payment.id,
+          principalAmount:    paidPrincipal,
+          interestWrittenOff: remainingInterest,
+          paymentDate:        new Date(),
+          createdById:        paidBy || 'SYSTEM',
+          paymentMode:        paymentMode as string,
+          loanNumber:         emi.loanApplication?.applicationNo,
+          installmentNumber:  emi.installmentNumber,
+        });
+        console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts (${targetCompanyId})`);
+
+        // If mirror loan: also write off interest as loss in mirror company
+        if (isMirrorPayment && mirrorMappingForAccounting?.mirrorCompanyId && (mirrorInterestForAccounting ?? 0) > 0) {
+          const mirrorPoSvc = new PoAccSvc(mirrorMappingForAccounting.mirrorCompanyId);
+          await mirrorPoSvc.initializeChartOfAccounts();
+          await mirrorPoSvc.recordPrincipalOnlyPayment({
+            loanId: mirrorMappingForAccounting.mirrorLoanId || loanId,
             customerId: emi.loanApplication?.customerId || '',
-            paymentId: payment.id,
-            principalAmount:    paidPrincipal,
-            interestWrittenOff: remainingInterest,   // interest forfeited this session
+            paymentId: `${payment.id}-MIRROR`,
+            principalAmount:    mirrorPrincipalForAccounting ?? 0,
+            interestWrittenOff: mirrorInterestForAccounting ?? 0,
             paymentDate:        new Date(),
             createdById:        paidBy || 'SYSTEM',
             paymentMode:        paymentMode as string,
             loanNumber:         emi.loanApplication?.applicationNo,
             installmentNumber:  emi.installmentNumber,
           });
-          console.log(`[Accounting] PRINCIPAL_ONLY journal: P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts`);
-        } else {
-          await accountingService.recordEMIPayment({
-            loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
-            customerId: emi.loanApplication?.customerId || '',
-            paymentId: payment.id,
-            totalAmount:        (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.totalAmount    : paidAmount,
-            principalComponent: (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.principalAmount : paidPrincipal,
-            interestComponent:  (isMirrorPayment && calculatedMirrorInterest !== undefined) ? calculatedMirrorInterest : paidInterest,
-            paymentDate: new Date(),
-            createdById: paidBy || 'SYSTEM',
-            paymentMode: isSplitPayment ? 'CASH' : (paymentMode as any),
-            reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
+          console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: I:₹${mirrorInterestForAccounting} → Irrecoverable Debts (${mirrorMappingForAccounting.mirrorCompanyId})`);
+        }
+
+      } else {
+        // ── ALL OTHER PAYMENT TYPES: unified recordEMIPaymentAccounting ─────────
+        // This handles: FULL_EMI, PARTIAL_PAYMENT, INTEREST_ONLY, ADVANCE
+        // for both mirror and non-mirror loans, all payment modes.
+        const accountingResult = await recordEMIPaymentAccounting({
+          amount: paidAmount,
+          principalComponent: paidPrincipal,
+          interestComponent: paidInterest,
+          paymentMode: (paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE') || 'CASH',
+          paymentType: (paymentType === 'FULL_EMI' ? 'FULL'
+            : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL'
+            : paymentType === 'ADVANCE' ? 'ADVANCE'
+            : paymentType) as 'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'ADVANCE',
+          creditType: effectiveCreditType as 'PERSONAL' | 'COMPANY',
+          loanCompanyId,
+          company3Id,
+          loanId,
+          emiId,
+          paymentId: payment.id,
+          loanNumber: emi.loanApplication?.applicationNo || loanId,
+          installmentNumber: emi.installmentNumber,
+          userId: paidBy,
+          customerId: emi.loanApplication?.customerId || undefined,
+          mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
+          mirrorPrincipal: isMirrorPayment ? (mirrorPrincipalForAccounting ?? 0) : undefined,
+          mirrorInterest: isMirrorPayment ? (mirrorInterestForAccounting ?? 0) : undefined,
+          mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
+          isMirrorPayment,
+        });
+
+        console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? '✅ ' + accountingResult.journalEntryId : '❌ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
+
+        // ── FALLBACK journal if missing (same as offline route) ──────────────
+        if (isMirrorPayment && !accountingResult.journalEntryId && mirrorMappingForAccounting?.mirrorCompanyId) {
+          console.warn('[Accounting] ⚠️ Mirror journal missing — attempting inline fallback');
+          try {
+            const { AccountingService: FbSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');
+            const fbSvc = new FbSvc(mirrorMappingForAccounting.mirrorCompanyId);
+            await fbSvc.initializeChartOfAccounts();
+            const isOnlinePM = ['ONLINE','UPI','BANK_TRANSFER'].includes((paymentMode||'').toUpperCase());
+            const effectiveP = mirrorPrincipalForAccounting ?? paidPrincipal;
+            const effectiveI = mirrorInterestForAccounting ?? paidInterest;
+            const effectiveTotal = effectiveP + effectiveI;
+            const fbLines: any[] = [
+              { accountCode: isOnlinePM ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND, debitAmount: effectiveTotal, creditAmount: 0, loanId, narration: `${isOnlinePM ? 'Bank' : 'Cash'} received - Mirror EMI #${emi.installmentNumber}` },
+              { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId, narration: `Mirror interest income` },
+            ];
+            if (effectiveP > 0) fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId, narration: `Mirror principal repayment` });
+            await fbSvc.createJournalEntry({
+              entryDate: new Date(), referenceType: 'MIRROR_EMI_PAYMENT', referenceId: `${payment.id}-FB`,
+              narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+              lines: fbLines, createdById: paidBy || 'SYSTEM', paymentMode: paymentMode || 'CASH', isAutoEntry: true,
+            });
+            console.log(`[Accounting] ✅ FALLBACK journal created for mirror company`);
+          } catch (fbErr: any) {
+            console.error('[Accounting] ❌ FALLBACK journal also FAILED:', fbErr?.message);
+          }
+        }
+      }
+
+      // ── PROCESSING FEE — non-mirror, EMI #1 only ──────────────────────────
+      if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
+        try {
+          const loanData = await db.loanApplication.findUnique({
+            where: { id: loanId }, select: { processingFee: true, applicationNo: true }
           });
-        }
-        console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse} (${isMirrorPayment ? 'MIRROR' : 'REGULAR'})`);
-
-        // ── PROCESSING FEE — non-mirror, EMI #1 only ────────────────────
-        // FIX-10: Guard against double-recording on retry with unique referenceId check
-        if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
-          try {
-            const loanData = await db.loanApplication.findUnique({
-              where: { id: loanId }, select: { processingFee: true, applicationNo: true }
-            });
-            const procFee = (loanData?.processingFee || 0);
-            if (procFee > 0) {
-              // FIX-ISSUE-5/8: Check BOTH cashBookEntry AND bankTransaction for same referenceId
-              // so we don't double-record when EMI #1 is paid via ONLINE mode
-              const [existingPFCb, existingPFBank] = await Promise.all([
-                db.cashBookEntry.findFirst({
-                  where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` }
-                }),
-                db.bankTransaction.findFirst({
-                  where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` }
-                })
-              ]);
-              const existingPFEntry = existingPFCb || existingPFBank;
-              if (!existingPFEntry) {
-                const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-                const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
-                if (isPfOnline) {
-                  await recordBankTransaction({ companyId: companyIdToUse!, transactionType: 'CREDIT', amount: procFee,
-                    description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                    referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
-                } else {
-                  await recordCashBookEntry({ companyId: companyIdToUse!, entryType: 'CREDIT', amount: procFee,
-                    description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                    referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
-                }
-                await accountingService.createJournalEntry({
-                  entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION',
-                  referenceId: `${loanId}-PF-JE`,
-                  narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                  createdById: paidBy || 'SYSTEM', isAutoEntry: true,
-                  lines: [
-                    { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
-                    { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
-                  ],
-                });
-                console.log(`[Processing Fee] ₹${procFee} journal + ${isPfOnline ? 'bank' : 'cashbook'} recorded for loan ${loanId}`);
+          const procFee = loanData?.processingFee || 0;
+          if (procFee > 0) {
+            const [existingPFCb, existingPFBank] = await Promise.all([
+              db.cashBookEntry.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } }),
+              db.bankTransaction.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } })
+            ]);
+            if (!existingPFCb && !existingPFBank) {
+              const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
+              if (isPfOnline) {
+                await recordBankTransaction({ companyId: loanCompanyId, transactionType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
               } else {
-                console.log(`[Processing Fee] Skipping — already recorded for loan ${loanId} (FIX-5/8 dual idempotency)`);
+                await recordCashBookEntry({ companyId: loanCompanyId, entryType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
               }
-            }
-          } catch (pfErr) {
-            console.error('[Processing Fee] Regular loan fee failed (non-critical):', pfErr);
-          }
-        }
-
-        // ── PENALTY INCOME ACCOUNTING ────────────────────────────────────
-        // Record net penalty (after waiver) as Penalty Income
-        if (netPenalty > 0) {
-          try {
-            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-
-            if (penaltyPaymentMode === 'BANK') {
-              // Penalty goes to bank
-              await recordBankTransaction({
-                companyId: companyIdToUse,
-                transactionType: 'CREDIT',
-                amount: netPenalty,
-                description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'PENALTY_INCOME',
-                referenceId: `${payment.id}-PENALTY`,
-                createdById: paidBy,
+              const pfAccSvc = new AccountingService(loanCompanyId);
+              await pfAccSvc.initializeChartOfAccounts();
+              await pfAccSvc.createJournalEntry({
+                entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION', referenceId: `${loanId}-PF-JE`,
+                narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                createdById: paidBy || 'SYSTEM', isAutoEntry: true,
+                lines: [
+                  { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
+                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
+                ],
               });
+              console.log(`[Processing Fee] ₹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);
             } else {
-              // Penalty goes to cash book
-              await recordCashBookEntry({
-                companyId: companyIdToUse,
-                entryType: 'CREDIT',
-                amount: netPenalty,
-                description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
-                referenceType: 'PENALTY_INCOME',
-                referenceId: `${payment.id}-PENALTY`,
-                createdById: paidBy,
-              });
+              console.log(`[Processing Fee] Already recorded — skipping (idempotency)`);
             }
-
-            // Journal Entry for Penalty Income:
-            // DR Cash/Bank (1101/1102) → CR Penalty Income (4125)
-            await accountingService.createJournalEntry({
-              entryDate: new Date(),
-              referenceType: 'EMI_PAYMENT',
-              referenceId: `${payment.id}-PENALTY-JE`,
-              narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo} (Charged ₹${penaltyAmount}, Waived ₹${penaltyWaiver}, Collected ₹${netPenalty})`,
-              createdById: paidBy,
-              lines: [
-                {
-                  accountCode: penaltyPaymentMode === 'BANK' ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
-                  debitAmount: netPenalty,
-                  creditAmount: 0,
-                  narration: `Penalty collected via ${penaltyPaymentMode}`,
-                },
-                {
-                  accountCode: ACCOUNT_CODES.PENALTY_INCOME, // 4125 - Penalty Income (INCOME account)
-                  debitAmount: 0,
-                  creditAmount: netPenalty,
-                  narration: `Penalty income after waiver of ₹${penaltyWaiver}`,
-                },
-              ],
-            });
-
-            console.log(`[Penalty] Net ₹${netPenalty} recorded as Penalty Income via ${penaltyPaymentMode}`);
-          } catch (penaltyErr) {
-            console.error('[Penalty] Penalty accounting failed (non-critical):', penaltyErr);
           }
+        } catch (pfErr) {
+          console.error('[Processing Fee] Failed (non-critical):', pfErr);
         }
+      }
 
-        // NOTE: The full interest income is included in recordEMIPayment above,
-        // which runs against companyIdToUse = mirrorCompanyId.
-        // ALL accounting for mirror loans lives exclusively in the mirror company.
+      // ── PENALTY INCOME ────────────────────────────────────────────────────
+      if (netPenalty > 0) {
+        try {
+          const penaltyCompanyId = isMirrorPayment
+            ? mirrorMappingForAccounting!.mirrorCompanyId
+            : loanCompanyId;
+          const isOnlinePenalty = penaltyPaymentMode === 'BANK' || ['ONLINE','UPI','BANK_TRANSFER'].includes((paymentMode||'').toUpperCase());
+          if (isOnlinePenalty) {
+            await recordBankTransaction({ companyId: penaltyCompanyId, transactionType: 'CREDIT', amount: netPenalty,
+              description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+              referenceType: 'PENALTY_INCOME', referenceId: `${payment.id}-PENALTY`, createdById: paidBy });
+          } else {
+            await recordCashBookEntry({ companyId: penaltyCompanyId, entryType: 'CREDIT', amount: netPenalty,
+              description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+              referenceType: 'PENALTY_INCOME', referenceId: `${payment.id}-PENALTY`, createdById: paidBy });
+          }
+          const penAccSvc = new AccountingService(penaltyCompanyId);
+          await penAccSvc.initializeChartOfAccounts();
+          await penAccSvc.createJournalEntry({
+            entryDate: new Date(), referenceType: 'PENALTY_COLLECTION', referenceId: `${payment.id}-PENALTY-JE`,
+            narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo} (Charged ₹${penaltyAmount}, Waived ₹${penaltyWaiver}, Collected ₹${netPenalty})`,
+            createdById: paidBy || 'SYSTEM', isAutoEntry: true,
+            lines: [
+              { accountCode: isOnlinePenalty ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty collected via ${penaltyPaymentMode}` },
+              { accountCode: ACCOUNT_CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income after waiver ₹${penaltyWaiver}` },
+            ],
+          });
+          console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
+        } catch (penErr) {
+          console.error('[Penalty] Penalty accounting failed (non-critical):', penErr);
+        }
+      }
 
-      } // end if (companyIdToUse)
     } catch (accError: any) {
       console.error('[Accounting] ❌ EMI journal FAILED — P&L will NOT show income!', {
         message: accError?.message,
         stack: accError?.stack?.split('\n').slice(0, 6).join(' | '),
-        loanId,
-        emiId,
+        loanId, emiId,
       });
     }
 
