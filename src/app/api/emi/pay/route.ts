@@ -1178,14 +1178,18 @@ export async function POST(request: NextRequest) {
           }
         });
         if (mirrorEMIPartial && mirrorEMIPartial.paymentStatus !== 'PAID') {
-          // Calculate mirror partial amounts — interest-first using mirror rate
+          // Calculate mirror partial amounts — interest-first using REMAINING unpaid interest
           const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
           const mirrorInterestFull = Math.round(mirrorEMIPartial.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          // REMAINING interest = total interest - already paid interest (from previous partial payments)
+          const mirrorAlreadyPaidInterest = Number(mirrorEMIPartial.paidInterest || 0);
+          const mirrorRemainingInterest = Math.max(0, mirrorInterestFull - mirrorAlreadyPaidInterest);
           const ratio = partialAmount / emi.totalAmount;
           const mirrorPartialAmt = Math.round(mirrorEMIPartial.totalAmount * ratio * 100) / 100;
-          const mirrorPaidInterest = Math.min(mirrorPartialAmt, mirrorInterestFull);
-          const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorInterestFull);
-          const mirrorIsFullyPaid = mirrorPartialAmt >= mirrorEMIPartial.totalAmount - 1;
+          // Interest-first from REMAINING unpaid mirror interest (not full):
+          const mirrorPaidInterest  = Math.min(mirrorPartialAmt, mirrorRemainingInterest);
+          const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorPaidInterest);
+          const mirrorIsFullyPaid   = (mirrorEMIPartial.paidAmount || 0) + mirrorPartialAmt >= mirrorEMIPartial.totalAmount - 1;
 
           await db.eMISchedule.update({
             where: { id: mirrorEMIPartial.id },

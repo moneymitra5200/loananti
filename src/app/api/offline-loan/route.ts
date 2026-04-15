@@ -2319,6 +2319,23 @@ export async function PUT(request: NextRequest) {
       const isOnlinePayment = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
       const creditIncreaseAmount = isOnlinePayment ? 0 : actualPaymentAmount;
 
+      // ── Capture mirror EMI state BEFORE the transaction ────────────────────
+      // After the transaction syncs the mirror EMI, we compute session delta:
+      //   sessionInterest = postSyncPaidInterest - preSyncPaidInterest
+      //   sessionPrincipal = postSyncPaidPrincipal - preSyncPaidPrincipal
+      // This prevents re-recording already-paid interest (e.g. 2nd payment after partial).
+      let mirrorEmiPreSyncPaidInterest  = 0;
+      let mirrorEmiPreSyncPaidPrincipal = 0;
+      if (mirrorLoanMapping?.mirrorLoanId) {
+        const mirrorEmiPre = await db.offlineLoanEMI.findFirst({
+          where: { offlineLoanId: mirrorLoanMapping.mirrorLoanId, installmentNumber: emi.installmentNumber },
+          select: { paidInterest: true, paidPrincipal: true }
+        });
+        mirrorEmiPreSyncPaidInterest  = Number(mirrorEmiPre?.paidInterest  || 0);
+        mirrorEmiPreSyncPaidPrincipal = Number(mirrorEmiPre?.paidPrincipal || 0);
+        console.log(`[Mirror Pre-Sync] EMI #${emi.installmentNumber}: paidI=₹${mirrorEmiPreSyncPaidInterest} paidP=₹${mirrorEmiPreSyncPaidPrincipal}`);
+      }
+
       const newCompanyCr  = creditTypeUsed === 'COMPANY'  && !isOnlinePayment
         ? (user.companyCredit  || 0) + creditIncreaseAmount : (user.companyCredit  || 0);
       const newPersonalCr = creditTypeUsed === 'PERSONAL' && !isOnlinePayment
@@ -2764,9 +2781,16 @@ export async function PUT(request: NextRequest) {
           });
           
           if (mirrorEmiForAccounting) {
-            mirrorInterestAmount = mirrorEmiForAccounting.interestAmount;
-            mirrorPrincipalAmount = mirrorEmiForAccounting.principalAmount;
-            console.log(`[Accounting] MIRROR EMI Interest: ₹${mirrorInterestAmount} (Mirror Rate) vs Original: ₹${emi.interestAmount}`);
+            // Use SESSION DELTA — only what was paid this session on the mirror EMI.
+            // paidInterest after sync  - paidInterest before sync = interest paid THIS session.
+            // This correctly handles:
+            //   • 1st partial (₹90): pre=0, post=84.18 → sessionI=84.18, sessionP=5.82 ✓
+            //   • 2nd remaining (₹910): pre=84.18, post=84.18 → sessionI=0, sessionP=910 ✓
+            const postPaidInterest  = Number(mirrorEmiForAccounting.paidInterest  || 0);
+            const postPaidPrincipal = Number(mirrorEmiForAccounting.paidPrincipal || 0);
+            mirrorInterestAmount  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+            mirrorPrincipalAmount = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+            console.log(`[Accounting] MIRROR Session Delta: I:₹${mirrorInterestAmount} P:₹${mirrorPrincipalAmount} (pre: I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal}, post: I:₹${postPaidInterest} P:₹${postPaidPrincipal})`  );
           } else {
             // Fallback: Calculate mirror interest if mirror EMI not found
             const mirrorRate = (await db.mirrorLoanMapping.findFirst({
