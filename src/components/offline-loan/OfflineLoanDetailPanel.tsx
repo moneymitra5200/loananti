@@ -1961,8 +1961,8 @@ export default function OfflineLoanDetailPanel({
                   <span className="font-semibold">Interest Only Payment</span>
                 </div>
                 <p className="text-xs text-blue-600 mt-2">
-                  You are paying only the interest portion: {formatCurrency(selectedEmi?.interestAmount || 0)}. 
-                  The principal portion ({formatCurrency(selectedEmi?.principalAmount || 0)}) will be added to next month's EMI.
+                  Collecting only the interest: {formatCurrency((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0))}.
+                  The principal ({formatCurrency((selectedEmi?.principalAmount || 0) - (selectedEmi?.paidPrincipal || 0))}) is deferred — it will be added to the next EMI.
                 </p>
               </div>
             )}
@@ -2005,7 +2005,7 @@ export default function OfflineLoanDetailPanel({
                           EXTRA EMI #{selectedEmi.installmentNumber}
                         </div>
                         <div className="text-amber-600">
-                          Entry: <strong>{loan?.company?.name || 'Company 3'}</strong> Cashbook (Extra profit EMI)
+                          Entry: <strong>Company 3</strong> Cashbook (Extra EMI profit — recorded in Company 3 books)
                         </div>
                       </div>
                     ) : (
@@ -2041,7 +2041,7 @@ export default function OfflineLoanDetailPanel({
                           <span>CASH only</span>
                         </div>
                         <div className="text-amber-600">
-                          Entry: {loan?.company?.name || 'Company 3'} Cashbook (Extra profit goes to original company)
+                          Entry: <strong>Company 3 Cashbook</strong> (extra profit goes to Company 3)
                         </div>
                         <div className="font-medium text-amber-700">
                           Current: ₹{formatCurrency(personalCredit)}
@@ -2049,7 +2049,7 @@ export default function OfflineLoanDetailPanel({
                       </div>
                     </button>
                     <p className="text-xs text-amber-600">
-                      Extra EMIs are profit for the original company. Entry will be recorded in Company 3's cashbook only.
+                      Extra EMIs beyond the mirror tenure are pure profit. They are recorded in <strong>Company 3&apos;s Cashbook</strong> under Personal Credit.
                     </p>
                   </div>
                 ) : (
@@ -2130,7 +2130,7 @@ export default function OfflineLoanDetailPanel({
                     type="button"
                     onClick={() => {
                       setCreditType('COMPANY');
-                      setPaymentMode('CASH'); // Default to CASH for company credit
+                      setPaymentMode('ONLINE'); // Default to ONLINE for company credit
                     }}
                     className={`p-4 rounded-lg border-2 text-left transition-all ${
                       creditType === 'COMPANY' 

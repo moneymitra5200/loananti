@@ -989,7 +989,7 @@ export default function EMIPaymentDialog({
                   <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
                   <div className="text-sm text-amber-700">
                     <p className="font-medium">Warning</p>
-                    <p>The principal amount will increase your next EMI.</p>
+                    <p>The principal will be deferred and carried forward to the next EMI.</p>
                   </div>
                 </div>
               </div>
@@ -1008,7 +1008,7 @@ export default function EMIPaymentDialog({
                     I understand and confirm
                   </label>
                   <p className="text-xs text-gray-500">
-                    The principal amount ({formatCurrency(remainingPrincipal)}) will be added to next month's EMI
+                    The principal ({formatCurrency(remainingPrincipal)}) will be deferred and added to the next EMI
                   </p>
                 </div>
               </div>

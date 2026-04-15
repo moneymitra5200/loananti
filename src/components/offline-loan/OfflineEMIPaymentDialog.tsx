@@ -412,7 +412,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 <p className="text-sm font-semibold text-blue-800">Advance Payment Detected</p>
                 <p className="text-xs text-blue-600 mt-0.5">
                   This EMI is due on {new Date(emi!.dueDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.
-                  Only the principal (₹{fmt(emi!.principalAmount)}) will be collected — no interest charged for advance payments.
+                  Only the principal (₹{fmt(emi!.principalAmount - (emi!.paidPrincipal || 0))}) will be collected — no interest charged for advance payments.
                 </p>
               </div>
             </div>
@@ -462,7 +462,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               </div>
               <p className="text-xs text-blue-600 mt-2">
                 Collecting only the interest: ₹{fmt(remainingInterest || interestOnlyAmount)}.
-                Principal ₹{fmt(remainingPrincipal)} deferred to next EMI.
+                  {remainingPrincipal > 0 && <> Principal ₹{fmt(remainingPrincipal)} is deferred — carried forward to the next EMI.</>}
               </p>
             </div>
           )}
