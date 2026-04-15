@@ -2292,8 +2292,19 @@ export async function PUT(request: NextRequest) {
         paymentStatus = 'INTEREST_ONLY_PAID';
       }
 
-      const paymentAmount = amount || emi.totalAmount;
-      const actualPaymentAmount = paymentType === 'INTEREST_ONLY' ? emi.interestAmount : paymentAmount;
+      // ── SESSION-DELTA amounts ─────────────────────────────────────────────
+      // These represent ONLY what was paid THIS session, not the cumulative total.
+      // Critical for remaining payments after a partial: prevents recording full EMI twice.
+      const prevPaid          = previousState.paidAmount    || 0;
+      const prevPaidPrincipal = previousState.paidPrincipal || 0;
+      const prevPaidInterest  = previousState.paidInterest  || 0;
+      const sessionAmount     = paidAmount    - prevPaid;
+      const sessionPrincipal  = paidPrincipal - prevPaidPrincipal;
+      const sessionInterest   = paidInterest  - prevPaidInterest;
+
+      const actualPaymentAmount = paymentType === 'INTEREST_ONLY'
+        ? sessionInterest   // only interest portion paid this session
+        : sessionAmount;    // cash actually collected this session
       
       // Check for extra EMI
       const isExtraEMI = mirrorLoanMapping && emi.installmentNumber > mirrorLoanMapping.mirrorTenure;
@@ -2369,8 +2380,8 @@ export async function PUT(request: NextRequest) {
             loanApplicationNo: emi.offlineLoan.loanNumber,
             emiDueDate: emi.dueDate,
             emiAmount: emi.totalAmount,
-            principalComponent: paidPrincipal,
-            interestComponent: paidInterest,
+            principalComponent: sessionPrincipal,  // delta: this session only
+            interestComponent: sessionInterest,     // delta: this session only
             customerName: emi.offlineLoan.customerName,
             customerPhone: emi.offlineLoan.customerPhone
           }
@@ -2386,7 +2397,7 @@ export async function PUT(request: NextRequest) {
             recordId: emiId,
             recordType: 'OfflineLoanEMI',
             previousData: JSON.stringify(previousState),
-            newData: JSON.stringify({ paidAmount, paidPrincipal, paidInterest, paymentStatus, paymentAmount, collectorId: userId, collectorName: user.name, paymentMode }),
+            newData: JSON.stringify({ paidAmount, paidPrincipal, paidInterest, paymentStatus, sessionAmount, collectorId: userId, collectorName: user.name, paymentMode }),
             description: `Collected EMI #${emi.installmentNumber} for ${emi.offlineLoan.loanNumber}`,
             canUndo: true
           }
@@ -2782,10 +2793,18 @@ export async function PUT(request: NextRequest) {
           // Use the comprehensive accounting function
           // FIX-ISSUE-3: Pass effectivePaymentMode (forced CASH for C3) so journal debits correct account
           // FIX-ISSUE-7: null-guard company3Id to prevent silent accounting skip
+          // Use session deltas for accounting — ensures remaining payments don't
+          // double-count the previously recorded partial amount
+          const acctPrincipal = (paymentType === 'FULL' || paymentType === 'ADVANCE')
+            ? sessionPrincipal  // delta (remaining principal only)
+            : journalPrincipal; // partial/interest-only: already a delta
+          const acctInterest = (paymentType === 'FULL' || paymentType === 'ADVANCE')
+            ? sessionInterest
+            : journalInterest;
           const accountingResult = await recordEMIPaymentAccounting({
             amount: actualPaymentAmount,
-            principalComponent: journalPrincipal,
-            interestComponent: journalInterest,
+            principalComponent: acctPrincipal,
+            interestComponent: acctInterest,
             paymentMode: (effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
             paymentType: paymentType || 'FULL',
             creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
