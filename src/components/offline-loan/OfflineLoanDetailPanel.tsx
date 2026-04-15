@@ -1915,7 +1915,8 @@ export default function OfflineLoanDetailPanel({
                     className={paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}
                     onClick={() => {
                       setPaymentType('INTEREST_ONLY');
-                      setPaymentAmount(selectedEmi?.interestAmount || 0);
+                      // Use REMAINING interest (not full interestAmount)
+                      setPaymentAmount((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0));
                     }}
                   >
                     <Percent className="h-4 w-4 mr-1" />
@@ -2482,11 +2483,9 @@ export default function OfflineLoanDetailPanel({
                 <span className="text-sm font-medium text-emerald-800">Amount to Pay:</span>
                 <span className="text-lg font-bold text-emerald-700">
                   {formatCurrency(
-                    isInterestOnlyPayment 
+                    isInterestOnlyPayment
                       ? (loan?.interestOnlyMonthlyAmount || 0)
-                      : paymentType === 'PARTIAL' 
-                        ? paymentAmount 
-                        : (selectedEmi?.totalAmount || 0) - (selectedEmi?.paidAmount || 0)
+                      : paymentAmount
                   )}
                 </span>
               </div>
@@ -2505,11 +2504,9 @@ export default function OfflineLoanDetailPanel({
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Pay {formatCurrency(
-                    isInterestOnlyPayment 
+                    isInterestOnlyPayment
                       ? (loan?.interestOnlyMonthlyAmount || 0)
-                      : paymentType === 'PARTIAL' 
-                        ? paymentAmount 
-                        : (selectedEmi?.totalAmount || 0) - (selectedEmi?.paidAmount || 0)
+                      : paymentAmount
                   )}
                 </>
               )}

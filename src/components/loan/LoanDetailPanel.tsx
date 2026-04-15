@@ -618,6 +618,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
         // Split payment
         if (emiPaymentForm.paymentMode === 'SPLIT') {
+          formData.append('isSplitPayment', 'true'); // Flag for accounting route
           formData.append('splitCashAmount', String(emiPaymentForm.splitCashAmount || 0));
           formData.append('splitOnlineAmount', String(emiPaymentForm.splitOnlineAmount || 0));
         }
