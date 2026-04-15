@@ -1,17 +1,26 @@
 'use client';
 
-import { memo, useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { memo, useState, useEffect, useRef } from 'react';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { 
-  IndianRupee, CheckCircle, Receipt, Percent, 
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  IndianRupee, CheckCircle, Receipt, Percent,
   User, Building, Wallet, AlertCircle, Loader2,
-  Banknote, Landmark, AlertTriangle
+  Banknote, Landmark, AlertTriangle, SplitSquareHorizontal,
+  Upload, X, FileText, ImageIcon, Zap, Clock,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface EMI {
   id: string;
@@ -25,12 +34,16 @@ interface EMI {
   paidPrincipal: number;
   paidInterest: number;
   paymentStatus: string;
+  lateFee?: number;
 }
 
 interface OfflineEMIPaymentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  selectedEMI: EMI | null;
+  // Single EMI mode
+  selectedEMI?: EMI | null;
+  // Multi-EMI mode
+  selectedEMIs?: EMI[];
   loanId: string;
   userId: string;
   userRole: string;
@@ -39,16 +52,38 @@ interface OfflineEMIPaymentDialogProps {
   onPaymentSuccess: () => void;
   isInterestOnlyLoan?: boolean;
   interestOnlyAmount?: number;
+  // Loan-level info for advance detection
+  mirrorTenure?: number | null;
+  isMirrored?: boolean;
+  loanCompanyName?: string;
+  mirrorCompanyName?: string;
 }
 
-const formatCurrency = (amount: number) => {
-  return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const fmt = (n: number) =>
+  new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
+
+function isAdvancePayment(emi: EMI): boolean {
+  const now = new Date();
+  const due = new Date(emi.dueDate);
+  return (
+    now.getFullYear() < due.getFullYear() ||
+    (now.getFullYear() === due.getFullYear() && now.getMonth() < due.getMonth())
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   open,
   onOpenChange,
   selectedEMI,
+  selectedEMIs,
   loanId,
   userId,
   userRole,
@@ -56,128 +91,246 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   companyCredit,
   onPaymentSuccess,
   isInterestOnlyLoan = false,
-  interestOnlyAmount = 0
+  interestOnlyAmount = 0,
+  mirrorTenure,
+  isMirrored,
+  loanCompanyName = 'Loan Company',
+  mirrorCompanyName = 'Mirror Company',
 }: OfflineEMIPaymentDialogProps) {
+
+  // ── Determine if bulk/multi mode ───────────────────────────────────────────
+  const isMultiMode = !!(selectedEMIs && selectedEMIs.length > 1);
+  const emis: EMI[] = isMultiMode ? selectedEMIs! : selectedEMI ? [selectedEMI] : [];
+  const emi = emis[0] ?? null; // primary/reference EMI
+
+  // ── Amounts ────────────────────────────────────────────────────────────────
+  const computeAmounts = () => {
+    if (isInterestOnlyLoan) {
+      return {
+        totalAmount: interestOnlyAmount,
+        alreadyPaid: 0,
+        remaining: interestOnlyAmount,
+        remainingPrincipal: 0,
+        remainingInterest: interestOnlyAmount,
+      };
+    }
+    if (isMultiMode) {
+      let total = 0;
+      for (const e of emis) {
+        total += isAdvancePayment(e) ? e.principalAmount : (e.totalAmount - e.paidAmount);
+      }
+      return { totalAmount: total, alreadyPaid: 0, remaining: total, remainingPrincipal: total, remainingInterest: 0 };
+    }
+    const totalAmt = emi?.totalAmount ?? 0;
+    const paid = emi?.paidAmount ?? 0;
+    return {
+      totalAmount: totalAmt,
+      alreadyPaid: paid,
+      remaining: totalAmt - paid,
+      remainingPrincipal: (emi?.principalAmount ?? 0) - (emi?.paidPrincipal ?? 0),
+      remainingInterest: (emi?.interestAmount ?? 0) - (emi?.paidInterest ?? 0),
+    };
+  };
+  const { totalAmount, alreadyPaid, remaining, remainingPrincipal, remainingInterest } = computeAmounts();
+
+  // ── Advance detection ──────────────────────────────────────────────────────
+  const isAdvance = !isMultiMode && !!emi && isAdvancePayment(emi);
+
+  // ── State ──────────────────────────────────────────────────────────────────
   const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'>('FULL');
   const [amount, setAmount] = useState(0);
-  const [paymentMode, setPaymentMode] = useState<'CASH' | 'ONLINE'>('CASH');
+
+  // Payment mode: ONLINE | CASH | SPLIT
+  const [paymentMode, setPaymentMode] = useState<'CASH' | 'ONLINE' | 'SPLIT'>('CASH');
+  const [splitCashAmount, setSplitCashAmount] = useState('');
+  const [splitOnlineAmount, setSplitOnlineAmount] = useState('');
+
   const [creditType, setCreditType] = useState<'PERSONAL' | 'COMPANY'>('COMPANY');
   const [paymentRef, setPaymentRef] = useState('');
   const [remarks, setRemarks] = useState('');
   const [paying, setPaying] = useState(false);
   const [remainingPaymentDate, setRemainingPaymentDate] = useState('');
-  // Staff-editable principal/interest split for journal entry
-  const [editedPrincipal, setEditedPrincipal] = useState<string>('');
-  const [editedInterest, setEditedInterest] = useState<string>('');
 
-  // Calculate amounts
-  const totalAmount = isInterestOnlyLoan ? interestOnlyAmount : (selectedEMI?.totalAmount || 0);
-  const alreadyPaid = selectedEMI?.paidAmount || 0;
-  const remainingAmount = totalAmount - alreadyPaid;
-  const remainingPrincipal = isInterestOnlyLoan ? 0 : ((selectedEMI?.principalAmount || 0) - (selectedEMI?.paidPrincipal || 0));
-  const remainingInterest = isInterestOnlyLoan ? interestOnlyAmount : ((selectedEMI?.interestAmount || 0) - (selectedEMI?.paidInterest || 0));
+  // Penalty
+  const [penaltyAmount, setPenaltyAmount] = useState(0);
+  const [penaltyWaiver, setPenaltyWaiver] = useState(0);
+  const [penaltyPaymentMode, setPenaltyPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
 
-  // Reset form when dialog opens
+  // Proof upload
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Reset on open ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (open && selectedEMI) {
-      setPaymentType('FULL');
-      setAmount(remainingAmount);
+    if (open) {
+      const defaultType = isInterestOnlyLoan ? 'INTEREST_ONLY' : (isAdvance ? 'FULL' : 'FULL');
+      setPaymentType(defaultType);
+      setAmount(isAdvance ? (emi?.principalAmount ?? remaining) : remaining);
       setPaymentMode('CASH');
+      setSplitCashAmount('');
+      setSplitOnlineAmount('');
       setCreditType('COMPANY');
       setPaymentRef('');
-      setRemarks('');
+      setRemarks(isMultiMode
+        ? `Payment for ${emis.length} EMI(s): #${emis.map(e => e.installmentNumber).join(', #')}`
+        : '');
       setRemainingPaymentDate('');
-      // Default split = EMI's own principal + interest
-      setEditedPrincipal(String(selectedEMI.principalAmount ?? ''));
-      setEditedInterest(String(selectedEMI.interestAmount ?? ''));
+      setPenaltyAmount(emi?.lateFee ?? 0);
+      setPenaltyWaiver(0);
+      setPenaltyPaymentMode('CASH');
+      setProofFile(null);
+      setProofPreview(null);
     }
-  }, [open, selectedEMI, remainingAmount]);
+  }, [open, selectedEMI?.id, selectedEMIs?.length]);
 
-  // Handle credit type change with auto payment mode
+  // ── Credit type handler ────────────────────────────────────────────────────
   const handleCreditTypeChange = (type: 'PERSONAL' | 'COMPANY') => {
-    if (type === 'PERSONAL') {
-      // Personal Credit: Only CASH allowed
-      setCreditType('PERSONAL');
-      setPaymentMode('CASH');
-    } else {
-      // Company Credit: Default to CASH (user can change to ONLINE)
-      setCreditType('COMPANY');
-      setPaymentMode('CASH');
-    }
+    setCreditType(type);
+    if (type === 'PERSONAL') setPaymentMode('CASH');
   };
 
-  // Handle payment type change
+  // ── Payment type handler ───────────────────────────────────────────────────
   const handlePaymentTypeChange = (type: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY') => {
     setPaymentType(type);
-    if (type === 'FULL') {
-      setAmount(remainingAmount);
-    } else if (type === 'INTEREST_ONLY') {
-      setAmount(remainingInterest);
-    } else if (type === 'PRINCIPAL_ONLY') {
-      setAmount(remainingPrincipal);
-    } else {
-      setAmount(Math.floor(remainingAmount / 2));
-    }
+    if (type === 'FULL') setAmount(remaining);
+    else if (type === 'INTEREST_ONLY') setAmount(remainingInterest);
+    else if (type === 'PRINCIPAL_ONLY') setAmount(remainingPrincipal);
+    else setAmount(Math.floor(remaining / 2));
   };
 
-  // Process payment
+  // ── Proof upload ───────────────────────────────────────────────────────────
+  const handleProofUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File Too Large', description: 'Max 10MB', variant: 'destructive' });
+      return;
+    }
+    setProofFile(file);
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => setProofPreview(ev.target?.result as string);
+      reader.readAsDataURL(file);
+    } else setProofPreview(null);
+  };
+
+  // ── Computed values ────────────────────────────────────────────────────────
+  const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
+  const isOnlineMode = paymentMode === 'ONLINE';
+  const isSplitMode = paymentMode === 'SPLIT';
+
+  const splitCash = parseFloat(splitCashAmount) || 0;
+  const splitOnline = parseFloat(splitOnlineAmount) || 0;
+  const splitTotal = splitCash + splitOnline;
+
+  // Which company books will the entry go to (UI label)
+  const getEntryCompany = (emiNum: number = emi?.installmentNumber ?? 1): string => {
+    if (isMirrored && mirrorTenure && emiNum <= mirrorTenure) return mirrorCompanyName;
+    return loanCompanyName;
+  };
+
+  // ── Submit ─────────────────────────────────────────────────────────────────
   const onPay = async () => {
     if (!userId || amount <= 0) {
       toast({ title: 'Error', description: 'Please enter a valid amount', variant: 'destructive' });
       return;
     }
-
-    // Validate partial payment date
     if (paymentType === 'PARTIAL' && !remainingPaymentDate) {
-      toast({ title: 'Error', description: 'Please select when the remaining amount will be paid', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Please select when the remaining will be paid', variant: 'destructive' });
+      return;
+    }
+    if (isSplitMode && Math.abs(splitTotal - amount) > 1) {
+      toast({ title: 'Split Mismatch', description: `Cash ₹${splitCash} + Online ₹${splitOnline} = ₹${splitTotal}, but payment amount is ₹${amount}`, variant: 'destructive' });
       return;
     }
 
     setPaying(true);
     try {
-      // Determine API action
+      // Upload proof if provided
+      let proofUrl = '';
+      if (proofFile) {
+        const fd = new FormData();
+        fd.append('file', proofFile);
+        fd.append('documentType', 'emi_proof');
+        fd.append('loanId', loanId);
+        fd.append('uploadedBy', userId);
+        try {
+          const upRes = await fetch('/api/upload/document', { method: 'POST', body: fd });
+          const upData = await upRes.json();
+          if (upData.success && upData.url) proofUrl = upData.url;
+        } catch { /* non-critical */ }
+      }
+
       const isInterestOnlyPayment = isInterestOnlyLoan || paymentType === 'INTEREST_ONLY';
       const action = isInterestOnlyPayment ? 'pay-interest-only-loan' : 'pay-emi';
 
-      const requestBody: Record<string, unknown> = {
-        action,
-        userId,
-        userRole,
-        paymentMode,
+      if (isMultiMode) {
+        // ── MULTI-EMI: pay each one sequentially ──────────────────────────
+        let successCount = 0;
+        let totalCreditAdded = 0;
+        for (const e of emis) {
+          const advance = isAdvancePayment(e);
+          const amtToPay = advance ? e.principalAmount : (e.totalAmount - e.paidAmount);
+          const body: Record<string, unknown> = {
+            action: 'pay-emi', userId, userRole,
+            paymentMode: isSplitMode ? 'CASH' : paymentMode,
+            paymentReference: paymentRef,
+            creditType, proofUrl, remarks,
+            emiId: e.id, paymentType: 'FULL', amount: amtToPay,
+            isAdvancePayment: advance,
+            penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
+            penaltyPaymentMode: netPenalty > 0 ? penaltyPaymentMode : undefined,
+            ...(isSplitMode && { isSplitPayment: true, splitCashAmount: splitCash / emis.length, splitOnlineAmount: splitOnline / emis.length }),
+          };
+          const res = await fetch('/api/offline-loan', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (data.success) { successCount++; totalCreditAdded += data.creditAdded || 0; }
+        }
+        if (successCount > 0) {
+          toast({ title: `✅ ${successCount}/${emis.length} EMIs Paid`, description: `₹${fmt(totalCreditAdded)} credit added.` });
+          onOpenChange(false);
+          onPaymentSuccess();
+        } else {
+          toast({ title: 'Error', description: 'All payments failed', variant: 'destructive' });
+        }
+        return;
+      }
+
+      // ── SINGLE EMI ────────────────────────────────────────────────────────
+      const body: Record<string, unknown> = {
+        action, userId, userRole,
+        paymentMode: isSplitMode ? 'CASH' : paymentMode,
         paymentReference: paymentRef,
-        creditType,
-        remarks,
-        amount
+        creditType, proofUrl, remarks,
+        penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
+        penaltyWaiver: penaltyWaiver > 0 ? penaltyWaiver : undefined,
+        penaltyPaymentMode: netPenalty > 0 ? penaltyPaymentMode : undefined,
+        ...(isSplitMode && { isSplitPayment: true, splitCashAmount: splitCash, splitOnlineAmount: splitOnline }),
       };
 
       if (isInterestOnlyPayment) {
-        requestBody.loanId = loanId;
-        requestBody.paymentType = 'INTEREST_ONLY';
+        body.loanId = loanId;
+        body.paymentType = 'INTEREST_ONLY';
+        body.amount = amount;
       } else {
-        requestBody.emiId = selectedEMI?.id;
-        requestBody.paymentType = paymentType;
-        if (paymentType === 'PARTIAL') {
-          requestBody.remainingPaymentDate = remainingPaymentDate;
-        }
-        // Include staff-edited principal/interest split if provided
-        if (paymentType === 'FULL' && editedPrincipal !== '' && editedInterest !== '') {
-          requestBody.principalComponent = parseFloat(editedPrincipal) || 0;
-          requestBody.interestComponent  = parseFloat(editedInterest)  || 0;
-        }
+        body.emiId = emi?.id;
+        body.paymentType = paymentType;
+        body.amount = amount;
+        if (paymentType === 'PARTIAL') body.remainingPaymentDate = remainingPaymentDate;
       }
 
       const res = await fetch('/api/offline-loan', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-
       const data = await res.json();
+
       if (data.success) {
-        toast({
-          title: '✅ Payment Successful!',
-          description: `₹${formatCurrency(amount)} collected. Credit added to ${creditType} account.`,
-        });
+        let desc = `₹${fmt(amount)} collected. Credit added to ${creditType} account.`;
+        if (netPenalty > 0) desc += ` + ₹${fmt(netPenalty)} penalty.`;
+        toast({ title: '✅ Payment Successful!', description: desc });
         onOpenChange(false);
         onPaymentSuccess();
       } else {
@@ -191,42 +344,55 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
     }
   };
 
-  if (!selectedEMI && !isInterestOnlyLoan) return null;
+  if (emis.length === 0 && !isInterestOnlyLoan) return null;
 
+  const advanceBreakdown = isMultiMode ? emis.reduce((acc, e) => {
+    const adv = isAdvancePayment(e);
+    return { advance: acc.advance + (adv ? 1 : 0), full: acc.full + (adv ? 0 : 1) };
+  }, { advance: 0, full: 0 }) : null;
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // UI
+  // ────────────────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IndianRupee className="h-5 w-5 text-emerald-600" />
-            {isInterestOnlyLoan ? 'Pay Interest Only' : `Pay EMI #${selectedEMI?.installmentNumber}`}
+            {isInterestOnlyLoan
+              ? 'Pay Interest Only'
+              : isMultiMode
+                ? `Pay ${emis.length} EMIs`
+                : `Pay EMI #${emi?.installmentNumber}`}
           </DialogTitle>
           <DialogDescription>
-            {alreadyPaid > 0 ? (
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span>Total EMI:</span>
-                  <span className="font-medium">₹{formatCurrency(totalAmount)}</span>
-                </div>
-                <div className="flex justify-between text-green-600">
-                  <span>Already Paid:</span>
-                  <span className="font-medium">₹{formatCurrency(alreadyPaid)}</span>
-                </div>
-                <div className="flex justify-between text-orange-600 font-semibold">
-                  <span>Remaining:</span>
-                  <span>₹{formatCurrency(remainingAmount)}</span>
-                </div>
-                {!isInterestOnlyLoan && (
-                  <div className="text-xs mt-2 pt-2 border-t">
-                    Remaining: Principal ₹{formatCurrency(remainingPrincipal)} | Interest ₹{formatCurrency(remainingInterest)}
+            {isMultiMode ? (
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between"><span>EMIs Selected:</span><span className="font-medium">{emis.length}</span></div>
+                {advanceBreakdown && advanceBreakdown.advance > 0 && (
+                  <div className="flex justify-between text-blue-600">
+                    <span>Advance EMIs (principal only):</span>
+                    <span>{advanceBreakdown.advance}</span>
                   </div>
                 )}
+                <div className="flex justify-between font-semibold text-emerald-700">
+                  <span>Total:</span>
+                  <span>₹{fmt(remaining)}</span>
+                </div>
+              </div>
+            ) : alreadyPaid > 0 ? (
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between"><span>Total EMI:</span><span className="font-medium">₹{fmt(totalAmount)}</span></div>
+                <div className="flex justify-between text-green-600"><span>Already Paid:</span><span>₹{fmt(alreadyPaid)}</span></div>
+                <div className="flex justify-between text-orange-600 font-semibold"><span>Remaining:</span><span>₹{fmt(remaining)}</span></div>
+                {!isInterestOnlyLoan && <div className="text-xs pt-1 border-t">P: ₹{fmt(remainingPrincipal)} | I: ₹{fmt(remainingInterest)}</div>}
               </div>
             ) : (
               <>
-                Due Amount: ₹{formatCurrency(totalAmount)}
-                {!isInterestOnlyLoan && selectedEMI && (
-                  <span className="block text-xs mt-1">Principal: ₹{formatCurrency(selectedEMI.principalAmount)} | Interest: ₹{formatCurrency(selectedEMI.interestAmount)}</span>
+                Due: ₹{fmt(totalAmount)}
+                {!isInterestOnlyLoan && emi && (
+                  <span className="block text-xs mt-1">P: ₹{fmt(emi.principalAmount)} | I: ₹{fmt(emi.interestAmount)}</span>
                 )}
               </>
             )}
@@ -234,68 +400,57 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Payment Type Selection - Only for regular loans */}
-          {!isInterestOnlyLoan && userRole !== 'ACCOUNTANT' && (
-            <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
-              <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <Button
-                  type="button"
-                  variant={paymentType === 'FULL' ? 'default' : 'outline'}
-                  className={paymentType === 'FULL' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}
-                  onClick={() => handlePaymentTypeChange('FULL')}
-                >
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Full
-                </Button>
-                <Button
-                  type="button"
-                  variant={paymentType === 'PARTIAL' ? 'default' : 'outline'}
-                  className={paymentType === 'PARTIAL' ? 'bg-orange-500 hover:bg-orange-600' : ''}
-                  onClick={() => handlePaymentTypeChange('PARTIAL')}
-                >
-                  <Receipt className="h-4 w-4 mr-1" />
-                  Partial
-                </Button>
-                <Button
-                  type="button"
-                  variant={paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
-                  className={paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}
-                  onClick={() => handlePaymentTypeChange('INTEREST_ONLY')}
-                >
-                  <Percent className="h-4 w-4 mr-1" />
-                  Interest
-                </Button>
-                <Button
-                  type="button"
-                  variant={paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
-                  className={paymentType === 'PRINCIPAL_ONLY' ? 'bg-red-500 hover:bg-red-600 text-white' : 'border-red-300 text-red-700 hover:bg-red-50'}
-                  onClick={() => handlePaymentTypeChange('PRINCIPAL_ONLY')}
-                >
-                  <AlertTriangle className="h-4 w-4 mr-1" />
-                  Principal
-                </Button>
+
+          {/* ── ADVANCE PAYMENT BANNER ── */}
+          {isAdvance && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+              <Zap className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Advance Payment Detected</p>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  This EMI is due on {new Date(emi!.dueDate).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}.
+                  Only the principal (₹{fmt(emi!.principalAmount)}) will be collected — no interest charged for advance payments.
+                </p>
               </div>
             </div>
           )}
 
-          {/* Partial Payment - When will rest be paid */}
-          {paymentType === 'PARTIAL' && (
+          {/* ── PAYMENT TYPE ── (single, non-interest-only) */}
+          {!isInterestOnlyLoan && !isMultiMode && userRole !== 'ACCOUNTANT' && (
+            <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
+              <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {([
+                  { type: 'FULL', label: 'Full', icon: <CheckCircle className="h-4 w-4 mr-1" />, color: 'bg-emerald-500 hover:bg-emerald-600' },
+                  { type: 'PARTIAL', label: 'Partial', icon: <Receipt className="h-4 w-4 mr-1" />, color: 'bg-orange-500 hover:bg-orange-600' },
+                  { type: 'INTEREST_ONLY', label: 'Interest', icon: <Percent className="h-4 w-4 mr-1" />, color: 'bg-blue-500 hover:bg-blue-600' },
+                  { type: 'PRINCIPAL_ONLY', label: 'Principal', icon: <AlertTriangle className="h-4 w-4 mr-1" />, color: 'bg-red-500 hover:bg-red-600 text-white' },
+                ] as const).map(({ type, label, icon, color }) => (
+                  <Button key={type} type="button"
+                    variant={paymentType === type ? 'default' : 'outline'}
+                    className={paymentType === type ? color : (type === 'PRINCIPAL_ONLY' ? 'border-red-300 text-red-700 hover:bg-red-50' : '')}
+                    onClick={() => handlePaymentTypeChange(type)}>
+                    {icon}{label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── PARTIAL: due date picker ── */}
+          {paymentType === 'PARTIAL' && !isMultiMode && (
             <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
-              <Label className="text-orange-800 font-semibold mb-2 block">When will the remaining amount be paid? *</Label>
-              <Input
-                type="date"
-                value={remainingPaymentDate}
+              <Label className="text-orange-800 font-semibold mb-2 block">When will the remaining be paid? *</Label>
+              <Input type="date" value={remainingPaymentDate}
                 onChange={(e) => setRemainingPaymentDate(e.target.value)}
-                min={new Date().toISOString().split('T')[0]}
-              />
+                min={new Date().toISOString().split('T')[0]} />
               <p className="text-xs text-orange-600 mt-2">
-                Remaining ₹{formatCurrency(remainingAmount - amount)} will be due on selected date.
+                Remaining ₹{fmt(Math.max(0, remaining - amount))} will be due on selected date.
               </p>
             </div>
           )}
 
-          {/* Interest Only Payment Info */}
+          {/* ── INTEREST ONLY info banner ── */}
           {(paymentType === 'INTEREST_ONLY' || isInterestOnlyLoan) && (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-center gap-2 text-blue-800">
@@ -303,13 +458,13 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 <span className="font-semibold">Interest Only Payment</span>
               </div>
               <p className="text-xs text-blue-600 mt-2">
-                You are paying only the interest portion: ₹{formatCurrency(remainingInterest || interestOnlyAmount)}.
-                The principal (₹{formatCurrency(remainingPrincipal)}) will be added to next month&apos;s EMI.
+                Collecting only the interest: ₹{fmt(remainingInterest || interestOnlyAmount)}.
+                Principal ₹{fmt(remainingPrincipal)} deferred to next EMI.
               </p>
             </div>
           )}
 
-          {/* Principal Only Payment Info */}
+          {/* ── PRINCIPAL ONLY info banner ── */}
           {paymentType === 'PRINCIPAL_ONLY' && (
             <div className="p-4 bg-red-50 rounded-lg border border-red-200">
               <div className="flex items-center gap-2 text-red-800">
@@ -317,96 +472,56 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 <span className="font-semibold">Principal Only Payment</span>
               </div>
               <p className="text-xs text-red-600 mt-2">
-                Only the principal (₹{formatCurrency(remainingPrincipal)}) is collected.
-                The interest (₹{formatCurrency(remainingInterest)}) will be written off as Irrecoverable Debt in the books.
+                Only principal ₹{fmt(remainingPrincipal)} collected.
+                Interest ₹{fmt(remainingInterest)} will be written off as Irrecoverable Debt.
               </p>
             </div>
           )}
 
-          {/* ========================================== */}
-          {/* CREDIT TYPE SELECTION - MAIN CHOICE */}
-          {/* ========================================== */}
+          {/* ── CREDIT TYPE ── */}
           <div className="p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
             <Label className="text-slate-800 font-semibold mb-3 block">
-              <Wallet className="h-4 w-4 inline mr-2" />
-              Credit Type *
+              <Wallet className="h-4 w-4 inline mr-2" />Credit Type *
             </Label>
             <div className="grid grid-cols-2 gap-3">
-              {/* Personal Credit Option */}
-              <button
-                type="button"
-                onClick={() => handleCreditTypeChange('PERSONAL')}
+              {/* Personal */}
+              <button type="button" onClick={() => handleCreditTypeChange('PERSONAL')}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
-                  creditType === 'PERSONAL' 
-                    ? 'border-amber-500 bg-amber-50' 
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
+                  creditType === 'PERSONAL' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="flex items-center gap-2 mb-2">
                   <User className={`h-5 w-5 ${creditType === 'PERSONAL' ? 'text-amber-600' : 'text-gray-400'}`} />
-                  <span className={`font-semibold ${creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>
-                    Personal Credit
-                  </span>
+                  <span className={`font-semibold text-sm ${creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>Personal Credit</span>
                 </div>
-                <div className="text-xs space-y-1">
-                  <div className="flex items-center gap-1 text-gray-600">
-                    <Banknote className="h-3 w-3" />
-                    <span>CASH only</span>
-                  </div>
-                  <div className="text-gray-500">
-                    Entry: Company 3 Cashbook
-                  </div>
-                  <div className="font-medium text-amber-700">
-                    Current: ₹{formatCurrency(personalCredit)}
-                  </div>
+                <div className="text-xs space-y-1 text-gray-600">
+                  <div className="flex items-center gap-1"><Banknote className="h-3 w-3" /><span>CASH only</span></div>
+                  <div className="text-gray-500">Entry: Company 3 Cashbook</div>
+                  <div className={`font-medium ${creditType === 'PERSONAL' ? 'text-amber-700' : ''}`}>Current: ₹{fmt(personalCredit)}</div>
                 </div>
               </button>
-
-              {/* Company Credit Option */}
-              <button
-                type="button"
-                onClick={() => handleCreditTypeChange('COMPANY')}
+              {/* Company */}
+              <button type="button" onClick={() => handleCreditTypeChange('COMPANY')}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
-                  creditType === 'COMPANY' 
-                    ? 'border-blue-500 bg-blue-50' 
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
+                  creditType === 'COMPANY' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="flex items-center gap-2 mb-2">
                   <Building className={`h-5 w-5 ${creditType === 'COMPANY' ? 'text-blue-600' : 'text-gray-400'}`} />
-                  <span className={`font-semibold ${creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>
-                    Company Credit
-                  </span>
+                  <span className={`font-semibold text-sm ${creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>Company Credit</span>
                 </div>
-                <div className="text-xs space-y-1">
-                  <div className="flex items-center gap-1 text-gray-600">
-                    <Landmark className="h-3 w-3" />
-                    <span>ONLINE or CASH</span>
-                  </div>
-                  <div className="text-gray-500">
-                    Entry: Loan Company's Books
-                  </div>
-                  <div className="font-medium text-blue-700">
-                    Current: ₹{formatCurrency(companyCredit)}
-                  </div>
+                <div className="text-xs space-y-1 text-gray-600">
+                  <div className="flex items-center gap-1"><Landmark className="h-3 w-3" /><span>ONLINE or CASH</span></div>
+                  <div className="text-gray-500">Entry: {getEntryCompany()}&apos;s Books</div>
+                  <div className={`font-medium ${creditType === 'COMPANY' ? 'text-blue-700' : ''}`}>Current: ₹{fmt(companyCredit)}</div>
                 </div>
               </button>
             </div>
           </div>
 
-          {/* ========================================== */}
-          {/* PAYMENT MODE - BASED ON CREDIT TYPE */}
-          {/* ========================================== */}
-          
-          {/* Personal Credit - CASH only (fixed) */}
-          {creditType === 'PERSONAL' && (
+          {/* ── PAYMENT MODE ── */}
+          {creditType === 'PERSONAL' ? (
             <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-amber-800 font-semibold">Payment Mode</Label>
-                  <p className="text-xs text-amber-600 mt-1">
-                    Personal Credit only supports CASH payment
-                  </p>
+                  <p className="text-xs text-amber-600 mt-1">Personal Credit only supports CASH</p>
                 </div>
                 <div className="flex items-center gap-2 px-4 py-2 bg-amber-100 rounded-lg border border-amber-300">
                   <Banknote className="h-5 w-5 text-amber-700" />
@@ -414,166 +529,184 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 </div>
               </div>
               <div className="mt-3 p-3 bg-amber-100 rounded-lg">
-                <p className="text-xs text-amber-700">
-                  <strong>Entry will be recorded in:</strong> Company 3 Cashbook
-                </p>
-                <p className="text-xs text-amber-600 mt-1">
-                  +₹{formatCurrency(amount)} will be added to your Personal Credit
-                </p>
+                <p className="text-xs text-amber-700"><strong>Entry in:</strong> Company 3 Cashbook</p>
+                <p className="text-xs text-amber-600 mt-1">+₹{fmt(amount)} added to Personal Credit</p>
               </div>
             </div>
-          )}
-
-          {/* Company Credit - ONLINE or CASH */}
-          {creditType === 'COMPANY' && (
+          ) : (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
-              <div className="grid grid-cols-2 gap-3">
-                {/* ONLINE Option */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('ONLINE')}
-                  className={`p-3 rounded-lg border-2 text-left transition-all ${
-                    paymentMode === 'ONLINE' 
-                      ? 'border-blue-500 bg-blue-100' 
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
+              <div className="grid grid-cols-3 gap-2">
+                {/* ONLINE */}
+                <button type="button" onClick={() => setPaymentMode('ONLINE')}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${paymentMode === 'ONLINE' ? 'border-blue-500 bg-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <Landmark className={`h-4 w-4 ${paymentMode === 'ONLINE' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className={`font-medium ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
-                      ONLINE
-                    </span>
+                    <span className={`font-medium text-xs ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>ONLINE</span>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Entry: Loan Company's Bank Account
-                  </p>
+                  <p className="text-xs text-gray-500">Bank Account</p>
                 </button>
-
-                {/* CASH Option */}
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode('CASH')}
-                  className={`p-3 rounded-lg border-2 text-left transition-all ${
-                    paymentMode === 'CASH' 
-                      ? 'border-blue-500 bg-blue-100' 
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
+                {/* CASH */}
+                <button type="button" onClick={() => setPaymentMode('CASH')}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${paymentMode === 'CASH' ? 'border-blue-500 bg-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <Banknote className={`h-4 w-4 ${paymentMode === 'CASH' ? 'text-blue-600' : 'text-gray-400'}`} />
-                    <span className={`font-medium ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
-                      CASH
-                    </span>
+                    <span className={`font-medium text-xs ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>CASH</span>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    Entry: Loan Company's Cashbook
-                  </p>
+                  <p className="text-xs text-gray-500">Cashbook</p>
+                </button>
+                {/* SPLIT */}
+                <button type="button" onClick={() => setPaymentMode('SPLIT')}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${paymentMode === 'SPLIT' ? 'border-purple-500 bg-purple-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <SplitSquareHorizontal className={`h-4 w-4 ${paymentMode === 'SPLIT' ? 'text-purple-600' : 'text-gray-400'}`} />
+                    <span className={`font-medium text-xs ${paymentMode === 'SPLIT' ? 'text-purple-800' : 'text-gray-600'}`}>SPLIT</span>
+                  </div>
+                  <p className="text-xs text-gray-500">Cash + Online</p>
                 </button>
               </div>
+
+              {/* Split inputs */}
+              {isSplitMode && (
+                <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
+                  <p className="text-xs font-medium text-purple-700">Split Part Cash + Part Online (penalty included)</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
+                      <Input type="number" value={splitCashAmount}
+                        onChange={(e) => setSplitCashAmount(e.target.value)}
+                        placeholder="e.g. 500" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
+                      <Input type="number" value={splitOnlineAmount}
+                        onChange={(e) => setSplitOnlineAmount(e.target.value)}
+                        placeholder="e.g. 700" />
+                    </div>
+                  </div>
+                  <p className={`text-xs font-medium ${Math.abs(splitTotal - amount) > 1 ? 'text-red-500' : 'text-green-600'}`}>
+                    Total: ₹{fmt(splitTotal)} {Math.abs(splitTotal - amount) > 1 ? `⚠ Doesn't match ₹${fmt(amount)}` : '✓'}
+                  </p>
+                </div>
+              )}
+
               <div className="mt-3 p-3 bg-blue-100 rounded-lg">
                 <p className="text-xs text-blue-700">
-                  <strong>Entry will be recorded in:</strong> {' '}
-                  {paymentMode === 'ONLINE' 
-                    ? "Loan Company's Bank Account" 
-                    : "Loan Company's Cashbook"}
+                  <strong>Entry in:</strong> {paymentMode === 'ONLINE' ? `${getEntryCompany()}'s Bank Account` : paymentMode === 'SPLIT' ? `Cash: Cashbook + Online: Bank` : `${getEntryCompany()}'s Cashbook`}
                 </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  +₹{formatCurrency(amount)} will be added to Company Credit
-                </p>
+                <p className="text-xs text-blue-600 mt-1">+₹{fmt(amount)} added to Company Credit</p>
               </div>
             </div>
           )}
 
-          {/* Amount */}
+          {/* ── PAYMENT AMOUNT ── */}
           <div>
             <Label>Payment Amount (₹) *</Label>
-            <Input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
-            />
+            <Input type="number" value={amount}
+              onChange={(e) => setAmount(parseFloat(e.target.value) || 0)} />
           </div>
 
-          {/* Principal / Interest Split Edit — FULL payment only, not interest-only loan */}
-          {paymentType === 'FULL' && !isInterestOnlyLoan && selectedEMI && (
-            <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-200 space-y-3">
-              <Label className="text-indigo-800 font-semibold block">
-                📊 Edit Principal / Interest Split
+          {/* ── PENALTY UI ── */}
+          {!isInterestOnlyLoan && !isMultiMode && (
+            <div className="p-4 bg-rose-50 rounded-lg border border-rose-200 space-y-3">
+              <Label className="text-rose-800 font-semibold block">
+                <AlertTriangle className="h-4 w-4 inline mr-2" />Penalty / Late Fee
               </Label>
-              <p className="text-xs text-indigo-600">
-                Adjust how this payment is split between principal and interest in the accounting books.
-              </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-xs text-gray-600">Principal (₹)</Label>
-                  <Input
-                    type="number"
-                    value={editedPrincipal}
-                    onChange={(e) => setEditedPrincipal(e.target.value)}
-                    placeholder={String(selectedEMI.principalAmount)}
-                  />
+                  <Label className="text-xs text-gray-600">Penalty Charged (₹)</Label>
+                  <Input type="number" value={penaltyAmount}
+                    onChange={(e) => setPenaltyAmount(parseFloat(e.target.value) || 0)}
+                    placeholder="0" />
+                  {emi?.lateFee && emi.lateFee > 0 && (
+                    <p className="text-xs text-rose-500 mt-1">EMI late fee: ₹{fmt(emi.lateFee)}</p>
+                  )}
                 </div>
                 <div>
-                  <Label className="text-xs text-gray-600">Interest (₹)</Label>
-                  <Input
-                    type="number"
-                    value={editedInterest}
-                    onChange={(e) => setEditedInterest(e.target.value)}
-                    placeholder={String(selectedEMI.interestAmount)}
-                  />
+                  <Label className="text-xs text-gray-600">Waiver (₹)</Label>
+                  <Input type="number" value={penaltyWaiver}
+                    onChange={(e) => setPenaltyWaiver(parseFloat(e.target.value) || 0)}
+                    placeholder="0" max={penaltyAmount} />
                 </div>
               </div>
-              {editedPrincipal !== '' && editedInterest !== '' && (
-                <p className="text-xs text-indigo-500">
-                  Split total: ₹{(parseFloat(editedPrincipal || '0') + parseFloat(editedInterest || '0')).toLocaleString('en-IN')}
-                  {Math.abs((parseFloat(editedPrincipal || '0') + parseFloat(editedInterest || '0')) - amount) > 1 && (
-                    <span className="text-amber-600 ml-2">⚠ Does not match payment amount ₹{amount}</span>
-                  )}
-                </p>
+              {penaltyAmount > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-rose-700">Net Penalty to Collect: ₹{fmt(netPenalty)}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['CASH', 'BANK'] as const).map((mode) => (
+                      <button key={mode} type="button"
+                        onClick={() => setPenaltyPaymentMode(mode)}
+                        className={`p-2 rounded-lg border-2 text-xs text-left transition-all ${
+                          penaltyPaymentMode === mode ? 'border-rose-500 bg-rose-100' : 'border-gray-200 bg-white'}`}>
+                        <div className="flex items-center gap-1">
+                          {mode === 'CASH' ? <Banknote className="h-3 w-3" /> : <Landmark className="h-3 w-3" />}
+                          <span className="font-medium">{mode}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
           )}
 
-          {/* Reference */}
-          <div>
-            <Label>Transaction Reference</Label>
-            <Input
-              value={paymentRef}
-              onChange={(e) => setPaymentRef(e.target.value)}
-              placeholder="UTR/Transaction ID (optional)"
-            />
+          {/* ── PROOF UPLOAD ── */}
+          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+            <Label className="text-gray-800 font-semibold block">
+              <Upload className="h-4 w-4 inline mr-2" />Payment Proof
+              {(creditType === 'PERSONAL' || isOnlineMode) && <span className="text-red-500 ml-1">*</span>}
+            </Label>
+            <p className="text-xs text-gray-500">
+              {creditType === 'PERSONAL' || isOnlineMode
+                ? 'Required for Personal Credit or Online payments.'
+                : 'Optional — upload bank receipt or screenshot.'}
+            </p>
+            {proofFile ? (
+              <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200">
+                {proofPreview
+                  ? <img src={proofPreview} alt="proof" className="h-16 w-16 object-cover rounded" />
+                  : <FileText className="h-10 w-10 text-gray-400" />}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{proofFile.name}</p>
+                  <p className="text-xs text-gray-500">{(proofFile.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <button type="button" onClick={() => { setProofFile(null); setProofPreview(null); }}
+                  className="p-1 rounded hover:bg-gray-100">
+                  <X className="h-4 w-4 text-gray-500" />
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 hover:bg-gray-50 transition-all flex flex-col items-center gap-2">
+                <ImageIcon className="h-8 w-8 text-gray-400" />
+                <span className="text-sm text-gray-500">Click to upload (JPG, PNG, PDF — max 10MB)</span>
+              </button>
+            )}
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleProofUpload} />
           </div>
 
-          {/* Remarks */}
+          {/* ── REFERENCE ── */}
+          <div>
+            <Label>Transaction Reference</Label>
+            <Input value={paymentRef} onChange={(e) => setPaymentRef(e.target.value)}
+              placeholder="UTR/Transaction ID (optional)" />
+          </div>
+
+          {/* ── REMARKS ── */}
           <div>
             <Label>Remarks</Label>
-            <Textarea
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
-              placeholder="Any additional notes..."
-              rows={2}
-            />
+            <Textarea value={remarks} onChange={(e) => setRemarks(e.target.value)}
+              placeholder="Any additional notes..." rows={2} />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button 
-            className="bg-emerald-500 hover:bg-emerald-600"
-            onClick={onPay}
-            disabled={paying}
-          >
+          <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={onPay} disabled={paying}>
             {paying ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Processing...
-              </>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing...</>
             ) : (
-              <>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Pay ₹{formatCurrency(amount)}
-              </>
+              <><CheckCircle className="h-4 w-4 mr-2" />Pay ₹{fmt(amount)}{netPenalty > 0 ? ` + ₹${fmt(netPenalty)} penalty` : ''}</>
             )}
           </Button>
         </DialogFooter>

@@ -2161,12 +2161,18 @@ export async function PUT(request: NextRequest) {
     if (action === 'pay-emi' && emiId && userId) {
       const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment,
         penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode,
+        // Split payment support: part cash + part online in one EMI
+        isSplitPayment, splitCashAmount: rawSplitCash, splitOnlineAmount: rawSplitOnline,
         // Staff-editable principal/interest split for journal entry (optional)
         principalComponent: staffPrincipal, interestComponent: staffInterest } = body;
       const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
       const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
       const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
       const penaltyPaymentMode = rawPenaltyMode || 'CASH';
+      const splitCashAmt  = isSplitPayment ? (parseFloat(rawSplitCash)   || 0) : 0;
+      const splitOnlineAmt = isSplitPayment ? (parseFloat(rawSplitOnline) || 0) : 0;
+      // For split payments: effective paymentMode is CASH for accounting (we'll handle ONLINE part separately below)
+      const effectiveSplitMode = isSplitPayment ? 'CASH' : paymentMode;
       // paymentType: 'FULL', 'PARTIAL', 'INTEREST_ONLY', 'ADVANCE'
       // creditType: 'COMPANY', 'PERSONAL'
       // isAdvancePayment: true when paying EMI before its due date month starts (collect principal only)
@@ -2926,7 +2932,27 @@ export async function PUT(request: NextRequest) {
               isMirrorPayment: isMirrorLoan
             });
             console.log(`[Accounting] EMI Payment recorded — Journal: ${accountingResult.journalEntryId ? 'Yes' : 'MISSING ❌'}`);
-          }
+
+            // ── SPLIT PAYMENT: add separate ONLINE bank entry for the online portion ──
+            // recordEMIPaymentAccounting above recorded everything as CASH (Cashbook).
+            // Now we additionally credit the online portion to the Bank Account.
+            if (isSplitPayment && splitOnlineAmt > 0) {
+              try {
+                await recordBankTransaction({
+                  companyId: targetCompanyId || loanCompanyId,
+                  transactionType: 'CREDIT',
+                  amount: splitOnlineAmt,
+                  description: `SPLIT (Online portion) - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber}`,
+                  referenceType: 'EMI_PAYMENT_SPLIT_ONLINE',
+                  referenceId: `${updatedEmi.id}-SPLIT-ONLINE`,
+                  createdById: userId,
+                });
+                console.log(`[Accounting] SPLIT: ₹${splitCashAmt} → Cashbook, ₹${splitOnlineAmt} → Bank Account`);
+              } catch (splitErr) {
+                console.error('[Accounting] SPLIT bank entry failed (non-critical):', splitErr);
+              }
+            }
+          } // end else (non-PRINCIPAL_ONLY)
 
           console.log(`[Accounting] EMI Payment recorded:`);
           console.log(`  - Type: ${isMirrorLoan ? 'MIRROR' : (isExtraEMI ? 'EXTRA' : 'REGULAR')}`);

@@ -16,7 +16,7 @@ import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
-  Printer, Trophy, Car, Weight, Scale
+  Printer, Trophy, Car, Weight, Scale, AlertTriangle
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -174,9 +174,11 @@ export default function OfflineLoanDetailPanel({
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMI | null>(null);
-  const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY'>('FULL');
+  const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'>('FULL');
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentMode, setPaymentMode] = useState('CASH');
+  const [splitCashPayment, setSplitCashPayment] = useState('');
+  const [splitOnlinePayment, setSplitOnlinePayment] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [creditType, setCreditType] = useState<'COMPANY' | 'PERSONAL'>('COMPANY');
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -283,6 +285,8 @@ export default function OfflineLoanDetailPanel({
     setPaymentAmount(remainingAmount);
     setPaymentType('FULL');
     setPaymentMode('CASH');
+    setSplitCashPayment('');
+    setSplitOnlinePayment('');
 
     // For extra EMIs on mirror loans, only Personal Credit is allowed
     // Extra EMI = EMI number > mirror tenure
@@ -394,6 +398,8 @@ export default function OfflineLoanDetailPanel({
     setSelectedEmi(selectedEmis[0]); // Use first EMI for reference
     setPaymentType('FULL');
     setPaymentMode('CASH');
+    setSplitCashPayment('');
+    setSplitOnlinePayment('');
     setCreditType('COMPANY');
     setPaymentReference('');
     setRemainingPaymentDate('');
@@ -519,7 +525,9 @@ export default function OfflineLoanDetailPanel({
             emiId: emi.id,
             paymentType: 'FULL',
             amount: amountToPay,
-            isAdvancePayment: isAdvance // Pass advance flag to backend
+            isAdvancePayment: isAdvance, // Pass advance flag to backend
+            splitCashAmount: splitCashPayment,
+            splitOnlineAmount: splitOnlinePayment
           };
 
           const res = await fetch('/api/offline-loan', {
@@ -576,7 +584,9 @@ export default function OfflineLoanDetailPanel({
         paymentReference,
         creditType,
         proofUrl,
-        remarks: paymentRemarks
+        remarks: paymentRemarks,
+        splitCashAmount: splitCashPayment,
+        splitOnlineAmount: splitOnlinePayment
       };
 
       if (isInterestOnlyLoanPayment) {
@@ -1848,7 +1858,7 @@ export default function OfflineLoanDetailPanel({
             {!isInterestOnlyPayment && !isMultiEmiPayment && userRole !== 'ACCOUNTANT' && (
               <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
                 <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
                     variant={paymentType === 'FULL' ? 'default' : 'outline'}
@@ -1880,7 +1890,19 @@ export default function OfflineLoanDetailPanel({
                     }}
                   >
                     <Percent className="h-4 w-4 mr-1" />
-                    Interest
+                    Interest Only
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
+                    className={paymentType === 'PRINCIPAL_ONLY' ? 'bg-red-500 hover:bg-red-600 text-white' : 'border-red-300 text-red-700 hover:bg-red-50'}
+                    onClick={() => {
+                      setPaymentType('PRINCIPAL_ONLY');
+                      setPaymentAmount((selectedEmi?.principalAmount || 0) - (selectedEmi?.paidPrincipal || 0));
+                    }}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-1" />
+                    Principal Only
                   </Button>
                 </div>
               </div>
@@ -1912,6 +1934,20 @@ export default function OfflineLoanDetailPanel({
                 <p className="text-xs text-blue-600 mt-2">
                   You are paying only the interest portion: {formatCurrency(selectedEmi?.interestAmount || 0)}. 
                   The principal portion ({formatCurrency(selectedEmi?.principalAmount || 0)}) will be added to next month's EMI.
+                </p>
+              </div>
+            )}
+
+            {/* Principal Only Payment Info */}
+            {paymentType === 'PRINCIPAL_ONLY' && (
+              <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+                <div className="flex items-center gap-2 text-red-800">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-semibold">Principal Only Payment</span>
+                </div>
+                <p className="text-xs text-red-600 mt-2">
+                  Only the principal ({formatCurrency((selectedEmi?.principalAmount || 0) - (selectedEmi?.paidPrincipal || 0))}) is collected.
+                  The interest ({formatCurrency((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0))}) will be written off as Irrecoverable Debt.
                 </p>
               </div>
             )}
@@ -2216,8 +2252,8 @@ export default function OfflineLoanDetailPanel({
                     </div>
                   </div>
                 ) : (
-                  /* Normal companies - ONLINE or CASH */
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2">
                     {/* ONLINE Option */}
                     <button
                       type="button"
@@ -2230,12 +2266,12 @@ export default function OfflineLoanDetailPanel({
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <Landmark className={`h-4 w-4 ${paymentMode === 'ONLINE' ? 'text-blue-600' : 'text-gray-400'}`} />
-                        <span className={`font-medium ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
+                        <span className={`font-medium text-xs ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
                           ONLINE
                         </span>
                       </div>
                       <p className="text-xs text-gray-500">
-                        Entry: Loan Company's Bank Account
+                        Entry: Loan Company&apos;s Bank Account
                       </p>
                     </button>
 
@@ -2251,14 +2287,65 @@ export default function OfflineLoanDetailPanel({
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <Banknote className={`h-4 w-4 ${paymentMode === 'CASH' ? 'text-blue-600' : 'text-gray-400'}`} />
-                        <span className={`font-medium ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
+                        <span className={`font-medium text-xs ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
                           CASH
                         </span>
                       </div>
                       <p className="text-xs text-gray-500">
-                        Entry: Loan Company's Cashbook
+                        Entry: Loan Company&apos;s Cashbook
                       </p>
                     </button>
+
+                    {/* SPLIT Option */}
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMode('SPLIT')}
+                      className={`p-3 rounded-lg border-2 text-left transition-all ${
+                        paymentMode === 'SPLIT' 
+                          ? 'border-purple-500 bg-purple-100' 
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <Calculator className={`h-4 w-4 ${paymentMode === 'SPLIT' ? 'text-purple-600' : 'text-gray-400'}`} />
+                        <span className={`font-medium text-xs ${paymentMode === 'SPLIT' ? 'text-purple-800' : 'text-gray-600'}`}>
+                          SPLIT
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">Cash + Online</p>
+                    </button>
+                  </div>
+
+                  {/* Split Amount Inputs */}
+                  {paymentMode === 'SPLIT' && (
+                    <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
+                      <p className="text-xs font-medium text-purple-700">Split the payment between Cash and Online</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
+                          <Input type="number" value={splitCashPayment}
+                            onChange={(e) => setSplitCashPayment(e.target.value)}
+                            placeholder="e.g. 500" />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
+                          <Input type="number" value={splitOnlinePayment}
+                            onChange={(e) => setSplitOnlinePayment(e.target.value)}
+                            placeholder="e.g. 700" />
+                        </div>
+                      </div>
+                      {splitCashPayment && splitOnlinePayment && (
+                        <p className={`text-xs font-medium ${
+                          Math.abs((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0) - paymentAmount) > 1
+                            ? 'text-red-500' : 'text-green-600'
+                        }`}>
+                          Total: ₹{((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0)).toLocaleString('en-IN')}{' '}
+                          {Math.abs((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0) - paymentAmount) > 1
+                            ? `⚠ Doesn't match ₹${paymentAmount}` : '✓'}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   </div>
                 )}
                 {!isMirroredLoan && (
