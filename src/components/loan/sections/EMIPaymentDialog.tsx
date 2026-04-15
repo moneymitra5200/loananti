@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { 
   IndianRupee, CheckCircle, Receipt, Percent, Upload, 
   FileCheck, User, Building, Wallet, AlertCircle, Loader2,
-  Banknote, Landmark, ShieldMinus
+  Banknote, Landmark, ShieldMinus, AlertTriangle
 } from 'lucide-react';
 
 import { formatCurrency } from '@/utils/helpers';
@@ -130,11 +130,11 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
           {currentUserRole !== 'ACCOUNTANT' && (
             <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
               <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Button
                   type="button"
                   variant={emiPaymentForm.paymentType === 'FULL' ? 'default' : 'outline'}
-                  className={emiPaymentForm.paymentType === 'FULL' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}
+                  className={`h-auto py-3 flex-col ${emiPaymentForm.paymentType === 'FULL' ? 'bg-emerald-500 hover:bg-emerald-600' : ''}`}
                   onClick={() => {
                     setEmiPaymentForm({
                       ...emiPaymentForm,
@@ -145,13 +145,13 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     });
                   }}
                 >
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Full
+                  <CheckCircle className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Full EMI</span>
                 </Button>
                 <Button
                   type="button"
                   variant={emiPaymentForm.paymentType === 'PARTIAL' ? 'default' : 'outline'}
-                  className={emiPaymentForm.paymentType === 'PARTIAL' ? 'bg-orange-500 hover:bg-orange-600' : ''}
+                  className={`h-auto py-3 flex-col ${emiPaymentForm.paymentType === 'PARTIAL' ? 'bg-orange-500 hover:bg-orange-600' : ''}`}
                   onClick={() => {
                     const defaultPartialAmount = Math.floor(remainingAmount / 2);
                     setEmiPaymentForm({
@@ -162,13 +162,13 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     });
                   }}
                 >
-                  <Receipt className="h-4 w-4 mr-1" />
-                  Partial
+                  <Receipt className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Partial</span>
                 </Button>
                 <Button
                   type="button"
                   variant={emiPaymentForm.paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
-                  className={emiPaymentForm.paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                  className={`h-auto py-3 flex-col ${emiPaymentForm.paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}`}
                   onClick={() => {
                     setEmiPaymentForm({
                       ...emiPaymentForm,
@@ -177,8 +177,30 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     });
                   }}
                 >
-                  <Percent className="h-4 w-4 mr-1" />
-                  Interest
+                  <Percent className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Interest Only</span>
+                </Button>
+                {/* Principal Only — interest is written off as Irrecoverable Debts */}
+                <Button
+                  type="button"
+                  variant={emiPaymentForm.paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
+                  className={`h-auto py-3 flex-col ${
+                    emiPaymentForm.paymentType === 'PRINCIPAL_ONLY'
+                      ? 'bg-red-500 hover:bg-red-600 text-white'
+                      : 'border-red-300 text-red-600 hover:bg-red-50'
+                  }`}
+                  onClick={() => {
+                    setEmiPaymentForm({
+                      ...emiPaymentForm,
+                      paymentType: 'PRINCIPAL_ONLY',
+                      amount: remainingPrincipal,
+                      remainingAmount: 0,
+                      remainingPaymentDate: ''
+                    });
+                  }}
+                >
+                  <AlertTriangle className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Principal Only</span>
                 </Button>
               </div>
             </div>
@@ -217,6 +239,27 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                 You are paying only the interest portion: ₹{formatCurrency(remainingInterest)}. 
                 The principal portion (₹{formatCurrency(remainingPrincipal)}) will be added to next month's EMI.
               </p>
+            </div>
+          )}
+
+          {/* Principal Only Payment Info */}
+          {emiPaymentForm.paymentType === 'PRINCIPAL_ONLY' && (
+            <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-center gap-2 text-red-800">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="font-semibold">Principal Only Payment</span>
+              </div>
+              <p className="text-xs text-red-700 mt-2">
+                Collecting only the principal: <strong>₹{formatCurrency(remainingPrincipal)}</strong>.
+              </p>
+              <p className="text-xs text-red-600 mt-1">
+                Interest of <strong>₹{formatCurrency(remainingInterest)}</strong> will be written off as <em>Irrecoverable Debts</em> in the company books.
+              </p>
+              {hasMirrorLoan && mirrorCompany && (
+                <p className="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded p-2">
+                  ⚠️ Mirror loan: interest written off in <strong>{mirrorCompany.name}</strong>'s books.
+                </p>
+              )}
             </div>
           )}
 

@@ -592,14 +592,15 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         formData.append('creditType', actualCreditType);
         formData.append('companyId', loanDetails.company?.id || '');
 
-        // Map payment type: LoanDetailPanel uses 'FULL'/'PARTIAL'/'INTEREST_ONLY'
-        // POST /api/emi/pay expects 'FULL_EMI'/'PARTIAL_PAYMENT'/'INTEREST_ONLY'
+        // Map payment type: LoanDetailPanel uses 'FULL'/'PARTIAL'/'INTEREST_ONLY'/'PRINCIPAL_ONLY'
+        // POST /api/emi/pay expects 'FULL_EMI'/'PARTIAL_PAYMENT'/'INTEREST_ONLY'/'PRINCIPAL_ONLY'
         const payTypeMap: Record<string, string> = {
           'FULL': 'FULL_EMI',
           'FULL_EMI': 'FULL_EMI',
           'PARTIAL': 'PARTIAL_PAYMENT',
           'PARTIAL_PAYMENT': 'PARTIAL_PAYMENT',
           'INTEREST_ONLY': 'INTEREST_ONLY',
+          'PRINCIPAL_ONLY': 'PRINCIPAL_ONLY',
         };
         const mappedPayType = payTypeMap[emiPaymentForm.paymentType] || 'FULL_EMI';
         formData.append('paymentType', emisToPay.length > 1 ? 'FULL_EMI' : mappedPayType);

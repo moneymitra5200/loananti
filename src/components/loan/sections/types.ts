@@ -281,7 +281,7 @@ export interface EMIPaymentForm {
   creditType: 'PERSONAL' | 'COMPANY';
   remarks: string;
   proofFile: File | null;
-  paymentType: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY';
+  paymentType: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY';
   remainingAmount: number;
   remainingPaymentDate: string;
   newDueDate: string;
