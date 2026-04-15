@@ -2564,32 +2564,40 @@ export async function PUT(request: NextRequest) {
               });
             } else if (paymentStatus === 'PARTIALLY_PAID') {
               // INTEREST-FIRST allocation for mirror partial:
-              // Same as original loan — cover mirror interest fully first, then principal with remainder.
-              // We scale the payment by the same % the customer paid on original loan,
-              // then split that scaled amount: interest first, then principal.
+              // Use SESSION DELTA (not cumulative) for ratio — prevents re-recording already-paid interest.
+              // Example: Payment 1 (session=100, total=400) → ratio 0.25
+              //          Payment 2 (session=400, total=400) → ratio 1.0
+              // mirrorPaidAmount = mirrorTotal * ratio = THIS session's mirror portion only.
               const mirrorPaymentRatio = emi.totalAmount > 0
-                ? Math.min(paidAmount / emi.totalAmount, 1)   // same % as original
+                ? Math.min(sessionAmount / emi.totalAmount, 1)   // SESSION delta, not cumulative
                 : 0;
               const mirrorPaidAmount = Math.round(mirrorEmi.totalAmount * mirrorPaymentRatio * 100) / 100;
 
-              // Interest-first within the mirror payment
-              const mirrorRemainingInterest = mirrorEmi.interestAmount - (mirrorEmi.paidInterest || 0);
+              // Interest-first: only charge remaining interest not yet collected
+              const mirrorRemainingInterest = Math.max(0, (mirrorEmi.interestAmount || 0) - (mirrorEmi.paidInterest || 0));
               const mirrorPaidInterest  = Math.min(mirrorPaidAmount, mirrorRemainingInterest);
               const mirrorPaidPrincipal = Math.max(0, Math.round((mirrorPaidAmount - mirrorPaidInterest) * 100) / 100);
+
+              // ACCUMULATE — do NOT overwrite paidInterest/paidPrincipal/paidAmount
+              // Overwriting was the root cause of interest being double-charged on 3rd partial
+              const newMirrorPaidInterest  = (mirrorEmi.paidInterest  || 0) + mirrorPaidInterest;
+              const newMirrorPaidPrincipal = (mirrorEmi.paidPrincipal || 0) + mirrorPaidPrincipal;
+              const newMirrorPaidAmount    = (mirrorEmi.paidAmount    || 0) + mirrorPaidAmount;
+              const newMirrorStatus = newMirrorPaidAmount >= mirrorEmi.totalAmount - 0.01 ? 'PAID' : 'PARTIALLY_PAID';
 
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: 'PARTIALLY_PAID',
-                  paidAmount:    mirrorPaidAmount,
-                  paidPrincipal: mirrorPaidPrincipal,
-                  paidInterest:  mirrorPaidInterest,
+                  paymentStatus: newMirrorStatus,
+                  paidAmount:    newMirrorPaidAmount,
+                  paidPrincipal: newMirrorPaidPrincipal,
+                  paidInterest:  newMirrorPaidInterest,
                   paidDate:      now,
                   paymentMode,
                   collectedById:   userId,
                   collectedByName: user.name,
                   collectedAt:     now,
-                  notes: `[MIRROR SYNC] Partial payment (${Math.round(mirrorPaymentRatio * 100)}%) – interest-first: I:₹${mirrorPaidInterest} P:₹${mirrorPaidPrincipal}`
+                  notes: `[MIRROR SYNC] Partial session (${Math.round(mirrorPaymentRatio * 100)}%) – I:₹${mirrorPaidInterest} P:₹${mirrorPaidPrincipal} | cumulative I:₹${newMirrorPaidInterest} P:₹${newMirrorPaidPrincipal}`
                 }
               });
             }
