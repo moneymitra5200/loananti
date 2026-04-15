@@ -144,11 +144,19 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
  * Get company's default bank account
  */
 export async function getDefaultBankAccount(companyId: string): Promise<string | null> {
-  const bankAccount = await db.bankAccount.findFirst({
+  // First try the explicitly marked default bank
+  const defaultBank = await db.bankAccount.findFirst({
     where: { companyId, isDefault: true, isActive: true }
   });
+  if (defaultBank) return defaultBank.id;
 
-  return bankAccount?.id || null;
+  // Fallback: get ANY active bank account for the company
+  // (this handles the case where a bank exists but isDefault was not checked)
+  const anyBank = await db.bankAccount.findFirst({
+    where: { companyId, isActive: true },
+    orderBy: { createdAt: 'asc' }
+  });
+  return anyBank?.id || null;
 }
 
 /**

@@ -154,6 +154,7 @@ interface EMI {
   isInterestOnly?: boolean;
   interestOnlyAmount?: number;
   notes?: string;
+  proofUrl?: string; // Payment proof document URL
 }
 
 export default function OfflineLoanDetailPanel({
@@ -1437,6 +1438,32 @@ export default function OfflineLoanDetailPanel({
                                                   </div>
                                                 </div>
                                               </div>
+                                              {/* Payment Proof */}
+                                              {emi.proofUrl && (
+                                                <div className="mt-2 pt-2 border-t border-gray-100">
+                                                  <p className="text-xs text-gray-400 mb-1 flex items-center gap-1">
+                                                    <FileText className="h-3 w-3" /> Payment Proof
+                                                  </p>
+                                                  {emi.proofUrl.includes('application/pdf') || emi.proofUrl.toLowerCase().endsWith('.pdf') ? (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => openDoc(emi.proofUrl!)}
+                                                      className="inline-flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
+                                                    >
+                                                      <FileText className="h-3 w-3" /> View PDF Proof
+                                                    </button>
+                                                  ) : (
+                                                    <button type="button" onClick={() => openDoc(emi.proofUrl!)} className="shrink-0">
+                                                      <img
+                                                        src={emi.proofUrl}
+                                                        alt="Payment Proof"
+                                                        className="h-16 w-24 object-cover rounded border border-gray-200 hover:opacity-80 transition-opacity"
+                                                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                                      />
+                                                    </button>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
                                           ))}
                                       </div>
