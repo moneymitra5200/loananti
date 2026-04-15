@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) {
       const accountCodes = lines.map(l => l.accountCode);
       const accounts = await db.chartOfAccount.findMany({
         where: { companyId, accountCode: { in: accountCodes } },
-        select: { id: true, accountCode: true }
+        select: { id: true, accountCode: true, accountType: true }
       });
       const accMap = new Map(accounts.map(a => [a.accountCode, a.id]));
 
@@ -197,10 +197,17 @@ export async function POST(request: NextRequest) {
 
       journalEntryId = je.id;
 
-      // Update chart of account balances
+      // Update chart of account balances using CORRECT sign per account type
+      // ASSET / EXPENSE → debit-normal: delta = debit - credit (debit increases balance)
+      // EQUITY / LIABILITY / INCOME → credit-normal: delta = credit - debit (credit increases balance)
+      const accountTypeMap = new Map(accounts.map(a => [a.accountCode, a.accountType as string]));
       for (const line of lines) {
         const accId = accMap.get(line.accountCode)!;
-        const delta = line.debitAmount - line.creditAmount;
+        const accType = accountTypeMap.get(line.accountCode) || 'ASSET';
+        const isCreditNormal = accType === 'EQUITY' || accType === 'LIABILITY' || accType === 'INCOME';
+        const delta = isCreditNormal
+          ? line.creditAmount - line.debitAmount  // credit increases equity/liability/income
+          : line.debitAmount - line.creditAmount; // debit increases asset/expense
         await db.chartOfAccount.update({
           where: { id: accId },
           data: { currentBalance: { increment: delta } }

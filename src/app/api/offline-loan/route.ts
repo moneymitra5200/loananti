@@ -2574,41 +2574,83 @@ export async function PUT(request: NextRequest) {
             console.log(`[Processing Fee] Dynamic calc: regularEMI=₹${regularEMI} - lastMirrorEMI=₹${regularEMI - procFee} = ₹${procFee}`);
 
             if (procFee > 0) {
-              // FIX-ISSUE-11: ATOMIC operation — cashbook entry + flag in same $transaction
+              const isPfOnline = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
+
+              // FIX-ISSUE-11: ATOMIC operation — cashbook/bank entry + flag in same $transaction
               await db.$transaction(async (pfTx) => {
-                // Check idempotency inside transaction
-                const existingPF = await pfTx.cashBookEntry.findFirst({
-                  where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
-                });
-
-                if (!existingPF) {
-                  const cashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCoId } })
-                    || await pfTx.cashBook.create({ data: { companyId: mirrorCoId, currentBalance: 0 } });
-
-                  const newBal = cashBook.currentBalance + procFee;
-                  await pfTx.cashBookEntry.create({
-                    data: {
-                      cashBookId: cashBook.id,
-                      entryType: 'CREDIT',
-                      amount: procFee,
-                      balanceAfter: newBal,
-                      description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
-                      referenceType: 'PROCESSING_FEE',
-                      referenceId: emi.offlineLoanId,
-                      createdById: userId
+                if (isPfOnline) {
+                  // ── ONLINE: route processing fee to BANK ACCOUNT ──────────────
+                  const existingPF = await pfTx.bankTransaction.findFirst({
+                    where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
+                  });
+                  if (!existingPF) {
+                    // Find mirror company's bank account
+                    const mirrorBank = await pfTx.bankAccount.findFirst({
+                      where: { companyId: mirrorCoId, isActive: true },
+                      orderBy: { isDefault: 'desc' }
+                    });
+                    if (mirrorBank) {
+                      const newBankBal = (mirrorBank.currentBalance || 0) + procFee;
+                      await pfTx.bankTransaction.create({
+                        data: {
+                          bankAccountId: mirrorBank.id,
+                          transactionType: 'CREDIT',
+                          amount: procFee,
+                          balanceAfter: newBankBal,
+                          description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
+                          referenceType: 'PROCESSING_FEE',
+                          referenceId: emi.offlineLoanId,
+                          createdById: userId
+                        }
+                      });
+                      await pfTx.bankAccount.update({ where: { id: mirrorBank.id }, data: { currentBalance: newBankBal } });
+                    } else {
+                      // No bank — fall back to cashbook
+                      const cashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCoId } })
+                        || await pfTx.cashBook.create({ data: { companyId: mirrorCoId, currentBalance: 0 } });
+                      const newBal = cashBook.currentBalance + procFee;
+                      await pfTx.cashBookEntry.create({
+                        data: {
+                          cashBookId: cashBook.id, entryType: 'CREDIT', amount: procFee, balanceAfter: newBal,
+                          description: `[Bank Fallback] Processing Fee - ${emi.offlineLoan.loanNumber}`,
+                          referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId, createdById: userId
+                        }
+                      });
+                      await pfTx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newBal } });
                     }
+                    // Mark as recorded
+                    await pfTx.mirrorLoanMapping.update({
+                      where: { id: mirrorLoanMapping!.id },
+                      data: { processingFeeRecorded: true }
+                    });
+                  }
+                } else {
+                  // ── CASH: route processing fee to CASHBOOK ─────────────────────
+                  const existingPF = await pfTx.cashBookEntry.findFirst({
+                    where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
                   });
-                  await pfTx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newBal } });
-                  // Mark as recorded ATOMICALLY with the cashbook entry
-                  await pfTx.mirrorLoanMapping.update({
-                    where: { id: mirrorLoanMapping!.id },
-                    data: { processingFeeRecorded: true }
-                  });
+                  if (!existingPF) {
+                    const cashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCoId } })
+                      || await pfTx.cashBook.create({ data: { companyId: mirrorCoId, currentBalance: 0 } });
+                    const newBal = cashBook.currentBalance + procFee;
+                    await pfTx.cashBookEntry.create({
+                      data: {
+                        cashBookId: cashBook.id, entryType: 'CREDIT', amount: procFee, balanceAfter: newBal,
+                        description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
+                        referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId, createdById: userId
+                      }
+                    });
+                    await pfTx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newBal } });
+                    await pfTx.mirrorLoanMapping.update({
+                      where: { id: mirrorLoanMapping!.id },
+                      data: { processingFeeRecorded: true }
+                    });
+                  }
                 }
               });
 
               // ── Journal Entry for Processing Fee in MIRROR company ──────────
-              // Dr: Cash in Hand (1101)    → money received
+              // Dr: Cash/Bank (based on paymentMode) → money received
               // Cr: Processing Fees (4121) → income recognised
               try {
                 const { AccountingService: PFAccSvc } = await import('@/lib/accounting-service');
@@ -2620,9 +2662,9 @@ export async function PUT(request: NextRequest) {
                   amount: procFee,
                   collectionDate: new Date(),
                   createdById: userId || 'SYSTEM',
-                  paymentMode: paymentMode || 'CASH',
+                  paymentMode: paymentMode || 'CASH',  // Pass actual paymentMode so journal debits correct account
                 });
-                console.log(`[Processing Fee Journal] ₹${procFee} journal entry created for MIRROR company ${mirrorCoId}`);
+                console.log(`[Processing Fee Journal] ₹${procFee} journal entry (${isPfOnline ? 'BANK' : 'CASH'}) for MIRROR company ${mirrorCoId}`);
               } catch (pfJournalErr) {
                 console.error('[Processing Fee Journal] Failed (non-critical):', pfJournalErr);
               }
