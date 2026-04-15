@@ -175,20 +175,22 @@ async function getBalanceSheet(companyId: string | null) {
   }
 
   // Bank-related account CODES to exclude from flat asset list
-  // Includes 1000 (permanent-accounts "Bank" head), 1102/1103/1104 (service accounts)
-  const BANK_CODES_EXACT = new Set(['1000', '1102', '1103', '1104']);
-  const BANK_CODE_PREFIXES = ['1102', '1103', '1104'];
+  // Includes 1000 (permanent-accounts "Bank" head), 1010 (AccountingService BANK_ACCOUNT),
+  // 1102/1103/1104 (service accounts)
+  const BANK_CODES_EXACT = new Set(['1000', '1010', '1102', '1103', '1104']);
+  const BANK_CODE_PREFIXES = ['1010', '1102', '1103', '1104'];
 
   const isBankCode = (code: string, name: string) => {
     // Exact code match
     if (BANK_CODES_EXACT.has(code)) return true;
-    // Prefix match (e.g. 1102-HDFC, 1103.1)
-    if (BANK_CODE_PREFIXES.some(p => code.startsWith(p + '-') || code.startsWith(p + '.'))) return true;
-    // Name matches a real bank (catches stale ChartOfAccount records named after actual banks)
-    if (realBankNames.has(name.trim().toLowerCase())) return true;
-    // Account name contains "bank account" or "bank - " (generic bank heads)
+    // Prefix match (e.g. 1010-HDFC, 1102-HDFC, 1103.1)
+    if (BANK_CODE_PREFIXES.some(p => code.startsWith(p + '-') || code.startsWith(p + '.') || code === p)) return true;
+    // Name matches a real bank — use startsWith to catch variants like "HDFC COMAPY 2 - Y 2"
+    // (chartOfAccount names may have suffixes like "- Y 2" that prevent exact match)
     const nameLower = name.trim().toLowerCase();
-    if (nameLower === 'bank' || nameLower === 'bank account' || nameLower.startsWith('bank - ')) return true;
+    if ([...realBankNames].some(realName => nameLower === realName || nameLower.startsWith(realName + ' ') || nameLower.startsWith(realName + '-'))) return true;
+    // Account name contains "bank account" or "bank - " (generic bank heads)
+    if (nameLower === 'bank' || nameLower === 'bank account' || nameLower.startsWith('bank account') || nameLower.startsWith('bank - ')) return true;
     return false;
   };
 

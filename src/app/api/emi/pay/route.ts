@@ -207,8 +207,9 @@ export async function POST(request: NextRequest) {
     let nextPaymentDateValue: Date | null = null;
 
     const remainingAmount = emi.totalAmount - (emi.paidAmount || 0);
-    const remainingPrincipal = emi.principalAmount - (emi.paidPrincipal || 0);
-    const remainingInterest = emi.interestAmount - (emi.paidInterest || 0);
+    // Use explicit Number() to guard against Prisma Decimal/null type issues
+    const remainingPrincipal = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+    const remainingInterest = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
 
     // ============ ADVANCE PAYMENT CHECK ============
     // Check if EMI is being paid before its due date month starts

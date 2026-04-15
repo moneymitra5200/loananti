@@ -2935,36 +2935,48 @@ export async function PUT(request: NextRequest) {
           let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
           if (paymentType === 'PRINCIPAL_ONLY') {
             // ── PRINCIPAL-ONLY: record cash/bank receipt + write off interest ──
-            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-            const isOnlineMode = effectivePaymentMode === 'ONLINE' || effectivePaymentMode === 'UPI' || effectivePaymentMode === 'BANK_TRANSFER';
-            // Cash/bank entry for principal collected
-            if (isOnlineMode) {
-              await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: sessionPrincipal,
-                description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${sessionInterestWrittenOff} written off)`,
-                referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+            // IMPORTANT: Use explicit Number() conversion directly from emi fields.
+            // sessionPrincipal (delta) can be 0 if Prisma Decimal fields don't coerce
+            // correctly in arithmetic — explicit calculation is more robust.
+            const principalToCollect = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+            const interestToWriteOff = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+            console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
+
+            if (principalToCollect <= 0) {
+              console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping cash entry and journal. EMI may already be principal-paid or principalAmount is missing.`);
             } else {
-              await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: sessionPrincipal,
-                description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${sessionInterestWrittenOff} written off)`,
-                referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+              const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+              const isOnlineMode = effectivePaymentMode === 'ONLINE' || effectivePaymentMode === 'UPI' || effectivePaymentMode === 'BANK_TRANSFER';
+              // Cash/bank entry for principal collected
+              if (isOnlineMode) {
+                await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: principalToCollect,
+                  description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${interestToWriteOff} written off)`,
+                  referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+              } else {
+                await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: principalToCollect,
+                  description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${interestToWriteOff} written off)`,
+                  referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+              }
+              // Journal entry with Irrecoverable Debts write-off
+              const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
+              const poSvc = new PoAccSvc(targetCompanyId);
+              await poSvc.initializeChartOfAccounts();
+              await poSvc.recordPrincipalOnlyPayment({
+                loanId: emi.offlineLoanId,
+                customerId: emi.offlineLoan.customerId || '',
+                paymentId: updatedEmi.id,
+                principalAmount:    principalToCollect,
+                interestWrittenOff: interestToWriteOff,
+                paymentDate:        new Date(),
+                createdById:        userId,
+                paymentMode:        effectivePaymentMode || 'CASH',
+                loanNumber:         emi.offlineLoan.loanNumber,
+                installmentNumber:  emi.installmentNumber,
+              });
             }
-            // Journal entry with Irrecoverable Debts write-off
-            const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
-            const poSvc = new PoAccSvc(targetCompanyId);
-            await poSvc.initializeChartOfAccounts();
-            await poSvc.recordPrincipalOnlyPayment({
-              loanId: emi.offlineLoanId,
-              customerId: emi.offlineLoan.customerId || '',
-              paymentId: updatedEmi.id,
-              principalAmount:    sessionPrincipal,
-              interestWrittenOff: sessionInterestWrittenOff,
-              paymentDate:        new Date(),
-              createdById:        userId,
-              paymentMode:        effectivePaymentMode || 'CASH',
-              loanNumber:         emi.offlineLoan.loanNumber,
-              installmentNumber:  emi.installmentNumber,
-            });
             // If mirror loan: also write off interest as loss in mirror company
             if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId && mirrorInterestAmount > 0) {
+              const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
               const mirrorPoSvc = new PoAccSvc(mirrorLoanMapping.mirrorCompanyId);
               await mirrorPoSvc.initializeChartOfAccounts();
               await mirrorPoSvc.recordPrincipalOnlyPayment({
