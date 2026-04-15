@@ -2376,6 +2376,7 @@ export async function PUT(request: NextRequest) {
           : { personalCredit: newPersonalCr };
 
       // ============ STEP 4: PROCESS PAYMENT IN TRANSACTION ============
+      // timeout: 30000 — INTEREST_ONLY shifts EMIs (N queries) and can exceed default 5s
       const updatedEmi = await db.$transaction(async (tx) => {
         // Update EMI
         const updated = await tx.offlineLoanEMI.update({
@@ -2642,7 +2643,7 @@ export async function PUT(request: NextRequest) {
 
 
         return updated;
-      });
+      }, { maxWait: 10000, timeout: 30000 }); // 30s — INTEREST_ONLY shifts ≥N EMI rows
 
       console.log(`[EMI Payment] Transaction completed in ${Date.now() - startTime}ms total`);
 
@@ -2917,14 +2918,14 @@ export async function PUT(request: NextRequest) {
           // Use the comprehensive accounting function
           // FIX-ISSUE-3: Pass effectivePaymentMode (forced CASH for C3) so journal debits correct account
           // FIX-ISSUE-7: null-guard company3Id to prevent silent accounting skip
-          // Use session deltas for accounting — ensures remaining payments don't
-          // double-count the previously recorded partial amount
-          const acctPrincipal = (paymentType === 'FULL' || paymentType === 'ADVANCE')
-            ? sessionPrincipal  // delta (remaining principal only)
-            : journalPrincipal; // partial/interest-only: already a delta
-          const acctInterest = (paymentType === 'FULL' || paymentType === 'ADVANCE')
-            ? sessionInterest
-            : journalInterest;
+          // ALWAYS use session deltas (not cumulative) for accounting
+          // journalPrincipal/journalInterest are CUMULATIVE which caused:
+          //   Payment 1: records I=56.11  ✅
+          //   Payment 2: records I=56.11 AGAIN ❌ (cumulative still 56.11)
+          //   Payment 4+: same double-charge bug on every subsequent payment
+          // sessionPrincipal/sessionInterest = only what was paid THIS request
+          const acctPrincipal = sessionPrincipal;
+          const acctInterest  = sessionInterest;
           let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
           if (paymentType === 'PRINCIPAL_ONLY') {
             // ── PRINCIPAL-ONLY: record cash/bank receipt + write off interest ──
