@@ -289,10 +289,28 @@ export default function EMIPaymentDialog({
           description: 'Interest Only Payment',
           remainingAfter: effectivePrincipal // Principal will be deferred
         };
+      case 'PRINCIPAL_ONLY':
+        return {
+          amount: remainingPrincipal,    // Only principal collected
+          principal: remainingPrincipal,
+          interest: 0,                   // Interest is written off (Irrecoverable Debts)
+          description: `Principal Only — Interest ₹${remainingInterest.toFixed(2)} written off`,
+          remainingAfter: 0,
+          isAdvance: false
+        };
+      default:
+        return {
+          amount: effectiveTotal,
+          principal: effectivePrincipal,
+          interest: effectiveInterest,
+          description: 'Full EMI Payment',
+          remainingAfter: 0,
+          isAdvance: false
+        };
     }
   };
 
-  const details = getPaymentDetails();
+  const details = getPaymentDetails()!;  // always defined — all cases covered including PRINCIPAL_ONLY
   const remainingAmount = emi.totalAmount - (emi.paidAmount || 0);
   const remainingPrincipal = emi.principalAmount - (emi.paidPrincipal || 0);
   const remainingInterest = emi.interestAmount - (emi.paidInterest || 0);
@@ -361,7 +379,11 @@ export default function EMIPaymentDialog({
           userRole,
           paymentMode: creditType === 'PERSONAL' ? 'CASH' : paymentMode,
           amount: details.amount,
-          paymentType: paymentType === 'FULL_EMI' ? 'FULL' : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL' : 'INTEREST_ONLY',
+          paymentType: paymentType === 'FULL_EMI' ? 'FULL'
+                      : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL'
+                      : paymentType === 'INTEREST_ONLY' ? 'INTEREST_ONLY'
+                      : paymentType === 'PRINCIPAL_ONLY' ? 'PRINCIPAL_ONLY'
+                      : 'FULL',
           remarks: paymentType === 'PARTIAL_PAYMENT' ? `Partial payment - remaining due: ${formatCurrency(details.remainingAfter)}` : '',
           isAdvancePayment: details.isAdvance || false,
           // New credit system fields
