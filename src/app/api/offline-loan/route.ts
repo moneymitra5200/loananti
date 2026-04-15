@@ -2477,22 +2477,26 @@ export async function PUT(request: NextRequest) {
             // Slot N+1 is now free — insert deferred principal EMI
             const newEmiDueDate = new Date(emi.dueDate);
             newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
+            // Deferred EMI = copy of original EMI for the next month:
+            // - Same principal (deferred) + same interest (for the new month)
+            // Interest was paid for EMI #N this session; EMI #N+1 needs FRESH interest too.
+            const deferredInterest = emi.interestAmount || 0;
             await tx.offlineLoanEMI.create({
               data: {
                 offlineLoanId: emi.offlineLoanId,
                 installmentNumber: nextInstNum,
                 dueDate: newEmiDueDate,
                 principalAmount: remainingPrincipalAfterIO,
-                interestAmount: 0, // interest already collected this session
-                totalAmount: remainingPrincipalAfterIO,
+                interestAmount: deferredInterest,   // full interest for next month
+                totalAmount: remainingPrincipalAfterIO + deferredInterest,
                 outstandingPrincipal: emi.outstandingPrincipal,
                 paymentStatus: 'PENDING',
                 isDeferred: true,
                 deferredFromEMI: emi.installmentNumber,
-                notes: `Deferred principal ₹${remainingPrincipalAfterIO.toFixed(2)} from Interest-Only payment on EMI #${emi.installmentNumber}`
+                notes: `Deferred from Interest-Only payment on EMI #${emi.installmentNumber} — P:₹${remainingPrincipalAfterIO.toFixed(2)} + I:₹${deferredInterest.toFixed(2)}`
               }
             });
-            console.log(`[Interest-Only Deferred] Created deferred EMI #${nextInstNum} for remaining principal ₹${remainingPrincipalAfterIO}`);
+            console.log(`[Interest-Only Deferred] Created deferred EMI #${nextInstNum}: P:₹${remainingPrincipalAfterIO} + I:₹${deferredInterest} = ₹${remainingPrincipalAfterIO + deferredInterest}`);
           } else {
             console.log(`[Interest-Only Deferred] No principal left to defer (already paid: ₹${emi.paidPrincipal || 0}) — skipping`);
           }
@@ -2538,12 +2542,14 @@ export async function PUT(request: NextRequest) {
                   }
                 }
                 const mNewDue = new Date(mirrorEmi.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
+                const mDeferredInterest = mirrorEmi.interestAmount || 0;
                 await tx.offlineLoanEMI.create({ data: {
                   offlineLoanId: mirrorLoanMapping.mirrorLoanId, installmentNumber: mNextInst, dueDate: mNewDue,
-                  principalAmount: mirrorRemPrin, interestAmount: 0, totalAmount: mirrorRemPrin,
+                  principalAmount: mirrorRemPrin, interestAmount: mDeferredInterest,
+                  totalAmount: mirrorRemPrin + mDeferredInterest,
                   outstandingPrincipal: mirrorEmi.outstandingPrincipal, paymentStatus: 'PENDING',
                   isDeferred: true, deferredFromEMI: mirrorEmi.installmentNumber,
-                  notes: `[MIRROR] Deferred principal ₹${mirrorRemPrin.toFixed(2)} from Interest-Only sync`
+                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEmi.installmentNumber} — P:₹${mirrorRemPrin.toFixed(2)} + I:₹${mDeferredInterest.toFixed(2)}`
                 }});
                 console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan`);
               }

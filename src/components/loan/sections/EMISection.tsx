@@ -126,9 +126,16 @@ const EMISection = memo(function EMISection({
   };  const getTotalSelectedAmount = () => {
     return emiSchedules
       .filter(e => selectedEMIs.has(e.id))
-      // For partially-paid EMIs use remaining; for unpaid use full emiAmount
-      .reduce((sum, e) => sum + (e.emiAmount - (e.paidAmount || 0)), 0);
+      // Use pre-computed remainingAmount if available; otherwise derive from emiAmount - paidAmount.
+      // This correctly handles PARTIALLY_PAID EMIs (e.g. ₹600 remaining, not full ₹1,200).
+      .reduce((sum, e) => {
+        const remaining = e.remainingAmount !== undefined && e.remainingAmount !== null
+          ? e.remainingAmount
+          : (e.emiAmount - (e.paidAmount || 0));
+        return sum + Math.max(0, remaining);
+      }, 0);
   };
+
 
   // Fetch receipt data
   const fetchReceipt = async (emiScheduleId: string) => {

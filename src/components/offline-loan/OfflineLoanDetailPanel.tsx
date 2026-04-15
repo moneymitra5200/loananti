@@ -155,6 +155,8 @@ interface EMI {
   interestOnlyAmount?: number;
   notes?: string;
   proofUrl?: string; // Payment proof document URL
+  isDeferred?: boolean;       // True if this EMI was created by INTEREST_ONLY deferral
+  deferredFromEMI?: number;   // Original installment number this was deferred from
 }
 
 export default function OfflineLoanDetailPanel({
@@ -800,8 +802,12 @@ export default function OfflineLoanDetailPanel({
   const mirrorCompanyName = loan?.mirrorCompanyName || '';
   
   // Check if EMI is within mirror tenure or extra EMI
-  const isExtraEmi = (installmentNumber: number): boolean => {
+  const isExtraEmi = (installmentNumber: number, isDeferred?: boolean): boolean => {
     if (!loan?.mirrorTenure) return false;
+    // Deferred EMIs (created by INTEREST_ONLY) are NOT extra EMIs — they are
+    // just carried-forward principal from within the original tenure.
+    // Only genuine extra EMIs (paid beyond mirror tenure) should be flagged.
+    if (isDeferred) return false;
     return installmentNumber > loan.mirrorTenure;
   };
   
@@ -1568,7 +1574,10 @@ export default function OfflineLoanDetailPanel({
                                   const isSelected = selectedEmiIds.has(emi.id);
                                   
                                   // Check if this is an extra EMI (for original loans with mirror)
-                                  const isExtraEMI = loan?.isMirrored && loan?.mirrorTenure && emi.installmentNumber > loan.mirrorTenure;
+                                  // Deferred EMIs from INTEREST_ONLY are NOT extra — skip them
+                                  const isExtraEMI = loan?.isMirrored && loan?.mirrorTenure
+                                    && emi.installmentNumber > loan.mirrorTenure
+                                    && !emi.isDeferred;
 
                                   return (
                                     <div
