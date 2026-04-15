@@ -2290,6 +2290,12 @@ export async function PUT(request: NextRequest) {
         paidAmount = emi.interestAmount;
         paidPrincipal = 0;
         paymentStatus = 'INTEREST_ONLY_PAID';
+      } else if (paymentType === 'PRINCIPAL_ONLY') {
+        // Collect only principal; interest is written off as Irrecoverable Debt (loss)
+        paidPrincipal = emi.principalAmount;
+        paidInterest  = 0;   // NOT collected — will be written off in accounting
+        paidAmount    = emi.principalAmount;
+        paymentStatus = 'PAID';  // EMI fully settled (principal cleared)
       }
 
       // ── SESSION-DELTA amounts ─────────────────────────────────────────────
@@ -2301,6 +2307,10 @@ export async function PUT(request: NextRequest) {
       const sessionAmount     = paidAmount    - prevPaid;
       const sessionPrincipal  = paidPrincipal - prevPaidPrincipal;
       const sessionInterest   = paidInterest  - prevPaidInterest;
+      // For PRINCIPAL_ONLY: interest that is being written off this session
+      const sessionInterestWrittenOff = paymentType === 'PRINCIPAL_ONLY'
+        ? Math.max(0, emi.interestAmount - prevPaidInterest)  // remaining unpaid interest
+        : 0;
 
       const actualPaymentAmount = paymentType === 'INTEREST_ONLY'
         ? sessionInterest   // only interest portion paid this session
@@ -2825,28 +2835,81 @@ export async function PUT(request: NextRequest) {
           const acctInterest = (paymentType === 'FULL' || paymentType === 'ADVANCE')
             ? sessionInterest
             : journalInterest;
-          const accountingResult = await recordEMIPaymentAccounting({
-            amount: actualPaymentAmount,
-            principalComponent: acctPrincipal,
-            interestComponent: acctInterest,
-            paymentMode: (effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
-            paymentType: paymentType || 'FULL',
-            creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
-            loanCompanyId: loanCompanyId || (company3Id ?? ''),   // FIX: guaranteed non-null
-            company3Id: company3Id || loanCompanyId,               // FIX: fallback to loan company
-            loanId: emi.offlineLoanId,
-            emiId: emi.id,
-            paymentId: updatedEmi.id,
-            loanNumber: emi.offlineLoan.loanNumber,
-            installmentNumber: emi.installmentNumber,
-            userId,
-            customerId: emi.offlineLoan.customerId || undefined,
-            mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || undefined,
-            mirrorPrincipal: isMirrorLoan ? mirrorPrincipalAmount : undefined,
-            mirrorInterest: isMirrorLoan ? mirrorInterestAmount : undefined,  // Use MIRROR interest
-            mirrorCompanyId: mirrorLoanMapping?.mirrorCompanyId || undefined,
-            isMirrorPayment: isMirrorLoan
-          });
+          let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
+          if (paymentType === 'PRINCIPAL_ONLY') {
+            // ── PRINCIPAL-ONLY: record cash/bank receipt + write off interest ──
+            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
+            const isOnlineMode = effectivePaymentMode === 'ONLINE' || effectivePaymentMode === 'UPI' || effectivePaymentMode === 'BANK_TRANSFER';
+            // Cash/bank entry for principal collected
+            if (isOnlineMode) {
+              await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: sessionPrincipal,
+                description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${sessionInterestWrittenOff} written off)`,
+                referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+            } else {
+              await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: sessionPrincipal,
+                description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${sessionInterestWrittenOff} written off)`,
+                referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
+            }
+            // Journal entry with Irrecoverable Debts write-off
+            const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
+            const poSvc = new PoAccSvc(targetCompanyId);
+            await poSvc.initializeChartOfAccounts();
+            await poSvc.recordPrincipalOnlyPayment({
+              loanId: emi.offlineLoanId,
+              customerId: emi.offlineLoan.customerId || '',
+              paymentId: updatedEmi.id,
+              principalAmount:    sessionPrincipal,
+              interestWrittenOff: sessionInterestWrittenOff,
+              paymentDate:        new Date(),
+              createdById:        userId,
+              paymentMode:        effectivePaymentMode || 'CASH',
+              loanNumber:         emi.offlineLoan.loanNumber,
+              installmentNumber:  emi.installmentNumber,
+            });
+            // If mirror loan: also write off interest as loss in mirror company
+            if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId && mirrorInterestAmount > 0) {
+              const mirrorPoSvc = new PoAccSvc(mirrorLoanMapping.mirrorCompanyId);
+              await mirrorPoSvc.initializeChartOfAccounts();
+              await mirrorPoSvc.recordPrincipalOnlyPayment({
+                loanId: mirrorLoanMapping.mirrorLoanId!,
+                customerId: emi.offlineLoan.customerId || '',
+                paymentId: `${updatedEmi.id}-MIRROR`,
+                principalAmount:    mirrorPrincipalAmount,
+                interestWrittenOff: mirrorInterestAmount,
+                paymentDate:        new Date(),
+                createdById:        userId,
+                paymentMode:        effectivePaymentMode || 'CASH',
+                loanNumber:         emi.offlineLoan.loanNumber,
+                installmentNumber:  emi.installmentNumber,
+              });
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: I:₹${mirrorInterestAmount} → Irrecoverable Debts (${mirrorLoanMapping.mirrorCompanyId})`);
+            }
+            console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);
+          } else {
+            accountingResult = await recordEMIPaymentAccounting({
+              amount: actualPaymentAmount,
+              principalComponent: acctPrincipal,
+              interestComponent: acctInterest,
+              paymentMode: (effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+              paymentType: paymentType || 'FULL',
+              creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
+              loanCompanyId: loanCompanyId || (company3Id ?? ''),
+              company3Id: company3Id || loanCompanyId,
+              loanId: emi.offlineLoanId,
+              emiId: emi.id,
+              paymentId: updatedEmi.id,
+              loanNumber: emi.offlineLoan.loanNumber,
+              installmentNumber: emi.installmentNumber,
+              userId,
+              customerId: emi.offlineLoan.customerId || undefined,
+              mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || undefined,
+              mirrorPrincipal: isMirrorLoan ? mirrorPrincipalAmount : undefined,
+              mirrorInterest: isMirrorLoan ? mirrorInterestAmount : undefined,
+              mirrorCompanyId: mirrorLoanMapping?.mirrorCompanyId || undefined,
+              isMirrorPayment: isMirrorLoan
+            });
+            console.log(`[Accounting] EMI Payment recorded — Journal: ${accountingResult.journalEntryId ? 'Yes' : 'MISSING ❌'}`);
+          }
 
           console.log(`[Accounting] EMI Payment recorded:`);
           console.log(`  - Type: ${isMirrorLoan ? 'MIRROR' : (isExtraEMI ? 'EXTRA' : 'REGULAR')}`);
@@ -2856,12 +2919,15 @@ export async function PUT(request: NextRequest) {
           if (isMirrorLoan) {
             console.log(`  - Mirror Interest Recorded: ₹${mirrorInterestAmount}`);
           }
-          console.log(`  - Bank Entry: ${accountingResult.bankTransaction ? 'Yes' : 'No'}`);
-          console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
-          console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes (' + accountingResult.journalEntryId + ')' : 'MISSING ❌'}`);
+          if (paymentType !== 'PRINCIPAL_ONLY') {
+            console.log(`  - Bank Entry: ${accountingResult.bankTransaction ? 'Yes' : 'No'}`);
+            console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
+            console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes (' + accountingResult.journalEntryId + ')' : 'MISSING ❌'}`);
+          }
 
           // ── FALLBACK: If mirror journal wasn't created, do it directly here ──────────────
-          if (isMirrorLoan && !accountingResult.journalEntryId && mirrorLoanMapping?.mirrorCompanyId) {
+          // Only for non-PRINCIPAL_ONLY (which has its own journal path above)
+          if (isMirrorLoan && paymentType !== 'PRINCIPAL_ONLY' && !accountingResult.journalEntryId && mirrorLoanMapping?.mirrorCompanyId) {
             console.warn('[Accounting] ⚠️ Journal missing after recordEMIPaymentAccounting — attempting inline fallback');
             try {
               const { AccountingService: FbAccSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');

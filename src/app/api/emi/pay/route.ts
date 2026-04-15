@@ -310,6 +310,13 @@ export async function POST(request: NextRequest) {
       paidPrincipal = 0;
       paidAmount = remainingInterest;
       newEmiStatus = 'INTEREST_ONLY_PAID';
+    } else if (paymentType === 'PRINCIPAL_ONLY') {
+      // Principal-only: collect principal, write off interest as Irrecoverable Debt (loss)
+      paidPrincipal = remainingPrincipal;
+      paidInterest  = 0;        // Interest is NOT collected — written off in accounting
+      paidAmount    = remainingPrincipal;
+      newEmiStatus  = 'PAID';   // EMI considered fully settled (principal cleared)
+      console.log(`[EMI Pay] PRINCIPAL_ONLY — collecting ₹${paidPrincipal}, writing off interest ₹${remainingInterest}`);
     }
 
     // Update EMI status
@@ -1366,18 +1373,35 @@ export async function POST(request: NextRequest) {
         
         // ── EMI PAYMENT JOURNAL ENTRY (Principal + Interest) ──────────
         // Works for ALL loan types — mirror uses mirror amounts, regular uses actual amounts.
-        await accountingService.recordEMIPayment({
-          loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
-          customerId: emi.loanApplication?.customerId || '',
-          paymentId: payment.id,
-          totalAmount:        (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.totalAmount    : paidAmount,
-          principalComponent: (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.principalAmount : paidPrincipal,
-          interestComponent:  (isMirrorPayment && calculatedMirrorInterest !== undefined) ? calculatedMirrorInterest : paidInterest,
-          paymentDate: new Date(),
-          createdById: paidBy || 'SYSTEM',
-          paymentMode: isSplitPayment ? 'CASH' : (paymentMode as any),
-          reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
-        });
+        if (paymentType === 'PRINCIPAL_ONLY' && !isMirrorPayment) {
+          // PRINCIPAL-ONLY: principal collected + interest written off as Irrecoverable Debt
+          await accountingService.recordPrincipalOnlyPayment({
+            loanId,
+            customerId: emi.loanApplication?.customerId || '',
+            paymentId: payment.id,
+            principalAmount:    paidPrincipal,
+            interestWrittenOff: remainingInterest,   // interest forfeited this session
+            paymentDate:        new Date(),
+            createdById:        paidBy || 'SYSTEM',
+            paymentMode:        paymentMode as string,
+            loanNumber:         emi.loanApplication?.applicationNo,
+            installmentNumber:  emi.installmentNumber,
+          });
+          console.log(`[Accounting] PRINCIPAL_ONLY journal: P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts`);
+        } else {
+          await accountingService.recordEMIPayment({
+            loanId: isMirrorPayment ? mirrorMappingForAccounting!.mirrorLoanId || loanId : loanId,
+            customerId: emi.loanApplication?.customerId || '',
+            paymentId: payment.id,
+            totalAmount:        (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.totalAmount    : paidAmount,
+            principalComponent: (isMirrorPayment && mirrorEMIAmounts) ? mirrorEMIAmounts.principalAmount : paidPrincipal,
+            interestComponent:  (isMirrorPayment && calculatedMirrorInterest !== undefined) ? calculatedMirrorInterest : paidInterest,
+            paymentDate: new Date(),
+            createdById: paidBy || 'SYSTEM',
+            paymentMode: isSplitPayment ? 'CASH' : (paymentMode as any),
+            reference: `EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`
+          });
+        }
         console.log(`[Accounting] EMI journal entry created for Company ${companyIdToUse} (${isMirrorPayment ? 'MIRROR' : 'REGULAR'})`);
 
         // ── PROCESSING FEE — non-mirror, EMI #1 only ────────────────────

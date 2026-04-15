@@ -99,15 +99,17 @@ export default function EMIPaymentDialog({
   const [paymentMode, setPaymentMode] = useState<PaymentModeOption>('ONLINE');
   
   // Legacy state for partial/interest-only
-  const [paymentType, setPaymentType] = useState<'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY'>('FULL_EMI');
+  const [paymentType, setPaymentType] = useState<'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'>('FULL_EMI');
   const [partialAmount, setPartialAmount] = useState('');
   const [nextPaymentDate, setNextPaymentDate] = useState<Date | undefined>(undefined);
   const [paymentReference, setPaymentReference] = useState('');
   const [processing, setProcessing] = useState(false);
   const [interestOnlyConfirmed, setInterestOnlyConfirmed] = useState(false);
-  // Editable interest for original (non-mirror) loans
+  // Editable interest for original (non-mirror) loans (legacy - kept for TS compat)
   const [editedInterest, setEditedInterest] = useState<string>('');
 
+  // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
+  const isInterestOnlyLoan = emi?.isInterestOnly === true;
   // Bank details state
   const [bankDetails, setBankDetails] = useState<{
     bankName: string;
@@ -738,7 +740,7 @@ export default function EMIPaymentDialog({
           {!isActuallyExtraEMI && (
             <div className="space-y-2">
               <Label className="font-medium">Payment Type</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${isInterestOnlyLoan ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
                 <Button
                   type="button"
                   variant={paymentType === 'FULL_EMI' ? 'default' : 'outline'}
@@ -766,6 +768,18 @@ export default function EMIPaymentDialog({
                   <TrendingUp className="h-4 w-4 mb-1" />
                   <span className="text-xs">Interest Only</span>
                 </Button>
+                {/* Principal Only — hidden for interest-only loan products */}
+                {!isInterestOnlyLoan && (
+                  <Button
+                    type="button"
+                    variant={paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
+                    className={`h-auto py-3 flex-col ${paymentType === 'PRINCIPAL_ONLY' ? 'bg-red-500 hover:bg-red-600 text-white' : 'border-red-300 text-red-600 hover:bg-red-50'}`}
+                    onClick={() => setPaymentType('PRINCIPAL_ONLY')}
+                  >
+                    <AlertTriangle className="h-4 w-4 mb-1" />
+                    <span className="text-xs">Principal Only</span>
+                  </Button>
+                )}
               </div>
             </div>
           )}

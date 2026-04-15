@@ -99,6 +99,8 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
     { code: '5301', name: 'Depreciation - Furniture', type: 'EXPENSE', isSystemAccount: false, description: 'Furniture depreciation' },
     { code: '5302', name: 'Depreciation - Equipment', type: 'EXPENSE', isSystemAccount: false, description: 'Equipment depreciation' },
     { code: '5400', name: 'Miscellaneous Expense', type: 'EXPENSE', isSystemAccount: false, description: 'Other expenses' },
+    // Bad Debt / Write-offs (5500-5599)
+    { code: '5500', name: 'Irrecoverable Debts', type: 'EXPENSE', isSystemAccount: true, description: 'Interest written off when only principal is collected (Principal-Only payment)' },
   ],
 };
 
@@ -153,6 +155,7 @@ export const ACCOUNT_CODES = {
   INTEREST_EXPENSE: '5201',
   BANK_CHARGES: '5203',
   DEPRECIATION: '5300',
+  IRRECOVERABLE_DEBTS: '5500',   // Interest written off (Principal-Only payments)
 };
 
 // ============================================
@@ -181,7 +184,8 @@ export type JournalEntryType =
   | 'BANK_TRANSFER'
   | 'CASH_DEPOSIT'
   | 'CASH_WITHDRAWAL'
-  | 'INTEREST_ONLY_PAYMENT';
+  | 'INTEREST_ONLY_PAYMENT'
+  | 'PRINCIPAL_ONLY_PAYMENT';
 
 // ============================================
 // MAIN ACCOUNTING SERVICE CLASS
@@ -817,6 +821,73 @@ export class AccountingService {
       paymentMode: params.paymentMode,
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
+      isAutoEntry: true,
+    }, tx);
+  }
+
+  /**
+   * PRINCIPAL-ONLY PAYMENT
+   * Customer pays only principal; interest is written off as irrecoverable debt (loss).
+   *
+   * Journal Entry (balanced):
+   *   Dr  Cash/Bank (1101/1102)        = principalAmount   ← money received
+   *   Cr  Loans Receivable (1200)      = principalAmount   ← loan cleared
+   *   Dr  Irrecoverable Debts (5500)   = interestAmount    ← interest lost (expense)
+   *   Cr  Interest Income (4110)       = interestAmount    ← interest recognised then written off
+   *
+   * Net effect: Cash up by principal, loan down by principal, net P&L impact = -(interestAmount)
+   */
+  async recordPrincipalOnlyPayment(params: {
+    loanId: string;
+    customerId: string;
+    paymentId: string;
+    principalAmount: number;
+    interestWrittenOff: number;
+    paymentDate: Date;
+    createdById: string;
+    paymentMode: string;
+    loanNumber?: string;
+    installmentNumber?: number;
+    bankAccountId?: string;
+  }, tx?: any): Promise<string> {
+    if (params.principalAmount <= 0) {
+      throw new Error('Principal amount must be > 0 for Principal-Only payment');
+    }
+
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes(
+      (params.paymentMode || '').toUpperCase()
+    );
+    const debitCashBank = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
+
+    const narration = `Principal-Only EMI #${params.installmentNumber ?? '?'} — ${params.loanNumber ?? params.loanId}` +
+      ` | P:₹${params.principalAmount} collected, I:₹${params.interestWrittenOff} written off`;
+
+    const lines: Array<{ accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration?: string }> = [
+      // Dr Cash/Bank — money received
+      { accountCode: debitCashBank,                       debitAmount: params.principalAmount,       creditAmount: 0,                          narration: `Principal received (${params.paymentMode})` },
+      // Cr Loans Receivable — principal portion of loan cleared
+      { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,      debitAmount: 0,                            creditAmount: params.principalAmount,      loanId: params.loanId, customerId: params.customerId, narration: 'Principal repayment — loan reduced' },
+    ];
+
+    // If interest is being written off, create the write-off entry
+    if (params.interestWrittenOff > 0) {
+      lines.push(
+        // Dr Irrecoverable Debts — interest recognised as a loss
+        { accountCode: ACCOUNT_CODES.IRRECOVERABLE_DEBTS, debitAmount: params.interestWrittenOff,    creditAmount: 0,                          loanId: params.loanId, customerId: params.customerId, narration: 'Interest written off as irrecoverable debt' },
+        // Cr Interest Income — income entry to balance the write-off
+        { accountCode: ACCOUNT_CODES.INTEREST_INCOME,     debitAmount: 0,                            creditAmount: params.interestWrittenOff,   loanId: params.loanId, customerId: params.customerId, narration: 'Interest income (waived — written off)' }
+      );
+    }
+
+    return this.createJournalEntry({
+      entryDate: params.paymentDate,
+      referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+      referenceId: params.paymentId,
+      narration,
+      lines,
+      createdById: params.createdById,
+      paymentMode: params.paymentMode,
+      bankAccountId: params.bankAccountId,
       isAutoEntry: true,
     }, tx);
   }
