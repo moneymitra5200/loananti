@@ -80,7 +80,7 @@ interface EMIPaymentDialogProps {
 }
 
 type CreditType = 'PERSONAL' | 'COMPANY';
-type PaymentModeOption = 'ONLINE' | 'CASH';
+type PaymentModeOption = 'ONLINE' | 'CASH' | 'SPLIT';
 
 export default function EMIPaymentDialog({
   open,
@@ -105,8 +105,10 @@ export default function EMIPaymentDialog({
   const [paymentReference, setPaymentReference] = useState('');
   const [processing, setProcessing] = useState(false);
   const [interestOnlyConfirmed, setInterestOnlyConfirmed] = useState(false);
-  // Editable interest for original (non-mirror) loans (legacy - kept for TS compat)
-  const [editedInterest, setEditedInterest] = useState<string>('');
+  // BUG-11 fix: removed editedInterest staff override field
+  // Split payment state (BUG-9)
+  const [splitCashAmount, setSplitCashAmount] = useState('');
+  const [splitOnlineAmount, setSplitOnlineAmount] = useState('');
 
   // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
   const isInterestOnlyLoan = emi?.isInterestOnly === true;
@@ -259,14 +261,11 @@ export default function EMIPaymentDialog({
             isAdvance: true
           };
         }
-        // Use staff-edited interest if set (original online loans only)
-        const resolvedInterest = (isOriginalOnlineLoan && editedInterest !== '' && !isNaN(parseFloat(editedInterest)))
-          ? parseFloat(editedInterest)
-          : effectiveInterest;
+        // BUG-11 fix: removed editedInterest override; always use DB interest
         return {
-          amount: effectivePrincipal + resolvedInterest,
+          amount: effectivePrincipal + effectiveInterest,
           principal: effectivePrincipal,
-          interest: resolvedInterest,
+          interest: effectiveInterest,
           description: 'Full EMI Payment',
           remainingAfter: 0,
           isAdvance: false
@@ -430,7 +429,20 @@ export default function EMIPaymentDialog({
         formData.append('emiId', emi.id);
         formData.append('loanId', emi.loanApplication?.id || '');
         formData.append('amount', details.amount.toString());
-        formData.append('paymentMode', creditType === 'PERSONAL' ? 'CASH' : paymentMode);
+        // BUG-9 fix: pass split fields for online loans
+        const isSplit = paymentMode === 'SPLIT';
+        const scAmt = parseFloat(splitCashAmount) || 0;
+        const soAmt = parseFloat(splitOnlineAmount) || 0;
+        if (isSplit && Math.abs(scAmt + soAmt - details.amount) > 1) {
+          toast({ title: 'Split Mismatch', description: `Cash ₹${scAmt} + Online ₹${soAmt} ≠ ₹${details.amount}`, variant: 'destructive' });
+          return;
+        }
+        formData.append('paymentMode', creditType === 'PERSONAL' ? 'CASH' : (isSplit ? 'CASH' : paymentMode));
+        if (isSplit && scAmt > 0 && soAmt > 0) {
+          formData.append('isSplitPayment', 'true');
+          formData.append('splitCashAmount', scAmt.toString());
+          formData.append('splitOnlineAmount', soAmt.toString());
+        }
         formData.append('paidBy', userId);
         formData.append('paymentType', paymentType);
         formData.append('remarks', paymentType === 'PARTIAL_PAYMENT' ? `Partial payment - remaining due: ${formatCurrency(details.remainingAfter)}` : '');
@@ -445,10 +457,6 @@ export default function EMIPaymentDialog({
         }
         if (mirrorLoanInfo?.mirrorInterest) {
           formData.append('mirrorInterest', mirrorLoanInfo.mirrorInterest.toString());
-        }
-        // Pass edited interest for original loan interest override
-        if (isOriginalOnlineLoan && editedInterest !== '' && !isNaN(parseFloat(editedInterest))) {
-          formData.append('editedInterest', editedInterest);
         }
 
         if (paymentType === 'PARTIAL_PAYMENT') {
@@ -494,10 +502,12 @@ export default function EMIPaymentDialog({
     setCreditType('COMPANY');
     setPaymentMode('ONLINE');
     setPartialAmount('');
+    setSplitCashAmount('');
+    setSplitOnlineAmount('');
     setNextPaymentDate(undefined);
     setPaymentReference('');
     setInterestOnlyConfirmed(false);
-    setEditedInterest('');
+    // editedInterest removed (BUG-11)
   };
 
   const minNextPaymentDate = addDays(new Date(emi.dueDate), 1);
@@ -532,8 +542,14 @@ export default function EMIPaymentDialog({
               <span className="font-medium">{formatDate(emi.dueDate)}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-gray-500">Total Amount</span>
-              <span className="font-bold text-lg">{formatCurrency(emi.totalAmount)}</span>
+              <span className="text-gray-500">Total EMI</span>
+              {/* BUG-10 fix: show remaining (not original total) to avoid confusion */}
+              <span className="font-bold text-lg">
+                {formatCurrency(emi.totalAmount - (emi.paidAmount || 0))}
+                {(emi.paidAmount || 0) > 0 && (
+                  <span className="text-xs text-gray-400 ml-1">(of {formatCurrency(emi.totalAmount)})</span>
+                )}
+              </span>
             </div>
             <div className="flex justify-between items-center text-sm">
               <span className="text-gray-400">Principal</span>
@@ -633,40 +649,66 @@ export default function EMIPaymentDialog({
                     <span className="font-medium">Company Credit</span>
                   </div>
                   
-                  {/* Payment Mode Options for Company Credit */}
+                  {/* Payment Mode Options for Company Credit (BUG-9: includes SPLIT) */}
                   {creditType === 'COMPANY' && (
-                    <div className="mt-3 flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
+                    <div className="mt-3 flex gap-2 flex-wrap">
+                      <Button type="button" size="sm"
                         variant={paymentMode === 'ONLINE' ? 'default' : 'outline'}
                         className={paymentMode === 'ONLINE' ? 'bg-blue-500 hover:bg-blue-600' : ''}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPaymentMode('ONLINE');
-                        }}
-                      >
-                        <CreditCard className="h-4 w-4 mr-1" />
-                        Online (Bank)
+                        onClick={(e) => { e.stopPropagation(); setPaymentMode('ONLINE'); }}>
+                        <CreditCard className="h-4 w-4 mr-1" />Online (Bank)
                       </Button>
-                      <Button
-                        type="button"
-                        size="sm"
+                      <Button type="button" size="sm"
                         variant={paymentMode === 'CASH' ? 'default' : 'outline'}
                         className={paymentMode === 'CASH' ? 'bg-amber-500 hover:bg-amber-600' : ''}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPaymentMode('CASH');
-                        }}
-                      >
-                        <Banknote className="h-4 w-4 mr-1" />
-                        Cash
+                        onClick={(e) => { e.stopPropagation(); setPaymentMode('CASH'); }}>
+                        <Banknote className="h-4 w-4 mr-1" />Cash
                       </Button>
+                      <Button type="button" size="sm"
+                        variant={paymentMode === 'SPLIT' ? 'default' : 'outline'}
+                        className={paymentMode === 'SPLIT' ? 'bg-purple-500 hover:bg-purple-600' : 'border-purple-300 text-purple-700 hover:bg-purple-50'}
+                        onClick={(e) => { e.stopPropagation(); setPaymentMode('SPLIT'); }}>
+                        <Calculator className="h-4 w-4 mr-1" />Split
+                      </Button>
+                    </div>
+                  )}
+                  {/* Split amount inputs (BUG-9) */}
+                  {creditType === 'COMPANY' && paymentMode === 'SPLIT' && (
+                    <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
+                      <p className="text-xs font-medium text-purple-700">Split: Cash + Online (must sum to EMI amount)</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-600">Cash (₹)</label>
+                          <input type="number" value={splitCashAmount}
+                            onChange={(e) => setSplitCashAmount(e.target.value)}
+                            placeholder="e.g. 500"
+                            className="w-full mt-1 px-2 py-1 border border-purple-300 rounded text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600">Online (₹)</label>
+                          <input type="number" value={splitOnlineAmount}
+                            onChange={(e) => setSplitOnlineAmount(e.target.value)}
+                            placeholder="e.g. 700"
+                            className="w-full mt-1 px-2 py-1 border border-purple-300 rounded text-sm" />
+                        </div>
+                      </div>
+                      {(() => {
+                        const sc = parseFloat(splitCashAmount) || 0;
+                        const so = parseFloat(splitOnlineAmount) || 0;
+                        const st = sc + so;
+                        const mismatch = st > 0 && Math.abs(st - details.amount) > 1;
+                        return st > 0 ? (
+                          <p className={`text-xs font-medium ${mismatch ? 'text-red-500' : 'text-green-600'}`}>
+                            Total: ₹{st.toLocaleString('en-IN')}{' '}
+                            {mismatch ? `⚠ Must match ₹${details.amount.toLocaleString('en-IN')}` : '✓ Matches'}
+                          </p>
+                        ) : null;
+                      })()}
                     </div>
                   )}
                   
                   <p className="text-xs text-gray-400 mt-2">
-                    Entry in: {paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} of Loan Company | Company credit increases
+                    Entry in: {paymentMode === 'ONLINE' ? 'Bank Account' : paymentMode === 'SPLIT' ? 'Cashbook + Bank (Split)' : 'Cashbook'} of Loan Company | Company credit increases
                   </p>
                   
                   {/* Bank Details Display for ONLINE payment */}
@@ -836,29 +878,11 @@ export default function EMIPaymentDialog({
                   ) : (
                     <>
                       <p className="mt-1">Pay the complete remaining amount of {formatCurrency(details?.amount || remainingAmount)}</p>
-                      <div className="mt-2 text-xs text-emerald-600">
-                        <p>Principal: {formatCurrency(remainingPrincipal)}</p>
-                        {/* Editable interest for original loans */}
-                        {isOriginalOnlineLoan ? (
-                          <div className="flex items-center gap-2 mt-1">
-                            <span>Interest:</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={editedInterest}
-                              onChange={e => setEditedInterest(e.target.value)}
-                              className="w-28 px-2 py-0.5 border border-emerald-300 rounded text-emerald-800 bg-white text-xs font-semibold"
-                              placeholder={remainingInterest.toFixed(2)}
-                            />
-                            <span className="text-emerald-500 text-xs italic">
-                              {editedInterest === '' ? `default: ₹${remainingInterest.toFixed(2)}` : '(edited)'}
-                            </span>
-                          </div>
-                        ) : (
+                        <div className="mt-2 text-xs text-emerald-600">
+                          <p>Principal: {formatCurrency(remainingPrincipal)}</p>
+                          {/* BUG-11 fix: removed staff editedInterest override — always show DB interest */}
                           <p>Interest: {formatCurrency(remainingInterest)}</p>
-                        )}
-                      </div>
+                        </div>
                     </>
                   )}
                 </div>

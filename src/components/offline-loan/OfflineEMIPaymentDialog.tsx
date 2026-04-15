@@ -117,7 +117,10 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
     if (isMultiMode) {
       let total = 0;
       for (const e of emis) {
-        total += isAdvancePayment(e) ? e.principalAmount : (e.totalAmount - e.paidAmount);
+        // BUG-8 fix: use remaining amounts, not full amounts (accounts for partial payments)
+        const remPrincipal = e.principalAmount - (e.paidPrincipal || 0);
+        const remTotal     = e.totalAmount     - (e.paidAmount    || 0);
+        total += isAdvancePayment(e) ? remPrincipal : remTotal;
       }
       return { totalAmount: total, alreadyPaid: 0, remaining: total, remainingPrincipal: total, remainingInterest: 0 };
     }

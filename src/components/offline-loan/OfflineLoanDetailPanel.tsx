@@ -508,16 +508,27 @@ export default function OfflineLoanDetailPanel({
         let advanceCount = 0;
         let fullPayCount = 0;
         
+        const splitCount = multiEmiList.length;
         for (const emi of multiEmiList) {
           // Check if this EMI is advance payment
           const isAdvance = isEmiAdvancePayment(emi);
-          const amountToPay = isAdvance ? emi.principalAmount : emi.totalAmount;
-          
+          // BUG-4 fix: use remaining (totalAmount - paidAmount) not full totalAmount
+          const remainingEmi = emi.totalAmount - (emi.paidAmount || 0);
+          // BUG-8 fix: for advance EMIs use remaining principal, not full principalAmount
+          const amountToPay = isAdvance
+            ? (emi.principalAmount - (emi.paidPrincipal || 0))
+            : remainingEmi;
+
+          // BUG-1 fix: divide split amounts per EMI instead of sending full amount to each
+          const perEmiSplitCash   = splitCashPayment   ? (parseFloat(splitCashPayment)   || 0) / splitCount : undefined;
+          const perEmiSplitOnline = splitOnlinePayment ? (parseFloat(splitOnlinePayment) || 0) / splitCount : undefined;
+          const isSplit = paymentMode === 'SPLIT' && perEmiSplitCash !== undefined && perEmiSplitOnline !== undefined;
+
           const requestBody: Record<string, unknown> = {
             action: 'pay-emi',
             userId,
             userRole,
-            paymentMode,
+            paymentMode: isSplit ? 'CASH' : paymentMode,
             paymentReference,
             creditType,
             proofUrl,
@@ -525,9 +536,8 @@ export default function OfflineLoanDetailPanel({
             emiId: emi.id,
             paymentType: 'FULL',
             amount: amountToPay,
-            isAdvancePayment: isAdvance, // Pass advance flag to backend
-            splitCashAmount: splitCashPayment,
-            splitOnlineAmount: splitOnlinePayment
+            isAdvancePayment: isAdvance,
+            ...(isSplit && { isSplitPayment: true, splitCashAmount: perEmiSplitCash, splitOnlineAmount: perEmiSplitOnline }),
           };
 
           const res = await fetch('/api/offline-loan', {
@@ -576,17 +586,25 @@ export default function OfflineLoanDetailPanel({
 
       const action = isInterestOnlyLoanPayment ? 'pay-interest-only-loan' : 'pay-emi';
 
+      const isSplitMode = paymentMode === 'SPLIT';
+      const splitCash   = parseFloat(splitCashPayment)   || 0;
+      const splitOnline = parseFloat(splitOnlinePayment) || 0;
+
       const requestBody: Record<string, unknown> = {
         action,
         userId,
         userRole,
-        paymentMode,
+        // BUG-1 fix: send CASH as effective mode when SPLIT, plus isSplitPayment flag
+        paymentMode: isSplitMode ? 'CASH' : paymentMode,
         paymentReference,
         creditType,
         proofUrl,
         remarks: paymentRemarks,
-        splitCashAmount: splitCashPayment,
-        splitOnlineAmount: splitOnlinePayment
+        ...(isSplitMode && splitCash > 0 && splitOnline > 0 && {
+          isSplitPayment: true,
+          splitCashAmount: splitCash,
+          splitOnlineAmount: splitOnline,
+        }),
       };
 
       if (isInterestOnlyLoanPayment) {
@@ -595,14 +613,18 @@ export default function OfflineLoanDetailPanel({
         if (!selectedEmi) return;
         requestBody.emiId = selectedEmi.id;
         requestBody.paymentType = paymentType;
-        // Always send amount: for FULL it's the remaining (not total), fixing post-partial full payment
-        requestBody.amount = paymentAmount;
+        // BUG-3 fix: always send isAdvancePayment for single-EMI too
+        requestBody.isAdvancePayment = isEmiAdvancePayment(selectedEmi);
         if (paymentType === 'PARTIAL') {
           requestBody.remainingPaymentDate = remainingPaymentDate;
-        }
-        if (paymentType === 'INTEREST_ONLY') {
-          requestBody.amount = selectedEmi.interestAmount;
-          requestBody.interestAmount = selectedEmi.interestAmount;
+          requestBody.amount = paymentAmount;
+        } else if (paymentType === 'INTEREST_ONLY') {
+          // BUG-2 fix: send REMAINING interest (not original total)
+          const remainingInterest = selectedEmi.interestAmount - (selectedEmi.paidInterest || 0);
+          requestBody.amount = remainingInterest;
+          // BUG-6 fix: removed duplicate interestAmount field — amount alone is sufficient
+        } else {
+          requestBody.amount = paymentAmount;
         }
       }
 
@@ -1840,14 +1862,21 @@ export default function OfflineLoanDetailPanel({
                     </div>
                   </div>
                 )}
+                {/* BUG-4 fix: show remaining amount not original total */}
                 <p className="text-sm text-gray-600">
-                  Due Amount: {isEmiAdvancePayment(selectedEmi) ? formatCurrency(selectedEmi.principalAmount) : formatCurrency(selectedEmi.totalAmount)}
-                  {selectedEmi.paidAmount && selectedEmi.paidAmount > 0 && (
-                    <span className="text-green-600"> (Already Paid: {formatCurrency(selectedEmi.paidAmount)})</span>
+                  {isEmiAdvancePayment(selectedEmi) ? (
+                    <>Advance — Principal Only: {formatCurrency(selectedEmi.principalAmount - (selectedEmi.paidPrincipal || 0))}</>
+                  ) : (
+                    <>Due: {formatCurrency(selectedEmi.totalAmount - (selectedEmi.paidAmount || 0))}
+                      {(selectedEmi.paidAmount || 0) > 0 && (
+                        <span className="text-green-600 ml-1">(Paid: {formatCurrency(selectedEmi.paidAmount)})</span>
+                      )}
+                    </>
                   )}
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Principal: {formatCurrency(selectedEmi.principalAmount)} | Interest: {formatCurrency(selectedEmi.interestAmount)}
+                  P: {formatCurrency(selectedEmi.principalAmount - (selectedEmi.paidPrincipal || 0))} remaining
+                  {' | '}I: {formatCurrency(selectedEmi.interestAmount - (selectedEmi.paidInterest || 0))} remaining
                 </p>
               </div>
             )}
@@ -2334,16 +2363,19 @@ export default function OfflineLoanDetailPanel({
                             placeholder="e.g. 700" />
                         </div>
                       </div>
-                      {splitCashPayment && splitOnlinePayment && (
-                        <p className={`text-xs font-medium ${
-                          Math.abs((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0) - paymentAmount) > 1
-                            ? 'text-red-500' : 'text-green-600'
-                        }`}>
-                          Total: ₹{((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0)).toLocaleString('en-IN')}{' '}
-                          {Math.abs((parseFloat(splitCashPayment)||0) + (parseFloat(splitOnlinePayment)||0) - paymentAmount) > 1
-                            ? `⚠ Doesn't match ₹${paymentAmount}` : '✓'}
-                        </p>
-                      )}
+                      {/* BUG-5 fix: always show total, guard NaN with || 0 */}
+                      {(() => {
+                        const sc = parseFloat(splitCashPayment) || 0;
+                        const so = parseFloat(splitOnlinePayment) || 0;
+                        const st = sc + so;
+                        const mismatch = Math.abs(st - paymentAmount) > 1;
+                        return (
+                          <p className={`text-xs font-medium ${mismatch ? 'text-red-500' : 'text-green-600'}`}>
+                            Total: ₹{st.toLocaleString('en-IN')}{' '}
+                            {mismatch ? `⚠ Doesn't match ₹${paymentAmount}` : '✓ Matches'}
+                          </p>
+                        );
+                      })()}
                     </div>
                   )}
                   </div>
