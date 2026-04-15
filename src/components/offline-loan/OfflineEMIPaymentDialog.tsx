@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { 
   IndianRupee, CheckCircle, Receipt, Percent, 
   User, Building, Wallet, AlertCircle, Loader2,
-  Banknote, Landmark
+  Banknote, Landmark, AlertTriangle
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 
@@ -58,7 +58,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   isInterestOnlyLoan = false,
   interestOnlyAmount = 0
 }: OfflineEMIPaymentDialogProps) {
-  const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY'>('FULL');
+  const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'>('FULL');
   const [amount, setAmount] = useState(0);
   const [paymentMode, setPaymentMode] = useState<'CASH' | 'ONLINE'>('CASH');
   const [creditType, setCreditType] = useState<'PERSONAL' | 'COMPANY'>('COMPANY');
@@ -107,12 +107,14 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   };
 
   // Handle payment type change
-  const handlePaymentTypeChange = (type: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY') => {
+  const handlePaymentTypeChange = (type: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY') => {
     setPaymentType(type);
     if (type === 'FULL') {
       setAmount(remainingAmount);
     } else if (type === 'INTEREST_ONLY') {
       setAmount(remainingInterest);
+    } else if (type === 'PRINCIPAL_ONLY') {
+      setAmount(remainingPrincipal);
     } else {
       setAmount(Math.floor(remainingAmount / 2));
     }
@@ -236,7 +238,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
           {!isInterestOnlyLoan && userRole !== 'ACCOUNTANT' && (
             <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
               <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Button
                   type="button"
                   variant={paymentType === 'FULL' ? 'default' : 'outline'}
@@ -263,6 +265,15 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 >
                   <Percent className="h-4 w-4 mr-1" />
                   Interest
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
+                  className={paymentType === 'PRINCIPAL_ONLY' ? 'bg-red-500 hover:bg-red-600 text-white' : 'border-red-300 text-red-700 hover:bg-red-50'}
+                  onClick={() => handlePaymentTypeChange('PRINCIPAL_ONLY')}
+                >
+                  <AlertTriangle className="h-4 w-4 mr-1" />
+                  Principal
                 </Button>
               </div>
             </div>
@@ -293,6 +304,21 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               </div>
               <p className="text-xs text-blue-600 mt-2">
                 You are paying only the interest portion: ₹{formatCurrency(remainingInterest || interestOnlyAmount)}.
+                The principal (₹{formatCurrency(remainingPrincipal)}) will be added to next month&apos;s EMI.
+              </p>
+            </div>
+          )}
+
+          {/* Principal Only Payment Info */}
+          {paymentType === 'PRINCIPAL_ONLY' && (
+            <div className="p-4 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-center gap-2 text-red-800">
+                <AlertTriangle className="h-4 w-4" />
+                <span className="font-semibold">Principal Only Payment</span>
+              </div>
+              <p className="text-xs text-red-600 mt-2">
+                Only the principal (₹{formatCurrency(remainingPrincipal)}) is collected.
+                The interest (₹{formatCurrency(remainingInterest)}) will be written off as Irrecoverable Debt in the books.
               </p>
             </div>
           )}

@@ -414,7 +414,7 @@ export async function POST(request: NextRequest) {
         paidById: paidBy,
         remarks: remarks,
         proofUrl: proofUrl,
-        paymentType: paymentType as 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY'
+        paymentType: paymentType as 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'
       }
     });
 
@@ -1280,7 +1280,7 @@ export async function POST(request: NextRequest) {
           partialAmount: paymentType === 'PARTIAL_PAYMENT' ? partialAmount : null,
           nextPaymentDate: paymentType === 'PARTIAL_PAYMENT' ? nextPaymentDate : null
         }),
-        description: `${paymentType === 'FULL_EMI' ? 'Full EMI' : paymentType === 'PARTIAL_PAYMENT' ? 'Partial' : 'Interest Only'} payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber}`
+        description: `${paymentType === 'FULL_EMI' ? 'Full EMI' : paymentType === 'PARTIAL_PAYMENT' ? 'Partial' : paymentType === 'INTEREST_ONLY' ? 'Interest Only' : paymentType === 'PRINCIPAL_ONLY' ? 'Principal Only' : paymentType} payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber}`
       }
     }).catch(e => console.error('[ActionLog] Failed (non-critical):', e));
 
@@ -1564,8 +1564,11 @@ function getPaymentSuccessMessage(paymentType: string, paidAmount: number, defer
       return `Partial payment of ₹${paidAmount.toFixed(2)} received. Remaining balance rescheduled.`;
     case 'INTEREST_ONLY':
       return `Interest payment of ₹${paidAmount.toFixed(2)} received. NEW EMI created for principal ₹${deferredPrincipal.toFixed(2)} at next position. Both original and mirror loans updated.`;
+    case 'PRINCIPAL_ONLY':
+      return `Principal ₹${paidAmount.toFixed(2)} collected. Unpaid interest written off as Irrecoverable Debt.`;
+    case 'ADVANCE':
+      return `Advance principal payment ₹${paidAmount.toFixed(2)} received. Interest will be collected next month.`;
     default:
-      return 'EMI paid successfully';
+      return 'EMI paid successfully.';
   }
 }
-

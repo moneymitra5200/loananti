@@ -1981,25 +1981,33 @@ export async function PUT(request: NextRequest) {
           }
         });
 
-        // Create next month's interest EMI
+        // Create next month's interest EMI — only if it doesn't already exist
         const nextInstallmentNumber = currentEMI!.installmentNumber + 1;
         const monthlyInterest = loan.interestOnlyMonthlyAmount || 0;
         
-        await tx.offlineLoanEMI.create({
-          data: {
-            offlineLoanId: loanId,
-            installmentNumber: nextInstallmentNumber,
-            dueDate: nextDueDate,
-            originalDueDate: nextDueDate,
-            principalAmount: 0,
-            interestAmount: monthlyInterest,
-            totalAmount: monthlyInterest,
-            outstandingPrincipal: loan.loanAmount,
-            paymentStatus: 'PENDING',
-            isInterestOnly: true,
-            interestOnlyAmount: monthlyInterest
-          }
+        const existingNextEMI = await tx.offlineLoanEMI.findFirst({
+          where: { offlineLoanId: loanId, installmentNumber: nextInstallmentNumber }
         });
+
+        if (!existingNextEMI) {
+          await tx.offlineLoanEMI.create({
+            data: {
+              offlineLoanId: loanId,
+              installmentNumber: nextInstallmentNumber,
+              dueDate: nextDueDate,
+              originalDueDate: nextDueDate,
+              principalAmount: 0,
+              interestAmount: monthlyInterest,
+              totalAmount: monthlyInterest,
+              outstandingPrincipal: loan.loanAmount,
+              paymentStatus: 'PENDING',
+              isInterestOnly: true,
+              interestOnlyAmount: monthlyInterest
+            }
+          });
+        } else {
+          console.log(`[Interest-Only] Next EMI #${nextInstallmentNumber} already exists — skipping creation`);
+        }
 
         console.log(`[Offline Loan] Created next Interest EMI #${nextInstallmentNumber} for loan ${loan.loanNumber}`);
 
@@ -2430,26 +2438,35 @@ export async function PUT(request: NextRequest) {
           }
         });
 
-        // Handle Interest Only - create deferred EMI
+        // Handle Interest Only - create deferred EMI (only if next installment doesn't exist)
         if (paymentType === 'INTEREST_ONLY') {
           const newEmiDueDate = new Date(emi.dueDate);
           newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
-          
-          await tx.offlineLoanEMI.create({
-            data: {
-              offlineLoanId: emi.offlineLoanId,
-              installmentNumber: emi.installmentNumber + 1,
-              dueDate: newEmiDueDate,
-              principalAmount: emi.principalAmount,
-              interestAmount: emi.interestAmount,
-              totalAmount: emi.principalAmount + emi.interestAmount,
-              outstandingPrincipal: emi.outstandingPrincipal,
-              paymentStatus: 'PENDING',
-              isDeferred: true,
-              deferredFromEMI: emi.installmentNumber,
-              notes: `Created from Interest Only payment on EMI #${emi.installmentNumber}`
-            }
+          const nextInstNum = emi.installmentNumber + 1;
+
+          const existingDeferred = await tx.offlineLoanEMI.findFirst({
+            where: { offlineLoanId: emi.offlineLoanId, installmentNumber: nextInstNum }
           });
+
+          if (!existingDeferred) {
+            await tx.offlineLoanEMI.create({
+              data: {
+                offlineLoanId: emi.offlineLoanId,
+                installmentNumber: nextInstNum,
+                dueDate: newEmiDueDate,
+                principalAmount: emi.principalAmount,
+                interestAmount: emi.interestAmount,
+                totalAmount: emi.principalAmount + emi.interestAmount,
+                outstandingPrincipal: emi.outstandingPrincipal,
+                paymentStatus: 'PENDING',
+                isDeferred: true,
+                deferredFromEMI: emi.installmentNumber,
+                notes: `Created from Interest Only payment on EMI #${emi.installmentNumber}`
+              }
+            });
+          } else {
+            console.log(`[Interest-Only Deferred] EMI #${nextInstNum} already exists — skipping deferred creation`);
+          }
         }
 
         // Sync to mirror loan if exists

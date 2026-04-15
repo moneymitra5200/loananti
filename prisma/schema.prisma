@@ -1538,6 +1538,7 @@ enum PaymentType {
   PARTIAL_PAYMENT
   INTEREST_ONLY
   INTEREST_ONLY_PAYMENT // Monthly interest payment during interest-only phase
+  PRINCIPAL_ONLY        // Principal collected; interest written off as Irrecoverable Debt
   PENALTY
   PROCESSING_FEE
   FORECLOSURE
