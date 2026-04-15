@@ -350,22 +350,16 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     const effectiveMirrorPrincipal = mirrorPrincipal ?? 0;
     const fullMirrorEMITotal = effectiveMirrorPrincipal + mirrorInterest;
 
-    // For PARTIAL payments, scale the mirror amounts proportionally
-    // so the cashbook/bank entry reflects only what was actually paid
-    let recordAmount = fullMirrorEMITotal;
-    let recordPrincipal = effectiveMirrorPrincipal;
-    let recordInterest = mirrorInterest;
-
-    if (paymentType === 'PARTIAL' && amount > 0 && fullMirrorEMITotal > 0) {
-      // Scale mirror interest/principal proportionally to the actual partial payment
-      const payRatio = Math.min(amount / fullMirrorEMITotal, 1);
-      recordAmount    = Math.round(amount * 100) / 100;
-      recordInterest  = Math.round(mirrorInterest           * payRatio * 100) / 100;
-      recordPrincipal = Math.round(effectiveMirrorPrincipal * payRatio * 100) / 100;
-      console.log(`[Accounting] MIRROR PARTIAL: ₹${recordAmount} of ₹${fullMirrorEMITotal} (${Math.round(payRatio*100)}%) → P:₹${recordPrincipal} I:₹${recordInterest}`);
-    } else {
-      console.log(`[Accounting] MIRROR LOAN EMI Payment - Recording FULL mirror EMI ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) to mirror company`);
-    }
+    // ALWAYS use the actual amount passed (session delta) as the record amount.
+    // This handles both:
+    //   - PARTIAL: user pays ₹130 of ₹1,200 EMI → record ₹130
+    //   - FULL/remaining: user pays ₹1,070 remaining after ₹130 partial → record ₹1,070 (not ₹1,200)
+    // Interest-first split within the session amount.
+    let recordAmount    = Math.round(Math.min(amount, fullMirrorEMITotal) * 100) / 100;
+    // Apply interest-first to split the session amount into I + P
+    let recordInterest  = Math.round(Math.min(recordAmount, mirrorInterest) * 100) / 100;
+    let recordPrincipal = Math.round(Math.max(0, recordAmount - recordInterest) * 100) / 100;
+    console.log(`[Accounting] MIRROR EMI ${paymentType} (interest-first): ₹${recordAmount} → I:₹${recordInterest} P:₹${recordPrincipal} (Mirror Total: ₹${fullMirrorEMITotal})`);
 
     console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
 
