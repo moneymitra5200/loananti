@@ -2443,14 +2443,20 @@ export async function PUT(request: NextRequest) {
                 }
               });
             } else if (paymentStatus === 'PARTIALLY_PAID') {
-              // Fix: use the mirror EMI's own totalAmount as the denominator so the
-              // principal/interest split reflects the MIRROR rate, not the original rate.
-              const mirrorPaymentRatio = mirrorEmi.totalAmount > 0
+              // INTEREST-FIRST allocation for mirror partial:
+              // Same as original loan — cover mirror interest fully first, then principal with remainder.
+              // We scale the payment by the same % the customer paid on original loan,
+              // then split that scaled amount: interest first, then principal.
+              const mirrorPaymentRatio = emi.totalAmount > 0
                 ? Math.min(paidAmount / emi.totalAmount, 1)   // same % as original
                 : 0;
-              const mirrorPaidAmount    = Math.round(mirrorEmi.totalAmount    * mirrorPaymentRatio * 100) / 100;
-              const mirrorPaidPrincipal = Math.round(mirrorEmi.principalAmount * mirrorPaymentRatio * 100) / 100;
-              const mirrorPaidInterest  = Math.round(mirrorEmi.interestAmount  * mirrorPaymentRatio * 100) / 100;
+              const mirrorPaidAmount = Math.round(mirrorEmi.totalAmount * mirrorPaymentRatio * 100) / 100;
+
+              // Interest-first within the mirror payment
+              const mirrorRemainingInterest = mirrorEmi.interestAmount - (mirrorEmi.paidInterest || 0);
+              const mirrorPaidInterest  = Math.min(mirrorPaidAmount, mirrorRemainingInterest);
+              const mirrorPaidPrincipal = Math.max(0, Math.round((mirrorPaidAmount - mirrorPaidInterest) * 100) / 100);
+
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
@@ -2463,7 +2469,7 @@ export async function PUT(request: NextRequest) {
                   collectedById:   userId,
                   collectedByName: user.name,
                   collectedAt:     now,
-                  notes: `[MIRROR SYNC] Partial payment (${Math.round(mirrorPaymentRatio * 100)}%) – mirror amounts`
+                  notes: `[MIRROR SYNC] Partial payment (${Math.round(mirrorPaymentRatio * 100)}%) – interest-first: I:₹${mirrorPaidInterest} P:₹${mirrorPaidPrincipal}`
                 }
               });
             }
