@@ -2300,9 +2300,13 @@ export async function PUT(request: NextRequest) {
         paidAmount    += amount;
         paymentStatus = paidAmount >= emi.totalAmount - 0.01 ? 'PAID' : 'PARTIALLY_PAID';
       } else if (paymentType === 'INTEREST_ONLY') {
-        paidInterest = emi.interestAmount;
-        paidAmount = emi.interestAmount;
-        paidPrincipal = 0;
+        // CRITICAL: Use REMAINING interest only (interestAmount - already paidInterest)
+        // If a prior partial already collected some/all interest, don't re-collect it.
+        const remainingInterestIO = (emi.interestAmount || 0) - (emi.paidInterest || 0);
+        const interestToCollect   = Math.max(0, remainingInterestIO);
+        paidInterest  = (emi.paidInterest || 0) + interestToCollect; // cumulative
+        paidAmount    = (emi.paidAmount   || 0) + interestToCollect; // cumulative
+        paidPrincipal = emi.paidPrincipal || 0;                      // unchanged
         paymentStatus = 'INTEREST_ONLY_PAID';
       } else if (paymentType === 'PRINCIPAL_ONLY') {
         // Collect only principal; interest is written off as Irrecoverable Debt (loss)
@@ -2446,32 +2450,40 @@ export async function PUT(request: NextRequest) {
 
         // Handle Interest Only - create deferred EMI (only if next installment doesn't exist)
         if (paymentType === 'INTEREST_ONLY') {
-          const newEmiDueDate = new Date(emi.dueDate);
-          newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
-          const nextInstNum = emi.installmentNumber + 1;
+          // Determine remaining principal that was NOT yet paid via prior partials
+          const remainingPrincipalAfterIO = (emi.principalAmount || 0) - (emi.paidPrincipal || 0);
 
-          const existingDeferred = await tx.offlineLoanEMI.findFirst({
-            where: { offlineLoanId: emi.offlineLoanId, installmentNumber: nextInstNum }
-          });
-
-          if (!existingDeferred) {
-            await tx.offlineLoanEMI.create({
-              data: {
-                offlineLoanId: emi.offlineLoanId,
-                installmentNumber: nextInstNum,
-                dueDate: newEmiDueDate,
-                principalAmount: emi.principalAmount,
-                interestAmount: emi.interestAmount,
-                totalAmount: emi.principalAmount + emi.interestAmount,
-                outstandingPrincipal: emi.outstandingPrincipal,
-                paymentStatus: 'PENDING',
-                isDeferred: true,
-                deferredFromEMI: emi.installmentNumber,
-                notes: `Created from Interest Only payment on EMI #${emi.installmentNumber}`
-              }
+          // Only defer if there's actually principal left to collect
+          if (remainingPrincipalAfterIO > 0.01) {
+            // Find next EMI slot
+            const nextInstNum = emi.installmentNumber + 1;
+            const existingNext = await tx.offlineLoanEMI.findFirst({
+              where: { offlineLoanId: emi.offlineLoanId, installmentNumber: nextInstNum }
             });
+            if (!existingNext) {
+              const newEmiDueDate = new Date(emi.dueDate);
+              newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
+              await tx.offlineLoanEMI.create({
+                data: {
+                  offlineLoanId: emi.offlineLoanId,
+                  installmentNumber: nextInstNum,
+                  dueDate: newEmiDueDate,
+                  principalAmount: remainingPrincipalAfterIO,
+                  interestAmount: 0, // interest already collected this session
+                  totalAmount: remainingPrincipalAfterIO,
+                  outstandingPrincipal: emi.outstandingPrincipal,
+                  paymentStatus: 'PENDING',
+                  isDeferred: true,
+                  deferredFromEMI: emi.installmentNumber,
+                  notes: `Deferred principal ₹${remainingPrincipalAfterIO.toFixed(2)} from Interest-Only payment on EMI #${emi.installmentNumber}`
+                }
+              });
+              console.log(`[Interest-Only Deferred] Created deferred EMI #${nextInstNum} for remaining principal ₹${remainingPrincipalAfterIO}`);
+            } else {
+              console.log(`[Interest-Only Deferred] EMI #${nextInstNum} already exists — skipping deferred creation`);
+            }
           } else {
-            console.log(`[Interest-Only Deferred] EMI #${nextInstNum} already exists — skipping deferred creation`);
+            console.log(`[Interest-Only Deferred] No principal left to defer (already paid: ₹${emi.paidPrincipal || 0}) — skipping`);
           }
         }
 

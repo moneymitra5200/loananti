@@ -195,7 +195,14 @@ export const PERMANENT_CHART_OF_ACCOUNTS: PermanentAccount[] = [
     isSystemAccount: false, 
     description: 'Phone, internet, postage' 
   },
-  
+  {
+    accountCode: '5500',
+    accountName: 'Irrecoverable Debts',
+    accountType: AccountType.EXPENSE,
+    isSystemAccount: true,
+    description: 'Interest written off when only principal is collected (Principal-Only payments)'
+  },
+
   // ========== EQUITY (5000-5999) ==========
   { 
     accountCode: '5000', 
