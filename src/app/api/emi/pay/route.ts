@@ -1452,8 +1452,32 @@ export async function POST(request: NextRequest) {
           } catch (fbErr: any) {
             console.error('[Accounting] ❌ FALLBACK journal also FAILED:', fbErr?.message);
           }
+          }
+
+          // ── SPLIT PAYMENT: add separate ONLINE bank entry for the online portion ──
+          // recordEMIPaymentAccounting above recorded the cash portion → Cashbook.
+          // Now we additionally credit the online portion → Bank Account.
+          // This mirrors the exact same logic in the offline-loan route.
+          if (isSplitPayment && splitOnlineAmount > 0) {
+            try {
+              const splitTargetCompany = isMirrorPayment
+                ? mirrorMappingForAccounting!.mirrorCompanyId
+                : loanCompanyId;
+              await recordBankTransaction({
+                companyId: splitTargetCompany,
+                transactionType: 'CREDIT',
+                amount: splitOnlineAmount,
+                description: `SPLIT (Online portion) - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber}`,
+                referenceType: 'EMI_PAYMENT_SPLIT_ONLINE',
+                referenceId: `${payment.id}-SPLIT-ONLINE`,
+                createdById: paidBy,
+              });
+              console.log(`[Accounting] SPLIT: ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${splitTargetCompany})`);
+            } catch (splitErr) {
+              console.error('[Accounting] SPLIT bank entry failed (non-critical):', splitErr);
+            }
+          }
         }
-      }
 
       // ── PROCESSING FEE — non-mirror, EMI #1 only ──────────────────────────
       if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
