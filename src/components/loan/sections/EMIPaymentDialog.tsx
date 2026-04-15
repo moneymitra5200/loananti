@@ -75,11 +75,11 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
         paymentMode: 'CASH'
       });
     } else {
-      // Company Credit: Default to CASH (user can change to ONLINE)
+      // Company Credit: Default to ONLINE (standard bank transfer)
       setEmiPaymentForm({
         ...emiPaymentForm,
         creditType: 'COMPANY',
-        paymentMode: 'CASH'
+        paymentMode: 'ONLINE'
       });
     }
   };
@@ -237,7 +237,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
               </div>
               <p className="text-xs text-blue-600 mt-2">
                 You are paying only the interest portion: ₹{formatCurrency(remainingInterest)}. 
-                The principal portion (₹{formatCurrency(remainingPrincipal)}) will be added to next month's EMI.
+                The principal portion (₹{formatCurrency(remainingPrincipal)}) will be deferred and carried forward to the next EMI.
               </p>
             </div>
           )}
@@ -385,7 +385,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     <span>ONLINE or CASH</span>
                   </div>
                   <div className="text-gray-500">
-                    Entry: Loan Company's Books
+                    Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}'s Books` : `${originalCompanyName}'s Books`}
                   </div>
                   <div className="font-medium text-blue-700">
                     Current: ₹{formatCurrency(companyCredit)}
@@ -447,7 +447,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">
-                    Entry: Loan Company's Bank Account
+                    Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}` : 'Loan Company'}&apos;s Bank Account
                   </p>
                 </button>
 
@@ -468,7 +468,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     </span>
                   </div>
                   <p className="text-xs text-gray-500">
-                    Entry: Loan Company's Cashbook
+                    Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}` : 'Loan Company'}&apos;s Cashbook
                   </p>
                 </button>
 
