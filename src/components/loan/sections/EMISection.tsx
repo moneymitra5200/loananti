@@ -126,7 +126,8 @@ const EMISection = memo(function EMISection({
   };  const getTotalSelectedAmount = () => {
     return emiSchedules
       .filter(e => selectedEMIs.has(e.id))
-      .reduce((sum, e) => sum + e.emiAmount, 0);
+      // For partially-paid EMIs use remaining; for unpaid use full emiAmount
+      .reduce((sum, e) => sum + (e.emiAmount - (e.paidAmount || 0)), 0);
   };
 
   // Fetch receipt data
@@ -401,7 +402,7 @@ const EMISection = memo(function EMISection({
                           <p>Interest Paid: {formatDate(emi.paidDate!)}</p>
                           {/* Show interest amount */}
                           <p className="text-gray-500">
-                            Interest: ₹{formatCurrency(emi.interestAmount || 0)}
+                            Interest Collected: ₹{formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount || 0)}
                           </p>
                           {/* Receipt Button - Only show in mirror loan EMI schedule */}
                           {showReceiptButton && (
