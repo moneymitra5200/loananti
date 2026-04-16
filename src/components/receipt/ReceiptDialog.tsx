@@ -51,12 +51,12 @@ export default function ReceiptDialog({ open, onOpenChange, receiptData }: Recei
     try {
       const html2pdf = (await import('html2pdf.js')).default;
       const opt = {
-        margin: 0,
+        margin: [2, 2, 2, 2] as [number, number, number, number],
         filename: `Receipt_${receiptData.receiptNo.replace(/\//g, '-')}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+        image: { type: 'jpeg' as const, quality: 0.99 },
+        html2canvas: { scale: 2, useCORS: true, letterRendering: true, scrollY: 0 },
         jsPDF: { unit: 'mm' as const, format: 'a5' as const, orientation: 'portrait' as const },
-        pagebreak: { mode: 'avoid-all' },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] },
       };
       await html2pdf().set(opt).from(receiptRef.current).save();
     } catch (error) {
@@ -116,7 +116,7 @@ export default function ReceiptDialog({ open, onOpenChange, receiptData }: Recei
 
         {/* Scrollable receipt area */}
         <div className="flex-1 overflow-auto bg-gray-100 p-6 flex justify-center">
-          <div className="bg-white shadow-xl" style={{ width: '148mm', minHeight: '210mm' }}>
+          <div className="bg-white shadow-xl" style={{ width: '148mm' }}>
             <EMIReceipt
               ref={receiptRef}
               receiptNo={receiptData.receiptNo}
@@ -151,7 +151,7 @@ export default function ReceiptDialog({ open, onOpenChange, receiptData }: Recei
 
         {/* Footer hint */}
         <div className="text-center text-xs text-gray-400 py-2 border-t bg-white flex-shrink-0">
-          Scroll up to see full receipt · Download PDF for a clean single-page file
+          Click Download PDF for a clean single-page A5 receipt
         </div>
       </DialogContent>
     </Dialog>

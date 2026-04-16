@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       // Close mirror too
       await closeMirrorLoan();
 
-      // Irrecoverable Debts journal entry
+      // Irrecoverable Debt journal entry
       if (effectiveCompanyId && totalWriteOff > 0) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
@@ -230,13 +230,13 @@ export async function POST(request: NextRequest) {
             referenceId:   `${loanId}-LOSS-WRITEOFF`,
             narration:     `Loan ${loan.loanNumber} written off (${remarks || 'irrecoverable loss'}) P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${totalRemainingInterest.toFixed(2)}`,
             lines: [
-              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, loanId, narration: 'Write-off to Irrecoverable Debts (P+I)' },
+              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, loanId, narration: 'Write-off to Irrecoverable Debt (P+I)' },
               { accountCode: '1200', debitAmount: 0, creditAmount: totalWriteOff, loanId, narration: `Loan ${loan.loanNumber} removed from Loans Receivable` },
             ],
             createdById: userId,
             isAutoEntry: true,
           });
-          console.log(`[Close/Loss] ✅ Write-off journal: ₹${totalWriteOff} → Irrecoverable Debts (5500)`);
+          console.log(`[Close/Loss] ✅ Write-off journal: ₹${totalWriteOff} → Irrecoverable Debt (5500)`);
         } catch (e: any) {
           const msg = `Write-off journal failed: ${e?.message}`;
           accountingWarnings.push(msg);

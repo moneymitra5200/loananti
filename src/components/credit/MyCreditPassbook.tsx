@@ -563,6 +563,61 @@ export default function MyCreditPassbook() {
         </motion.div>
       </div>
 
+      {/* Company-wise Credit Breakdown */}
+      {transactions.length > 0 && (() => {
+        // Compute company-wise breakdown from EMI_PAYMENT credit transactions
+        const companyMap = new Map<string, { name: string; personal: number; company: number }>();
+        for (const tx of transactions) {
+          if (tx.sourceType !== 'EMI_PAYMENT') continue;
+          if (!['CREDIT_INCREASE', 'PERSONAL_COLLECTION'].includes(tx.transactionType)) continue;
+          const companyKey = tx.loanApplicationNo
+            ? tx.loanApplicationNo.split('-').slice(0, 2).join('-')
+            : 'Unknown';
+          if (!companyMap.has(companyKey)) {
+            companyMap.set(companyKey, { name: companyKey, personal: 0, company: 0 });
+          }
+          const entry = companyMap.get(companyKey)!;
+          if (tx.creditType === 'PERSONAL') entry.personal += tx.amount;
+          else entry.company += tx.amount;
+        }
+        const companies = [...companyMap.values()]
+          .map(c => ({ ...c, total: c.personal + c.company }))
+          .sort((a, b) => b.total - a.total);
+        if (companies.length === 0) return null;
+        return (
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-blue-600" />
+                Credit by Company
+              </CardTitle>
+              <CardDescription className="text-xs">Your credit balance contributed from each company's EMI collections</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="space-y-2">
+                {companies.map(c => (
+                  <div key={c.name} className="rounded-lg border p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs">
+                          {c.name.charAt(0)}
+                        </div>
+                        <span className="text-sm font-medium text-gray-700">{c.name}</span>
+                      </div>
+                      <span className="font-bold text-gray-900">{formatCurrency(c.total)}</span>
+                    </div>
+                    <div className="flex gap-3 text-xs pl-9">
+                      <span className="text-emerald-600">Company: {formatCurrency(c.company)}</span>
+                      <span className="text-amber-600">Personal: {formatCurrency(c.personal)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Today's Summary */}
       {summary && (
         <Card className="bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200">

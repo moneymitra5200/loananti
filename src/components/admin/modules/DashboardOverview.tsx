@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Eye, CheckCircle, XCircle, Clock, Users, Banknote, TrendingUp, AlertTriangle, DollarSign, FileText, Percent } from 'lucide-react';
 import { motion } from 'framer-motion';
+import TodayCollectionCard from './TodayCollectionCard';
 
 interface Loan {
   id: string; applicationNo: string; status: string; requestedAmount: number; loanType: string;
@@ -251,6 +252,10 @@ function DashboardOverview({ loans, users, companies, offlineLoans = [], onViewL
           )}
         </CardContent>
       </Card>
+      {/* Today's Collection Card — company-wise + collector role */}
+      <div className="grid grid-cols-1">
+        <TodayCollectionCard />
+      </div>
     </div>
   );
 }

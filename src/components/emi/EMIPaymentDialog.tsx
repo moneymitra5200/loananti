@@ -292,7 +292,7 @@ export default function EMIPaymentDialog({
         return {
           amount: remainingPrincipal,    // Only principal collected
           principal: remainingPrincipal,
-          interest: 0,                   // Interest is written off (Irrecoverable Debts)
+          interest: 0,                   // Interest is written off (Irrecoverable Debt)
           description: `Principal Only — Interest ₹${remainingInterest.toFixed(2)} written off`,
           remainingAfter: 0,
           isAdvance: false

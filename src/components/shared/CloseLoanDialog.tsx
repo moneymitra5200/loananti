@@ -321,7 +321,7 @@ export default function CloseLoanDialog({
                   </div>
                 </div>
                 <p className="text-xs text-red-500 mt-2">
-                  Entire balance (P + I) recorded as "Irrecoverable Debts" in P&amp;L. No cash collected.
+                  Entire balance (P + I) recorded as "Irrecoverable Debt" in P&amp;L. No cash collected.
                   Loan closed immediately.
                 </p>
               </div>

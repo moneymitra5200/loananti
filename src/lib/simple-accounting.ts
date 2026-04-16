@@ -774,12 +774,12 @@ export async function recordMirrorInterestIncome(params: {
  * raw Prisma calls — NO AccountingService cache involved.
  *
  * This avoids the common silent-failure where AccountingService.initializedCompanies
- * was stale and account 5500 (Irrecoverable Debts) was not found in cache.
+ * was stale and account 5500 (Irrecoverable Debt) was not found in cache.
  *
  * Journal (all entries APPROVED):
  *   Dr  Cash / Bank (1101 / 1102)   = principalAmount     ← money received
  *   Cr  Loans Receivable (1200)     = principalAmount     ← loan balance reduced
- *   Dr  Irrecoverable Debts (5500)  = interestWrittenOff  ← interest lost (if > 0)
+ *   Dr  Irrecoverable Debt (5500)  = interestWrittenOff  ← interest lost (if > 0)
  *   Cr  Interest Income (4110)      = interestWrittenOff  ← recognised then written off (if > 0)
  *
  * Works for: offline loans, online loans, single loans, mirror loans.
@@ -817,7 +817,7 @@ export async function recordPrincipalOnlyJournal(params: {
       { code: cashBankCode, name: cashBankName,         type: 'ASSET'   },
       { code: '1200',       name: 'Loans Receivable',   type: 'ASSET'   },
       ...(interestWrittenOff > 0 ? [
-        { code: '5500', name: 'Irrecoverable Debts', type: 'EXPENSE' as const },
+        { code: '5500', name: 'Irrecoverable Debt', type: 'EXPENSE' as const },
         { code: '4110', name: 'Interest Income',     type: 'INCOME'  as const },
       ] : []),
     ];

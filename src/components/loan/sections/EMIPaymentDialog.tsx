@@ -180,7 +180,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                   <Percent className="h-4 w-4 mb-1" />
                   <span className="text-xs">Interest Only</span>
                 </Button>
-                {/* Principal Only — interest is written off as Irrecoverable Debts */}
+                {/* Principal Only — interest is written off as Irrecoverable Debt */}
                 <Button
                   type="button"
                   variant={emiPaymentForm.paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
@@ -253,7 +253,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                 Collecting only the principal: <strong>₹{formatCurrency(remainingPrincipal)}</strong>.
               </p>
               <p className="text-xs text-red-600 mt-1">
-                Interest of <strong>₹{formatCurrency(remainingInterest)}</strong> will be written off as <em>Irrecoverable Debts</em> in the company books.
+                Interest of <strong>₹{formatCurrency(remainingInterest)}</strong> will be written off as <em>Irrecoverable Debt</em> in the company books.
               </p>
               {hasMirrorLoan && mirrorCompany && (
                 <p className="text-xs text-amber-700 mt-2 bg-amber-50 border border-amber-200 rounded p-2">

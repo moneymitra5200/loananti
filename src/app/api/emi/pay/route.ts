@@ -1361,7 +1361,7 @@ export async function POST(request: NextRequest) {
             referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
         }
 
-        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debts → Cr Interest Income
+        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debt → Cr Interest Income
         // Uses cache-free direct approach — no AccountingService stale-cache issues
         const { recordPrincipalOnlyJournal: poPrincipalJournal } = await import('@/lib/simple-accounting');
         const poJournalResult = await poPrincipalJournal({
@@ -1380,7 +1380,7 @@ export async function POST(request: NextRequest) {
           onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
           console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${targetCompanyId}):`, poJournalResult.error);
         } else {
-          console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts (${targetCompanyId})`);
+          console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${targetCompanyId})`);
         }
 
         // Mirror loan: also write off interest in mirror company (cache-free)
@@ -1401,7 +1401,7 @@ export async function POST(request: NextRequest) {
             onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
             console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌`, mirrorPoResult.error);
           } else {
-            console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ I:₹${mirrorInterestForAccounting} → Irrecoverable Debts (${mirrorMappingForAccounting.mirrorCompanyId})`);
+            console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ I:₹${mirrorInterestForAccounting} → Irrecoverable Debt (${mirrorMappingForAccounting.mirrorCompanyId})`);
           }
         }
 

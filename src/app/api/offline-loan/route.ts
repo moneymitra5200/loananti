@@ -2994,7 +2994,7 @@ export async function PUT(request: NextRequest) {
                 accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
                 console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
               } else {
-                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect}, I:₹${interestToWriteOff}→Irrecoverable Debts`);
+                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect}, I:₹${interestToWriteOff}→Irrecoverable Debt`);
               }
             }
             // Mirror PRINCIPAL_ONLY: write off interest in mirror company (cache-free)
@@ -3016,7 +3016,7 @@ export async function PUT(request: NextRequest) {
                 accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
                 console.error(`[Accounting] MIRROR PRINCIPAL_ONLY ❌:`, mirrorJournalResult.error);
               } else {
-                console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: I:₹${mirrorInterestAmount}→Irrecoverable Debts (${mirrorLoanMapping.mirrorCompanyId})`);
+                console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: I:₹${mirrorInterestAmount}→Irrecoverable Debt (${mirrorLoanMapping.mirrorCompanyId})`);
               }
             }
             console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);

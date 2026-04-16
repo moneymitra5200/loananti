@@ -82,7 +82,8 @@ export async function GET(request: NextRequest) {
         receiptNo: receiptNo,
         date: offlineEmi.paidDate?.toISOString() || new Date().toISOString(),
         customerName: loan.customerName || '',
-        fatherName: '', // Offline loans don't have father name
+        // Use reference1Name as father/husband name if available (common convention for offline loans)
+        fatherName: (loan as any).reference1Name || '',
         phone: loan.customerPhone || '',
         address: loan.customerAddress || '',
         loanAccountNo: loan.loanNumber || '',

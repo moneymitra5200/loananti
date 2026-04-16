@@ -197,7 +197,7 @@ export const PERMANENT_CHART_OF_ACCOUNTS: PermanentAccount[] = [
   },
   {
     accountCode: '5500',
-    accountName: 'Irrecoverable Debts',
+    accountName: 'Irrecoverable Debt',
     accountType: AccountType.EXPENSE,
     isSystemAccount: true,
     description: 'Interest written off when only principal is collected (Principal-Only payments)'

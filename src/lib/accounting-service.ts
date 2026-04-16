@@ -100,7 +100,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
     { code: '5302', name: 'Depreciation - Equipment', type: 'EXPENSE', isSystemAccount: false, description: 'Equipment depreciation' },
     { code: '5400', name: 'Miscellaneous Expense', type: 'EXPENSE', isSystemAccount: false, description: 'Other expenses' },
     // Bad Debt / Write-offs (5500-5599)
-    { code: '5500', name: 'Irrecoverable Debts', type: 'EXPENSE', isSystemAccount: true, description: 'Interest written off when only principal is collected (Principal-Only payment)' },
+    { code: '5500', name: 'Irrecoverable Debt', type: 'EXPENSE', isSystemAccount: true, description: 'Interest written off when only principal is collected (Principal-Only payment)' },
   ],
 };
 
@@ -832,7 +832,7 @@ export class AccountingService {
    * Journal Entry (balanced):
    *   Dr  Cash/Bank (1101/1102)        = principalAmount   ← money received
    *   Cr  Loans Receivable (1200)      = principalAmount   ← loan cleared
-   *   Dr  Irrecoverable Debts (5500)   = interestAmount    ← interest lost (expense)
+   *   Dr  Irrecoverable Debt (5500)   = interestAmount    ← interest lost (expense)
    *   Cr  Interest Income (4110)       = interestAmount    ← interest recognised then written off
    *
    * Net effect: Cash up by principal, loan down by principal, net P&L impact = -(interestAmount)
@@ -872,7 +872,7 @@ export class AccountingService {
     // If interest is being written off, create the write-off entry
     if (params.interestWrittenOff > 0) {
       lines.push(
-        // Dr Irrecoverable Debts — interest recognised as a loss
+        // Dr Irrecoverable Debt — interest recognised as a loss
         { accountCode: ACCOUNT_CODES.IRRECOVERABLE_DEBTS, debitAmount: params.interestWrittenOff,    creditAmount: 0,                          loanId: params.loanId, customerId: params.customerId, narration: 'Interest written off as irrecoverable debt' },
         // Cr Interest Income — income entry to balance the write-off
         { accountCode: ACCOUNT_CODES.INTEREST_INCOME,     debitAmount: 0,                            creditAmount: params.interestWrittenOff,   loanId: params.loanId, customerId: params.customerId, narration: 'Interest income (waived — written off)' }

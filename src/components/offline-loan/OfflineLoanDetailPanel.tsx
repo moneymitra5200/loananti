@@ -1739,7 +1739,8 @@ export default function OfflineLoanDetailPanel({
                       )}
                     </TabsContent>
 
-                    {/* Receipt Tab */}
+                    {/* Receipt Tab — mirror loans only (original loan receipts go to mirror's tab) */}
+                    {loan.isMirrorLoan && (
                     <TabsContent value="receipt" className="m-0">
                       <ReceiptSection
                         loanDetails={{
@@ -1775,7 +1776,8 @@ export default function OfflineLoanDetailPanel({
                           paymentRef: e.paymentReference
                         }))}
                       />
-                    </TabsContent>
+                     </TabsContent>
+                    )} {/* end loan.isMirrorLoan receipt guard */}
 
                     {/* History Tab */}
                     <TabsContent value="history" className="m-0">
