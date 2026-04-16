@@ -1359,23 +1359,31 @@ export async function POST(request: NextRequest) {
             referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
         }
 
-        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debts → Cr Interest Receivable
+        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debts → Cr Interest Income
         const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
+        // Clear static cache so initializeChartOfAccounts always runs fully
+        // ensuring system account 5500 (Irrecoverable Debts) exists in this company.
+        (PoAccSvc as any).initializedCompanies?.delete(targetCompanyId);
         const poSvc = new PoAccSvc(targetCompanyId);
         await poSvc.initializeChartOfAccounts();
-        await poSvc.recordPrincipalOnlyPayment({
-          loanId,
-          customerId: emi.loanApplication?.customerId || '',
-          paymentId: payment.id,
-          principalAmount:    paidPrincipal,
-          interestWrittenOff: remainingInterest,
-          paymentDate:        new Date(),
-          createdById:        paidBy || 'SYSTEM',
-          paymentMode:        paymentMode as string,
-          loanNumber:         emi.loanApplication?.applicationNo,
-          installmentNumber:  emi.installmentNumber,
-        });
-        console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts (${targetCompanyId})`);
+        try {
+          await poSvc.recordPrincipalOnlyPayment({
+            loanId,
+            customerId: emi.loanApplication?.customerId || '',
+            paymentId: payment.id,
+            principalAmount:    paidPrincipal,
+            interestWrittenOff: remainingInterest,
+            paymentDate:        new Date(),
+            createdById:        paidBy || 'SYSTEM',
+            paymentMode:        paymentMode as string,
+            loanNumber:         emi.loanApplication?.applicationNo,
+            installmentNumber:  emi.installmentNumber,
+          });
+          console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts (${targetCompanyId})`);
+        } catch (journalErr: any) {
+          console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal (Irrecoverable Debts) FAILED:`, journalErr?.message || journalErr);
+          console.error(`  targetCompanyId=${targetCompanyId}, paidPrincipal=${paidPrincipal}, remainingInterest=${remainingInterest}`);
+        }
 
         // If mirror loan: also write off interest as loss in mirror company
         if (isMirrorPayment && mirrorMappingForAccounting?.mirrorCompanyId && (mirrorInterestForAccounting ?? 0) > 0) {

@@ -2959,20 +2959,31 @@ export async function PUT(request: NextRequest) {
               }
               // Journal entry with Irrecoverable Debts write-off
               const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
+              // Clear the process-wide static cache for this company so initializeChartOfAccounts
+              // always runs fully — ensuring new system accounts (5500 Irrecoverable Debts)
+              // are created even in long-running server processes.
+              (PoAccSvc as any).initializedCompanies?.delete(targetCompanyId);
               const poSvc = new PoAccSvc(targetCompanyId);
               await poSvc.initializeChartOfAccounts();
-              await poSvc.recordPrincipalOnlyPayment({
-                loanId: emi.offlineLoanId,
-                customerId: emi.offlineLoan.customerId || '',
-                paymentId: updatedEmi.id,
-                principalAmount:    principalToCollect,
-                interestWrittenOff: interestToWriteOff,
-                paymentDate:        new Date(),
-                createdById:        userId,
-                paymentMode:        effectivePaymentMode || 'CASH',
-                loanNumber:         emi.offlineLoan.loanNumber,
-                installmentNumber:  emi.installmentNumber,
-              });
+              try {
+                await poSvc.recordPrincipalOnlyPayment({
+                  loanId: emi.offlineLoanId,
+                  customerId: emi.offlineLoan.customerId || '',
+                  paymentId: updatedEmi.id,
+                  principalAmount:    principalToCollect,
+                  interestWrittenOff: interestToWriteOff,
+                  paymentDate:        new Date(),
+                  createdById:        userId,
+                  paymentMode:        effectivePaymentMode || 'CASH',
+                  loanNumber:         emi.offlineLoan.loanNumber,
+                  installmentNumber:  emi.installmentNumber,
+                });
+                console.log(`[Principal-Only] ✅ Journal entry created — P:₹${principalToCollect} Dr Cash, Cr LoansReceivable; I:₹${interestToWriteOff} Dr IrrecoverableDebts, Cr InterestIncome`);
+              } catch (journalErr: any) {
+                console.error(`[Principal-Only] ❌ Journal (Irrecoverable Debts) FAILED:`, journalErr?.message || journalErr);
+                console.error(`  targetCompanyId=${targetCompanyId}, principalToCollect=${principalToCollect}, interestToWriteOff=${interestToWriteOff}`);
+                // Cashbook entry is already recorded. Journal will be missing — log for manual fix.
+              }
             }
             // If mirror loan: also write off interest as loss in mirror company
             if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId && mirrorInterestAmount > 0) {

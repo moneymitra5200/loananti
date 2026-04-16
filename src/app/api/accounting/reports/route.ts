@@ -89,34 +89,67 @@ async function getTrialBalance(companyId: string | null) {
 }
 
 // Profit & Loss Statement
+// Reads from approved journal lines for accuracy (not from stale currentBalance).
 async function getProfitAndLoss(companyId: string | null, startDate?: string | null, endDate?: string | null) {
   const where = companyId ? { companyId, isActive: true } : { isActive: true };
-  
-  // Get income accounts
-  const incomeAccounts = await db.chartOfAccount.findMany({
-    where: { ...where, accountType: 'INCOME' },
-    orderBy: { accountCode: 'asc' },
+
+  // Build journal date filter
+  const journalDateFilter: Record<string, unknown> = {};
+  if (startDate) journalDateFilter.gte = new Date(startDate);
+  if (endDate) {
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+    journalDateFilter.lte = end;
+  }
+  const journalEntryWhere: Record<string, unknown> = { isApproved: true, isReversed: false };
+  if (companyId) journalEntryWhere.companyId = companyId;
+  if (Object.keys(journalDateFilter).length > 0) journalEntryWhere.entryDate = journalDateFilter;
+
+  // Fetch income and expense accounts WITH their approved journal lines
+  const [incomeAccounts, expenseAccounts] = await Promise.all([
+    db.chartOfAccount.findMany({
+      where: { ...where, accountType: 'INCOME' },
+      orderBy: { accountCode: 'asc' },
+      include: {
+        journalLines: {
+          where: { journalEntry: journalEntryWhere },
+          select: { debitAmount: true, creditAmount: true },
+        },
+      },
+    }),
+    db.chartOfAccount.findMany({
+      where: { ...where, accountType: 'EXPENSE' },
+      orderBy: { accountCode: 'asc' },
+      include: {
+        journalLines: {
+          where: { journalEntry: journalEntryWhere },
+          select: { debitAmount: true, creditAmount: true },
+        },
+      },
+    }),
+  ]);
+
+  // Income: net credits on INCOME accounts = income earned in the period
+  const income = (incomeAccounts as any[]).map(account => {
+    const totalCredit = account.journalLines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
+    const totalDebit  = account.journalLines.reduce((s: number, l: any) => s + (l.debitAmount  || 0), 0);
+    const journalAmt  = totalCredit - totalDebit;
+    // If no date filter: fall back to currentBalance so existing data is preserved
+    const amount = journalAmt !== 0 ? journalAmt : (startDate ? 0 : (account.currentBalance || 0));
+    return { accountCode: account.accountCode, accountName: account.accountName, amount };
   });
 
-  // Get expense accounts
-  const expenseAccounts = await db.chartOfAccount.findMany({
-    where: { ...where, accountType: 'EXPENSE' },
-    orderBy: { accountCode: 'asc' },
+  // Expenses: net debits on EXPENSE accounts = expenses incurred in the period
+  const expenses = (expenseAccounts as any[]).map(account => {
+    const totalDebit  = account.journalLines.reduce((s: number, l: any) => s + (l.debitAmount  || 0), 0);
+    const totalCredit = account.journalLines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
+    const journalAmt  = totalDebit - totalCredit;
+    // If no date filter: fall back to currentBalance
+    const amount = journalAmt !== 0 ? journalAmt : (startDate ? 0 : (account.currentBalance || 0));
+    return { accountCode: account.accountCode, accountName: account.accountName, amount };
   });
 
-  const income = incomeAccounts.map(account => ({
-    accountCode: account.accountCode,
-    accountName: account.accountName,
-    amount: account.currentBalance,
-  }));
-
-  const expenses = expenseAccounts.map(account => ({
-    accountCode: account.accountCode,
-    accountName: account.accountName,
-    amount: account.currentBalance,
-  }));
-
-  const totalIncome = income.reduce((sum, acc) => sum + acc.amount, 0);
+  const totalIncome   = income.reduce((sum, acc) => sum + acc.amount, 0);
   const totalExpenses = expenses.reduce((sum, acc) => sum + acc.amount, 0);
 
   return NextResponse.json({
@@ -125,12 +158,10 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
     totalIncome,
     totalExpenses,
     netProfit: totalIncome - totalExpenses,
-    period: {
-      startDate: startDate || null,
-      endDate: endDate || null,
-    },
+    period: { startDate: startDate || null, endDate: endDate || null },
   });
 }
+
 
 // Balance Sheet
 async function getBalanceSheet(companyId: string | null) {
