@@ -31,6 +31,7 @@ import ManualJournalEntryDialog from '@/components/accounting/ManualJournalEntry
 import ExpenseRequestPanel from '@/components/expense/ExpenseRequestPanel';
 import NewDayBookSection from '@/components/accountant/modules/DayBookSection';
 import LedgerSection from '@/components/accountant/modules/LedgerSection';
+import TradDayBookSection from '@/components/accountant/modules/TradDayBookSection';
 import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
 
 // ============================================
@@ -2495,8 +2496,9 @@ export default function UnifiedAccountantDashboard() {
   }, [selectedCompanyId]);
 
   // Menu Items based on company type
-  const menuItems = companyType === 'COMPANY_3' 
+  const menuItems = companyType === 'COMPANY_3'
     ? [
+        { id: 'journal-entry', label: 'Journal Entry', icon: BookCheck },
         { id: 'day-book', label: 'Day Book', icon: BookOpen },
         { id: 'ledger', label: 'Ledger', icon: BookCopy },
         { id: 'cash-book', label: 'Cash Book', icon: Wallet },
@@ -2505,6 +2507,7 @@ export default function UnifiedAccountantDashboard() {
         { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
       ]
     : [
+        { id: 'journal-entry', label: 'Journal Entry', icon: BookCheck },
         { id: 'day-book', label: 'Day Book', icon: BookOpen },
         { id: 'ledger', label: 'Ledger', icon: BookCopy },
         { id: 'bank', label: 'Bank', icon: Landmark },
@@ -2535,9 +2538,7 @@ export default function UnifiedAccountantDashboard() {
   // Render Section
   const renderSection = () => {
     switch (activeSection) {
-      case 'ledger':
-        return <LedgerSection selectedCompanyId={selectedCompanyId} />;
-      case 'day-book':
+      case 'journal-entry':
         return (
           <DayBookSection
             selectedCompanyId={selectedCompanyId}
@@ -2545,6 +2546,10 @@ export default function UnifiedAccountantDashboard() {
             formatDateShort={formatDateShort}
           />
         );
+      case 'day-book':
+        return <TradDayBookSection selectedCompanyId={selectedCompanyId} />;
+      case 'ledger':
+        return <LedgerSection selectedCompanyId={selectedCompanyId} />;
       case 'cash-book':
         return (
           <CashBookSection
