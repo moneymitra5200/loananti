@@ -1368,8 +1368,8 @@ export async function POST(request: NextRequest) {
           companyId:          targetCompanyId,
           loanId,
           paymentId:          payment.id,
-          principalAmount:    paidPrincipal,
-          interestWrittenOff: remainingInterest,
+          principalAmount:    isMirrorPayment ? (mirrorPrincipalForAccounting ?? paidPrincipal) : paidPrincipal,
+          interestWrittenOff: isMirrorPayment ? (mirrorInterestForAccounting ?? remainingInterest) : remainingInterest,
           paymentDate:        new Date(),
           createdById:        paidBy || 'SYSTEM',
           paymentMode:        paymentMode as string,
@@ -1383,25 +1383,27 @@ export async function POST(request: NextRequest) {
           console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${targetCompanyId})`);
         }
 
-        // Mirror loan: also write off interest in mirror company (cache-free)
-        if (isMirrorPayment && mirrorMappingForAccounting?.mirrorCompanyId && (mirrorInterestForAccounting ?? 0) > 0) {
-          const mirrorPoResult = await poPrincipalJournal({
-            companyId:          mirrorMappingForAccounting.mirrorCompanyId,
-            loanId:             mirrorMappingForAccounting.mirrorLoanId || loanId,
-            paymentId:          `${payment.id}-MIRROR`,
-            principalAmount:    mirrorPrincipalForAccounting ?? 0,
-            interestWrittenOff: mirrorInterestForAccounting ?? 0,
+        // Original company interest write-off for MIRROR loans
+        // First block already handled the MIRROR company (cash + journal).
+        // Now write off the ORIGINAL company's interest in its books too (journal only — no cash entry).
+        if (isMirrorPayment && loanCompanyId && paidPrincipal > 0) {
+          const origPoResult = await poPrincipalJournal({
+            companyId:          loanCompanyId,           // ← ORIGINAL company, not mirror again
+            loanId,
+            paymentId:          `${payment.id}-ORIG-PO`,
+            principalAmount:    paidPrincipal,
+            interestWrittenOff: remainingInterest,
             paymentDate:        new Date(),
             createdById:        paidBy || 'SYSTEM',
             paymentMode:        paymentMode as string,
             loanNumber:         emi.loanApplication?.applicationNo || loanId,
             installmentNumber:  emi.installmentNumber,
           });
-          if (!mirrorPoResult.success) {
-            onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
-            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌`, mirrorPoResult.error);
+          if (!origPoResult.success) {
+            onlineAccountingWarnings.push(`ORIGINAL PRINCIPAL_ONLY journal: ${origPoResult.error}`);
+            console.error(`[Accounting] ORIGINAL PRINCIPAL_ONLY: ❌`, origPoResult.error);
           } else {
-            console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ I:₹${mirrorInterestForAccounting} → Irrecoverable Debt (${mirrorMappingForAccounting.mirrorCompanyId})`);
+            console.log(`[Accounting] ORIGINAL PRINCIPAL_ONLY: ✅ Interest write-off recorded in original company (${loanCompanyId})`);
           }
         }
 
