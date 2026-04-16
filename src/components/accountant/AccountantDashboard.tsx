@@ -29,6 +29,9 @@ import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from
 import { motion, AnimatePresence } from 'framer-motion';
 import ManualJournalEntryDialog from '@/components/accounting/ManualJournalEntryDialog';
 import ExpenseRequestPanel from '@/components/expense/ExpenseRequestPanel';
+import NewDayBookSection from '@/components/accountant/modules/DayBookSection';
+import LedgerSection from '@/components/accountant/modules/LedgerSection';
+import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
 
 // ============================================
 // TYPES
@@ -168,7 +171,7 @@ const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_
 // SECTION COMPONENTS
 // ============================================
 
-// Day Book Section - Shows ALL transactions A-Z
+// Day Book Section - Delegates to new journal-voucher DayBook
 function DayBookSection({
   selectedCompanyId,
   formatCurrency,
@@ -178,257 +181,8 @@ function DayBookSection({
   formatCurrency: (amount: number) => string;
   formatDateShort: (date: Date | string) => string;
 }) {
-  const [entries, setEntries] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [openingBalance, setOpeningBalance] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const DAYS_PER_PAGE = 7;
-
-  const loadEntries = useCallback(async () => {
-    if (!selectedCompanyId) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/accounting/daybook?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}`);
-      const data = await res.json();
-      setEntries(data.entries || []);
-      setOpeningBalance(data.openingBalance || 0);
-    } catch (error) {
-      console.error('Error loading daybook:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCompanyId, startDate, endDate]);
-
-  useEffect(() => { loadEntries(); }, [loadEntries]);
-  useEffect(() => { setCurrentPage(1); }, [startDate, endDate, selectedCompanyId]);
-
-  // Filter by search
-  const filteredEntries = entries.filter(e =>
-    !searchTerm ||
-    e.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    e.referenceType?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Group by date
-  const groupedByDay = filteredEntries.reduce((acc, entry) => {
-    const day = format(new Date(entry.entryDate || entry.transactionDate || entry.createdAt), 'yyyy-MM-dd');
-    if (!acc[day]) acc[day] = [];
-    acc[day].push(entry);
-    return acc;
-  }, {} as Record<string, any[]>);
-
-  const sortedDays = Object.keys(groupedByDay).sort((a, b) => a.localeCompare(b));
-
-  // Build running balance across all days
-  let runningBalance = openingBalance;
-  const dayBalances: Record<string, { open: number; close: number; rows: any[] }> = {};
-  for (const day of sortedDays) {
-    const dayOpen = runningBalance;
-    const rows = groupedByDay[day].map((entry: any) => {
-      const credit = entry.entryType === 'CREDIT' ? (entry.amount || 0) : (entry.transactionType === 'CREDIT' ? (entry.amount || 0) : 0);
-      const debit  = entry.entryType === 'DEBIT'  ? (entry.amount || 0) : (entry.transactionType === 'DEBIT'  ? (entry.amount || 0) : 0);
-      runningBalance = runningBalance + credit - debit;
-      return { ...entry, credit, debit, balanceAfter: runningBalance };
-    });
-    dayBalances[day] = { open: dayOpen, close: runningBalance, rows };
-  }
-
-  // Pagination by days
-  const totalPages = Math.ceil(sortedDays.length / DAYS_PER_PAGE);
-  const pagedDays = sortedDays.slice((currentPage - 1) * DAYS_PER_PAGE, currentPage * DAYS_PER_PAGE);
-
-  // Summary
-  const totalCredit = filteredEntries.reduce((s, e) => s + (e.entryType === 'CREDIT' || e.transactionType === 'CREDIT' ? (e.amount || 0) : 0), 0);
-  const totalDebit  = filteredEntries.reduce((s, e) => s + (e.entryType === 'DEBIT'  || e.transactionType === 'DEBIT'  ? (e.amount || 0) : 0), 0);
-  const closingBalance = openingBalance + totalCredit - totalDebit;
-
-  const getTypeLabel = (type: string) => ({
-    'EMI_PAYMENT': 'EMI', 'LOAN_DISBURSEMENT': 'Disbursement', 'PROCESSING_FEE': 'Proc. Fee',
-    'OPENING_BALANCE': 'Opening Bal', 'MANUAL_ENTRY': 'Manual', 'MIRROR_EMI_PAYMENT': 'Mirror EMI',
-    'EXPENSE': 'Expense', 'PENALTY_INCOME': 'Penalty', 'MIRROR_INTEREST_INCOME': 'Mirror Int.',
-  }[type] || type?.replace(/_/g, ' ') || 'â€”');
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <BookOpen className="h-5 w-5" />
-          Day Book â€” Passbook View
-        </h2>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Search..." className="w-44 pl-9 h-9" />
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">From:</span>
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-36 h-9" />
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">To:</span>
-            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-36 h-9" />
-          </div>
-          <Button variant="outline" size="sm" className="h-9" onClick={loadEntries}>
-            <RefreshCw className="h-4 w-4 mr-1" />Refresh
-          </Button>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="bg-gray-50 border-gray-200">
-          <CardContent className="p-4">
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Opening Balance</p>
-            <p className="text-lg font-bold text-gray-700">{formatCurrency(openingBalance)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-green-50 border-green-200">
-          <CardContent className="p-4">
-            <p className="text-xs text-green-600 font-medium uppercase tracking-wide">Total Credit (In)</p>
-            <p className="text-lg font-bold text-green-700">+{formatCurrency(totalCredit)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-red-50 border-red-200">
-          <CardContent className="p-4">
-            <p className="text-xs text-red-600 font-medium uppercase tracking-wide">Total Debit (Out)</p>
-            <p className="text-lg font-bold text-red-700">-{formatCurrency(totalDebit)}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-blue-50 border-blue-200">
-          <CardContent className="p-4">
-            <p className="text-xs text-blue-600 font-medium uppercase tracking-wide">Closing Balance</p>
-            <p className={`text-lg font-bold ${closingBalance < 0 ? 'text-red-700' : 'text-blue-700'}`}>{formatCurrency(closingBalance)}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Passbook Table */}
-      <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          {loading ? (
-            <div className="py-16 text-center">
-              <Loader2 className="h-7 w-7 animate-spin mx-auto text-emerald-500 mb-2" />
-              <p className="text-sm text-gray-400">Loading passbook...</p>
-            </div>
-          ) : pagedDays.length === 0 ? (
-            <div className="py-16 text-center text-gray-400">
-              <BookOpen className="h-10 w-10 mx-auto mb-2 opacity-30" />
-              <p>No transactions in this period</p>
-            </div>
-          ) : (
-            <div>
-              {pagedDays.map(day => {
-                const { open, close, rows } = dayBalances[day];
-                const dayLabel = format(new Date(day), 'EEEE, dd MMMM yyyy');
-                const dayCredit = rows.reduce((s, r) => s + r.credit, 0);
-                const dayDebit  = rows.reduce((s, r) => s + r.debit,  0);
-                return (
-                  <div key={day} className="border-b border-gray-100 last:border-b-0">
-                    {/* Day Header - Opening Balance */}
-                    <div className="bg-gradient-to-r from-slate-700 to-slate-600 text-white px-4 py-2 flex items-center justify-between">
-                      <span className="font-semibold text-sm">{dayLabel}</span>
-                      <span className="text-xs bg-white/20 rounded px-2 py-0.5">
-                        Opening: <span className="font-bold">{formatCurrency(open)}</span>
-                      </span>
-                    </div>
-
-                    {/* Table */}
-                    <table className="passbook-table w-full">
-                      <thead>
-                        <tr className="bg-gray-50 border-b border-gray-200">
-                          <th className="text-left text-gray-500 w-24">Time</th>
-                          <th className="text-left text-gray-500">Description</th>
-                          <th className="text-center text-gray-500 w-20">Type</th>
-                          <th className="text-right text-green-700 w-28">Credit (IN)</th>
-                          <th className="text-right text-red-700 w-28">Debit (OUT)</th>
-                          <th className="text-right text-blue-700 w-32">Balance</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((row: any, idx: number) => (
-                          <tr key={row.id || idx} className={`border-b border-dashed border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-blue-50/30 transition-colors`}>
-                            <td className="text-gray-400 font-mono text-xs">
-                              {format(new Date(row.entryDate || row.transactionDate || row.createdAt), 'HH:mm')}
-                            </td>
-                            <td>
-                              <p className="text-sm font-medium text-gray-800 truncate max-w-xs">{row.description || row.narration || 'â€”'}</p>
-                              {row.referenceType && (
-                                <span className="text-xs text-gray-400">{getTypeLabel(row.referenceType)}</span>
-                              )}
-                            </td>
-                            <td className="text-center">
-                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                                (row.entryType === 'CREDIT' || row.transactionType === 'CREDIT')
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-red-100 text-red-700'
-                              }`}>
-                                {row.entryType || row.transactionType || 'â€”'}
-                              </span>
-                            </td>
-                            <td className="text-right">
-                              {row.credit > 0
-                                ? <span className="font-semibold text-green-600">+{formatCurrency(row.credit)}</span>
-                                : <span className="text-gray-300">â€”</span>}
-                            </td>
-                            <td className="text-right">
-                              {row.debit > 0
-                                ? <span className="font-semibold text-red-600">-{formatCurrency(row.debit)}</span>
-                                : <span className="text-gray-300">â€”</span>}
-                            </td>
-                            <td className={`text-right font-bold ${row.balanceAfter < 0 ? 'text-red-700' : 'text-blue-700'}`}>
-                              {formatCurrency(row.balanceAfter)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-
-                    {/* Day Footer - Closing Balance */}
-                    <div className="bg-blue-50 border-t border-blue-100 px-4 py-2 flex items-center justify-between">
-                      <div className="flex gap-4 text-xs text-gray-500">
-                        <span>Transactions: <b className="text-gray-700">{rows.length}</b></span>
-                        <span className="text-green-600">Total In: <b>+{formatCurrency(dayCredit)}</b></span>
-                        <span className="text-red-600">Total Out: <b>-{formatCurrency(dayDebit)}</b></span>
-                      </div>
-                      <span className={`text-sm font-bold ${close < 0 ? 'text-red-700' : 'text-blue-700'}`}>
-                        Closing Balance: {formatCurrency(close)}
-      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
-              <span className="text-sm text-gray-500">
-                Day {(currentPage - 1) * DAYS_PER_PAGE + 1}â€“{Math.min(currentPage * DAYS_PER_PAGE, sortedDays.length)} of {sortedDays.length} days
-              </span>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-8" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm">Page {currentPage} of {totalPages}</span>
-                <Button variant="outline" size="sm" className="h-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
+  return <NewDayBookSection selectedCompanyId={selectedCompanyId} formatCurrency={formatCurrency} />;
 }
-
-
-
 
 // Cash Book Section - For Company 3 (Cash Only)
 function CashBookSection({
@@ -2698,7 +2452,20 @@ export default function UnifiedAccountantDashboard() {
   const [companiesLoading, setCompaniesLoading] = useState(true);
   const [activeSection, setActiveSection] = useState('day-book');
   const [showManualEntryDialog, setShowManualEntryDialog] = useState(false);
-  
+  const [showExpenseDialog, setShowExpenseDialog] = useState(false);
+  const [showBorrowDialog, setShowBorrowDialog] = useState(false);
+  const [showRepayDialog, setShowRepayDialog] = useState(false);
+  const [showCapitalDialog, setShowCapitalDialog] = useState(false);
+  const [bankAccountsList, setBankAccountsList] = useState<BankAccount[]>([]);
+  // Load bank accounts for dialogs
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+    fetch(`/api/accounting/bank-accounts?companyId=${selectedCompanyId}`)
+      .then(r => r.json())
+      .then(d => setBankAccountsList(d.bankAccounts || d || []))
+      .catch(() => {});
+  }, [selectedCompanyId]);
+
   // Company
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
@@ -2738,10 +2505,15 @@ export default function UnifiedAccountantDashboard() {
   const menuItems = companyType === 'COMPANY_3' 
     ? [
         { id: 'day-book', label: 'Day Book', icon: BookOpen },
+        { id: 'ledger', label: 'Ledger', icon: BookCopy },
         { id: 'cash-book', label: 'Cash Book', icon: Wallet },
+        { id: 'trial-balance', label: 'Trial Balance', icon: BarChart3 },
+        { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
+        { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
       ]
     : [
         { id: 'day-book', label: 'Day Book', icon: BookOpen },
+        { id: 'ledger', label: 'Ledger', icon: BookCopy },
         { id: 'bank', label: 'Bank', icon: Landmark },
         { id: 'cash-book', label: 'Cash Book', icon: Wallet },
         { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookCopy },
@@ -2770,6 +2542,8 @@ export default function UnifiedAccountantDashboard() {
   // Render Section
   const renderSection = () => {
     switch (activeSection) {
+      case 'ledger':
+        return <LedgerSection selectedCompanyId={selectedCompanyId} />;
       case 'day-book':
         return (
           <DayBookSection
@@ -2903,14 +2677,28 @@ export default function UnifiedAccountantDashboard() {
                 variant="ghost" 
                 size="sm"
                 onClick={() => setShowManualEntryDialog(true)}
-                className="h-8 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                className="h-8 bg-white/10 border-white/20 text-white hover:bg-white/20 hidden md:flex"
                 title="Post Manual Journal Entry"
               >
                 <BookCheck className="h-4 w-4 mr-1" />
                 Journal Entry
               </Button>
 
-
+              {/* Quick Action Buttons */}
+              <div className="flex items-center gap-1">
+                <Button size="sm" onClick={() => setShowExpenseDialog(true)} className="h-8 bg-red-500/80 hover:bg-red-400 text-white text-xs px-2" title="Add Expense">
+                  <Receipt className="h-3.5 w-3.5 mr-1" /> Expense
+                </Button>
+                <Button size="sm" onClick={() => setShowBorrowDialog(true)} className="h-8 bg-amber-500/80 hover:bg-amber-400 text-white text-xs px-2" title="Record Borrowing">
+                  <ArrowDownRight className="h-3.5 w-3.5 mr-1" /> Borrow
+                </Button>
+                <Button size="sm" onClick={() => setShowRepayDialog(true)} className="h-8 bg-blue-500/80 hover:bg-blue-400 text-white text-xs px-2" title="Repay Borrowing">
+                  <ArrowUpRight className="h-3.5 w-3.5 mr-1" /> Repay
+                </Button>
+                <Button size="sm" onClick={() => setShowCapitalDialog(true)} className="h-8 bg-purple-500/80 hover:bg-purple-400 text-white text-xs px-2" title="Add Capital">
+                  <PiggyBank className="h-3.5 w-3.5 mr-1" /> Capital
+                </Button>
+              </div>
 
               {/* User Menu */}
               <DropdownMenu>
@@ -3004,14 +2792,44 @@ export default function UnifiedAccountantDashboard() {
         onOpenChange={setShowManualEntryDialog}
         companyId={selectedCompanyId}
         onSuccess={() => {
-          // Refresh data based on active section
-          if (activeSection === 'day-book' || activeSection === 'trial-balance' || activeSection === 'chart-of-accounts') {
-            // This is a bit hacky but it works to trigger re-renders
-            const current = activeSection;
-            setActiveSection('none');
-            setTimeout(() => setActiveSection(current), 10);
-          }
+          const current = activeSection;
+          setActiveSection('none');
+          setTimeout(() => setActiveSection(current), 10);
         }}
+      />
+
+      {/* Quick Entry Dialogs */}
+      <AddExpenseDialog
+        open={showExpenseDialog}
+        onOpenChange={setShowExpenseDialog}
+        companyId={selectedCompanyId}
+        userId={user?.id || 'system'}
+        bankAccounts={bankAccountsList}
+        onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
+      />
+      <RecordBorrowingDialog
+        open={showBorrowDialog}
+        onOpenChange={setShowBorrowDialog}
+        companyId={selectedCompanyId}
+        userId={user?.id || 'system'}
+        bankAccounts={bankAccountsList}
+        onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
+      />
+      <RepayBorrowingDialog
+        open={showRepayDialog}
+        onOpenChange={setShowRepayDialog}
+        companyId={selectedCompanyId}
+        userId={user?.id || 'system'}
+        bankAccounts={bankAccountsList}
+        onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
+      />
+      <AddCapitalDialog
+        open={showCapitalDialog}
+        onOpenChange={setShowCapitalDialog}
+        companyId={selectedCompanyId}
+        userId={user?.id || 'system'}
+        bankAccounts={bankAccountsList}
+        onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
       />
     </div>
   );

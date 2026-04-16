@@ -1,587 +1,248 @@
 'use client';
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Separator } from '@/components/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  BookOpen, Calendar, Eye, ArrowUpRight, ArrowDownRight, RefreshCw, 
-  List, FileText, Search, ChevronLeft, ChevronRight, TrendingUp, TrendingDown
-} from 'lucide-react';
-import { format, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns';
-import { BankAccount, BankTransaction, JournalEntry } from '../types';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Loader2, RefreshCw, BookOpen, Search, ChevronLeft, ChevronRight, Receipt, AlertTriangle } from 'lucide-react';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 
-interface DayBookSectionProps {
-  bankAccounts: BankAccount[];
-  bankTransactions: BankTransaction[];
-  journalEntries: JournalEntry[];
-  selectedCompanyId: string;
-  formatCurrency: (amount: number) => string;
-}
-
-interface DayBookEntry {
+interface JournalLine {
   id: string;
-  date: Date;
-  time: Date;
-  description: string;
-  referenceType: string;
-  entryNumber: string;
-  receipt: number;
-  payment: number;
-  balance: number;
-  type: 'journal' | 'bank';
-  originalData: any;
+  debitAmount: number;
+  creditAmount: number;
+  narration?: string;
+  account?: { accountCode: string; accountName: string; accountType: string };
 }
-
-interface TransactionDetail {
+interface JournalEntry {
   id: string;
   entryNumber: string;
-  entryDate: Date;
-  referenceType: string;
-  narration: string;
+  entryDate: string;
+  narration?: string;
+  referenceType?: string;
   totalDebit: number;
   totalCredit: number;
   paymentMode?: string;
-  lines: Array<{
-    accountCode: string;
-    accountName: string;
-    accountType: string;
-    debitAmount: number;
-    creditAmount: number;
-    narration?: string;
-  }>;
+  isAutoEntry: boolean;
+  lines: JournalLine[];
 }
 
-export default function DayBookSection({ 
-  bankAccounts, 
-  bankTransactions, 
-  journalEntries,
-  selectedCompanyId,
-  formatCurrency 
-}: DayBookSectionProps) {
-  const [viewMode, setViewMode] = useState<'day' | 'all'>('all');
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+const fmt = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(n || 0);
+const fmtDate = (d: string) => format(new Date(d), 'dd MMM yyyy');
+const refLabel = (t?: string) => ({
+  EMI_PAYMENT: 'EMI Receipt', LOAN_DISBURSEMENT: 'Loan Disbursed', PROCESSING_FEE: 'Processing Fee',
+  EXPENSE: 'Expense', EXPENSE_PAYMENT: 'Expense', EQUITY_INVESTMENT: 'Capital', BORROWED_MONEY: 'Borrowed',
+  LOAN_REPAYMENT: 'Repayment', MANUAL_ENTRY: 'Manual', MIRROR_EMI_PAYMENT: 'Mirror EMI',
+  INTEREST_ONLY_PAYMENT: 'Interest Only',
+}[t || ''] || (t?.replace(/_/g, ' ') || 'Transaction'));
+
+const modeColor = (m?: string) => ({
+  CASH: 'bg-emerald-100 text-emerald-700', BANK_TRANSFER: 'bg-blue-100 text-blue-700',
+  ONLINE: 'bg-purple-100 text-purple-700', UPI: 'bg-purple-100 text-purple-700',
+  CHEQUE: 'bg-amber-100 text-amber-700',
+}[m || ''] || 'bg-gray-100 text-gray-600');
+
+export default function DayBookSection({ selectedCompanyId, formatCurrency }: { selectedCompanyId: string; formatCurrency: (n: number) => string }) {
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [dayBookEntries, setDayBookEntries] = useState<DayBookEntry[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<DayBookEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showDetailDialog, setShowDetailDialog] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState<TransactionDetail | null>(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [openingBalance, setOpeningBalance] = useState(0);
-  const [closingBalance, setClosingBalance] = useState(0);
-  const entriesPerPage = 50;
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 10;
 
-  // Compute effective dates based on view mode
-  const getEffectiveDates = useCallback(() => {
-    if (viewMode === 'day') {
-      return { start: selectedDate, end: selectedDate };
-    }
-    return { start: startDate, end: endDate };
-  }, [viewMode, selectedDate, startDate, endDate]);
-
-  // Fetch combined day book data
-  const fetchDayBookData = useCallback(async () => {
+  const load = useCallback(async () => {
+    if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const { start, end } = getEffectiveDates();
-      const res = await fetch(
-        `/api/accounting/enhanced-daybook?companyId=${selectedCompanyId}&viewMode=all&startDate=${start}&endDate=${end}`
-      );
+      const res = await fetch(`/api/accounting/journal-entries?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}&limit=200&offset=0`);
+      const data = await res.json();
+      setEntries(data.entries || []);
+      setPage(1);
+    } catch { /* silent */ } finally { setLoading(false); }
+  }, [selectedCompanyId, startDate, endDate]);
 
-      if (res.ok) {
-        const apiData = await res.json();
-        setOpeningBalance(apiData.openingBalance ?? 0);
-        setClosingBalance(apiData.closingBalance ?? 0);
+  useEffect(() => { load(); }, [load]);
 
-        const apiEntries: DayBookEntry[] = (apiData.entries || []).map((row: any) => ({
-          id:            row.id,
-          date:          new Date(row.date),
-          time:          new Date(row.date),
-          description:   row.particular || row.narration || 'Journal Entry',
-          referenceType: row.referenceType || 'MANUAL_ENTRY',
-          entryNumber:   row.entryNumber || `JE-${(row.id || '').slice(0, 8).toUpperCase()}`,
-          receipt:       row.credit  || 0,
-          payment:       row.debit   || 0,
-          balance:       row.runningBalance || 0,
-          type:          'journal' as const,
-          originalData:  row
-        }));
-
-        setDayBookEntries(apiEntries);
-        setFilteredEntries(apiEntries);
-        return;
-      }
-
-      // Fallback: build from props
-      const combinedEntries: DayBookEntry[] = [];
-      for (const entry of journalEntries) {
-        const totalDebit  = entry.lines?.reduce((s: number, l: any) => s + (l.debitAmount  || 0), 0) || 0;
-        const totalCredit = entry.lines?.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0) || 0;
-        combinedEntries.push({
-          id: entry.id, date: new Date(entry.entryDate), time: new Date(entry.entryDate),
-          description: entry.narration || 'Journal Entry',
-          referenceType: entry.referenceType || 'MANUAL_ENTRY',
-          entryNumber: entry.entryNumber,
-          receipt: totalCredit, payment: totalDebit, balance: 0,
-          type: 'journal', originalData: entry
-        });
-      }
-      for (const txn of bankTransactions) {
-        const isCredit = txn.transactionType === 'CREDIT';
-        combinedEntries.push({
-          id: txn.id, date: new Date(txn.transactionDate), time: new Date(txn.transactionDate),
-          description: txn.description, referenceType: txn.referenceType,
-          entryNumber: 'BT-' + txn.id.slice(0, 8).toUpperCase(),
-          receipt: isCredit ? txn.amount : 0, payment: !isCredit ? txn.amount : 0,
-          balance: txn.balanceAfter, type: 'bank', originalData: txn
-        });
-      }
-      combinedEntries.sort((a, b) => b.date.getTime() - a.date.getTime());
-      let runningBal = 0;
-      const sortedAsc = [...combinedEntries].sort((a, b) => a.date.getTime() - b.date.getTime());
-      for (const e of sortedAsc) { runningBal += e.receipt - e.payment; e.balance = runningBal; }
-      setDayBookEntries(combinedEntries);
-      setFilteredEntries(combinedEntries);
-      setOpeningBalance(0);
-      setClosingBalance(runningBal);
-    } catch (error) {
-      console.error('Error fetching day book data:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCompanyId, getEffectiveDates, journalEntries, bankTransactions]);
-
-  // Re-fetch when company or date range changes
-  useEffect(() => {
-    fetchDayBookData();
-  }, [fetchDayBookData]);
-
-  // Apply search filter
-  useEffect(() => {
-    let filtered = [...dayBookEntries];
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(entry =>
-        entry.description.toLowerCase().includes(term) ||
-        entry.entryNumber.toLowerCase().includes(term) ||
-        entry.referenceType.toLowerCase().includes(term)
-      );
-    }
-    setFilteredEntries(filtered);
-    setCurrentPage(1);
-  }, [searchTerm, dayBookEntries]);
-
-  const handleViewEntry = async (entry: DayBookEntry) => {
-    setLoadingDetail(true);
-    setShowDetailDialog(true);
-    try {
-      if (entry.type === 'journal') {
-        const journal = entry.originalData as JournalEntry;
-        setSelectedEntry({
-          id: journal.id, entryNumber: journal.entryNumber,
-          entryDate: journal.entryDate,
-          referenceType: journal.referenceType || 'MANUAL_ENTRY',
-          narration: journal.narration || '',
-          totalDebit: journal.totalDebit, totalCredit: journal.totalCredit,
-          paymentMode: 'JOURNAL',
-          lines: journal.lines.map(l => ({
-            accountCode: l.account?.accountCode || '',
-            accountName: l.account?.accountName || '',
-            accountType: l.account?.accountType || '',
-            debitAmount: l.debitAmount, creditAmount: l.creditAmount,
-            narration: l.narration || undefined
-          }))
-        });
-      } else {
-        const res = await fetch(`/api/accounting/journal-entry-by-reference?referenceType=${entry.referenceType}&referenceId=${entry.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSelectedEntry(data.entry);
-        } else {
-          const txn = entry.originalData as BankTransaction;
-          setSelectedEntry({
-            id: txn.id, entryNumber: entry.entryNumber,
-            entryDate: new Date(txn.transactionDate),
-            referenceType: txn.referenceType, narration: txn.description,
-            totalDebit: txn.transactionType === 'DEBIT' ? txn.amount : 0,
-            totalCredit: txn.transactionType === 'CREDIT' ? txn.amount : 0,
-            paymentMode: 'BANK_TRANSFER',
-            lines: [{ accountCode: '1400', accountName: 'Bank Account', accountType: 'ASSET',
-              debitAmount: txn.transactionType === 'CREDIT' ? txn.amount : 0,
-              creditAmount: txn.transactionType === 'DEBIT' ? txn.amount : 0,
-              narration: txn.description }]
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching entry details:', error);
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
-
-  const getReferenceTypeLabel = (type: string) => {
-    const labels: Record<string, string> = {
-      'LOAN_DISBURSEMENT': 'Loan Disbursement', 'EMI_PAYMENT': 'EMI Payment',
-      'PROCESSING_FEE_COLLECTION': 'Processing Fee', 'PROCESSING_FEE': 'Processing Fee',
-      'EXPENSE_ENTRY': 'Expense', 'EXPENSE': 'Expense',
-      'DEPOSIT': 'Deposit', 'WITHDRAWAL': 'Withdrawal',
-      'INTEREST_COLLECTION': 'Interest', 'INTEREST_INCOME': 'Interest Income',
-      'PENALTY_COLLECTION': 'Penalty', 'PENALTY': 'Penalty',
-      'COMMISSION_PAYMENT': 'Commission', 'COMMISSION_PAID': 'Commission Paid',
-      'TRANSFER_IN': 'Transfer In', 'TRANSFER_OUT': 'Transfer Out',
-      'OPENING_BALANCE': 'Opening Balance', 'MANUAL_ENTRY': 'Manual Entry',
-      'MIRROR_EMI_PAYMENT': 'Mirror EMI', 'EXTRA_EMI_PAYMENT': 'Extra EMI'
-    };
-    return labels[type] || type;
-  };
-
-  const totalReceipts = filteredEntries.reduce((s, e) => s + e.receipt, 0);
-  const totalPayments = filteredEntries.reduce((s, e) => s + e.payment, 0);
-
-  const totalPages = Math.ceil(filteredEntries.length / entriesPerPage);
-  const paginatedEntries = filteredEntries.slice(
-    (currentPage - 1) * entriesPerPage,
-    currentPage * entriesPerPage
+  const filtered = entries.filter(e =>
+    !search ||
+    e.narration?.toLowerCase().includes(search.toLowerCase()) ||
+    e.entryNumber?.toLowerCase().includes(search.toLowerCase()) ||
+    e.referenceType?.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Group by date
+  const byDate: Record<string, JournalEntry[]> = {};
+  for (const e of filtered) {
+    const d = fmtDate(e.entryDate);
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(e);
+  }
+  const days = Object.keys(byDate).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  const totalPages = Math.ceil(days.length / PER_PAGE);
+  const pagedDays = days.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+
+  const totalDr = filtered.reduce((s, e) => s + e.totalDebit, 0);
+  const totalCr = filtered.reduce((s, e) => s + e.totalCredit, 0);
+  const balanced = Math.abs(totalDr - totalCr) < 1;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <BookOpen className="h-5 w-5" />
-          Day Book / Cash Book
-        </h2>
-        <div className="flex items-center gap-4 flex-wrap">
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-emerald-600" />
+            Daybook — Journal Voucher View
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">Every transaction shown in double-entry (Dr/Cr) format — the primary book of accounts</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search transactions..."
-              className="w-48 pl-9"
-            />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="pl-8 h-8 w-44 text-sm" />
           </div>
-          <Button variant="outline" size="sm" onClick={fetchDayBookData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
+          <span className="text-xs text-gray-500">From:</span>
+          <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 w-36 text-sm" />
+          <span className="text-xs text-gray-500">To:</span>
+          <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 w-36 text-sm" />
+          <Button size="sm" variant="outline" className="h-8" onClick={load} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
         </div>
       </div>
 
-      {/* View Mode Tabs */}
-      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'day' | 'all')}>
-        <TabsList>
-          <TabsTrigger value="all" className="flex items-center gap-2">
-            <List className="h-4 w-4" />
-            Date Range
-          </TabsTrigger>
-          <TabsTrigger value="day" className="flex items-center gap-2">
-            <Calendar className="h-4 w-4" />
-            Single Day
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="all" className="mt-4">
-          <div className="flex items-center gap-4 mb-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">From:</span>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-36" />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">To:</span>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-36" />
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="day" className="mt-4">
-          <div className="flex items-center gap-2 mb-4">
-            <Calendar className="h-4 w-4 text-gray-500" />
-            <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-40" />
-          </div>
-        </TabsContent>
-      </Tabs>
-
-      {/* ── OPENING / CLOSING BALANCE + PERIOD SUMMARY ── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {/* Opening Balance */}
-        <Card className="bg-slate-50 border-slate-200 col-span-1">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingUp className="h-4 w-4 text-slate-500" />
-              <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Opening Balance</p>
-            </div>
-            <p className={`text-xl font-bold ${openingBalance >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
-              {formatCurrency(openingBalance)}
-            </p>
-            <p className="text-xs text-slate-400 mt-1">Start of period</p>
-          </CardContent>
-        </Card>
-
-        {/* Total Credit */}
-        <Card className="bg-green-50 border-green-100">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Credit (CR)</p>
-              <ArrowUpRight className="h-4 w-4 text-green-600" />
-            </div>
-            <p className="text-xl font-bold text-green-600">+{formatCurrency(totalReceipts)}</p>
-            <p className="text-xs text-gray-400 mt-1">Money received</p>
-          </CardContent>
-        </Card>
-
-        {/* Total Debit */}
-        <Card className="bg-red-50 border-red-100">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Debit (DR)</p>
-              <ArrowDownRight className="h-4 w-4 text-red-600" />
-            </div>
-            <p className="text-xl font-bold text-red-600">-{formatCurrency(totalPayments)}</p>
-            <p className="text-xs text-gray-400 mt-1">Money paid out</p>
-          </CardContent>
-        </Card>
-
-        {/* Closing Balance */}
-        <Card className={`col-span-1 ${closingBalance >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingDown className="h-4 w-4 text-emerald-600" />
-              <p className="text-xs text-emerald-600 font-semibold uppercase tracking-wide">Closing Balance</p>
-            </div>
-            <p className={`text-xl font-bold ${closingBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-              {formatCurrency(closingBalance)}
-            </p>
-            <p className="text-xs text-emerald-500 mt-1">End of period → next Opening</p>
-          </CardContent>
-        </Card>
+      {/* Period Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Vouchers', val: filtered.length, cls: 'text-gray-700' },
+          { label: 'Total Debit (Dr)', val: fmt(totalDr), cls: 'text-blue-700' },
+          { label: 'Total Credit (Cr)', val: fmt(totalCr), cls: 'text-green-700' },
+          { label: balanced ? '✓ Books Balanced' : '⚠ Difference', val: balanced ? 'OK' : fmt(Math.abs(totalDr - totalCr)), cls: balanced ? 'text-emerald-700' : 'text-red-700' },
+        ].map(c => (
+          <Card key={c.label} className="border shadow-sm">
+            <CardContent className="p-3">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">{c.label}</p>
+              <p className={`text-base font-bold ${c.cls}`}>{c.val}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Transactions Table */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Transactions</CardTitle>
-            <Badge variant="outline">{filteredEntries.length} entries</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <ScrollArea className="h-[520px]">
-            <Table>
-              <TableHeader className="sticky top-0 bg-white z-10">
-                <TableRow>
-                  <TableHead className="w-[95px]">Date</TableHead>
-                  <TableHead className="w-[60px]">Time</TableHead>
-                  <TableHead className="w-[110px]">Entry No.</TableHead>
-                  <TableHead>Particulars</TableHead>
-                  <TableHead className="w-[110px]">Type</TableHead>
-                  <TableHead className="text-right w-[120px] text-green-700 font-bold">Credit (CR)</TableHead>
-                  <TableHead className="text-right w-[120px] text-red-700 font-bold">Debit (DR)</TableHead>
-                  <TableHead className="text-right w-[130px] text-blue-700 font-bold">Balance</TableHead>
-                  <TableHead className="w-[44px]"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-gray-500 py-8">
-                      <div className="flex items-center justify-center">
-                        <RefreshCw className="h-6 w-6 animate-spin text-emerald-500" />
+      {!balanced && (
+        <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          Note: Some transactions may not have journal entries recorded. The difference shown reflects missing journal entries. Your cash/bank balances are still correct.
+        </div>
+      )}
+
+      {/* Journal Vouchers */}
+      {loading ? (
+        <div className="py-20 text-center"><Loader2 className="h-7 w-7 animate-spin mx-auto text-emerald-500" /></div>
+      ) : pagedDays.length === 0 ? (
+        <Card><CardContent className="py-16 text-center text-gray-500">
+          <BookOpen className="h-10 w-10 mx-auto mb-2 opacity-30" />
+          <p>No journal entries found for this period</p>
+          <p className="text-sm mt-1">Transactions will appear here after EMIs are paid, loans disbursed, or expenses recorded</p>
+        </CardContent></Card>
+      ) : (
+        <div className="space-y-6">
+          {pagedDays.map(day => (
+            <div key={day}>
+              {/* Day heading */}
+              <div className="flex items-center gap-2 mb-3">
+                <div className="h-px flex-1 bg-gray-200" />
+                <span className="text-xs font-semibold text-gray-500 bg-white px-3 border rounded-full py-0.5">{day}</span>
+                <div className="h-px flex-1 bg-gray-200" />
+              </div>
+              <div className="space-y-3">
+                {byDate[day].map(entry => (
+                  <Card key={entry.id} className="border shadow-sm hover:shadow-md transition-shadow">
+                    <CardHeader className="py-2.5 px-4 bg-gray-50 border-b flex flex-row items-center justify-between space-y-0">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <Receipt className="h-4 w-4 text-gray-400" />
+                          <span className="font-mono text-sm font-semibold text-gray-700">{entry.entryNumber}</span>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] font-medium">{refLabel(entry.referenceType)}</Badge>
+                        {entry.paymentMode && (
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${modeColor(entry.paymentMode)}`}>{entry.paymentMode}</span>
+                        )}
                       </div>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  <>
-                    {/* ── OPENING BALANCE ROW ── */}
-                    <TableRow className="bg-slate-50 border-b-2 border-slate-200">
-                      <TableCell colSpan={5} className="font-semibold text-slate-600 text-sm py-2 pl-4">
-                        🔓 Opening Balance
-                        {viewMode === 'day'
-                          ? ` (${format(new Date(selectedDate), 'dd MMM yyyy')})`
-                          : ` (${format(new Date(startDate), 'dd MMM yyyy')})`}
-                      </TableCell>
-                      <TableCell colSpan={2} />
-                      <TableCell className="text-right font-bold text-slate-700 text-sm">
-                        {formatCurrency(openingBalance)}
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
-
-                    {/* ── TRANSACTION ROWS ── */}
-                    {filteredEntries.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9} className="text-center text-gray-500 py-6">
-                          No transactions in this period
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      paginatedEntries.map((entry) => (
-                        <TableRow key={entry.id + entry.entryNumber} className="hover:bg-gray-50">
-                          <TableCell className="font-mono text-sm">
-                            {format(entry.date, 'dd MMM yy')}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm text-gray-500">
-                            {format(entry.time, 'HH:mm')}
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-gray-500">
-                            {entry.entryNumber}
-                          </TableCell>
-                          <TableCell className="max-w-[180px]">
-                            <span className="truncate block text-sm">{entry.description}</span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="text-xs">
-                              {getReferenceTypeLabel(entry.referenceType)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-right text-green-600 font-medium">
-                            {entry.receipt > 0 ? `+${formatCurrency(entry.receipt)}` : '—'}
-                          </TableCell>
-                          <TableCell className="text-right text-red-600 font-medium">
-                            {entry.payment > 0 ? `-${formatCurrency(entry.payment)}` : '—'}
-                          </TableCell>
-                          <TableCell className={`text-right font-semibold text-sm ${entry.balance >= 0 ? 'text-blue-700' : 'text-red-600'}`}>
-                            {formatCurrency(entry.balance)}
-                          </TableCell>
-                          <TableCell>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleViewEntry(entry)}>
-                              <Eye className="h-4 w-4 text-gray-400" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-
-                    {/* ── CLOSING BALANCE ROW ── */}
-                    <TableRow className="bg-emerald-50 border-t-2 border-emerald-200">
-                      <TableCell colSpan={5} className="font-semibold text-emerald-700 text-sm py-2 pl-4">
-                        🔒 Closing Balance
-                        {viewMode === 'day'
-                          ? ` (${format(new Date(selectedDate), 'dd MMM yyyy')})`
-                          : ` (${format(new Date(endDate), 'dd MMM yyyy')})`}
-                        <span className="text-xs font-normal text-emerald-500 ml-2">→ becomes next period's Opening Balance</span>
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-green-600 text-sm">
-                        +{formatCurrency(totalReceipts)}
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-red-600 text-sm">
-                        -{formatCurrency(totalPayments)}
-                      </TableCell>
-                      <TableCell className={`text-right font-bold text-sm ${closingBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                        {formatCurrency(closingBalance)}
-                      </TableCell>
-                      <TableCell />
-                    </TableRow>
-                  </>
-                )}
-              </TableBody>
-            </Table>
-          </ScrollArea>
+                      <span className="text-xs text-gray-400">{fmtDate(entry.entryDate)}</span>
+                    </CardHeader>
+                    <CardContent className="px-0 py-0">
+                      {/* Journal voucher Dr/Cr table */}
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-blue-50/40">
+                            <th className="text-left py-1.5 px-4 text-xs font-semibold text-gray-500 w-8">#</th>
+                            <th className="text-left py-1.5 px-2 text-xs font-semibold text-gray-500">Account Head</th>
+                            <th className="text-left py-1.5 px-2 text-xs font-semibold text-gray-400 w-20">Type</th>
+                            <th className="text-right py-1.5 px-4 text-xs font-semibold text-blue-700 w-28">Dr (₹)</th>
+                            <th className="text-right py-1.5 px-4 text-xs font-semibold text-green-700 w-28">Cr (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entry.lines.length > 0 ? entry.lines.map((line, i) => (
+                            <tr key={line.id} className={`border-b border-dashed ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
+                              <td className="py-1.5 px-4 text-gray-400 text-xs">{i + 1}.</td>
+                              <td className="py-1.5 px-2">
+                                <div className="font-medium text-gray-800">
+                                  {line.debitAmount > 0 ? '' : '\u00A0\u00A0\u00A0\u00A0'}
+                                  {line.account?.accountName || '—'}
+                                </div>
+                                {line.narration && <div className="text-xs text-gray-400">{line.narration}</div>}
+                              </td>
+                              <td className="py-1.5 px-2">
+                                <span className="text-[10px] text-gray-400">{line.account?.accountType || ''}</span>
+                              </td>
+                              <td className={`py-1.5 px-4 text-right font-mono font-semibold ${line.debitAmount > 0 ? 'text-blue-700' : 'text-gray-200'}`}>
+                                {line.debitAmount > 0 ? fmt(line.debitAmount) : '—'}
+                              </td>
+                              <td className={`py-1.5 px-4 text-right font-mono font-semibold ${line.creditAmount > 0 ? 'text-green-700' : 'text-gray-200'}`}>
+                                {line.creditAmount > 0 ? fmt(line.creditAmount) : '—'}
+                              </td>
+                            </tr>
+                          )) : (
+                            <tr><td colSpan={5} className="py-2 px-4 text-xs text-gray-400 italic">No line details available for this entry</td></tr>
+                          )}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-gray-100 border-t-2 border-gray-300">
+                            <td colSpan={3} className="py-2 px-4 text-xs font-bold text-gray-600 uppercase tracking-wide">
+                              {entry.narration ? `Narration: ${entry.narration}` : 'TOTAL'}
+                            </td>
+                            <td className="py-2 px-4 text-right font-mono font-bold text-blue-800 text-sm underline decoration-double">
+                              {fmt(entry.totalDebit)}
+                            </td>
+                            <td className="py-2 px-4 text-right font-mono font-bold text-green-800 text-sm underline decoration-double">
+                              {fmt(entry.totalCredit)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <div className="text-sm text-gray-500">
-                Showing {(currentPage - 1) * entriesPerPage + 1}–{Math.min(currentPage * entriesPerPage, filteredEntries.length)} of {filteredEntries.length}
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
-                  <ChevronLeft className="h-4 w-4" /> Previous
-                </Button>
-                <span className="text-sm text-gray-500">Page {currentPage} of {totalPages}</span>
-                <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
-                  Next <ChevronRight className="h-4 w-4" />
-                </Button>
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-sm text-gray-500">Day {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, days.length)} of {days.length} days</span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={page === 1} onClick={() => setPage(p => p - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                <span className="text-sm px-2 py-1">Page {page}/{totalPages}</span>
+                <Button size="sm" variant="outline" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}><ChevronRight className="h-4 w-4" /></Button>
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Transaction Detail Dialog */}
-      <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" /> Entry Details
-            </DialogTitle>
-          </DialogHeader>
-          {loadingDetail ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500" />
-            </div>
-          ) : selectedEntry ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-sm text-gray-500">Entry No:</span>
-                  <p className="font-mono font-medium">{selectedEntry.entryNumber}</p>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-500">Date &amp; Time:</span>
-                  <p className="font-medium">{format(new Date(selectedEntry.entryDate), 'dd MMM yyyy HH:mm')}</p>
-                </div>
-              </div>
-              <div>
-                <span className="text-sm text-gray-500">Type:</span>
-                <Badge variant="outline" className="ml-2">{getReferenceTypeLabel(selectedEntry.referenceType)}</Badge>
-              </div>
-              {selectedEntry.narration && (
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm">{selectedEntry.narration}</p>
-                </div>
-              )}
-              <Separator />
-              <div>
-                <h4 className="font-semibold mb-3">Journal Entry Lines</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Account</TableHead>
-                      <TableHead className="text-right">Debit (DR)</TableHead>
-                      <TableHead className="text-right">Credit (CR)</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedEntry.lines.map((line, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{line.accountName}</span>
-                            <span className="text-xs text-gray-500">{line.accountCode}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {line.debitAmount > 0 ? formatCurrency(line.debitAmount) : '—'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {line.creditAmount > 0 ? formatCurrency(line.creditAmount) : '—'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="bg-gray-50 font-bold">
-                      <TableCell>Total</TableCell>
-                      <TableCell className="text-right">{formatCurrency(selectedEntry.totalDebit)}</TableCell>
-                      <TableCell className="text-right">{formatCurrency(selectedEntry.totalCredit)}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
     </div>
   );
 }
