@@ -1303,6 +1303,8 @@ export async function POST(request: NextRequest) {
     // EXTRA EMI (beyond mirror tenure):
     //   Profit already recorded in the extra-EMI block above — skip here.
     // ============================================
+    // Accounting warnings: non-empty means admin must investigate
+    const onlineAccountingWarnings: string[] = [];
     try {
       const mirrorMappingForAccounting = mirrorMapping;
       const isExtraEMI2 = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
@@ -1381,6 +1383,8 @@ export async function POST(request: NextRequest) {
           });
           console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debts (${targetCompanyId})`);
         } catch (journalErr: any) {
+          const poErrMsg = `PRINCIPAL_ONLY journal: ${journalErr?.message || journalErr}`;
+          onlineAccountingWarnings.push(poErrMsg);
           console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal (Irrecoverable Debts) FAILED:`, journalErr?.message || journalErr);
           console.error(`  targetCompanyId=${targetCompanyId}, paidPrincipal=${paidPrincipal}, remainingInterest=${remainingInterest}`);
         }
@@ -1527,8 +1531,10 @@ export async function POST(request: NextRequest) {
               console.log(`[Processing Fee] Already recorded — skipping (idempotency)`);
             }
           }
-        } catch (pfErr) {
-          console.error('[Processing Fee] Failed (non-critical):', pfErr);
+        } catch (pfErr: any) {
+          const pfErrMsg = `Processing fee: ${pfErr?.message || pfErr}`;
+          onlineAccountingWarnings.push(pfErrMsg);
+          console.error('[Processing Fee] ❌ Failed:', pfErr);
         }
       }
 
@@ -1560,17 +1566,35 @@ export async function POST(request: NextRequest) {
             ],
           });
           console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
-        } catch (penErr) {
-          console.error('[Penalty] Penalty accounting failed (non-critical):', penErr);
+        } catch (penErr: any) {
+          const penErrMsg = `Penalty accounting: ${penErr?.message || penErr}`;
+          onlineAccountingWarnings.push(penErrMsg);
+          console.error('[Penalty] ❌ Penalty accounting FAILED:', penErr);
         }
       }
 
     } catch (accError: any) {
+      const onlineErrMsg = accError?.message || String(accError);
+      onlineAccountingWarnings.push(`EMI accounting: ${onlineErrMsg}`);
       console.error('[Accounting] ❌ EMI journal FAILED — P&L will NOT show income!', {
-        message: accError?.message,
+        message: onlineErrMsg,
         stack: accError?.stack?.split('\n').slice(0, 6).join(' | '),
         loanId, emiId,
       });
+      try {
+        await db.actionLog.create({
+          data: {
+            userId: paidBy || 'SYSTEM',
+            userRole: 'SYSTEM',
+            actionType: 'ACCOUNTING_ERROR',
+            module: 'ONLINE_LOAN',
+            recordId: payment.id,
+            recordType: 'EMIPayment',
+            description: `ACCOUNTING MISSING: Payment ${payment.id} (EMI #${emi.installmentNumber}) paid ₹${paidAmount} but accounting failed: ${onlineErrMsg}`,
+            canUndo: false,
+          }
+        });
+      } catch (_) { /* ActionLog failure is truly non-critical */ }
     }
 
 
@@ -1578,6 +1602,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true, 
       message: getPaymentSuccessMessage(paymentType, paidAmount, remainingPrincipal),
+      accountingOk: onlineAccountingWarnings.length === 0,
+      accountingWarnings: onlineAccountingWarnings,
       data: {
         emiId: updatedEMI.id,
         paymentStatus: updatedEMI.paymentStatus,

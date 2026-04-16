@@ -641,6 +641,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         const data = await response.json();
         if (response.ok && data.success) {
           paidCount++;
+          // Warn if accounting entry failed (payment recorded but no journal/cashbook entry)
+          if (!data.accountingOk && data.accountingWarnings?.length > 0) {
+            setTimeout(() => {
+              toast({
+                title: '⚠️ Accounting Entry Incomplete',
+                description: `EMI #${emi.emiNumber} paid but accounting failed: ${data.accountingWarnings[0]}. Contact admin.`,
+                variant: 'destructive',
+              });
+            }, 600);
+          }
         } else {
           lastError = data.error || `Failed to process EMI #${emi.emiNumber}`;
           console.error(`[Multi-EMI] Failed for EMI #${emi.emiNumber}:`, lastError);

@@ -559,6 +559,14 @@ export default function OfflineLoanDetailPanel({
             } else {
               fullPayCount++;
             }
+            // Show accounting warning if any entry failed
+            if (!data.accountingOk && data.accountingWarnings?.length > 0) {
+              toast({
+                title: '⚠️ Accounting Entry Incomplete',
+                description: `EMI #${emi.installmentNumber} paid but accounting failed: ${data.accountingWarnings[0]}. Contact admin.`,
+                variant: 'destructive',
+              });
+            }
           }
         }
 
@@ -654,6 +662,18 @@ export default function OfflineLoanDetailPanel({
           title: 'Payment Successful',
           description
         });
+
+        // Show accounting warning if any accounting entry failed
+        if (!data.accountingOk && data.accountingWarnings?.length > 0) {
+          setTimeout(() => {
+            toast({
+              title: '⚠️ Accounting Entry Incomplete',
+              description: `Payment recorded but accounting failed: ${data.accountingWarnings[0]}. Please contact admin to fix.`,
+              variant: 'destructive',
+            });
+          }, 500);
+        }
+
         setPaymentDialogOpen(false);
         setIsInterestOnlyPayment(false);
         setSelectedEmiIds(new Set());
@@ -2666,7 +2686,7 @@ export default function OfflineLoanDetailPanel({
           onOpenChange={setCloseLoanDialogOpen}
           loanId={loan.id}
           userId={userId || ''}
-          companyId={loan.companyId}
+          companyId={loan.company?.id}
           isOfflineLoan={true}
           onLoanClosed={() => {
             setCloseLoanDialogOpen(false);

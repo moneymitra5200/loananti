@@ -2826,6 +2826,10 @@ export async function PUT(request: NextRequest) {
 
 
 
+      // ─── ACCOUNTING BLOCK (outside DB transaction to avoid blocking payment) ─────
+      // Failures here are LOGGED and returned as warnings — never silently swallowed.
+      const accountingWarnings: string[] = [];
+
       try {
         const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
 
@@ -3115,12 +3119,29 @@ export async function PUT(request: NextRequest) {
           console.warn('[Accounting] Target company not found - skipping accounting entries');
         }
       } catch (accountingError: any) {
-        console.error('[Accounting] Failed to record EMI payment accounting:', {
-          message: accountingError?.message,
+        const errMsg = accountingError?.message || String(accountingError);
+        accountingWarnings.push(`EMI accounting: ${errMsg}`);
+        console.error('[Accounting] ❌ EMI payment accounting FAILED — payment is recorded but accounting entry is MISSING:', {
+          message: errMsg,
           code: accountingError?.code,
+          emiId: updatedEmi.id,
           stack: accountingError?.stack?.split('\n').slice(0, 6).join(' | '),
         });
-        // Don't fail the payment, just log the error
+        // Log to ActionLog so admins can find and manually fix this
+        try {
+          await db.actionLog.create({
+            data: {
+              userId: userId || 'SYSTEM',
+              userRole: user?.role || 'SYSTEM',
+              actionType: 'ACCOUNTING_ERROR',
+              module: 'OFFLINE_LOAN',
+              recordId: updatedEmi.id,
+              recordType: 'OfflineLoanEMI',
+              description: `ACCOUNTING MISSING: EMI ${updatedEmi.id} (${emi.offlineLoan.loanNumber} #${emi.installmentNumber}) paid ₹${actualPaymentAmount} but accounting failed: ${errMsg}`,
+              canUndo: false,
+            }
+          });
+        } catch (_) { /* ActionLog failure is truly non-critical */ }
       }
 
       // ── OFFLINE LOAN PENALTY INCOME ──────────────────────────────────────
@@ -3167,12 +3188,14 @@ export async function PUT(request: NextRequest) {
             ],
           });
           console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
-        } catch (penErr) {
-          console.error('[Penalty] ❌ Offline loan penalty accounting failed (non-critical):', penErr);
+        } catch (penErr: any) {
+          const penMsg = `Penalty accounting: ${penErr?.message || penErr}`;
+          accountingWarnings.push(penMsg);
+          console.error('[Penalty] ❌ Offline loan penalty accounting FAILED:', penErr);
         }
       }
 
-            return NextResponse.json({
+      return NextResponse.json({
         success: true,
         emi: updatedEmi,
         creditAdded: actualPaymentAmount,
@@ -3180,7 +3203,10 @@ export async function PUT(request: NextRequest) {
         newCompanyCredit: creditTypeUsed === 'COMPANY' ? (user.companyCredit || 0) + actualPaymentAmount : user.companyCredit,
         newPersonalCredit: creditTypeUsed === 'PERSONAL' ? (user.personalCredit || 0) + actualPaymentAmount : user.personalCredit,
         mirrorSynced: !!mirrorLoanMapping,
-        processingTime: Date.now() - startTime
+        processingTime: Date.now() - startTime,
+        // Accounting warnings: empty = all good, non-empty = admin needs to investigate
+        accountingOk: accountingWarnings.length === 0,
+        accountingWarnings,
       });
     }
 
