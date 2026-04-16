@@ -86,14 +86,14 @@ export async function GET(request: NextRequest) {
             data: {
               emiScheduleId,
               loanApplicationId: emi.loanApplicationId,
-              enableFullPayment: true,
-              enablePartialPayment: true,
-              enableInterestOnly: true,
+              enableFullPayment:    true,
+              enablePartialPayment: false,
+              enableInterestOnly:   false,
+              // @ts-ignore -- prisma client will have this field after db push
+              enablePrincipalOnly:  false,
               useDefaultCompanyPage: true
-            },
-            include: {
-              secondaryPaymentPage: true
-            }
+            } as any,
+            include: { secondaryPaymentPage: true }
           });
         }
       }
@@ -193,30 +193,31 @@ export async function POST(request: NextRequest) {
       ? secondaryPaymentPageId
       : null;
 
-    // Upsert settings
     const settings = await db.eMIPaymentSetting.upsert({
       where: { emiScheduleId },
       create: {
         emiScheduleId,
         loanApplicationId,
-        enableFullPayment: enableFullPayment ?? true,
-        enablePartialPayment: enablePartialPayment ?? true,
-        enableInterestOnly: enableInterestOnly ?? true,
+        enableFullPayment:    enableFullPayment    ?? true,
+        enablePartialPayment: enablePartialPayment ?? false,
+        enableInterestOnly:   enableInterestOnly   ?? false,
+        // @ts-ignore
+        enablePrincipalOnly:  body.enablePrincipalOnly ?? false,
         useDefaultCompanyPage: useDefaultCompanyPage ?? true,
         secondaryPaymentPageId: validSecondaryPaymentPageId,
         lastModifiedById: modifiedById
-      },
+      } as any,
       update: {
         enableFullPayment,
         enablePartialPayment,
         enableInterestOnly,
+        // @ts-ignore
+        enablePrincipalOnly:  body.enablePrincipalOnly ?? false,
         useDefaultCompanyPage,
         secondaryPaymentPageId: validSecondaryPaymentPageId,
         lastModifiedById: modifiedById
-      },
-      include: {
-        secondaryPaymentPage: true
-      }
+      } as any,
+      include: { secondaryPaymentPage: true }
     });
 
     return NextResponse.json({ success: true, settings });

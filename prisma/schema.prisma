@@ -2894,17 +2894,18 @@ model EMIPaymentSetting {
   emiScheduleId     String @unique
   loanApplicationId String
 
-  // Payment Options Toggle
+  // Payment Options Toggle (defaults: Full=ON, others=OFF)
   enableFullPayment    Boolean @default(true)
-  enablePartialPayment Boolean @default(true)
-  enableInterestOnly   Boolean @default(true)
+  enablePartialPayment Boolean @default(false)
+  enableInterestOnly   Boolean @default(false)
+  enablePrincipalOnly  Boolean @default(false)
 
-  // Payment Page Selection (which payment details to show to customer)
-  useDefaultCompanyPage  Boolean @default(true) // true = use company's default bank account
-  secondaryPaymentPageId String? // If useDefaultCompanyPage is false, use this secondary page
+  // Payment Page Selection (kept for backward compat — UI now simplified)
+  useDefaultCompanyPage  Boolean @default(true)
+  secondaryPaymentPageId String?
 
   // Tracking
-  lastModifiedById String? // Who last modified these settings
+  lastModifiedById String?
   lastModifiedAt   DateTime? @updatedAt
 
   createdAt DateTime @default(now())
@@ -2918,6 +2919,7 @@ model EMIPaymentSetting {
   @@index([emiScheduleId])
   @@index([loanApplicationId])
 }
+
 
 // ==================== SUPPORT & TICKET SYSTEM ====================
 

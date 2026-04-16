@@ -16,7 +16,7 @@ import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
-  Printer, Trophy, Car, Weight, Scale, AlertTriangle
+  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/select';
 import ReceiptSection from '@/components/receipt/ReceiptSection';
 import ReceiptDialog from '@/components/receipt/ReceiptDialog';
+import CloseLoanDialog from '@/components/shared/CloseLoanDialog';
 import { openDoc } from '@/utils/openDoc';
 
 interface OfflineLoanDetailPanelProps {
@@ -201,6 +202,7 @@ export default function OfflineLoanDetailPanel({
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [closeLoanDialogOpen, setCloseLoanDialogOpen] = useState(false);
 
   // Multi-EMI selection state
   const [selectedEmiIds, setSelectedEmiIds] = useState<Set<string>>(new Set());
@@ -902,6 +904,18 @@ export default function OfflineLoanDetailPanel({
                 {userRole === 'SUPER_ADMIN' && (
                   <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={() => setDeleteDialogOpen(true)}>
                     <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+                {/* Close Loan button — visible for ACTIVE loans */}
+                {loan && loan.status === 'ACTIVE' && !loan.isMirrorLoan && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-white hover:bg-red-500/80 gap-1 text-xs"
+                    onClick={() => setCloseLoanDialogOpen(true)}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    <span className="hidden sm:inline">Close Loan</span>
                   </Button>
                 )}
                 <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
@@ -2644,6 +2658,23 @@ export default function OfflineLoanDetailPanel({
         onOpenChange={setReceiptDialogOpen}
         receiptData={receiptData}
       />
+
+      {/* Close Loan Dialog */}
+      {loan && (
+        <CloseLoanDialog
+          open={closeLoanDialogOpen}
+          onOpenChange={setCloseLoanDialogOpen}
+          loanId={loan.id}
+          userId={userId || ''}
+          companyId={loan.companyId}
+          isOfflineLoan={true}
+          onLoanClosed={() => {
+            setCloseLoanDialogOpen(false);
+            onPaymentSuccess?.();
+            onClose();
+          }}
+        />
+      )}
     </>
   );
 }
