@@ -2457,7 +2457,14 @@ export default function UnifiedAccountantDashboard() {
   const [showRepayDialog, setShowRepayDialog] = useState(false);
   const [showCapitalDialog, setShowCapitalDialog] = useState(false);
   const [bankAccountsList, setBankAccountsList] = useState<BankAccount[]>([]);
-  // Load bank accounts for dialogs
+
+  // Company
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+  const companyType = getCompanyType(selectedCompany);
+
+  // Load bank accounts for dialogs (placed after selectedCompanyId is declared)
   useEffect(() => {
     if (!selectedCompanyId) return;
     fetch(`/api/accounting/bank-accounts?companyId=${selectedCompanyId}`)
@@ -2465,12 +2472,6 @@ export default function UnifiedAccountantDashboard() {
       .then(d => setBankAccountsList(d.bankAccounts || d || []))
       .catch(() => {});
   }, [selectedCompanyId]);
-
-  // Company
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const selectedCompany = companies.find(c => c.id === selectedCompanyId);
-  const companyType = getCompanyType(selectedCompany);
 
   // Fetch Companies
   useEffect(() => {
