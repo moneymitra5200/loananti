@@ -777,15 +777,7 @@ function BankSection({
           <Landmark className="h-5 w-5" />
           Bank Accounts
         </h2>
-        <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" onClick={() => setShowBorrowDialog(true)} className="border-orange-500 text-orange-600">
-            <CreditCard className="h-4 w-4 mr-2" />
-            Borrow Money
-          </Button>
-          <Button variant="outline" onClick={() => setShowEquityDialog(true)} className="border-purple-500 text-purple-600">
-            <PiggyBank className="h-4 w-4 mr-2" />
-            Add Equity
-          </Button>
+        <div className="flex gap-2">
           <Button onClick={() => openBankDialog()}>
             <Plus className="h-4 w-4 mr-2" />
             Add Bank
