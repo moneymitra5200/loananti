@@ -29,7 +29,10 @@ export async function GET(request: NextRequest) {
 
     const now     = new Date();
     const emis    = (loan.emis ?? []) as any[];
-    const unpaid  = emis.filter((e: any) => e.paymentStatus !== 'PAID');
+    // INTEREST_ONLY_PAID: interest collected, principal deferred to a new EMI record.
+    // That deferred EMI is already in the schedule — DO NOT double-count the original.
+    const isCloseable = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
+    const unpaid  = emis.filter(isCloseable);
     const paidCnt = emis.length - unpaid.length;
 
     let totalPrincipal = 0;
@@ -130,7 +133,9 @@ export async function POST(request: NextRequest) {
 
     const effectiveCompanyId = companyId || loan.companyId || '';
     const emis               = (loan.emis ?? []) as any[];
-    const unpaidEMIs         = emis.filter((e: any) => e.paymentStatus !== 'PAID');
+    // INTEREST_ONLY_PAID: interest collected, principal deferred to a new EMI — skip.
+    const isCloseable         = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
+    const unpaidEMIs          = emis.filter(isCloseable);
     const accountingWarnings: string[] = [];
 
     // ─── Helper: close mirror loan ────────────────────────────────────────────

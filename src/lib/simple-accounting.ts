@@ -762,3 +762,164 @@ export async function recordMirrorInterestIncome(params: {
     return { success: false };
   }
 }
+
+// ============================================
+// PRINCIPAL-ONLY JOURNAL (Direct / Cache-Free)
+// ============================================
+
+/**
+ * recordPrincipalOnlyJournal
+ *
+ * Creates the double-entry journal for a PRINCIPAL_ONLY EMI payment directly via
+ * raw Prisma calls — NO AccountingService cache involved.
+ *
+ * This avoids the common silent-failure where AccountingService.initializedCompanies
+ * was stale and account 5500 (Irrecoverable Debts) was not found in cache.
+ *
+ * Journal (all entries APPROVED):
+ *   Dr  Cash / Bank (1101 / 1102)   = principalAmount     ← money received
+ *   Cr  Loans Receivable (1200)     = principalAmount     ← loan balance reduced
+ *   Dr  Irrecoverable Debts (5500)  = interestWrittenOff  ← interest lost (if > 0)
+ *   Cr  Interest Income (4110)      = interestWrittenOff  ← recognised then written off (if > 0)
+ *
+ * Works for: offline loans, online loans, single loans, mirror loans.
+ */
+export async function recordPrincipalOnlyJournal(params: {
+  companyId: string;
+  loanId: string;
+  paymentId: string;       // used as referenceId (idempotency key)
+  principalAmount: number;
+  interestWrittenOff: number;
+  paymentDate: Date;
+  createdById: string;
+  paymentMode: string;     // CASH | BANK_TRANSFER | UPI | CHEQUE …
+  loanNumber: string;
+  installmentNumber: number | string;
+}): Promise<{ success: boolean; journalEntryId?: string; error?: string }> {
+  const {
+    companyId, loanId, paymentId, principalAmount, interestWrittenOff,
+    paymentDate, createdById, paymentMode, loanNumber, installmentNumber,
+  } = params;
+
+  if (principalAmount <= 0) {
+    return { success: false, error: 'principalAmount must be > 0' };
+  }
+
+  try {
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'CHEQUE']
+      .includes((paymentMode || '').toUpperCase());
+
+    const cashBankCode = isOnline ? '1102' : '1101';
+    const cashBankName = isOnline ? 'Bank Account' : 'Cash in Hand';
+
+    // ── 1. Upsert all required accounts ────────────────────────────────────────
+    const accountDefs: Array<{ code: string; name: string; type: 'ASSET' | 'EXPENSE' | 'INCOME' }> = [
+      { code: cashBankCode, name: cashBankName,         type: 'ASSET'   },
+      { code: '1200',       name: 'Loans Receivable',   type: 'ASSET'   },
+      ...(interestWrittenOff > 0 ? [
+        { code: '5500', name: 'Irrecoverable Debts', type: 'EXPENSE' as const },
+        { code: '4110', name: 'Interest Income',     type: 'INCOME'  as const },
+      ] : []),
+    ];
+
+    const accountIdMap: Record<string, string> = {};
+    for (const acct of accountDefs) {
+      const record = await db.chartOfAccount.upsert({
+        where: { companyId_accountCode: { companyId, accountCode: acct.code } },
+        create: {
+          companyId,
+          accountCode: acct.code,
+          accountName: acct.name,
+          accountType: acct.type,
+          isSystemAccount: true,
+          description: acct.code === '5500'
+            ? 'Interest written off when only principal is collected (Principal-Only payment)'
+            : undefined,
+          openingBalance: 0,
+          currentBalance: 0,
+        },
+        update: {},
+        select: { id: true },
+      });
+      accountIdMap[acct.code] = record.id;
+    }
+
+    // ── 2. Idempotency: skip if journal already exists for this paymentId ──────
+    const existing = await db.journalEntry.findFirst({
+      where: { companyId, referenceType: 'PRINCIPAL_ONLY_PAYMENT', referenceId: paymentId },
+      select: { id: true },
+    });
+    if (existing) {
+      console.log(`[PrincipalOnly] Idempotency: journal for ${paymentId} already exists — skipping`);
+      return { success: true, journalEntryId: existing.id };
+    }
+
+    // ── 3. Unique entry number ─────────────────────────────────────────────────
+    const entryCount = await db.journalEntry.count({ where: { companyId } });
+    const entryNumber = `JE-PO-${companyId.slice(-4).toUpperCase()}-${String(entryCount + 1).padStart(6, '0')}`;
+
+    // ── 4. Build lines ─────────────────────────────────────────────────────────
+    const writeOff = interestWrittenOff > 0 ? interestWrittenOff : 0;
+    const lineData: Array<{
+      accountId: string; debitAmount: number; creditAmount: number; narration: string; loanId: string;
+    }> = [
+      { accountId: accountIdMap[cashBankCode], debitAmount: principalAmount, creditAmount: 0,
+        narration: `Principal received via ${paymentMode}`, loanId },
+      { accountId: accountIdMap['1200'],       debitAmount: 0, creditAmount: principalAmount,
+        narration: 'Principal repayment — loan balance reduced', loanId },
+      ...(writeOff > 0 ? [
+        { accountId: accountIdMap['5500'], debitAmount: writeOff, creditAmount: 0,
+          narration: 'Interest written off as irrecoverable debt', loanId },
+        { accountId: accountIdMap['4110'], debitAmount: 0, creditAmount: writeOff,
+          narration: 'Interest income — waived and written off', loanId },
+      ] : []),
+    ];
+
+    // ── 5. Create journal entry ────────────────────────────────────────────────
+    const journal = await db.journalEntry.create({
+      data: {
+        companyId,
+        entryNumber,
+        entryDate:     paymentDate,
+        referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+        referenceId:   paymentId,
+        narration:     `Principal-Only EMI #${installmentNumber} — ${loanNumber} | P:₹${principalAmount} collected, I:₹${writeOff} written off`,
+        totalDebit:    principalAmount + writeOff,
+        totalCredit:   principalAmount + writeOff,
+        isAutoEntry:   true,
+        isApproved:    true,
+        createdById,
+        paymentMode,
+        lines: { create: lineData },
+      },
+      select: { id: true },
+    });
+
+    // ── 6. Update currentBalance on accounts ───────────────────────────────────
+    await db.chartOfAccount.update({
+      where: { id: accountIdMap[cashBankCode] },
+      data: { currentBalance: { increment: principalAmount } },
+    });
+    await db.chartOfAccount.update({
+      where: { id: accountIdMap['1200'] },
+      data: { currentBalance: { decrement: principalAmount } },
+    });
+    if (writeOff > 0) {
+      await db.chartOfAccount.update({
+        where: { id: accountIdMap['5500'] },
+        data: { currentBalance: { increment: writeOff } },
+      });
+      await db.chartOfAccount.update({
+        where: { id: accountIdMap['4110'] },
+        data: { currentBalance: { increment: writeOff } },
+      });
+    }
+
+    console.log(`[PrincipalOnly] ✅ Journal ${entryNumber}: P:₹${principalAmount} Dr ${cashBankCode}, Cr 1200; I:₹${writeOff} Dr 5500, Cr 4110 (company: ${companyId})`);
+    return { success: true, journalEntryId: journal.id };
+
+  } catch (err: any) {
+    console.error('[PrincipalOnly] ❌ Journal creation failed:', err?.message || err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}

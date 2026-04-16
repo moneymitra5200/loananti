@@ -2976,43 +2976,34 @@ export async function PUT(request: NextRequest) {
                   description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${interestToWriteOff} written off)`,
                   referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
               }
-              // Journal entry with Irrecoverable Debts write-off
-              const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
-              // Clear the process-wide static cache for this company so initializeChartOfAccounts
-              // always runs fully — ensuring new system accounts (5500 Irrecoverable Debts)
-              // are created even in long-running server processes.
-              (PoAccSvc as any).initializedCompanies?.delete(targetCompanyId);
-              const poSvc = new PoAccSvc(targetCompanyId);
-              await poSvc.initializeChartOfAccounts();
-              try {
-                await poSvc.recordPrincipalOnlyPayment({
-                  loanId: emi.offlineLoanId,
-                  customerId: emi.offlineLoan.customerId || '',
-                  paymentId: updatedEmi.id,
-                  principalAmount:    principalToCollect,
-                  interestWrittenOff: interestToWriteOff,
-                  paymentDate:        new Date(),
-                  createdById:        userId,
-                  paymentMode:        effectivePaymentMode || 'CASH',
-                  loanNumber:         emi.offlineLoan.loanNumber,
-                  installmentNumber:  emi.installmentNumber,
-                });
-                console.log(`[Principal-Only] ✅ Journal entry created — P:₹${principalToCollect} Dr Cash, Cr LoansReceivable; I:₹${interestToWriteOff} Dr IrrecoverableDebts, Cr InterestIncome`);
-              } catch (journalErr: any) {
-                console.error(`[Principal-Only] ❌ Journal (Irrecoverable Debts) FAILED:`, journalErr?.message || journalErr);
-                console.error(`  targetCompanyId=${targetCompanyId}, principalToCollect=${principalToCollect}, interestToWriteOff=${interestToWriteOff}`);
-                // Cashbook entry is already recorded. Journal will be missing — log for manual fix.
+              // ── Journal: cache-free direct approach ──────────────────────────
+              const { recordPrincipalOnlyJournal } = await import('@/lib/simple-accounting');
+              const journalResult = await recordPrincipalOnlyJournal({
+                companyId:          targetCompanyId,
+                loanId:             emi.offlineLoanId,
+                paymentId:          updatedEmi.id,
+                principalAmount:    principalToCollect,
+                interestWrittenOff: interestToWriteOff,
+                paymentDate:        new Date(),
+                createdById:        userId,
+                paymentMode:        effectivePaymentMode || 'CASH',
+                loanNumber:         emi.offlineLoan.loanNumber,
+                installmentNumber:  emi.installmentNumber,
+              });
+              if (!journalResult.success) {
+                accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
+                console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
+              } else {
+                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect}, I:₹${interestToWriteOff}→Irrecoverable Debts`);
               }
             }
-            // If mirror loan: also write off interest as loss in mirror company
+            // Mirror PRINCIPAL_ONLY: write off interest in mirror company (cache-free)
             if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId && mirrorInterestAmount > 0) {
-              const { AccountingService: PoAccSvc } = await import('@/lib/accounting-service');
-              const mirrorPoSvc = new PoAccSvc(mirrorLoanMapping.mirrorCompanyId);
-              await mirrorPoSvc.initializeChartOfAccounts();
-              await mirrorPoSvc.recordPrincipalOnlyPayment({
-                loanId: mirrorLoanMapping.mirrorLoanId!,
-                customerId: emi.offlineLoan.customerId || '',
-                paymentId: `${updatedEmi.id}-MIRROR`,
+              const { recordPrincipalOnlyJournal: mirrorPoJournal } = await import('@/lib/simple-accounting');
+              const mirrorJournalResult = await mirrorPoJournal({
+                companyId:          mirrorLoanMapping.mirrorCompanyId,
+                loanId:             mirrorLoanMapping.mirrorLoanId!,
+                paymentId:          `${updatedEmi.id}-MIRROR`,
                 principalAmount:    mirrorPrincipalAmount,
                 interestWrittenOff: mirrorInterestAmount,
                 paymentDate:        new Date(),
@@ -3021,7 +3012,12 @@ export async function PUT(request: NextRequest) {
                 loanNumber:         emi.offlineLoan.loanNumber,
                 installmentNumber:  emi.installmentNumber,
               });
-              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: I:₹${mirrorInterestAmount} → Irrecoverable Debts (${mirrorLoanMapping.mirrorCompanyId})`);
+              if (!mirrorJournalResult.success) {
+                accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
+                console.error(`[Accounting] MIRROR PRINCIPAL_ONLY ❌:`, mirrorJournalResult.error);
+              } else {
+                console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: I:₹${mirrorInterestAmount}→Irrecoverable Debts (${mirrorLoanMapping.mirrorCompanyId})`);
+              }
             }
             console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);
           } else {
