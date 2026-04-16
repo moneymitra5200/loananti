@@ -2497,6 +2497,21 @@ export async function PUT(request: NextRequest) {
               }
             });
             console.log(`[Interest-Only Deferred] Created deferred EMI #${nextInstNum}: P:₹${remainingPrincipalAfterIO} + I:₹${deferredInterest} = ₹${remainingPrincipalAfterIO + deferredInterest}`);
+
+            // ── INCREMENT mirrorTenure to keep the "Extra EMI" boundary correct ──────
+            // When a deferred EMI is inserted at position N+1, ALL subsequent EMIs shift
+            // forward by 1 (e.g. old EMI #10 becomes #11). If mirrorTenure was 10, the
+            // old #10 would now be at #11 and incorrectly tagged as Extra EMI (Personal Credit).
+            // Solution: expand mirrorTenure by 1 so the SAME original EMIs stay within it.
+            if (mirrorLoanMapping) {
+              await tx.mirrorLoanMapping.update({
+                where: { id: mirrorLoanMapping.id },
+                data:  { mirrorTenure: mirrorLoanMapping.mirrorTenure + 1 }
+              });
+              // Update local mirror mapping so subsequent logic in this request uses new tenure
+              mirrorLoanMapping.mirrorTenure += 1;
+              console.log(`[Interest-Only] mirrorTenure incremented to ${mirrorLoanMapping.mirrorTenure} to preserve Extra EMI boundary`);
+            }
           } else {
             console.log(`[Interest-Only Deferred] No principal left to defer (already paid: ₹${emi.paidPrincipal || 0}) — skipping`);
           }

@@ -1,21 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  AlertTriangle, CheckCircle, Loader2, IndianRupee, Calculator,
-  TrendingDown, Wallet, Building2, Skull, XCircle
+  AlertTriangle, Loader2, IndianRupee, Calculator, TrendingDown,
+  Skull, CheckCircle, Building, Banknote, CreditCard, Wallet, Info,
 } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/utils/helpers';
+import { formatCurrency } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 
 interface CloseLoanDialogProps {
@@ -43,7 +41,7 @@ interface ForeclosureData {
   interestRate: number;
   emiDetails: Array<{
     installmentNumber: number;
-    dueDate: Date;
+    dueDate: string;
     totalAmount: number;
     paidAmount: number;
     remainingAmount: number;
@@ -59,435 +57,373 @@ interface ForeclosureData {
   } | null;
 }
 
-// Close mode: normal foreclosure payment OR write off as total loss
-type CloseMode = 'PAYMENT' | 'LOSS';
+const PAYMENT_MODES = [
+  { value: 'CASH',          label: 'Cash',          icon: Banknote },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer',  icon: Building },
+  { value: 'UPI',           label: 'UPI',            icon: CreditCard },
+  { value: 'CHEQUE',        label: 'Cheque',         icon: CreditCard },
+];
 
 export default function CloseLoanDialog({
-  open,
-  onOpenChange,
-  loanId,
-  userId,
-  companyId,
-  isOfflineLoan = false,
-  onLoanClosed
+  open, onOpenChange, loanId, userId, companyId, isOfflineLoan = false, onLoanClosed,
 }: CloseLoanDialogProps) {
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [foreclosureData, setForeclosureData] = useState<ForeclosureData | null>(null);
-  const [closeMode, setCloseMode] = useState<CloseMode>('PAYMENT');
+  const [loading,          setLoading]          = useState(false);
+  const [saving,           setSaving]           = useState(false);
+  const [data,             setData]             = useState<ForeclosureData | null>(null);
+  const [mode,             setMode]             = useState<'PAYMENT' | 'LOSS'>('PAYMENT');
+  const [paymentMode,      setPaymentMode]      = useState('CASH');
+  const [creditType,       setCreditType]       = useState<'COMPANY' | 'PERSONAL'>('COMPANY');
+  const [remarks,          setRemarks]          = useState('');
 
-  // Payment form
-  const [paymentMode, setPaymentMode] = useState('CASH');
-  const [creditType, setCreditType] = useState<'PERSONAL' | 'COMPANY'>('COMPANY');
-  const [bankAccountId, setBankAccountId] = useState('');
-  const [proofUrl, setProofUrl] = useState('');
-  const [remarks, setRemarks] = useState('');
-
-  const [bankAccounts, setBankAccounts] = useState<Array<{
-    id: string;
-    bankName: string;
-    accountNumber: string;
-    currentBalance: number;
-    isDefault?: boolean;
-  }>>([]);
-
+  // ────────────────────────────────────────────────────────────────────────────
+  // Load foreclosure calculation
+  // ────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (open && loanId) {
-      fetchForeclosureData();
-      fetchBankAccounts();
-    }
-    // Reset mode on open
-    if (open) setCloseMode('PAYMENT');
+    if (!open || !loanId) return;
+    setData(null);
+    setMode('PAYMENT');
+    setPaymentMode('CASH');
+    setCreditType('COMPANY');
+    setRemarks('');
+    fetchForeclosure();
   }, [open, loanId]);
 
-  // Auto-select default bank account when bank accounts load
-  useEffect(() => {
-    if (bankAccounts.length > 0 && !bankAccountId) {
-      const defaultBank = bankAccounts.find(b => b.isDefault) || bankAccounts[0];
-      if (defaultBank) setBankAccountId(defaultBank.id);
-    }
-  }, [bankAccounts]);
-
-  const fetchForeclosureData = async () => {
+  const fetchForeclosure = async () => {
     setLoading(true);
     try {
       const endpoint = isOfflineLoan
         ? `/api/offline-loan/close?loanId=${loanId}`
         : `/api/loan/close?loanId=${loanId}`;
-      const response = await fetch(endpoint);
-      const data = await response.json();
-
-      if (data.success) {
-        setForeclosureData(data.foreclosure);
+      const res  = await fetch(endpoint);
+      const json = await res.json();
+      if (json.success) {
+        setData(json.foreclosure);
       } else {
-        toast({ title: 'Error', description: data.error, variant: 'destructive' });
+        toast({ title: 'Error', description: json.error || 'Failed to load foreclosure data', variant: 'destructive' });
         onOpenChange(false);
       }
-    } catch (error) {
-      console.error('Error fetching foreclosure data:', error);
-      toast({ title: 'Error', description: 'Failed to calculate foreclosure amount', variant: 'destructive' });
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load foreclosure data', variant: 'destructive' });
+      onOpenChange(false);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchBankAccounts = async () => {
-    try {
-      const qp = companyId ? `?companyId=${companyId}` : '';
-      const response = await fetch(`/api/accounting/bank-accounts${qp}`);
-      const data = await response.json();
-      setBankAccounts(data.bankAccounts || []);
-    } catch (error) {
-      console.error('Error fetching bank accounts:', error);
-    }
-  };
-
-  const handleCloseWithPayment = async () => {
-    if (!foreclosureData) return;
+  // ────────────────────────────────────────────────────────────────────────────
+  // Submit
+  // ────────────────────────────────────────────────────────────────────────────
+  const handleSubmit = async () => {
+    if (!data) return;
     setSaving(true);
     try {
       const endpoint = isOfflineLoan ? '/api/offline-loan/close' : '/api/loan/close';
-      const response = await fetch(endpoint, {
+      const body: Record<string, unknown> = {
+        loanId,
+        userId,
+        companyId,
+        closeType: mode,
+        remarks,
+      };
+      if (mode === 'PAYMENT') {
+        body.paymentMode = paymentMode;
+        body.creditType  = creditType;
+      }
+
+      const res  = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          loanId,
-          userId,
-          amount: foreclosureData.totalForeclosureAmount,
-          paymentMode,
-          creditType,
-          bankAccountId: paymentMode !== 'CASH' ? bankAccountId : null,
-          proofUrl,
-          remarks,
-          closeType: 'PAYMENT',
-        })
+        body: JSON.stringify(body),
       });
+      const json = await res.json();
 
-      const data = await response.json();
-      if (data.success) {
-        toast({ title: 'Loan Closed', description: data.message });
-        onOpenChange(false);
+      if (json.success) {
+        toast({
+          title:       mode === 'LOSS' ? '✅ Loan Written Off as Loss' : '✅ Loan Closed',
+          description: json.message,
+        });
+        if (!json.accountingOk && json.accountingWarnings?.length > 0) {
+          setTimeout(() => {
+            toast({
+              title:       '⚠️ Accounting Entry Incomplete',
+              description: `Loan closed but accounting failed: ${json.accountingWarnings[0]}. Contact admin.`,
+              variant:     'destructive',
+            });
+          }, 600);
+        }
         onLoanClosed?.();
+        onOpenChange(false);
       } else {
-        toast({ title: 'Error', description: data.error, variant: 'destructive' });
+        toast({ title: 'Error', description: json.error || 'Failed to close loan', variant: 'destructive' });
       }
-    } catch (error) {
-      console.error('Error closing loan:', error);
-      toast({ title: 'Error', description: 'Failed to close loan', variant: 'destructive' });
+    } catch (e: any) {
+      toast({ title: 'Error', description: e?.message || 'Failed to close loan', variant: 'destructive' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleCloseAsLoss = async () => {
-    if (!foreclosureData) return;
-    setSaving(true);
-    try {
-      const endpoint = isOfflineLoan ? '/api/offline-loan/close' : '/api/loan/close';
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          loanId,
-          userId,
-          amount: 0,
-          paymentMode: 'NONE',
-          creditType: 'COMPANY',
-          remarks: remarks || 'Loan written off as irrecoverable loss',
-          closeType: 'LOSS',  // writes off all remaining as Irrecoverable Debts
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        toast({ title: 'Loan Written Off', description: data.message });
-        onOpenChange(false);
-        onLoanClosed?.();
-      } else {
-        toast({ title: 'Error', description: data.error, variant: 'destructive' });
-      }
-    } catch (error) {
-      console.error('Error writing off loan:', error);
-      toast({ title: 'Error', description: 'Failed to write off loan', variant: 'destructive' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-lg">
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  if (!foreclosureData) return null;
+  // ────────────────────────────────────────────────────────────────────────────
+  // Derived display values
+  // ────────────────────────────────────────────────────────────────────────────
+  const foreAmt   = data?.totalForeclosureAmount ?? 0;
+  const totalP    = data?.totalPrincipal ?? 0;
+  const totalI    = data?.totalInterest  ?? 0;
+  const lossAmt   = (data?.totalPrincipal ?? 0) + (data?.totalInterest ?? 0);
+  // For LOSS, interest written off = total remaining interest on all EMIs
+  const interestWriteOff = data?.emiDetails?.reduce((s, e) => s + e.interestToPay, 0) ?? totalI;
+  const principalWriteOff = data?.emiDetails?.reduce((s, e) => s + e.principalToPay, 0) ?? totalP;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-emerald-600" />
-            Close Loan — {foreclosureData.applicationNo}
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto p-0">
+
+        {/* ── Header ── */}
+        <DialogHeader className="px-6 pt-6 pb-3">
+          <DialogTitle className="flex items-center gap-2 text-lg font-bold text-gray-900">
+            <Calculator className="h-5 w-5 text-red-500" />
+            Close Loan
           </DialogTitle>
-          <DialogDescription>
-            Select how to close this loan: collect foreclosure payment or write off as loss.
+          <DialogDescription className="text-sm text-gray-500">
+            {data
+              ? `${data.applicationNo} · ${data.paidEMIs}/${data.totalEMIs} EMIs paid · ${data.unpaidEMICount} remaining`
+              : 'Loading foreclosure data…'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
-          {/* Customer Info */}
-          <Card className="bg-gray-50">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold">{foreclosureData.customer.name}</p>
-                  <p className="text-sm text-gray-500">{foreclosureData.customer.phone}</p>
-                </div>
-                <Badge variant="outline">
-                  {foreclosureData.paidEMIs}/{foreclosureData.totalEMIs} EMIs Paid
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Mirror Loan Info */}
-          {foreclosureData.mirrorLoan?.isMirrorLoan && (
-            <Card className="bg-purple-50 border-purple-200">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Building2 className="h-4 w-4 text-purple-600" />
-                  <span className="font-medium text-purple-700">Mirror Loan</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <p className="text-gray-500">Original Company:</p>
-                    <p className="font-medium">{foreclosureData.mirrorLoan.originalCompany?.name}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-500">Mirror Company:</p>
-                    <p className="font-medium">{foreclosureData.mirrorLoan.mirrorCompany?.name}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Summary */}
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="bg-blue-50 border-blue-200">
-              <CardContent className="p-3 text-center">
-                <p className="text-xs text-gray-500">Principal</p>
-                <p className="text-base font-bold text-blue-600">{formatCurrency(foreclosureData.totalPrincipal)}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-amber-50 border-amber-200">
-              <CardContent className="p-3 text-center">
-                <p className="text-xs text-gray-500">Interest</p>
-                <p className="text-base font-bold text-amber-600">{formatCurrency(foreclosureData.totalInterest)}</p>
-              </CardContent>
-            </Card>
-            <Card className="bg-emerald-50 border-emerald-200">
-              <CardContent className="p-3 text-center">
-                <p className="text-xs text-gray-500">Foreclosure Total</p>
-                <p className="text-base font-bold text-emerald-600">{formatCurrency(foreclosureData.totalForeclosureAmount)}</p>
-                <p className="text-xs text-emerald-600">Save {formatCurrency(foreclosureData.savings)}</p>
-              </CardContent>
-            </Card>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
           </div>
+        ) : data ? (
+          <div className="px-6 pb-6 space-y-5">
 
-          {/* Close Mode Tabs */}
-          <Tabs value={closeMode} onValueChange={(v) => setCloseMode(v as CloseMode)}>
-            <TabsList className="w-full">
-              <TabsTrigger value="PAYMENT" className="flex-1 gap-2">
-                <IndianRupee className="h-4 w-4" />
-                Collect Payment
-              </TabsTrigger>
-              <TabsTrigger value="LOSS" className="flex-1 gap-2 data-[state=active]:bg-red-100 data-[state=active]:text-red-700">
-                <Skull className="h-4 w-4" />
-                Mark as Loss
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {/* Payment Mode UI */}
-          {closeMode === 'PAYMENT' && (
-            <div className="space-y-4 border rounded-lg p-4">
-              <h4 className="font-semibold flex items-center gap-2">
-                <Wallet className="h-4 w-4" />
-                Payment Details
-              </h4>
-
-              <div>
-                <Label>Payment Mode</Label>
-                <Select value={paymentMode} onValueChange={setPaymentMode}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="CASH">Cash</SelectItem>
-                    <SelectItem value="BANK_TRANSFER">Bank Transfer</SelectItem>
-                    <SelectItem value="UPI">UPI</SelectItem>
-                    <SelectItem value="CHEQUE">Cheque</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {paymentMode !== 'CASH' && (
-                <div>
-                  <Label>Bank Account {bankAccounts.find(b => b.isDefault) ? '(★ = Default)' : ''}</Label>
-                  <Select value={bankAccountId} onValueChange={setBankAccountId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select bank account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bankAccounts.map(account => (
-                        <SelectItem key={account.id} value={account.id}>
-                          {account.isDefault ? '★ ' : ''}{account.bankName} — ···{account.accountNumber?.slice(-4)} ({formatCurrency(account.currentBalance)})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              <div>
-                <Label>Credit Type</Label>
-                <p className="text-xs text-gray-500 mb-2">
-                  {paymentMode === 'CASH'
-                    ? 'Cash payments default to Company Credit'
-                    : 'Non-Cash may use Personal Credit (proof required)'}
-                </p>
-                <RadioGroup
-                  value={creditType}
-                  onValueChange={(v) => setCreditType(v as any)}
-                  className="flex gap-4"
-                >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="COMPANY" id="company" />
-                    <Label htmlFor="company" className="font-normal">Company Credit</Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="PERSONAL" id="personal" />
-                    <Label htmlFor="personal" className="font-normal">Personal Credit</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-
-              {creditType === 'PERSONAL' && paymentMode !== 'CASH' && (
-                <div>
-                  <Label>Proof URL</Label>
-                  <Input
-                    value={proofUrl}
-                    onChange={(e) => setProofUrl(e.target.value)}
-                    placeholder="Enter payment proof URL"
-                  />
-                </div>
-              )}
-
-              <div>
-                <Label>Remarks</Label>
-                <Input
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Optional remarks"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Loss Mode UI */}
-          {closeMode === 'LOSS' && (
-            <div className="space-y-4 border border-red-200 rounded-lg p-4 bg-red-50">
-              <h4 className="font-semibold flex items-center gap-2 text-red-700">
-                <XCircle className="h-4 w-4" />
-                Write Off as Irrecoverable Debt
-              </h4>
-              <div className="text-sm text-red-700 space-y-1">
-                <p>The following will be written off to <strong>Irrecoverable Debts</strong> (Loss in P&amp;L):</p>
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <div className="bg-white rounded border border-red-200 p-2 text-center">
-                    <p className="text-xs text-gray-500">Principal Written Off</p>
-                    <p className="font-bold text-red-600">{formatCurrency(foreclosureData.totalPrincipal)}</p>
-                  </div>
-                  <div className="bg-white rounded border border-red-200 p-2 text-center">
-                    <p className="text-xs text-gray-500">Interest Written Off</p>
-                    <p className="font-bold text-red-600">{formatCurrency(foreclosureData.totalInterest)}</p>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">Total write-off: {formatCurrency(foreclosureData.originalRemainingAmount)}</p>
-              </div>
-              <div>
-                <Label>Write-off Reason</Label>
-                <Input
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="e.g. Customer defaulted, uncontactable"
-                />
-              </div>
-              <div className="p-3 bg-red-100 border border-red-300 rounded text-xs text-red-800 flex items-start gap-2">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            {/* ── Mirror badge ── */}
+            {data.mirrorLoan?.isMirrorLoan && (
+              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                <Info className="h-4 w-4 flex-shrink-0" />
                 <span>
-                  <strong>Warning:</strong> This action is irreversible. The entire remaining balance will be written off
-                  as an Irrecoverable Debt expense in the P&amp;L. No cash is collected.
+                  <strong>Mirror Loan:</strong> {data.mirrorLoan.originalCompany?.name} →{' '}
+                  {data.mirrorLoan.mirrorCompany?.name}.
+                  Closing this loan will also close the mirror loan.
                 </span>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Final Warning for Payment mode */}
-          {closeMode === 'PAYMENT' && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3 text-sm">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium text-amber-800">Irreversible Action</p>
-                <p className="text-amber-700">
-                  Once closed, the loan cannot be reopened. Foreclosure amount:{' '}
-                  <strong>{formatCurrency(foreclosureData.totalForeclosureAmount)}</strong>
+            {/* ── Summary cards (same style as EMI payment dialog) ── */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-blue-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-blue-500 font-medium mb-1">Principal</p>
+                <p className="text-lg font-bold text-blue-700">₹{formatCurrency(totalP)}</p>
+              </div>
+              <div className="bg-orange-50 rounded-xl p-3 text-center">
+                <p className="text-xs text-orange-500 font-medium mb-1">Interest</p>
+                <p className="text-lg font-bold text-orange-700">₹{formatCurrency(totalI)}</p>
+                {totalI === 0 && (
+                  <p className="text-[10px] text-orange-400">Waived (future)</p>
+                )}
+              </div>
+              <div className={`rounded-xl p-3 text-center ${mode === 'LOSS' ? 'bg-red-50' : 'bg-green-50'}`}>
+                <p className={`text-xs font-medium mb-1 ${mode === 'LOSS' ? 'text-red-500' : 'text-green-500'}`}>
+                  {mode === 'LOSS' ? 'Write-Off Total' : 'Collect'}
                 </p>
+                <p className={`text-lg font-bold ${mode === 'LOSS' ? 'text-red-700' : 'text-green-700'}`}>
+                  ₹{formatCurrency(mode === 'LOSS' ? lossAmt : foreAmt)}
+                </p>
+                {mode === 'PAYMENT' && data.savings > 0.01 && (
+                  <p className="text-[10px] text-green-400">Save ₹{formatCurrency(data.savings)}</p>
+                )}
               </div>
             </div>
-          )}
-        </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {/* ── EMI breakdown ── */}
+            {data.emiDetails.length > 0 && (
+              <div className="border rounded-xl overflow-hidden">
+                <div className="bg-gray-50 px-4 py-2 flex items-center gap-2">
+                  <IndianRupee className="h-3.5 w-3.5 text-gray-500" />
+                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">EMI Breakdown</span>
+                </div>
+                <div className="divide-y">
+                  {data.emiDetails.map(e => (
+                    <div key={e.installmentNumber} className="px-4 py-2.5 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">EMI #{e.installmentNumber}</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(e.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {!e.monthHasStarted && (
+                            <span className="ml-1 text-blue-400">(future — interest waived)</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-gray-800">₹{formatCurrency(e.amountToPay)}</p>
+                        <p className="text-xs text-gray-400">P:₹{formatCurrency(e.principalToPay)} I:₹{formatCurrency(e.interestToPay)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <Separator />
+
+            {/* ── Mode selector (same tab style as EMI dialog) ── */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Close Method</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setMode('PAYMENT')}
+                  className={`rounded-xl border-2 p-3 text-left transition-all ${
+                    mode === 'PAYMENT'
+                      ? 'border-green-400 bg-green-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <CheckCircle className={`h-4 w-4 mb-1 ${mode === 'PAYMENT' ? 'text-green-500' : 'text-gray-400'}`} />
+                  <p className="text-sm font-bold text-gray-800">Collect Payment</p>
+                  <p className="text-xs text-gray-400">Collect ₹{formatCurrency(foreAmt)}</p>
+                </button>
+                <button
+                  onClick={() => setMode('LOSS')}
+                  className={`rounded-xl border-2 p-3 text-left transition-all ${
+                    mode === 'LOSS'
+                      ? 'border-red-400 bg-red-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <Skull className={`h-4 w-4 mb-1 ${mode === 'LOSS' ? 'text-red-500' : 'text-gray-400'}`} />
+                  <p className="text-sm font-bold text-gray-800">Mark as Loss</p>
+                  <p className="text-xs text-gray-400">Write off ₹{formatCurrency(lossAmt)}</p>
+                </button>
+              </div>
+            </div>
+
+            {/* ── LOSS: write-off detail ── */}
+            {mode === 'LOSS' && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-red-600" />
+                  <p className="text-sm font-bold text-red-700">Irrecoverable Loss Write-Off</p>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Principal write-off:</span>
+                    <span className="font-bold text-red-700">₹{formatCurrency(principalWriteOff)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Interest write-off:</span>
+                    <span className="font-bold text-red-700">₹{formatCurrency(interestWriteOff)}</span>
+                  </div>
+                  <Separator className="my-1" />
+                  <div className="flex justify-between font-bold">
+                    <span className="text-red-700">Total written off:</span>
+                    <span className="text-red-700">₹{formatCurrency(lossAmt)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-red-500 mt-2">
+                  Entire balance (P + I) recorded as "Irrecoverable Debts" in P&amp;L. No cash collected.
+                  Loan closed immediately.
+                </p>
+              </div>
+            )}
+
+            {/* ── PAYMENT: payment mode ── */}
+            {mode === 'PAYMENT' && (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Mode</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PAYMENT_MODES.map(({ value, label, icon: Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => setPaymentMode(value)}
+                        className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                          paymentMode === value
+                            ? 'border-blue-400 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Credit Type</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'COMPANY',  label: 'Company Credit',  icon: Building },
+                      { value: 'PERSONAL', label: 'Personal Credit', icon: Wallet   },
+                    ].map(({ value, label, icon: Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => setCreditType(value as 'COMPANY' | 'PERSONAL')}
+                        className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                          creditType === value
+                            ? 'border-purple-400 bg-purple-50 text-purple-700'
+                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Remarks ── */}
+            <div>
+              <Label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Remarks <span className="text-gray-400 font-normal">(optional)</span>
+              </Label>
+              <Textarea
+                className="mt-1 resize-none text-sm"
+                rows={2}
+                placeholder={mode === 'LOSS' ? 'Reason for write-off…' : 'Optional remarks…'}
+                value={remarks}
+                onChange={e => setRemarks(e.target.value)}
+              />
+            </div>
+
+            {/* ── Warning ── */}
+            <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-xl p-3">
+              <AlertTriangle className="h-4 w-4 text-yellow-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-yellow-800">
+                <strong>Irreversible Action.</strong>{' '}
+                {mode === 'LOSS'
+                  ? `Writing off ₹${formatCurrency(lossAmt)} as total loss. This cannot be undone.`
+                  : `Foreclosure amount ₹${formatCurrency(foreAmt)}. Loan cannot be reopened once closed.`}
+                {data.mirrorLoan?.isMirrorLoan && ' Mirror loan will also be closed automatically.'}
+              </p>
+            </div>
+
+          </div>
+        ) : null}
+
+        {/* ── Footer ── */}
+        <DialogFooter className="px-6 pb-6 pt-0 flex gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving} className="flex-1">
             Cancel
           </Button>
-
-          {closeMode === 'LOSS' ? (
-            <Button
-              onClick={handleCloseAsLoss}
-              disabled={saving}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Skull className="h-4 w-4 mr-2" />
-              )}
-              Write Off as Loss
-            </Button>
-          ) : (
-            <Button
-              onClick={handleCloseWithPayment}
-              disabled={saving}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {saving ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="h-4 w-4 mr-2" />
-              )}
-              Close Loan — {formatCurrency(foreclosureData.totalForeclosureAmount)}
-            </Button>
-          )}
+          <Button
+            onClick={handleSubmit}
+            disabled={saving || loading || !data}
+            className={`flex-1 ${mode === 'LOSS'
+              ? 'bg-red-600 hover:bg-red-700 text-white'
+              : 'bg-green-600 hover:bg-green-700 text-white'}`}
+          >
+            {saving ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
+            ) : mode === 'LOSS' ? (
+              <><Skull className="h-4 w-4 mr-2" /> Write Off ₹{formatCurrency(lossAmt)}</>
+            ) : (
+              <><CheckCircle className="h-4 w-4 mr-2" /> Close Loan · ₹{formatCurrency(foreAmt)}</>
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
