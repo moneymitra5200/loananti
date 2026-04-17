@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FileText, Download, Eye, Loader2 } from 'lucide-react';
+import { FileText, Download, Eye, Loader2, FileDown } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import LoanReceiptDialog from './LoanReceiptDialog';
 import ReceiptDialog from './ReceiptDialog';
+import { generateAllReceiptsPDF } from '@/lib/generate-receipts-pdf';
 
 interface ReceiptSectionProps {
   loanDetails: any;
@@ -79,6 +80,7 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
   const [emiReceiptData, setEmiReceiptData] = useState<EMIReceiptData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingEmiId, setLoadingEmiId] = useState<string | null>(null);
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   // Generate loan receipt data
   const generateLoanReceipt = async () => {
@@ -177,6 +179,31 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
     }
   };
 
+  // Download all receipts as PDF
+  const downloadAllReceipts = async () => {
+    if (!loanDetails || paidEmis.length === 0) return;
+    
+    setDownloadingAll(true);
+    try {
+      const loanId = loanDetails.id || loanDetails.loanId;
+      const isOffline = loanDetails.isOffline || false;
+      
+      const response = await fetch(`/api/receipt/download-all?loanId=${loanId}&isOffline=${isOffline}`);
+      const data = await response.json();
+      
+      if (data.success && data.receipts && data.receipts.length > 0) {
+        generateAllReceiptsPDF(data.receipts, `EMI Receipts - ${loanDetails.applicationNo || loanDetails.loanNumber}`);
+      } else {
+        alert('No paid EMI receipts found to download');
+      }
+    } catch (error) {
+      console.error('Error downloading all receipts:', error);
+      alert('Failed to download receipts');
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   // Filter paid EMIs
   const paidEmis = emiSchedules.filter(emi => 
     emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID'
@@ -231,13 +258,31 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
       {/* Monthly EMI Receipts Section */}
       <Card className="border-0 shadow-sm">
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Download className="h-4 w-4 text-green-600" />
-            Monthly EMI Receipts
-          </CardTitle>
-          <CardDescription>
-            {paidEmis.length} paid EMI(s) with receipts available
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Download className="h-4 w-4 text-green-600" />
+                Monthly EMI Receipts
+              </CardTitle>
+              <CardDescription>
+                {paidEmis.length} paid EMI(s) with receipts available
+              </CardDescription>
+            </div>
+            {paidEmis.length > 0 && (
+              <Button
+                onClick={downloadAllReceipts}
+                disabled={downloadingAll}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                {downloadingAll ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <FileDown className="h-4 w-4 mr-2" />
+                )}
+                {downloadingAll ? 'Downloading...' : 'Download All Receipts'}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {paidEmis.length === 0 ? (
