@@ -585,6 +585,8 @@ model EMISchedule {
   interestOnlyAmount   Float              @default(0) // Interest amount paid
   duplicatedEMINumber  Int? // If this EMI was duplicated due to interest only payment
   originalEMIId        String? // Reference to original EMI if this is a duplicate
+  // Payment History JSON - stores array of payment records
+  paymentHistoryJson   String?  @db.LongText // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   loanApplication      LoanApplication    @relation(fields: [loanApplicationId], references: [id])
@@ -2243,6 +2245,8 @@ model OfflineLoanEMI {
   // Relations
   offlineLoan          OfflineLoan      @relation(fields: [offlineLoanId], references: [id], onDelete: Cascade)
   collector            User?            @relation(fields: [collectedById], references: [id])
+  // Payment History JSON - stores array of payment records
+  paymentHistoryJson   String?  @db.LongText // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
 
   @@unique([offlineLoanId, installmentNumber])
   @@index([offlineLoanId])

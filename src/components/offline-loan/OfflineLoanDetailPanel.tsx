@@ -214,6 +214,11 @@ export default function OfflineLoanDetailPanel({
   const [receiptData, setReceiptData] = useState<any>(null);
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
 
+  // Payment History Dialog state
+  const [paymentHistoryDialogOpen, setPaymentHistoryDialogOpen] = useState(false);
+  const [selectedEmiForHistory, setSelectedEmiForHistory] = useState<EMI | null>(null);
+  const [emiTabView, setEmiTabView] = useState<'original' | 'mirror'>('original');
+
   // Fetch receipt for mirror loan EMI
   const fetchReceipt = async (emiId: string) => {
     if (!loan) return;
@@ -309,6 +314,43 @@ export default function OfflineLoanDetailPanel({
     setPaymentDialogOpen(true);
     setIsInterestOnlyPayment(false);
     setIsMultiEmiPayment(false);
+  };
+
+  // Open payment history dialog
+  const openPaymentHistoryDialog = (emi: EMI) => {
+    setSelectedEmiForHistory(emi);
+    setPaymentHistoryDialogOpen(true);
+  };
+
+  // Parse payment history from EMI
+  const parsePaymentHistory = (emi: EMI) => {
+    // If we have paymentHistoryJson, use it
+    if ((emi as any).paymentHistoryJson) {
+      try {
+        return JSON.parse((emi as any).paymentHistoryJson);
+      } catch {
+        return null;
+      }
+    }
+    // Otherwise, construct from available data
+    if (emi.paymentStatus === 'PAID' || emi.paymentStatus === 'PARTIALLY_PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID') {
+      return [{
+        paymentNumber: 1,
+        amount: emi.paidAmount,
+        principal: emi.paidPrincipal,
+        interest: emi.paidInterest,
+        penalty: 0,
+        mode: emi.paymentMode || 'CASH',
+        reference: emi.paymentReference,
+        paidAt: emi.paidDate || emi.collectedAt,
+        collectedBy: emi.collectedByName,
+        isSplit: false,
+        splitCash: 0,
+        splitOnline: 0,
+        creditType: 'COMPANY'
+      }];
+    }
+    return null;
   };
 
   // Multi-EMI selection handlers
@@ -1709,6 +1751,18 @@ export default function OfflineLoanDetailPanel({
                                               Pay
                                             </Button>
                                           )}
+                                          {/* Eye Button - Show payment details for paid/partially paid EMIs */}
+                                          {isPaidOrHandled && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="border-purple-300 text-purple-600 hover:bg-purple-50"
+                                              onClick={() => openPaymentHistoryDialog(emi)}
+                                              title="View payment details"
+                                            >
+                                              <Eye className="h-4 w-4" />
+                                            </Button>
+                                          )}
                                           {/* Show synced indicator for mirror loan EMIs */}
                                           {loan?.isMirrorLoan && !isPaidOrHandled && (
                                             <Badge className="bg-gray-100 text-gray-600">
@@ -2684,6 +2738,154 @@ export default function OfflineLoanDetailPanel({
           }}
         />
       )}
+
+      {/* Payment History Dialog */}
+      <Dialog open={paymentHistoryDialogOpen} onOpenChange={setPaymentHistoryDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5 text-purple-600" />
+              EMI Payment Details
+            </DialogTitle>
+            <DialogDescription>
+              {selectedEmiForHistory && (
+                <span>
+                  EMI #{selectedEmiForHistory.installmentNumber} • Due: {formatDate(selectedEmiForHistory.dueDate)}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedEmiForHistory && (
+            <div className="space-y-4">
+              {/* EMI Summary */}
+              <div className="bg-gray-50 p-4 rounded-lg border">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-500">Total EMI</span>
+                    <p className="font-bold text-lg">{formatCurrency(selectedEmiForHistory.totalAmount)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Status</span>
+                    <p className="font-medium">
+                      <Badge className={getEMIStatusColor(selectedEmiForHistory.paymentStatus)}>
+                        {selectedEmiForHistory.paymentStatus.replace(/_/g, ' ')}
+                      </Badge>
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Principal</span>
+                    <p className="font-medium">{formatCurrency(selectedEmiForHistory.principalAmount)}</p>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Interest</span>
+                    <p className="font-medium">{formatCurrency(selectedEmiForHistory.interestAmount)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
+                <h4 className="font-medium text-emerald-800 mb-3 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4" />
+                  Payment Summary
+                </h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-emerald-700">Amount Paid</span>
+                    <span className="font-bold text-emerald-900">{formatCurrency(selectedEmiForHistory.paidAmount || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Principal Paid</span>
+                    <span>{formatCurrency(selectedEmiForHistory.paidPrincipal || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Interest Paid</span>
+                    <span>{formatCurrency(selectedEmiForHistory.paidInterest || 0)}</span>
+                  </div>
+                  {selectedEmiForHistory.paymentStatus === 'PARTIALLY_PAID' && (
+                    <div className="flex justify-between text-sm pt-2 border-t border-emerald-300">
+                      <span className="text-amber-600 font-medium">Remaining</span>
+                      <span className="text-amber-700 font-bold">
+                        {formatCurrency(selectedEmiForHistory.totalAmount - (selectedEmiForHistory.paidAmount || 0))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment Transaction Details */}
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <h4 className="font-medium text-blue-800 mb-3 flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Transaction Details
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-blue-600">Payment Mode</span>
+                    <span className="font-medium flex items-center gap-1">
+                      {selectedEmiForHistory.paymentMode === 'CASH' ? (
+                        <><Banknote className="h-4 w-4 text-emerald-600" /> CASH</>
+                      ) : selectedEmiForHistory.paymentMode === 'ONLINE' ? (
+                        <><Landmark className="h-4 w-4 text-blue-600" /> ONLINE</>
+                      ) : selectedEmiForHistory.paymentMode === 'SPLIT' ? (
+                        <><Calculator className="h-4 w-4 text-purple-600" /> SPLIT</>
+                      ) : (
+                        selectedEmiForHistory.paymentMode || 'CASH'
+                      )}
+                    </span>
+                  </div>
+                  {selectedEmiForHistory.paymentReference && (
+                    <div className="flex justify-between">
+                      <span className="text-blue-600">Reference</span>
+                      <span className="font-mono text-xs bg-blue-100 px-2 py-1 rounded">
+                        {selectedEmiForHistory.paymentReference}
+                      </span>
+                    </div>
+                  )}
+                  {selectedEmiForHistory.paidDate && (
+                    <div className="flex justify-between">
+                      <span className="text-blue-600">Paid On</span>
+                      <span className="font-medium">
+                        {new Date(selectedEmiForHistory.paidDate).toLocaleDateString('en-IN', {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                  )}
+                  {selectedEmiForHistory.collectedByName && (
+                    <div className="flex justify-between">
+                      <span className="text-blue-600">Collected By</span>
+                      <span className="font-medium">{selectedEmiForHistory.collectedByName}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Notes if any */}
+              {selectedEmiForHistory.notes && (
+                <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                  <h4 className="font-medium text-amber-800 mb-2 flex items-center gap-2">
+                    <Info className="h-4 w-4" />
+                    Notes
+                  </h4>
+                  <p className="text-sm text-amber-700">{selectedEmiForHistory.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPaymentHistoryDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
