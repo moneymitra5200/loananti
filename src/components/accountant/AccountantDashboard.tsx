@@ -511,7 +511,14 @@ function BankSection({
   const [saving, setSaving] = useState(false);
 
   const loadData = useCallback(async () => {
-    if (!selectedCompanyId) return;
+    // Guard against empty/invalid companyId - must be a valid CUID (at least 10 chars)
+    if (!selectedCompanyId || selectedCompanyId === '' || selectedCompanyId.length < 10) {
+      console.log('[BankSection] Skipping API call - no valid companyId');
+      setBankAccounts([]);
+      setTransactions([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch(`/api/accountant/bank-accounts?companyId=${selectedCompanyId}`);

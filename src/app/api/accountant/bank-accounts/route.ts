@@ -9,13 +9,16 @@ export async function GET(request: NextRequest) {
 
     console.log('[Bank Accounts API] Request received for companyId:', companyId);
 
-    // Validate companyId - must be a valid cuid (starts with 'c' and is 25 characters)
-    if (!companyId || companyId.startsWith(':') || companyId.length < 10) {
-      console.error('[Bank Accounts API] Invalid companyId received:', companyId);
+    // If companyId is missing, empty, or invalid, return empty results instead of error
+    // This handles the case when the page first loads before company is selected
+    if (!companyId || companyId === '' || companyId === 'null' || companyId === 'undefined' || 
+        companyId.startsWith(':') || companyId.length < 10) {
+      console.log('[Bank Accounts API] No valid companyId, returning empty results');
       return NextResponse.json({ 
-        error: 'Valid Company ID is required',
-        receivedId: companyId 
-      }, { status: 400 });
+        bankAccounts: [],
+        transactions: [],
+        message: 'No company selected'
+      });
     }
 
     console.log('[Bank Accounts API] Fetching bank accounts...');
