@@ -163,10 +163,56 @@ function resolveAccounts(
 
 function entryToVoucher(entry: DayEntry): Voucher {
   const { drLines, crLines } = resolveAccounts(entry);
-  const isCredit =
+
+  // Determine if this is a CASH IN or CASH OUT transaction
+  // CREDIT to cash/bank = money IN (increases balance)
+  // DEBIT from cash/bank = money OUT (decreases balance)
+  const isCashIn =
     entry.entryType === 'CREDIT' ||
-    entry.transactionType === 'CREDIT' ||
-    (entry.source === 'JOURNAL' && crLines.reduce((s, l) => s + l.amount, 0) >= drLines.reduce((s, l) => s + l.amount, 0));
+    entry.transactionType === 'CREDIT';
+
+  // For journal entries, check if cash/bank is on credit side (money in)
+  // Account names can be: "Cash in Hand", "Cash A/c", "Bank A/c", "HDFC - 1234", etc.
+  const isCashOrBankAccount = (accountName: string) => {
+    const name = accountName.toLowerCase();
+    return name.includes('cash') ||
+           name.includes('bank') ||
+           name.includes('hdfc') ||
+           name.includes('icici') ||
+           name.includes('sbi') ||
+           name.includes('axis') ||
+           name.includes('kotak') ||
+           name.includes('punjab') ||
+           name.includes('bob ') ||
+           name.includes('canara') ||
+           /^140\d/.test(accountName) || // Bank account codes 1401, 1402, etc.
+           accountName === '1101'; // Cash in Hand code
+  };
+
+  const cashOnDebitSide = drLines.some(l => isCashOrBankAccount(l.account));
+  const cashOnCreditSide = crLines.some(l => isCashOrBankAccount(l.account));
+
+  // Balance impact: positive = money in, negative = money out
+  // For double-entry journals where debits = credits, we determine impact by:
+  // - If cash/bank is on DEBIT side → asset increases → money IN
+  // - If cash/bank is on CREDIT side → asset decreases → money OUT
+  let balanceImpact = 0;
+  if (entry.source === 'CASHBOOK' || entry.source === 'BANK') {
+    // Direct cashbook/bank entry - use entryType
+    balanceImpact = isCashIn ? entry.amount : -entry.amount;
+  } else {
+    // Journal entry - check where cash/bank account is
+    if (cashOnDebitSide && !cashOnCreditSide) {
+      // Cash/bank debited = asset increased = money IN
+      balanceImpact = drLines.filter(l => isCashOrBankAccount(l.account)).reduce((s, l) => s + l.amount, 0);
+    } else if (cashOnCreditSide && !cashOnDebitSide) {
+      // Cash/bank credited = asset decreased = money OUT
+      balanceImpact = -crLines.filter(l => isCashOrBankAccount(l.account)).reduce((s, l) => s + l.amount, 0);
+    } else {
+      // Fallback: use the amount based on entry type
+      balanceImpact = isCashIn ? entry.amount : -entry.amount;
+    }
+  }
 
   const netCr = crLines.reduce((s, l) => s + l.amount, 0);
   const netDr = drLines.reduce((s, l) => s + l.amount, 0);
@@ -177,7 +223,7 @@ function entryToVoucher(entry: DayEntry): Voucher {
     drLines,
     crLines,
     narration: `Being ${entry.description || entry.referenceType?.replace(/_/g, ' ') || 'transaction'}`,
-    balanceImpact: netCr - netDr,
+    balanceImpact,
   };
 }
 
@@ -209,13 +255,17 @@ function buildDayGroups(entries: DayEntry[], openingBalance: number): DayGroup[]
   for (const dateKey of sortedDates) {
     const dayEntries = byDate[dateKey];
     const dayOpen = running;
-    // Sort entries within day: newest first (by created time)
-    dayEntries.sort((a, b) => new Date(b.createdAt || b.entryDate).getTime() - new Date(a.createdAt || a.entryDate).getTime());
+    // Sort entries within day by entry date (oldest first for running balance)
+    dayEntries.sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
     const vouchers = dayEntries.map(entryToVoucher);
 
+    // Calculate day totals from vouchers
     const dayDr = vouchers.reduce((s, v) => s + v.drLines.reduce((ss, l) => ss + l.amount, 0), 0);
     const dayCr = vouchers.reduce((s, v) => s + v.crLines.reduce((ss, l) => ss + l.amount, 0), 0);
-    const dayClose = dayOpen + dayCr - dayDr;
+
+    // Closing balance = Opening + net balance impact (positive = in, negative = out)
+    const netBalanceImpact = vouchers.reduce((s, v) => s + v.balanceImpact, 0);
+    const dayClose = dayOpen + netBalanceImpact;
     running = dayClose;
 
     groups.push({
