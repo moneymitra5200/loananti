@@ -25,38 +25,102 @@ export async function GET(request: NextRequest) {
     }
 
     const periodStart = startDate ? new Date(new Date(startDate).setHours(0, 0, 0, 0)) : null;
-    const periodEnd   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
+    const periodEnd = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
 
-    // ── 1. Get CashBook ID ─────────────────────────────────────────────────
+    // ── 1. Get CashBook and Bank Accounts ─────────────────────────────────────────────────
     const cashBook = await db.cashBook.findUnique({ where: { companyId } });
 
-    // ── 2. Opening balance: balance BEFORE period start ──────────────────────
+    const bankAccounts = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true, currentBalance: true },
+    });
+    const bankIds = bankAccounts.map(b => b.id);
+
+    // ── 2. Opening balance calculation ────────────────────────────────────────────────────
+    // Strategy: Use the latest balanceAfter from entries before period start
+    // OR calculate from current balance minus entries within period
     let openingBalance = 0;
-    if (cashBook && periodStart) {
-      const priorEntries = await db.cashBookEntry.findMany({
-        where: { cashBookId: cashBook.id, entryDate: { lt: periodStart } },
-        select: { amount: true, entryType: true },
-      });
-      for (const e of priorEntries) {
-        if (e.entryType === 'CREDIT') openingBalance += e.amount;
-        else openingBalance -= e.amount;
+
+    // Calculate CASH opening balance
+    if (cashBook) {
+      if (periodStart) {
+        // Get the latest cashbook entry before period start
+        const latestBeforePeriod = await db.cashBookEntry.findFirst({
+          where: { cashBookId: cashBook.id, entryDate: { lt: periodStart } },
+          orderBy: { entryDate: 'desc' },
+          select: { balanceAfter: true },
+        });
+
+        if (latestBeforePeriod) {
+          openingBalance += latestBeforePeriod.balanceAfter || 0;
+        } else {
+          // No entries before period - check if there's a cashbook opening balance
+          // Use the cashbook currentBalance minus any entries in the current period
+          const entriesInPeriod = await db.cashBookEntry.findMany({
+            where: {
+              cashBookId: cashBook.id,
+              ...(periodStart || periodEnd ? {
+                entryDate: {
+                  ...(periodStart ? { gte: periodStart } : {}),
+                  ...(periodEnd ? { lte: periodEnd } : {}),
+                }
+              } : {}),
+            },
+            select: { amount: true, entryType: true },
+          });
+
+          // Calculate net change in period
+          let netChangeInPeriod = 0;
+          for (const e of entriesInPeriod) {
+            if (e.entryType === 'CREDIT') netChangeInPeriod += e.amount;
+            else netChangeInPeriod -= e.amount;
+          }
+
+          // Opening balance = current balance - net change in period
+          openingBalance += (cashBook.currentBalance || 0) - netChangeInPeriod;
+        }
+      } else {
+        // No period filter - opening balance is the cashbook's opening balance
+        openingBalance += cashBook.openingBalance || 0;
       }
     }
 
-    // Also include bank transactions before period for opening balance
-    const bankAccounts = await db.bankAccount.findMany({
-      where: { companyId, isActive: true },
-      select: { id: true },
-    });
-    const bankIds = bankAccounts.map(b => b.id);
-    if (bankIds.length > 0 && periodStart) {
-      const priorBank = await db.bankTransaction.findMany({
-        where: { bankAccountId: { in: bankIds }, transactionDate: { lt: periodStart } },
-        select: { amount: true, transactionType: true },
-      });
-      for (const b of priorBank) {
-        if (b.transactionType === 'CREDIT') openingBalance += b.amount;
-        else openingBalance -= b.amount;
+    // Calculate BANK opening balance
+    if (bankIds.length > 0) {
+      if (periodStart) {
+        for (const bankId of bankIds) {
+          // Get the latest bank transaction before period start
+          const latestBeforePeriod = await db.bankTransaction.findFirst({
+            where: { bankAccountId: bankId, transactionDate: { lt: periodStart } },
+            orderBy: { transactionDate: 'desc' },
+            select: { balanceAfter: true },
+          });
+
+          if (latestBeforePeriod) {
+            openingBalance += latestBeforePeriod.balanceAfter || 0;
+          } else {
+            // No transactions before period - use current balance minus entries in period
+            const bankAcc = bankAccounts.find(b => b.id === bankId);
+            const entriesInPeriod = await db.bankTransaction.findMany({
+              where: {
+                bankAccountId: bankId,
+                transactionDate: {
+                  ...(periodStart ? { gte: periodStart } : {}),
+                  ...(periodEnd ? { lte: periodEnd } : {}),
+                }
+              },
+              select: { amount: true, transactionType: true },
+            });
+
+            let netChangeInPeriod = 0;
+            for (const e of entriesInPeriod) {
+              if (e.transactionType === 'CREDIT') netChangeInPeriod += e.amount;
+              else netChangeInPeriod -= e.amount;
+            }
+
+            openingBalance += (bankAcc?.currentBalance || 0) - netChangeInPeriod;
+          }
+        }
       }
     }
 

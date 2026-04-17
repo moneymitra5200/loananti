@@ -3,28 +3,28 @@ import { db } from '@/lib/db';
 
 /**
  * ENHANCED DAYBOOK API
- * 
- * Opening Balance = sum of (credit - debit) for ALL entries BEFORE period start.
+ *
+ * Opening Balance = latest balance before period OR current balance minus period changes
  * Closing Balance = Opening Balance + period credits - period debits.
  * Next period's Opening Balance = this period's Closing Balance.
  *
- * If equity (capital) is added before the period, it is captured in Opening Balance.
+ * If equity (capital) is added, it is reflected in the balance.
  */
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-    const companyId    = searchParams.get('companyId');
-    const startDate    = searchParams.get('startDate');
-    const endDate      = searchParams.get('endDate');
+    const companyId = searchParams.get('companyId');
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
     const referenceType = searchParams.get('referenceType');
-    const viewMode     = searchParams.get('viewMode') || 'journal'; // 'journal' | 'cashbook' | 'all'
+    const viewMode = searchParams.get('viewMode') || 'journal'; // 'journal' | 'cashbook' | 'all'
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
     const periodStart = startDate ? new Date(new Date(startDate).setHours(0, 0, 0, 0)) : null;
-    const periodEnd   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
+    const periodEnd = endDate ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : null;
 
     const dateFilter: any = {};
     if (periodStart && periodEnd) {
@@ -33,33 +33,87 @@ export async function GET(request: NextRequest) {
     }
 
     // ── OPENING BALANCE ──────────────────────────────────────────────────────
-    // = sum of (credit − debit) for ALL journal + cashbook entries before periodStart
-    // This automatically includes equity/capital added before the period.
+    // Strategy: Use the latest balanceAfter from entries before period start
+    // OR calculate from current balance minus entries within period
     let openingBalance = 0;
 
-    if (periodStart) {
-      // Historical journal lines
-      const historicalJournals = await db.journalEntry.findMany({
-        where: { companyId, entryDate: { lt: periodStart } },
-        include: { lines: { select: { debitAmount: true, creditAmount: true } } }
-      });
-      for (const je of historicalJournals) {
-        for (const line of je.lines) {
-          openingBalance += (line.creditAmount || 0) - (line.debitAmount || 0);
-        }
-      }
+    // Get CashBook and Bank Accounts
+    const cashBook = await db.cashBook.findUnique({ where: { companyId } });
+    const bankAccounts = await db.bankAccount.findMany({
+      where: { companyId, isActive: true },
+      select: { id: true, currentBalance: true },
+    });
+    const bankIds = bankAccounts.map(b => b.id);
 
-      // Historical cashbook entries
-      if (viewMode === 'cashbook' || viewMode === 'all') {
-        const cashBook = await db.cashBook.findUnique({ where: { companyId } });
-        if (cashBook) {
-          const historicalCash = await db.cashBookEntry.findMany({
-            where: { cashBookId: cashBook.id, entryDate: { lt: periodStart } },
-            select: { amount: true, entryType: true }
+    // Calculate CASH opening balance
+    if (cashBook) {
+      if (periodStart) {
+        // Get the latest cashbook entry before period start
+        const latestBeforePeriod = await db.cashBookEntry.findFirst({
+          where: { cashBookId: cashBook.id, entryDate: { lt: periodStart } },
+          orderBy: { entryDate: 'desc' },
+          select: { balanceAfter: true },
+        });
+
+        if (latestBeforePeriod) {
+          openingBalance += latestBeforePeriod.balanceAfter || 0;
+        } else {
+          // No entries before period - use current balance minus entries in period
+          const entriesInPeriod = await db.cashBookEntry.findMany({
+            where: {
+              cashBookId: cashBook.id,
+              entryDate: {
+                ...(periodStart ? { gte: periodStart } : {}),
+                ...(periodEnd ? { lte: periodEnd } : {}),
+              }
+            },
+            select: { amount: true, entryType: true },
           });
-          for (const ce of historicalCash) {
-            openingBalance += ce.entryType === 'CREDIT' ? ce.amount : -ce.amount;
+
+          let netChangeInPeriod = 0;
+          for (const e of entriesInPeriod) {
+            if (e.entryType === 'CREDIT') netChangeInPeriod += e.amount;
+            else netChangeInPeriod -= e.amount;
           }
+
+          openingBalance += (cashBook.currentBalance || 0) - netChangeInPeriod;
+        }
+      } else {
+        openingBalance += cashBook.openingBalance || 0;
+      }
+    }
+
+    // Calculate BANK opening balance
+    if (bankIds.length > 0 && periodStart) {
+      for (const bankId of bankIds) {
+        const latestBeforePeriod = await db.bankTransaction.findFirst({
+          where: { bankAccountId: bankId, transactionDate: { lt: periodStart } },
+          orderBy: { transactionDate: 'desc' },
+          select: { balanceAfter: true },
+        });
+
+        if (latestBeforePeriod) {
+          openingBalance += latestBeforePeriod.balanceAfter || 0;
+        } else {
+          const bankAcc = bankAccounts.find(b => b.id === bankId);
+          const entriesInPeriod = await db.bankTransaction.findMany({
+            where: {
+              bankAccountId: bankId,
+              transactionDate: {
+                ...(periodStart ? { gte: periodStart } : {}),
+                ...(periodEnd ? { lte: periodEnd } : {}),
+              }
+            },
+            select: { amount: true, transactionType: true },
+          });
+
+          let netChangeInPeriod = 0;
+          for (const e of entriesInPeriod) {
+            if (e.transactionType === 'CREDIT') netChangeInPeriod += e.amount;
+            else netChangeInPeriod -= e.amount;
+          }
+
+          openingBalance += (bankAcc?.currentBalance || 0) - netChangeInPeriod;
         }
       }
     }
@@ -110,7 +164,6 @@ export async function GET(request: NextRequest) {
     // ── 2. CASHBOOK ENTRIES ──────────────────────────────────────────────────
     let cashRows: any[] = [];
     if (viewMode === 'cashbook' || viewMode === 'all') {
-      const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
         const cashWhere: any = { cashBookId: cashBook.id };
         if (periodStart && periodEnd) cashWhere.entryDate = dateFilter;
@@ -181,6 +234,9 @@ export async function GET(request: NextRequest) {
       openingBalance,
       closingBalance,
       summary: {
+        openingBalance,
+        closingBalance,
+        entryCount: allRows.length,
         totalEntries: allRows.length,
         totalDebit,
         totalCredit,
