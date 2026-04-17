@@ -1865,6 +1865,87 @@ export default function OfflineLoanDetailPanel({
                                 </div>
                               </div>
                             )}
+                            
+                            {/* EMI Payment History */}
+                            {loan.emis && loan.emis.length > 0 && (
+                              <div className="mt-4 pt-4 border-t">
+                                <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                                  <CheckCircle className="h-4 w-4 text-emerald-600" />
+                                  EMI Payment History
+                                </h4>
+                                <ScrollArea className="max-h-64">
+                                  <div className="space-y-3">
+                                    {loan.emis
+                                      .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
+                                      .sort((a, b) => new Date(b.paidDate || 0).getTime() - new Date(a.paidDate || 0).getTime())
+                                      .map(emi => (
+                                        <div key={emi.id} className="bg-gray-50 p-3 rounded-lg border">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <div className="flex items-center gap-2">
+                                              <Badge className={getEMIStatusColor(emi.paymentStatus)}>
+                                                EMI #{emi.installmentNumber}
+                                              </Badge>
+                                              <span className="text-sm font-medium">
+                                                {formatCurrency(emi.paidAmount || 0)}
+                                              </span>
+                                            </div>
+                                            <span className="text-xs text-gray-500">
+                                              {emi.paidDate ? new Date(emi.paidDate).toLocaleDateString('en-IN', {
+                                                day: 'numeric',
+                                                month: 'short',
+                                                year: 'numeric'
+                                              }) : '-'}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-4 text-xs text-gray-600">
+                                            <span>Mode: {emi.paymentMode || 'CASH'}</span>
+                                            <span>P: {formatCurrency(emi.paidPrincipal || 0)}</span>
+                                            <span>I: {formatCurrency(emi.paidInterest || 0)}</span>
+                                          </div>
+                                          {/* Show proof thumbnail if exists */}
+                                          {emi.proofUrl && (
+                                            <div className="mt-2 pt-2 border-t border-gray-200">
+                                              <div className="flex items-center gap-2">
+                                                {emi.proofUrl.toLowerCase().endsWith('.pdf') ? (
+                                                  <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 text-xs"
+                                                    onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                  >
+                                                    <FileText className="h-3 w-3 mr-1" />
+                                                    View Proof PDF
+                                                  </Button>
+                                                ) : (
+                                                  <div className="flex items-center gap-2">
+                                                    <img
+                                                      src={emi.proofUrl}
+                                                      alt="Proof"
+                                                      className="h-10 w-10 object-cover rounded border cursor-pointer hover:opacity-80"
+                                                      onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                    />
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      className="h-7 text-xs"
+                                                      onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                    >
+                                                      View Proof
+                                                    </Button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    {loan.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length === 0 && (
+                                      <p className="text-sm text-gray-500 text-center py-4">No payments recorded yet</p>
+                                    )}
+                                  </div>
+                                </ScrollArea>
+                              </div>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -2873,6 +2954,42 @@ export default function OfflineLoanDetailPanel({
                     Notes
                   </h4>
                   <p className="text-sm text-amber-700">{selectedEmiForHistory.notes}</p>
+                </div>
+              )}
+
+              {/* Payment Proof if any */}
+              {selectedEmiForHistory.proofUrl && (
+                <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                  <h4 className="font-medium text-purple-800 mb-3 flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Payment Proof
+                  </h4>
+                  <div className="mt-2">
+                    {selectedEmiForHistory.proofUrl.includes('application/pdf') || selectedEmiForHistory.proofUrl.toLowerCase().endsWith('.pdf') ? (
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-8 w-8 text-red-500" />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => window.open(selectedEmiForHistory.proofUrl, '_blank')}
+                        >
+                          View PDF
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="relative group">
+                        <img
+                          src={selectedEmiForHistory.proofUrl}
+                          alt="Payment Proof"
+                          className="max-h-48 rounded-lg border shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
+                          onClick={() => window.open(selectedEmiForHistory.proofUrl!, '_blank')}
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <span className="text-white text-sm font-medium">Click to view full size</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
