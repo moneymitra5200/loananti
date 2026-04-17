@@ -180,3 +180,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to create bank account' }, { status: 500 });
   }
 }
+// Last sync: 2026-04-17 07:58:55
