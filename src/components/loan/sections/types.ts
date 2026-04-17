@@ -196,10 +196,16 @@ export interface LoanDetails {
     status: string;
     receiptNumber?: string;
     createdAt: string;
+    remarks?: string;
+    proofUrl?: string;
     cashier?: {
       id: string;
       name: string;
       cashierCode?: string;
+    };
+    paidBy?: {
+      id: string;
+      name?: string;
     };
   }>;
   emiSchedules?: Array<any>;
