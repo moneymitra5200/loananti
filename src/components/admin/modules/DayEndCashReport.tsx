@@ -45,12 +45,14 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function DayEndCashReport({ userId, userRole }: { userId: string; userRole: string }) {
-  if (userRole !== 'SUPER_ADMIN') return null;
-
+  // All hooks must be called before any early return (React rules of hooks)
   const today = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState(today);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ReportData | null>(null);
+
+  // Early return AFTER all hooks
+  if (userRole !== 'SUPER_ADMIN') return null;
 
   const generateReport = async () => {
     setLoading(true);
