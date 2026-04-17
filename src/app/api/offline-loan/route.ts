@@ -2568,6 +2568,28 @@ export async function PUT(request: NextRequest) {
                 }});
                 console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan`);
               }
+            } else if (paymentType === 'PRINCIPAL_ONLY') {
+              // ── PRINCIPAL_ONLY: Only principal is collected, interest is written off ──
+              // Use MIRROR principal (not original), MIRROR interest goes to Irrecoverable Debt
+              const mirrorPrincipalToCollect = Math.max(0, (mirrorEmi.principalAmount || 0) - (mirrorEmi.paidPrincipal || 0));
+              const mirrorInterestToWriteOff = Math.max(0, (mirrorEmi.interestAmount || 0) - (mirrorEmi.paidInterest || 0));
+              
+              await tx.offlineLoanEMI.update({
+                where: { id: mirrorEmi.id },
+                data: {
+                  paymentStatus: 'PAID',
+                  paidAmount: (mirrorEmi.paidAmount || 0) + mirrorPrincipalToCollect,
+                  paidPrincipal: mirrorEmi.principalAmount,  // MIRROR principal (e.g., Rs 981)
+                  paidInterest: mirrorEmi.paidInterest || 0,  // NOT collected - will be written off
+                  paidDate: now,
+                  paymentMode,
+                  collectedById: userId,
+                  collectedByName: user.name,
+                  collectedAt: now,
+                  notes: `[MIRROR SYNC] Principal-Only: P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} written off to Irrecoverable Debt`
+                }
+              });
+              console.log(`[Mirror PRINCIPAL_ONLY] P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} → Irrecoverable Debt`);
             } else if (isFullPayment) {
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
@@ -2907,16 +2929,25 @@ export async function PUT(request: NextRequest) {
           });
           
           if (mirrorEmiForAccounting) {
-            // Use SESSION DELTA — only what was paid this session on the mirror EMI.
-            // paidInterest after sync  - paidInterest before sync = interest paid THIS session.
-            // This correctly handles:
-            //   • 1st partial (₹90): pre=0, post=84.18 → sessionI=84.18, sessionP=5.82 ✓
-            //   • 2nd remaining (₹910): pre=84.18, post=84.18 → sessionI=0, sessionP=910 ✓
-            const postPaidInterest  = Number(mirrorEmiForAccounting.paidInterest  || 0);
-            const postPaidPrincipal = Number(mirrorEmiForAccounting.paidPrincipal || 0);
-            mirrorInterestAmount  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
-            mirrorPrincipalAmount = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
-            console.log(`[Accounting] MIRROR Session Delta: I:₹${mirrorInterestAmount} P:₹${mirrorPrincipalAmount} (pre: I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal}, post: I:₹${postPaidInterest} P:₹${postPaidPrincipal})`  );
+            // ── PRINCIPAL_ONLY: Use MIRROR EMI's principal and interest directly ──
+            // For PRINCIPAL_ONLY, we write off the mirror interest (not collect it)
+            // So we use the mirror EMI's full interest amount, not session delta
+            if (paymentType === 'PRINCIPAL_ONLY') {
+              mirrorPrincipalAmount = Number(mirrorEmiForAccounting.principalAmount || 0);
+              mirrorInterestAmount = Number(mirrorEmiForAccounting.interestAmount || 0);
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: Using MIRROR EMI values directly - P:₹${mirrorPrincipalAmount} (to collect), I:₹${mirrorInterestAmount} (to write off)`);
+            } else {
+              // For other payment types: Use SESSION DELTA — only what was paid this session on the mirror EMI.
+              // paidInterest after sync  - paidInterest before sync = interest paid THIS session.
+              // This correctly handles:
+              //   • 1st partial (₹90): pre=0, post=84.18 → sessionI=84.18, sessionP=5.82 ✓
+              //   • 2nd remaining (₹910): pre=84.18, post=84.18 → sessionI=0, sessionP=910 ✓
+              const postPaidInterest  = Number(mirrorEmiForAccounting.paidInterest  || 0);
+              const postPaidPrincipal = Number(mirrorEmiForAccounting.paidPrincipal || 0);
+              mirrorInterestAmount  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+              mirrorPrincipalAmount = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+              console.log(`[Accounting] MIRROR Session Delta: I:₹${mirrorInterestAmount} P:₹${mirrorPrincipalAmount} (pre: I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal}, post: I:₹${postPaidInterest} P:₹${postPaidPrincipal})`  );
+            }
           } else {
             // Fallback: Calculate mirror interest if mirror EMI not found
             const mirrorRate = (await db.mirrorLoanMapping.findFirst({

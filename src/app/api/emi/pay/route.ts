@@ -1323,18 +1323,28 @@ export async function POST(request: NextRequest) {
           where: { loanApplicationId: mirrorMappingForAccounting.mirrorLoanId, installmentNumber: emi.installmentNumber }
         });
         if (mirrorEmiForAcc) {
-          const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
-          mirrorInterestForAccounting = Math.round(mirrorEmiForAcc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-          mirrorPrincipalForAccounting = Math.min(
-            mirrorEmiForAcc.totalAmount - mirrorInterestForAccounting,
-            mirrorEmiForAcc.outstandingPrincipal
-          );
-          // For partial: scale proportionally
-          if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0) {
-            const ratio = paidAmount / (emi.totalAmount || 1);
-            const scaledTotal = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
-            mirrorInterestForAccounting = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal) * 100) / 100;
-            mirrorPrincipalForAccounting = Math.round(Math.max(0, scaledTotal - mirrorInterestForAccounting) * 100) / 100;
+          // ── PRINCIPAL_ONLY: Use MIRROR EMI's principal and interest directly ──
+          // For PRINCIPAL_ONLY, we write off the mirror interest (not collect it)
+          // So we use the mirror EMI's full principal and interest amounts directly
+          if (paymentType === 'PRINCIPAL_ONLY') {
+            mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
+            mirrorInterestForAccounting = Number(mirrorEmiForAcc.interestAmount || 0);
+            console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: Using MIRROR EMI values directly - P:₹${mirrorPrincipalForAccounting} (to collect), I:₹${mirrorInterestForAccounting} (to write off)`);
+          } else {
+            // For other payment types: Calculate using mirror rate
+            const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
+            mirrorInterestForAccounting = Math.round(mirrorEmiForAcc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+            mirrorPrincipalForAccounting = Math.min(
+              mirrorEmiForAcc.totalAmount - mirrorInterestForAccounting,
+              mirrorEmiForAcc.outstandingPrincipal
+            );
+            // For partial: scale proportionally
+            if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0) {
+              const ratio = paidAmount / (emi.totalAmount || 1);
+              const scaledTotal = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
+              mirrorInterestForAccounting = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal) * 100) / 100;
+              mirrorPrincipalForAccounting = Math.round(Math.max(0, scaledTotal - mirrorInterestForAccounting) * 100) / 100;
+            }
           }
         }
       }
@@ -1358,26 +1368,32 @@ export async function POST(request: NextRequest) {
         if (isMirrorPayment) {
           // ── MIRROR LOAN: Only record in MIRROR company ─────────────────────────────
           // Use MIRROR principal and MIRROR interest (not original)
-          const mirrorPrincipal = mirrorPrincipalForAccounting ?? paidPrincipal;
-          const mirrorInterest = mirrorInterestForAccounting ?? remainingInterest;
-          
-          const mirrorPoResult = await poPrincipalJournal({
-            companyId:          mirrorMappingForAccounting!.mirrorCompanyId,
-            loanId:             mirrorMappingForAccounting!.mirrorLoanId || loanId,
-            paymentId:          payment.id,
-            principalAmount:    mirrorPrincipal,
-            interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
-            paymentDate:        new Date(),
-            createdById:        paidBy || 'SYSTEM',
-            paymentMode:        paymentMode as string,
-            loanNumber:         emi.loanApplication?.applicationNo || loanId,
-            installmentNumber:  emi.installmentNumber,
-          });
-          if (!mirrorPoResult.success) {
-            onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
-            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
+          // CRITICAL: Do NOT fall back to original values - must use mirror EMI values
+          if (mirrorPrincipalForAccounting === undefined || mirrorInterestForAccounting === undefined) {
+            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Mirror EMI not found - cannot create journal entry`);
+            onlineAccountingWarnings.push('MIRROR PRINCIPAL_ONLY: Mirror EMI not found - journal entry skipped');
           } else {
-            console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+            const mirrorPrincipal = mirrorPrincipalForAccounting;
+            const mirrorInterest = mirrorInterestForAccounting;
+            
+            const mirrorPoResult = await poPrincipalJournal({
+              companyId:          mirrorMappingForAccounting!.mirrorCompanyId,
+              loanId:             mirrorMappingForAccounting!.mirrorLoanId || loanId,
+              paymentId:          payment.id,
+              principalAmount:    mirrorPrincipal,
+              interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
+              paymentDate:        new Date(),
+              createdById:        paidBy || 'SYSTEM',
+              paymentMode:        paymentMode as string,
+              loanNumber:         emi.loanApplication?.applicationNo || loanId,
+              installmentNumber:  emi.installmentNumber,
+            });
+            if (!mirrorPoResult.success) {
+              onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
+              console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
+            } else {
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+            }
           }
           // NO entry for original company - mirror loan only affects mirror company
         } else {
