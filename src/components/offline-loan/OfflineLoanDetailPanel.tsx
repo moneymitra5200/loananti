@@ -217,7 +217,6 @@ export default function OfflineLoanDetailPanel({
   // Payment History Dialog state
   const [paymentHistoryDialogOpen, setPaymentHistoryDialogOpen] = useState(false);
   const [selectedEmiForHistory, setSelectedEmiForHistory] = useState<EMI | null>(null);
-  const [emiTabView, setEmiTabView] = useState<'original' | 'mirror'>('original');
 
   // Fetch receipt for mirror loan EMI
   const fetchReceipt = async (emiId: string) => {
