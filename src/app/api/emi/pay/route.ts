@@ -1343,23 +1343,15 @@ export async function POST(request: NextRequest) {
         // Extra EMI profit already recorded in the extra-EMI block above — skip
         console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
       } else if (paymentType === 'PRINCIPAL_ONLY') {
-        // ── PRINCIPAL-ONLY: cash/bank receipt + interest write-off ────────────
+        // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ────────────
+        // The journal entry creates:
+        //   Dr  Cash/Bank          = principalAmount  (money received)
+        //   Cr  Loans Receivable   = principalAmount  (loan reduced)
+        //   Dr  Irrecoverable Debt = interestWrittenOff (interest lost)
+        //   Cr  Interest Income    = interestWrittenOff (interest recognized then written off)
         const targetCompanyId = isMirrorPayment
           ? mirrorMappingForAccounting!.mirrorCompanyId
           : loanCompanyId;
-
-        const isOnlinePO = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS'].includes((paymentMode||'').toUpperCase());
-
-        // Cash/bank receipt for principal collected
-        if (isOnlinePO) {
-          await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: paidPrincipal,
-            description: `PRINCIPAL ONLY - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber} (I:₹${remainingInterest} written off)`,
-            referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
-        } else {
-          await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: paidPrincipal,
-            description: `PRINCIPAL ONLY - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber} (I:₹${remainingInterest} written off)`,
-            referenceType: 'EMI_PAYMENT', referenceId: payment.id, createdById: paidBy });
-        }
 
         // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debt → Cr Interest Income
         // Uses cache-free direct approach — no AccountingService stale-cache issues
@@ -1384,8 +1376,8 @@ export async function POST(request: NextRequest) {
         }
 
         // Original company interest write-off for MIRROR loans
-        // First block already handled the MIRROR company (cash + journal).
-        // Now write off the ORIGINAL company's interest in its books too (journal only — no cash entry).
+        // First block already handled the MIRROR company (journal only — handles Cash/Bank too).
+        // Now write off the ORIGINAL company's interest in its books too (journal only).
         if (isMirrorPayment && loanCompanyId && paidPrincipal > 0) {
           const origPoResult = await poPrincipalJournal({
             companyId:          loanCompanyId,           // ← ORIGINAL company, not mirror again

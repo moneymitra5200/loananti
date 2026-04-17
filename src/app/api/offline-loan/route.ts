@@ -2953,7 +2953,12 @@ export async function PUT(request: NextRequest) {
           const acctInterest  = sessionInterest;
           let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
           if (paymentType === 'PRINCIPAL_ONLY') {
-            // ── PRINCIPAL-ONLY: record cash/bank receipt + write off interest ──
+            // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ──
+            // The journal entry creates:
+            //   Dr  Cash/Bank        = principalAmount  (money received)
+            //   Cr  Loans Receivable = principalAmount  (loan reduced)
+            //   Dr  Irrecoverable Debt = interestWrittenOff (interest lost)
+            //   Cr  Interest Income    = interestWrittenOff (interest recognized then written off)
             // IMPORTANT: Use explicit Number() conversion directly from emi fields.
             // sessionPrincipal (delta) can be 0 if Prisma Decimal fields don't coerce
             // correctly in arithmetic — explicit calculation is more robust.
@@ -2962,21 +2967,9 @@ export async function PUT(request: NextRequest) {
             console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
 
             if (principalToCollect <= 0) {
-              console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping cash entry and journal. EMI may already be principal-paid or principalAmount is missing.`);
+              console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
             } else {
-              const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-              const isOnlineMode = effectivePaymentMode === 'ONLINE' || effectivePaymentMode === 'UPI' || effectivePaymentMode === 'BANK_TRANSFER';
-              // Cash/bank entry for principal collected
-              if (isOnlineMode) {
-                await recordBankTransaction({ companyId: targetCompanyId, transactionType: 'CREDIT', amount: principalToCollect,
-                  description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${interestToWriteOff} written off)`,
-                  referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
-              } else {
-                await recordCashBookEntry({ companyId: targetCompanyId, entryType: 'CREDIT', amount: principalToCollect,
-                  description: `PRINCIPAL ONLY - ${emi.offlineLoan.loanNumber} EMI #${emi.installmentNumber} (I:₹${interestToWriteOff} written off)`,
-                  referenceType: 'EMI_PAYMENT', referenceId: updatedEmi.id, createdById: userId });
-              }
-              // ── Journal: cache-free direct approach ──────────────────────────
+              // ── Journal: cache-free direct approach (handles Cash/Bank entry too) ──────────────────────────
               const { recordPrincipalOnlyJournal } = await import('@/lib/simple-accounting');
               const journalResult = await recordPrincipalOnlyJournal({
                 companyId:          targetCompanyId,
@@ -2994,7 +2987,7 @@ export async function PUT(request: NextRequest) {
                 accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
                 console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
               } else {
-                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect}, I:₹${interestToWriteOff}→Irrecoverable Debt`);
+                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect} collected, I:₹${interestToWriteOff}→Irrecoverable Debt`);
               }
             }
             // Mirror PRINCIPAL_ONLY: write off interest in mirror company (cache-free)

@@ -915,6 +915,70 @@ export async function recordPrincipalOnlyJournal(params: {
       });
     }
 
+    // ── 7. Update CashBook or BankAccount tables (actual balance tracking) ───────
+    // This ensures the CashBook/BankAccount tables stay in sync with ChartOfAccount
+    if (isOnline) {
+      // Find the company's active bank account and update its balance
+      const bankAcc = await db.bankAccount.findFirst({
+        where: { companyId, isActive: true },
+        select: { id: true, currentBalance: true },
+      });
+      if (bankAcc) {
+        await db.bankAccount.update({
+          where: { id: bankAcc.id },
+          data: { currentBalance: { increment: principalAmount } },
+        });
+        // Create bank transaction record for audit trail
+        await db.bankTransaction.create({
+          data: {
+            bankAccountId: bankAcc.id,
+            transactionType: 'CREDIT',
+            amount: principalAmount,
+            balanceAfter: (bankAcc.currentBalance || 0) + principalAmount,
+            description: `Principal-Only EMI #${installmentNumber} — ${loanNumber} (I:₹${writeOff} written off)`,
+            referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+            referenceId: paymentId,
+            createdById,
+          },
+        });
+        console.log(`[PrincipalOnly] ✅ Bank Account updated: +₹${principalAmount}`);
+      }
+    } else {
+      // Find or create the company's cash book and update its balance
+      let cashBook = await db.cashBook.findUnique({
+        where: { companyId },
+        select: { id: true, currentBalance: true },
+      });
+      if (!cashBook) {
+        cashBook = await db.cashBook.create({
+          data: { companyId, currentBalance: 0 },
+          select: { id: true, currentBalance: true },
+        });
+      }
+      await db.cashBook.update({
+        where: { id: cashBook.id },
+        data: {
+          currentBalance: { increment: principalAmount },
+          lastUpdatedById: createdById,
+          lastUpdatedAt: new Date(),
+        },
+      });
+      // Create cash book entry record for audit trail
+      await db.cashBookEntry.create({
+        data: {
+          cashBookId: cashBook.id,
+          entryType: 'CREDIT',
+          amount: principalAmount,
+          balanceAfter: (cashBook.currentBalance || 0) + principalAmount,
+          description: `Principal-Only EMI #${installmentNumber} — ${loanNumber} (I:₹${writeOff} written off)`,
+          referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+          referenceId: paymentId,
+          createdById,
+        },
+      });
+      console.log(`[PrincipalOnly] ✅ Cash Book updated: +₹${principalAmount}`);
+    }
+
     console.log(`[PrincipalOnly] ✅ Journal ${entryNumber}: P:₹${principalAmount} Dr ${cashBankCode}, Cr 1200; I:₹${writeOff} Dr 5500, Cr 4110 (company: ${companyId})`);
     return { success: true, journalEntryId: journal.id };
 
