@@ -5,24 +5,60 @@
 
 import admin from 'firebase-admin';
 
-// Check if already initialized
-if (!admin.apps.length) {
+// Lazy initialization flag
+let isInitialized = false;
+
+/**
+ * Initialize Firebase Admin SDK
+ * Only initializes when actually needed, not at module load time
+ */
+function initializeFirebase(): boolean {
+  if (isInitialized && admin.apps.length > 0) {
+    return true;
+  }
+
   try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
+    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+
+    // Skip initialization if credentials are missing (e.g., during build)
+    if (!projectId || !clientEmail || !privateKey) {
+      console.log('[Firebase Admin] Skipping initialization - missing credentials');
+      return false;
+    }
+
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
+      });
+    }
+
+    isInitialized = true;
     console.log('[Firebase Admin] Initialized successfully');
+    return true;
   } catch (error) {
     console.error('[Firebase Admin] Initialization error:', error);
+    return false;
   }
 }
 
+/**
+ * Get Firebase Messaging instance
+ * Returns null if not initialized
+ */
+function getMessaging(): admin.messaging.Messaging | null {
+  if (!initializeFirebase()) {
+    return null;
+  }
+  return admin.messaging();
+}
+
 export const firebaseAdmin = admin;
-export const messaging = admin.messaging();
 
 /**
  * Send push notification to a single device
@@ -37,6 +73,13 @@ export async function sendPushNotification(
   },
   data?: Record<string, string>
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const messaging = getMessaging();
+
+  if (!messaging) {
+    console.log('[Push Notification] Firebase not initialized, skipping push notification');
+    return { success: false, error: 'Firebase not initialized' };
+  }
+
   try {
     const message: admin.messaging.Message = {
       token: fcmToken,
@@ -97,6 +140,13 @@ export async function sendPushNotificationToMany(
   },
   data?: Record<string, string>
 ): Promise<{ success: boolean; successCount: number; failureCount: number; errors?: string[] }> {
+  const messaging = getMessaging();
+
+  if (!messaging) {
+    console.log('[Push Notification] Firebase not initialized, skipping push notification');
+    return { success: false, successCount: 0, failureCount: 0, errors: ['Firebase not initialized'] };
+  }
+
   try {
     // Filter out empty tokens
     const validTokens = fcmTokens.filter(token => token && token.trim() !== '');
