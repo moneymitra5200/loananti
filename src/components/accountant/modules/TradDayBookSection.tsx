@@ -29,6 +29,7 @@ interface DayEntry {
   entryType?: string | null;
   transactionType?: string | null;
   lines?: JournalLine[];
+  createdAt?: string;
 }
 
 // One "voucher" to display: a list of Dr lines, a list of Cr lines, narration
