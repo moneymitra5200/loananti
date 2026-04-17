@@ -43,12 +43,14 @@ export async function sendPushNotification(
       notification: {
         title: notification.title,
         body: notification.body,
-        image: notification.image,
       },
       data: data || {},
       webpush: {
         notification: {
+          title: notification.title,
+          body: notification.body,
           icon: notification.icon || '/icon-192x192.png',
+          image: notification.image,
           badge: '/badge-72x72.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
@@ -63,6 +65,8 @@ export async function sendPushNotification(
       },
       android: {
         notification: {
+          title: notification.title,
+          body: notification.body,
           icon: 'ic_notification',
           color: '#10b981',
           sound: 'default',
@@ -106,12 +110,14 @@ export async function sendPushNotificationToMany(
       notification: {
         title: notification.title,
         body: notification.body,
-        image: notification.image,
       },
       data: data || {},
       webpush: {
         notification: {
+          title: notification.title,
+          body: notification.body,
           icon: notification.icon || '/icon-192x192.png',
+          image: notification.image,
           badge: '/badge-72x72.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
@@ -122,6 +128,8 @@ export async function sendPushNotificationToMany(
       },
       android: {
         notification: {
+          title: notification.title,
+          body: notification.body,
           icon: 'ic_notification',
           color: '#10b981',
           sound: 'default',

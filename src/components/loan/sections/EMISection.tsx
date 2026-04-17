@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
-  Receipt, CheckCircle, Calendar, IndianRupee, Percent, FileText, Check
+  Receipt, CheckCircle, Calendar, IndianRupee, Percent, FileText, Check, Download, Loader2
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
@@ -13,6 +13,7 @@ import type { EMISchedule } from './types';
 import EMISettingsButton from '@/components/shared/EMISettingsButton';
 import ReceiptDialog from '@/components/receipt/ReceiptDialog';
 import { toast } from '@/hooks/use-toast';
+import generateAllReceiptsPDF from '@/lib/generate-receipts-pdf';
 
 interface ReceiptData {
   receiptNo: string;
@@ -70,6 +71,7 @@ const EMISection = memo(function EMISection({
   const [receiptDialogOpen, setReceiptDialogOpen] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
   const [loadingReceipt, setLoadingReceipt] = useState<string | null>(null);
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   // Multi-EMI selection state
   const [selectedEMIs, setSelectedEMIs] = useState<Set<string>>(new Set());
@@ -186,6 +188,32 @@ const EMISection = memo(function EMISection({
     }
   };
 
+  // Download all receipts as PDF
+  const handleDownloadAllReceipts = async () => {
+    if (paidCount === 0) {
+      toast({ title: 'No Receipts', description: 'No paid EMIs found to generate receipts', variant: 'destructive' });
+      return;
+    }
+
+    setDownloadingAll(true);
+    try {
+      const response = await fetch(`/api/receipt/download-all?loanId=${loanApplicationId}`);
+      const data = await response.json();
+
+      if (data.success && data.receipts && data.receipts.length > 0) {
+        generateAllReceiptsPDF(data.receipts, `EMI Receipts - ${data.receipts[0]?.loanAccountNo || 'Loan'}`);
+        toast({ title: 'Success', description: `Generated ${data.receipts.length} receipt(s) as PDF` });
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to fetch receipts', variant: 'destructive' });
+      }
+    } catch (error) {
+      console.error('Error downloading all receipts:', error);
+      toast({ title: 'Error', description: 'Failed to generate PDF', variant: 'destructive' });
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   return (
     <>
       <Card className="border-0 shadow-sm">
@@ -215,6 +243,22 @@ const EMISection = memo(function EMISection({
               >
                 <IndianRupee className="h-4 w-4 mr-1" />
                 Pay {selectedEMIs.size} EMIs (₹{formatCurrency(getTotalSelectedAmount())})
+              </Button>
+            )}
+            {/* Download All Receipts Button */}
+            {paidCount > 0 && (
+              <Button 
+                variant="outline"
+                className="border-blue-300 text-blue-600 hover:bg-blue-50"
+                onClick={handleDownloadAllReceipts}
+                disabled={downloadingAll}
+              >
+                {downloadingAll ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-1" />
+                )}
+                {downloadingAll ? 'Generating...' : 'Download All Receipts'}
               </Button>
             )}
           </div>
