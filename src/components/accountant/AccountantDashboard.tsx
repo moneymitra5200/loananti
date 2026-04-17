@@ -147,14 +147,24 @@ const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_
     upperName.includes('COMPANY3') || 
     upperName === 'C3' ||
     upperName.includes('ORIGINAL') ||
-    upperName.includes('CASH ONLY');
+    upperName.includes('CASH ONLY') ||
+    upperName.includes('PD LAGANI') ||
+    upperName.includes('LAGANI') ||
+    upperName === 'PD' ||
+    upperName.includes('SIMPLE') ||
+    upperName.includes('NORMAL') ||
+    upperName.includes('PERSONAL LOAN');
     
   const isCompany3ByCode = 
     upperCode.includes('3') || 
     upperCode === 'C3' || 
     upperCode === 'COMPANY3' || 
     upperCode === 'COMPANY_3' ||
-    upperCode.includes('ORIGINAL');
+    upperCode.includes('ORIGINAL') ||
+    upperCode === 'PD' ||
+    upperCode.includes('LAGANI') ||
+    upperCode.includes('SIMPLE') ||
+    upperCode.includes('NORMAL');
   
   if (isCompany3ByName || isCompany3ByCode) {
     return 'COMPANY_3';
@@ -2540,26 +2550,23 @@ export default function UnifiedAccountantDashboard() {
   }, [selectedCompanyId]);
 
   // Menu Items based on company type
+  // COMPANY_3 (simple / PD Lagani type) = only Day Book + Cash Book
+  // COMPANY_1_2 (MoneyMitra / Keshardeep) = full accounting suite
   const menuItems = companyType === 'COMPANY_3'
     ? [
-        { id: 'journal-entry', label: 'Journal Entry', icon: BookCheck },
-        { id: 'day-book', label: 'Day Book', icon: BookOpen },
-        { id: 'ledger', label: 'Ledger', icon: BookCopy },
+        { id: 'day-book',  label: 'Day Book',  icon: BookOpen },
         { id: 'cash-book', label: 'Cash Book', icon: Wallet },
-        { id: 'trial-balance', label: 'Trial Balance', icon: BarChart3 },
-        { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
-        { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
       ]
     : [
-        { id: 'journal-entry', label: 'Journal Entry', icon: BookCheck },
-        { id: 'day-book', label: 'Day Book', icon: BookOpen },
-        { id: 'ledger', label: 'Ledger', icon: BookCopy },
-        { id: 'bank', label: 'Bank', icon: Landmark },
-        { id: 'cash-book', label: 'Cash Book', icon: Wallet },
-        { id: 'chart-of-accounts', label: 'Chart of Accounts', icon: BookCopy },
-        { id: 'trial-balance', label: 'Trial Balance', icon: BarChart3 },
-        { id: 'profit-loss', label: 'Profit & Loss', icon: TrendingUp },
-        { id: 'balance-sheet', label: 'Balance Sheet', icon: FileSpreadsheet },
+        { id: 'journal-entry',    label: 'Journal Entry',    icon: BookCheck },
+        { id: 'day-book',         label: 'Day Book',         icon: BookOpen },
+        { id: 'ledger',           label: 'Ledger',           icon: BookCopy },
+        { id: 'bank',             label: 'Bank',             icon: Landmark },
+        { id: 'cash-book',        label: 'Cash Book',        icon: Wallet },
+        { id: 'chart-of-accounts',label: 'Chart of Accounts',icon: BookCopy },
+        { id: 'trial-balance',    label: 'Trial Balance',    icon: BarChart3 },
+        { id: 'profit-loss',      label: 'Profit & Loss',    icon: TrendingUp },
+        { id: 'balance-sheet',    label: 'Balance Sheet',    icon: FileSpreadsheet },
       ];
 
   // Debug log for company type detection
@@ -2574,6 +2581,17 @@ export default function UnifiedAccountantDashboard() {
       });
     }
   }, [selectedCompany, companyType, menuItems.length]);
+
+  // When switching to a simple company (COMPANY_3), reset to day-book
+  // if the currently active section is not available in that company's menu
+  useEffect(() => {
+    if (companyType === 'COMPANY_3') {
+      const allowedIds = ['day-book', 'cash-book'];
+      if (!allowedIds.includes(activeSection)) {
+        setActiveSection('day-book');
+      }
+    }
+  }, [companyType, activeSection]);
 
   // Auto-Fix removed â€” idempotency guards now prevent all duplicate entries at the source
 
