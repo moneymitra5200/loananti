@@ -371,7 +371,7 @@ export default function OfflineLoanDetailPanel({
         penalty: 0,
         mode: emi.paymentMode || 'CASH',
         reference: emi.paymentReference,
-        paidAt: emi.paidDate || emi.collectedAt,
+        paidAt: emi.paidDate,
         collectedBy: emi.collectedByName,
         isSplit: false,
         splitCash: 0,
