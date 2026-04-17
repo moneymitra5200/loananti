@@ -118,6 +118,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Bank name, account number and company ID are required' }, { status: 400 });
     }
 
+    // Check if bank account with same account number already exists for this company
+    const existingAccount = await db.bankAccount.findFirst({
+      where: {
+        companyId,
+        accountNumber
+      }
+    });
+
+    if (existingAccount) {
+      return NextResponse.json({ 
+        error: 'A bank account with this account number already exists for this company',
+        existingAccount: {
+          id: existingAccount.id,
+          bankName: existingAccount.bankName,
+          accountNumber: existingAccount.accountNumber,
+          isActive: existingAccount.isActive
+        }
+      }, { status: 400 });
+    }
+
     // If setting as default, unset any existing default for this company
     if (isDefault && companyId) {
       await db.bankAccount.updateMany({
@@ -175,10 +195,16 @@ export async function POST(request: NextRequest) {
       success: true,
       bankAccount: account
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating bank account:', error);
+    
+    // Handle Prisma unique constraint error (P2002)
+    if (error?.code === 'P2002') {
+      return NextResponse.json({ 
+        error: 'A bank account with this account number already exists for this company' 
+      }, { status: 400 });
+    }
+    
     return NextResponse.json({ error: 'Failed to create bank account' }, { status: 500 });
   }
 }
-// Last sync: 2026-04-17 07:58:55
-// Public repo sync - 2026-04-17 08:02:22
