@@ -2959,57 +2959,69 @@ export async function PUT(request: NextRequest) {
             //   Cr  Loans Receivable = principalAmount  (loan reduced)
             //   Dr  Irrecoverable Debt = interestWrittenOff (interest lost)
             //   Cr  Interest Income    = interestWrittenOff (interest recognized then written off)
-            // IMPORTANT: Use explicit Number() conversion directly from emi fields.
-            // sessionPrincipal (delta) can be 0 if Prisma Decimal fields don't coerce
-            // correctly in arithmetic — explicit calculation is more robust.
-            const principalToCollect = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
-            const interestToWriteOff = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
-            console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
-
-            if (principalToCollect <= 0) {
-              console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
-            } else {
-              // ── Journal: cache-free direct approach (handles Cash/Bank entry too) ──────────────────────────
-              const { recordPrincipalOnlyJournal } = await import('@/lib/simple-accounting');
-              const journalResult = await recordPrincipalOnlyJournal({
-                companyId:          targetCompanyId,
-                loanId:             emi.offlineLoanId,
-                paymentId:          updatedEmi.id,
-                principalAmount:    principalToCollect,
-                interestWrittenOff: interestToWriteOff,
-                paymentDate:        new Date(),
-                createdById:        userId,
-                paymentMode:        effectivePaymentMode || 'CASH',
-                loanNumber:         emi.offlineLoan.loanNumber,
-                installmentNumber:  emi.installmentNumber,
-              });
-              if (!journalResult.success) {
-                accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
-                console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
-              } else {
-                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect} collected, I:₹${interestToWriteOff}→Irrecoverable Debt`);
+            //
+            // IMPORTANT: For MIRROR loans, ONLY create journal in MIRROR company (no original company entry)
+            // Use MIRROR interest for write-off, NOT the original interest
+            
+            const { recordPrincipalOnlyJournal } = await import('@/lib/simple-accounting');
+            
+            if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId) {
+              // ── MIRROR LOAN: Only record in MIRROR company ─────────────────────────────
+              // Use MIRROR principal and MIRROR interest (not original)
+              const mirrorPrincipal = mirrorPrincipalAmount || 0;
+              const mirrorInterest = mirrorInterestAmount || 0;
+              
+              if (mirrorPrincipal > 0) {
+                const mirrorJournalResult = await recordPrincipalOnlyJournal({
+                  companyId:          mirrorLoanMapping.mirrorCompanyId,
+                  loanId:             mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId,
+                  paymentId:          updatedEmi.id,
+                  principalAmount:    mirrorPrincipal,
+                  interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
+                  paymentDate:        new Date(),
+                  createdById:        userId,
+                  paymentMode:        effectivePaymentMode || 'CASH',
+                  loanNumber:         emi.offlineLoan.loanNumber,
+                  installmentNumber:  emi.installmentNumber,
+                });
+                if (!mirrorJournalResult.success) {
+                  accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
+                  console.error(`[Accounting] MIRROR PRINCIPAL_ONLY ❌:`, mirrorJournalResult.error);
+                } else {
+                  console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+                }
               }
-            }
-            // Mirror PRINCIPAL_ONLY: write off interest in mirror company (cache-free)
-            if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId && mirrorInterestAmount > 0) {
-              const { recordPrincipalOnlyJournal: mirrorPoJournal } = await import('@/lib/simple-accounting');
-              const mirrorJournalResult = await mirrorPoJournal({
-                companyId:          mirrorLoanMapping.mirrorCompanyId,
-                loanId:             mirrorLoanMapping.mirrorLoanId!,
-                paymentId:          `${updatedEmi.id}-MIRROR`,
-                principalAmount:    mirrorPrincipalAmount,
-                interestWrittenOff: mirrorInterestAmount,
-                paymentDate:        new Date(),
-                createdById:        userId,
-                paymentMode:        effectivePaymentMode || 'CASH',
-                loanNumber:         emi.offlineLoan.loanNumber,
-                installmentNumber:  emi.installmentNumber,
-              });
-              if (!mirrorJournalResult.success) {
-                accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
-                console.error(`[Accounting] MIRROR PRINCIPAL_ONLY ❌:`, mirrorJournalResult.error);
+              // NO entry for original company - mirror loan only affects mirror company
+            } else {
+              // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
+              // IMPORTANT: Use explicit Number() conversion directly from emi fields.
+              // sessionPrincipal (delta) can be 0 if Prisma Decimal fields don't coerce
+              // correctly in arithmetic — explicit calculation is more robust.
+              const principalToCollect = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+              const interestToWriteOff = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+              console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
+
+              if (principalToCollect <= 0) {
+                console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
               } else {
-                console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: I:₹${mirrorInterestAmount}→Irrecoverable Debt (${mirrorLoanMapping.mirrorCompanyId})`);
+                const journalResult = await recordPrincipalOnlyJournal({
+                  companyId:          targetCompanyId,
+                  loanId:             emi.offlineLoanId,
+                  paymentId:          updatedEmi.id,
+                  principalAmount:    principalToCollect,
+                  interestWrittenOff: interestToWriteOff,
+                  paymentDate:        new Date(),
+                  createdById:        userId,
+                  paymentMode:        effectivePaymentMode || 'CASH',
+                  loanNumber:         emi.offlineLoan.loanNumber,
+                  installmentNumber:  emi.installmentNumber,
+                });
+                if (!journalResult.success) {
+                  accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
+                  console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
+                } else {
+                  console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect} collected, I:₹${interestToWriteOff}→Irrecoverable Debt`);
+                }
               }
             }
             console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);

@@ -1349,40 +1349,43 @@ export async function POST(request: NextRequest) {
         //   Cr  Loans Receivable   = principalAmount  (loan reduced)
         //   Dr  Irrecoverable Debt = interestWrittenOff (interest lost)
         //   Cr  Interest Income    = interestWrittenOff (interest recognized then written off)
-        const targetCompanyId = isMirrorPayment
-          ? mirrorMappingForAccounting!.mirrorCompanyId
-          : loanCompanyId;
-
-        // Journal: Dr Cash/Bank → Cr Loans Receivable + Dr Irrecoverable Debt → Cr Interest Income
-        // Uses cache-free direct approach — no AccountingService stale-cache issues
+        //
+        // IMPORTANT: For MIRROR loans, ONLY create journal in MIRROR company (no original company entry)
+        // Use MIRROR interest for write-off, NOT the original interest
+        
         const { recordPrincipalOnlyJournal: poPrincipalJournal } = await import('@/lib/simple-accounting');
-        const poJournalResult = await poPrincipalJournal({
-          companyId:          targetCompanyId,
-          loanId,
-          paymentId:          payment.id,
-          principalAmount:    isMirrorPayment ? (mirrorPrincipalForAccounting ?? paidPrincipal) : paidPrincipal,
-          interestWrittenOff: isMirrorPayment ? (mirrorInterestForAccounting ?? remainingInterest) : remainingInterest,
-          paymentDate:        new Date(),
-          createdById:        paidBy || 'SYSTEM',
-          paymentMode:        paymentMode as string,
-          loanNumber:         emi.loanApplication?.applicationNo || loanId,
-          installmentNumber:  emi.installmentNumber,
-        });
-        if (!poJournalResult.success) {
-          onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
-          console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${targetCompanyId}):`, poJournalResult.error);
+        
+        if (isMirrorPayment) {
+          // ── MIRROR LOAN: Only record in MIRROR company ─────────────────────────────
+          // Use MIRROR principal and MIRROR interest (not original)
+          const mirrorPrincipal = mirrorPrincipalForAccounting ?? paidPrincipal;
+          const mirrorInterest = mirrorInterestForAccounting ?? remainingInterest;
+          
+          const mirrorPoResult = await poPrincipalJournal({
+            companyId:          mirrorMappingForAccounting!.mirrorCompanyId,
+            loanId:             mirrorMappingForAccounting!.mirrorLoanId || loanId,
+            paymentId:          payment.id,
+            principalAmount:    mirrorPrincipal,
+            interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
+            paymentDate:        new Date(),
+            createdById:        paidBy || 'SYSTEM',
+            paymentMode:        paymentMode as string,
+            loanNumber:         emi.loanApplication?.applicationNo || loanId,
+            installmentNumber:  emi.installmentNumber,
+          });
+          if (!mirrorPoResult.success) {
+            onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
+            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
+          } else {
+            console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+          }
+          // NO entry for original company - mirror loan only affects mirror company
         } else {
-          console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${targetCompanyId})`);
-        }
-
-        // Original company interest write-off for MIRROR loans
-        // First block already handled the MIRROR company (journal only — handles Cash/Bank too).
-        // Now write off the ORIGINAL company's interest in its books too (journal only).
-        if (isMirrorPayment && loanCompanyId && paidPrincipal > 0) {
-          const origPoResult = await poPrincipalJournal({
-            companyId:          loanCompanyId,           // ← ORIGINAL company, not mirror again
+          // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
+          const poJournalResult = await poPrincipalJournal({
+            companyId:          loanCompanyId,
             loanId,
-            paymentId:          `${payment.id}-ORIG-PO`,
+            paymentId:          payment.id,
             principalAmount:    paidPrincipal,
             interestWrittenOff: remainingInterest,
             paymentDate:        new Date(),
@@ -1391,11 +1394,11 @@ export async function POST(request: NextRequest) {
             loanNumber:         emi.loanApplication?.applicationNo || loanId,
             installmentNumber:  emi.installmentNumber,
           });
-          if (!origPoResult.success) {
-            onlineAccountingWarnings.push(`ORIGINAL PRINCIPAL_ONLY journal: ${origPoResult.error}`);
-            console.error(`[Accounting] ORIGINAL PRINCIPAL_ONLY: ❌`, origPoResult.error);
+          if (!poJournalResult.success) {
+            onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
+            console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
           } else {
-            console.log(`[Accounting] ORIGINAL PRINCIPAL_ONLY: ✅ Interest write-off recorded in original company (${loanCompanyId})`);
+            console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
           }
         }
 
