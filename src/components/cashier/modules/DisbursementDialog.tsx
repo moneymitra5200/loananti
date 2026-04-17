@@ -197,12 +197,12 @@ export default function DisbursementDialog({
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg mt-3">
                       <div>
-                        <p className="text-gray-500">Mirror Company Bank Accounts</p>
-                        <p className="font-medium text-lg text-green-600">{bankAccounts.length} available</p>
+                        <p className="text-gray-500">Payment Sources Available</p>
+                        <p className="font-medium text-lg text-green-600">{paymentSources.length} available</p>
                       </div>
                       <div>
-                        <p className="text-gray-500">Total Bank Balance</p>
-                        <p className="font-medium text-lg text-green-600">{formatCurrency(bankAccounts.reduce((sum, a) => sum + a.currentBalance, 0))}</p>
+                        <p className="text-gray-500">Total Balance</p>
+                        <p className="font-medium text-lg text-green-600">{formatCurrency(paymentSources.reduce((sum, s) => sum + (s.currentBalance || 0), 0))}</p>
                       </div>
                       <div>
                         <p className="text-gray-500">Loan Amount to Disburse</p>
@@ -253,15 +253,15 @@ export default function DisbursementDialog({
                         </div>
                       </div>
                     ) : (
-                      /* Other companies: Show Bank Accounts */
+                      /* Other companies: Show Payment Sources */
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-white/50 p-3 rounded-lg">
                         <div>
-                          <p className="text-gray-500">Company Bank Accounts</p>
-                          <p className="font-medium text-lg text-green-600">{bankAccounts.length} available</p>
+                          <p className="text-gray-500">Payment Sources Available</p>
+                          <p className="font-medium text-lg text-green-600">{paymentSources.length} available</p>
                         </div>
                         <div>
-                          <p className="text-gray-500">Total Bank Balance</p>
-                          <p className="font-medium text-lg text-green-600">{formatCurrency(bankAccounts.reduce((sum, a) => sum + a.currentBalance, 0))}</p>
+                          <p className="text-gray-500">Total Balance</p>
+                          <p className="font-medium text-lg text-green-600">{formatCurrency(paymentSources.reduce((sum, s) => sum + (s.currentBalance || 0), 0))}</p>
                         </div>
                         <div>
                           <p className="text-gray-500">Loan Amount to Disburse</p>

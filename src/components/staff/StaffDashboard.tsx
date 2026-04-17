@@ -704,31 +704,54 @@ export default function StaffDashboard() {
 
 
   const pendingLoans = loans.filter(l => l.status === 'AGENT_APPROVED_STAGE1');
-  const completedLoans = loans.filter(l => l.status === 'LOAN_FORM_COMPLETED');
-  const inProgressLoans = loans.filter(l => ['SESSION_CREATED', 'CUSTOMER_SESSION_APPROVED', 'FINAL_APPROVED', 'ACTIVE'].includes(l.status));
+  // Completed forms includes: forms submitted + sanctions created + pending disbursement
+  const completedLoans = loans.filter(l => ['LOAN_FORM_COMPLETED', 'SESSION_CREATED', 'CUSTOMER_SESSION_APPROVED', 'FINAL_APPROVED'].includes(l.status));
+  // Active loans (disbursed)
+  const activeOnlyLoans = loans.filter(l => ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(l.status));
 
   const stats = [
     { label: 'Pending Forms', value: pendingLoans.length, icon: FileEdit, color: 'text-orange-600', bg: 'bg-orange-50', onClick: () => setActiveTab('pending') },
     { label: 'Completed', value: completedLoans.length, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', onClick: () => setActiveTab('completed') },
-    { label: 'In Progress', value: inProgressLoans.length, icon: Clock, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => setActiveTab('activeLoans') },
-    { label: 'Active Loans', value: activeLoans.length, icon: Banknote, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('activeLoans') }
+    { label: 'Active Loans', value: activeOnlyLoans.length, icon: Banknote, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('activeLoans') }
   ];
 
   const menuItems = ROLE_MENU_ITEMS.STAFF.map(item => ({
     ...item,
     count: item.id === 'pending' ? pendingLoans.length : 
            item.id === 'completed' ? completedLoans.length :
-           item.id === 'activeLoans' ? activeLoans.length : undefined
+           item.id === 'activeLoans' ? activeOnlyLoans.length : undefined
   }));
+
+  // Handler to edit a loan form (only for forms not yet active)
+  const handleEditLoanForm = (loan: Loan) => {
+    if (['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status)) {
+      toast({ title: 'Cannot Edit', description: 'Loan is already active and cannot be edited', variant: 'destructive' });
+      return;
+    }
+    openLoanFormDialog(loan);
+  };
+
+  // Handler to view loan details
+  const handleViewLoan = (loan: Loan) => {
+    setSelectedLoanId(loan.id);
+    setShowLoanDetailPanel(true);
+  };
 
   const renderContent = () => {
     switch (activeTab) {
       case 'pending':
         return <PendingTab pendingLoans={pendingLoans} openLoanFormDialog={openLoanFormDialog} />;
       case 'completed':
-        return <CompletedTab completedLoans={completedLoans} getStatusBadge={getStatusBadge} />;
+        return (
+          <CompletedTab 
+            completedLoans={completedLoans} 
+            getStatusBadge={getStatusBadge} 
+            onEditLoan={handleEditLoanForm}
+            onViewLoan={handleViewLoan}
+          />
+        );
       case 'activeLoans':
-        return <ActiveLoansTab activeLoans={activeLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />;
+        return <ActiveLoansTab activeLoans={activeOnlyLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />;
       case 'field':
         // Field visits removed — redirect to dashboard
         return <DashboardTab loans={loans} pendingLoans={pendingLoans} setActiveTab={setActiveTab} />;

@@ -477,6 +477,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'offline-loans', label: 'Offline Loans', icon: FileText },
     { id: 'pending', label: 'Pending Approval', icon: Clock },
     { id: 'session', label: 'Create Sanction', icon: Edit },
+    { id: 'pending-disbursement', label: 'Pending Disbursement', icon: TrendingUp },
     { id: 'active', label: 'Active Loans', icon: CheckCircle },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
     { id: 'staff', label: 'My Staff', icon: ClipboardCheck },

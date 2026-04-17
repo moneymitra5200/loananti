@@ -407,12 +407,15 @@ export default function AgentDashboard() {
   const formCompleted = loans.filter(l => l.status === 'LOAN_FORM_COMPLETED');
   const sanctionCreated = loans.filter(l => l.status === 'SESSION_CREATED');
   const inProgress = loans.filter(l => ['AGENT_APPROVED_STAGE1'].includes(l.status));
-  const activeLoans = loans.filter(l => ['ACTIVE', 'DISBURSED', 'CUSTOMER_SESSION_APPROVED', 'FINAL_APPROVED'].includes(l.status));
+  // Only truly ACTIVE/DISBURSED loans (not pre-disbursement statuses)
+  const activeLoans = loans.filter(l => ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(l.status));
+  // Loans pending disbursement (after final approval)
+  const pendingDisbursement = loans.filter(l => ['CUSTOMER_SESSION_APPROVED', 'FINAL_APPROVED'].includes(l.status));
 
   const stats = [
     { label: 'Pending Approvals', value: pendingForAgent.length, icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50', onClick: () => setActiveTab('pending') },
     { label: 'Awaiting Sanction', value: formCompleted.length, icon: ClipboardCheck, color: 'text-violet-600', bg: 'bg-violet-50', onClick: () => setActiveTab('session') },
-    { label: 'In Progress', value: inProgress.length, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => setActiveTab('active') },
+    { label: 'Pending Disbursement', value: pendingDisbursement.length, icon: TrendingUp, color: 'text-blue-600', bg: 'bg-blue-50', onClick: () => setActiveTab('pending-disbursement') },
     { label: 'Active Loans', value: activeLoans.length, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', onClick: () => setActiveTab('active') }
   ];
 
@@ -421,6 +424,7 @@ export default function AgentDashboard() {
     count: item.id === 'pending' ? pendingForAgent.length : 
            item.id === 'session' ? formCompleted.length :
            item.id === 'staff' ? staffList.length :
+           item.id === 'pending-disbursement' ? pendingDisbursement.length :
            item.id === 'active' ? activeLoans.length : undefined
   }));
 
@@ -724,6 +728,66 @@ export default function AgentDashboard() {
 
       case 'staff':
         return renderStaffSection();
+
+      case 'pending-disbursement':
+        return (
+          <Card className="bg-white shadow-sm border-0">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+                Pending Disbursement
+              </CardTitle>
+              <CardDescription>Loans approved and waiting for disbursement</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {pendingDisbursement.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                  <p>No loans pending disbursement</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingDisbursement.map((loan, index) => (
+                    <motion.div 
+                      key={loan.id} 
+                      initial={{ opacity: 0, y: 10 }} 
+                      animate={{ opacity: 1, y: 0 }} 
+                      transition={{ delay: index * 0.03 }}
+                      className="p-4 border border-blue-100 rounded-xl hover:bg-blue-50 transition-all bg-white"
+                    >
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                          <Avatar className="h-12 w-12 bg-gradient-to-br from-blue-400 to-cyan-500">
+                            <AvatarFallback className="bg-transparent text-white font-semibold">
+                              {loan.customer?.name?.charAt(0) || 'U'}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
+                              {getStatusBadge(loan.status)}
+                            </div>
+                            <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+                            <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}</p>
+                            <p className="text-xs text-gray-500">{loan.loanType}</p>
+                          </div>
+                          <Button size="sm" variant="outline" onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}>
+                            <Eye className="h-4 w-4 mr-1" /> View
+                          </Button>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
 
       case 'active':
         return renderActiveLoans();
