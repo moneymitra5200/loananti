@@ -625,8 +625,9 @@ export default function OfflineLoanDetailPanel({
         if (!selectedEmi) return;
         requestBody.emiId = selectedEmi.id;
         requestBody.paymentType = paymentType;
-        // BUG-3 fix: always send isAdvancePayment for single-EMI too
-        requestBody.isAdvancePayment = isEmiAdvancePayment(selectedEmi);
+        // SINGLE EMI: Always pay full amount (principal + interest) - NO advance logic
+        // Advance logic only applies when using "Select All" (multi-EMI payment)
+        requestBody.isAdvancePayment = false;
         if (paymentType === 'PARTIAL') {
           requestBody.remainingPaymentDate = remainingPaymentDate;
           requestBody.amount = paymentAmount;

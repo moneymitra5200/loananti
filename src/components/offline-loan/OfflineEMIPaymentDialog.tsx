@@ -137,7 +137,10 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   const { totalAmount, alreadyPaid, remaining, remainingPrincipal, remainingInterest } = computeAmounts();
 
   // ── Advance detection ──────────────────────────────────────────────────────
-  const isAdvance = !isMultiMode && !!emi && isAdvancePayment(emi);
+  // RULE: Single EMI = always pay full amount (NO advance logic)
+  //       Multi-EMI (Select All) = check each EMI and apply advance logic for future
+  // So we NEVER apply advance logic for single EMI payments
+  const isAdvance = false; // Always false for single EMI - pay full amount
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [paymentType, setPaymentType] = useState<'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'>('FULL');
@@ -308,6 +311,8 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         paymentMode: isSplitMode ? 'CASH' : paymentMode,
         paymentReference: paymentRef,
         creditType, proofUrl, remarks,
+        // Single EMI: Always pay full amount - NO advance logic
+        isAdvancePayment: false,
         penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
         penaltyWaiver: penaltyWaiver > 0 ? penaltyWaiver : undefined,
         penaltyPaymentMode: netPenalty > 0 ? penaltyPaymentMode : undefined,

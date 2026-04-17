@@ -219,7 +219,10 @@ export default function EMIPaymentDialog({
       (currentYear === emiDueYear && currentMonth < emiDueMonth);
   };
 
-  const isAdvance = isEmiAdvancePayment();
+  // RULE: Single EMI = always pay full amount (NO advance logic)
+  // Advance logic only applies when using "Select All" (multi-EMI payment)
+  // So for single EMI, we ALWAYS set isAdvance to false
+  const isAdvance = false; // Always false for single EMI - pay full amount
 
   // Calculate amounts based on payment type and credit type
   const getPaymentDetails = () => {
