@@ -299,116 +299,82 @@ function CashBookSection({
         </CardContent>
       </Card>
 
-      {/* Entries — Traditional Cash Book Format */}
-      <Card className="border shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800 text-white">
-          <span className="font-semibold text-sm flex items-center gap-2">
-            <Wallet className="h-4 w-4 text-teal-300" /> Cash Book — Traditional Format
-          </span>
-          <span className="text-xs text-gray-400">{entries.length} entries</span>
-        </div>
-
-        {loading ? (
-          <div className="py-16 text-center"><Loader2 className="h-7 w-7 animate-spin mx-auto text-teal-500" /></div>
-        ) : entries.length === 0 ? (
-          <div className="py-14 text-center text-gray-500">
-            <Wallet className="h-10 w-10 mx-auto mb-2 opacity-30" />
-            <p>No cash transactions found</p>
-          </div>
-        ) : (
-          <ScrollArea className="h-[520px]">
-            <table className="w-full text-sm border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-100 border-b border-gray-300">
-                  <th className="text-left py-2.5 px-3 font-semibold text-gray-600 text-xs w-24 border-r border-gray-200">Date</th>
-                  <th className="text-left py-2.5 px-4 font-semibold text-gray-600 text-xs border-r border-gray-200">
-                    Particulars (Accounts &amp; Explanation)
-                  </th>
-                  <th className="text-center py-2.5 px-2 font-semibold text-gray-500 text-xs w-10 border-r border-gray-200">L.F.</th>
-                  <th className="text-right py-2.5 px-4 font-semibold text-blue-700 text-xs w-36 border-r border-gray-200">Debit (Amount)</th>
-                  <th className="text-right py-2.5 px-4 font-semibold text-green-700 text-xs w-36">Credit (Amount)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entries.map((entry, idx) => {
-                  const isCredit = entry.entryType === 'CREDIT'; // money coming IN
-                  const cashLabel = 'Cash A/c';
-                  const desc = entry.description || entry.referenceType?.replace(/_/g, ' ') || 'Account';
-                  const dateStr = formatDateShort(entry.createdAt);
-
-                  // Dr row: who gets debited (the receiver)
-                  // Cr row: who gets credited (the giver)
-                  const drLabel = isCredit ? `${cashLabel}  Dr.` : `${desc}  Dr.`;
-                  const crLabel = isCredit ? `  To  ${desc}` : `  To  ${cashLabel}`;
-
-                  return (
-                    <React.Fragment key={entry.id}>
-                      {/* Dr row */}
-                      <tr className={`border-t border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                        <td className="py-1.5 px-3 text-xs text-gray-500 font-medium align-top border-r border-gray-100 whitespace-nowrap">
-                          {dateStr}
-                        </td>
-                        <td className="py-1.5 px-4 font-medium text-gray-800 border-r border-gray-100">
-                          {drLabel}
-                        </td>
-                        <td className="py-1.5 px-2 text-center text-gray-400 text-xs border-r border-gray-100">–</td>
-                        <td className="py-1.5 px-4 text-right font-mono font-semibold text-blue-800 border-r border-gray-100">
-                          {!isCredit ? (
-                            <span>₹{(entry.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                          ) : <span className="text-gray-200">–</span>}
-                        </td>
-                        <td className="py-1.5 px-4 text-right font-mono font-semibold text-green-800">
-                          {isCredit ? (
-                            <span>₹{(entry.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                          ) : <span className="text-gray-200">–</span>}
-                        </td>
-                      </tr>
-
-                      {/* Cr (To …) row */}
-                      <tr className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
-                        <td className="py-0.5 px-3 border-r border-gray-100"></td>
-                        <td className="py-0.5 px-4 text-gray-600 border-r border-gray-100 pl-8">{crLabel}</td>
-                        <td className="py-0.5 px-2 text-center text-gray-300 text-xs border-r border-gray-100">–</td>
-                        <td className="py-0.5 px-4 border-r border-gray-100"></td>
-                        <td className="py-0.5 px-4"></td>
-                      </tr>
-
-                      {/* Narration + balance */}
-                      <tr className={`border-b border-dashed border-gray-100 ${idx % 2 === 0 ? 'bg-slate-50/60' : 'bg-gray-50/60'}`}>
-                        <td className="py-1 px-3 border-r border-gray-100"></td>
-                        <td className="py-1 px-4 border-r border-gray-100 italic text-xs text-gray-400">
-                          ({desc})
-                          <span className={`ml-3 not-italic text-xs font-semibold ${(entry.balanceAfter || 0) < 0 ? 'text-red-500' : 'text-teal-600'}`}>
-                            Bal: ₹{(entry.balanceAfter || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          </span>
-                        </td>
-                        <td colSpan={3} className="py-1 px-2 text-xs text-gray-400">
-                          {entry.referenceType?.replace(/_/g, ' ')}
-                        </td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-              {/* Totals footer */}
-              <tfoot>
-                <tr className="bg-gray-100 border-t-2 border-gray-400 font-bold sticky bottom-0">
-                  <td colSpan={3} className="py-2.5 px-4 text-gray-700 text-sm uppercase tracking-wide border-r border-gray-300">
-                    Total
-                  </td>
-                  <td className="py-2.5 px-4 text-right font-mono text-blue-900 text-sm border-r border-gray-300 underline decoration-double">
-                    ₹{entries.filter(e => e.entryType === 'DEBIT').reduce((s, e) => s + (e.amount || 0), 0)
-                      .toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </td>
-                  <td className="py-2.5 px-4 text-right font-mono text-green-900 text-sm underline decoration-double">
-                    ₹{entries.filter(e => e.entryType === 'CREDIT').reduce((s, e) => s + (e.amount || 0), 0)
-                      .toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+      {/* Entries — Passbook Style Format */}
+      <Card className="border shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-lg">Cash Transactions — Passbook</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ScrollArea className="h-96">
+            {loading ? (
+              <div className="py-16 text-center"><Loader2 className="h-7 w-7 animate-spin mx-auto text-teal-500" /></div>
+            ) : entries.length === 0 ? (
+              <div className="py-14 text-center text-gray-500">
+                <Wallet className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                <p>No cash transactions found</p>
+              </div>
+            ) : (
+              Object.entries(
+                entries.reduce((groups, entry) => {
+                  const date = format(new Date(entry.createdAt), 'yyyy-MM-dd');
+                  if (!groups[date]) groups[date] = [];
+                  groups[date].push(entry);
+                  return groups;
+                }, {} as Record<string, CashBookEntry[]>)
+              )
+                .sort((a, b) => b[0].localeCompare(a[0]))
+                .map(([date, dayEntries]) => (
+                  <div key={date} className="mb-4">
+                    <div className="sticky top-0 bg-teal-50 px-3 py-1.5 text-sm font-semibold text-teal-800 border-b border-teal-100 flex items-center justify-between">
+                      <span>{format(new Date(date), 'EEEE, dd MMMM yyyy')}</span>
+                      <span className="text-xs font-normal text-teal-600">{dayEntries.length} transactions</span>
+                    </div>
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-gray-50 text-xs">
+                          <TableHead className="text-xs uppercase tracking-wide">Time</TableHead>
+                          <TableHead className="text-xs uppercase tracking-wide">Description</TableHead>
+                          <TableHead className="text-right text-xs uppercase tracking-wide text-emerald-700">Credit (IN)</TableHead>
+                          <TableHead className="text-right text-xs uppercase tracking-wide text-red-700">Debit (OUT)</TableHead>
+                          <TableHead className="text-right text-xs uppercase tracking-wide text-teal-700">Balance</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dayEntries.map((entry, idx) => (
+                          <TableRow key={entry.id} className={`border-b ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} hover:bg-teal-50/30 transition-colors`}>
+                            <TableCell className="font-mono text-sm text-gray-500">
+                              {format(new Date(entry.createdAt), 'HH:mm')}
+                            </TableCell>
+                            <TableCell className="max-w-[200px]">
+                              <p className="truncate text-sm font-medium">{entry.description}</p>
+                              <p className="text-xs text-gray-400">{entry.referenceType?.replace(/_/g, ' ')}</p>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {entry.entryType === 'CREDIT' ? (
+                                <span className="font-semibold text-emerald-600">+{formatCurrency(entry.amount)}</span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {entry.entryType === 'DEBIT' ? (
+                                <span className="font-semibold text-red-600">{formatCurrency(entry.amount)}</span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className={`text-right font-bold ${(entry.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-teal-700'}`}>
+                              {formatCurrency(entry.balanceAfter || 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ))
+            )}
           </ScrollArea>
-        )}
+        </CardContent>
       </Card>
 
       {/* Add Entry Dialog */}
