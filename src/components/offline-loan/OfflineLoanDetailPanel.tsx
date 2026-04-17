@@ -217,6 +217,36 @@ export default function OfflineLoanDetailPanel({
   // Payment History Dialog state
   const [paymentHistoryDialogOpen, setPaymentHistoryDialogOpen] = useState(false);
   const [selectedEmiForHistory, setSelectedEmiForHistory] = useState<EMI | null>(null);
+  
+  // Mirror loan EMIs for payment history display
+  const [mirrorLoanEmis, setMirrorLoanEmis] = useState<EMI[]>([]);
+  const [loadingMirrorEmis, setLoadingMirrorEmis] = useState(false);
+
+  // Fetch mirror loan EMIs for payment history display
+  const fetchMirrorLoanEmis = async (mirrorLoanId: string) => {
+    if (!mirrorLoanId) return;
+    setLoadingMirrorEmis(true);
+    try {
+      const res = await fetch(`/api/offline-loan?loanId=${mirrorLoanId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.loan?.emis) {
+          setMirrorLoanEmis(data.loan.emis);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching mirror loan EMIs:', error);
+    } finally {
+      setLoadingMirrorEmis(false);
+    }
+  };
+
+  // Fetch mirror loan EMIs when loan is loaded and has mirror
+  useEffect(() => {
+    if (loan?.mirrorLoanId && loan?.isMirrored && !loan?.isMirrorLoan) {
+      fetchMirrorLoanEmis(loan.mirrorLoanId);
+    }
+  }, [loan?.mirrorLoanId, loan?.isMirrored, loan?.isMirrorLoan]);
 
   // Fetch receipt for mirror loan EMI
   const fetchReceipt = async (emiId: string) => {
@@ -1866,12 +1896,12 @@ export default function OfflineLoanDetailPanel({
                               </div>
                             )}
                             
-                            {/* EMI Payment History */}
+                            {/* EMI Payment History - Original Loan */}
                             {loan.emis && loan.emis.length > 0 && (
                               <div className="mt-4 pt-4 border-t">
                                 <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
                                   <CheckCircle className="h-4 w-4 text-emerald-600" />
-                                  EMI Payment History
+                                  {loan.isMirrored && !loan.isMirrorLoan ? 'Original Loan' : ''} EMI Payment History
                                 </h4>
                                 <ScrollArea className="max-h-64">
                                   <div className="space-y-3">
@@ -1944,6 +1974,98 @@ export default function OfflineLoanDetailPanel({
                                     )}
                                   </div>
                                 </ScrollArea>
+                              </div>
+                            )}
+                            
+                            {/* Mirror Loan EMI Payment History - Only show if this is original loan with mirror */}
+                            {loan.isMirrored && !loan.isMirrorLoan && loan.mirrorLoanId && (
+                              <div className="mt-4 pt-4 border-t border-orange-200">
+                                <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                                  <CheckCircle className="h-4 w-4 text-orange-600" />
+                                  Mirror Loan Payment History
+                                  {loan.mirrorCompanyName && (
+                                    <Badge variant="outline" className="text-orange-600 border-orange-300">
+                                      {loan.mirrorCompanyName}
+                                    </Badge>
+                                  )}
+                                </h4>
+                                {loadingMirrorEmis ? (
+                                  <div className="flex items-center justify-center py-4">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600"></div>
+                                  </div>
+                                ) : (
+                                  <ScrollArea className="max-h-64">
+                                    <div className="space-y-3">
+                                      {mirrorLoanEmis
+                                        .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
+                                        .sort((a, b) => new Date(b.paidDate || 0).getTime() - new Date(a.paidDate || 0).getTime())
+                                        .map(emi => (
+                                          <div key={emi.id} className="bg-orange-50 p-3 rounded-lg border border-orange-200">
+                                            <div className="flex items-center justify-between mb-2">
+                                              <div className="flex items-center gap-2">
+                                                <Badge className={getEMIStatusColor(emi.paymentStatus)}>
+                                                  EMI #{emi.installmentNumber}
+                                                </Badge>
+                                                <span className="text-sm font-medium">
+                                                  {formatCurrency(emi.paidAmount || 0)}
+                                                </span>
+                                              </div>
+                                              <span className="text-xs text-gray-500">
+                                                {emi.paidDate ? new Date(emi.paidDate).toLocaleDateString('en-IN', {
+                                                  day: 'numeric',
+                                                  month: 'short',
+                                                  year: 'numeric'
+                                                }) : '-'}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-4 text-xs text-gray-600">
+                                              <span>Mode: {emi.paymentMode || 'CASH'}</span>
+                                              <span>P: {formatCurrency(emi.paidPrincipal || 0)}</span>
+                                              <span>I: {formatCurrency(emi.paidInterest || 0)}</span>
+                                            </div>
+                                            {/* Show proof thumbnail if exists */}
+                                            {emi.proofUrl && (
+                                              <div className="mt-2 pt-2 border-t border-orange-200">
+                                                <div className="flex items-center gap-2">
+                                                  {emi.proofUrl.toLowerCase().endsWith('.pdf') ? (
+                                                    <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      className="h-7 text-xs"
+                                                      onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                    >
+                                                      <FileText className="h-3 w-3 mr-1" />
+                                                      View Proof PDF
+                                                    </Button>
+                                                  ) : (
+                                                    <div className="flex items-center gap-2">
+                                                      <img
+                                                        src={emi.proofUrl}
+                                                        alt="Proof"
+                                                        className="h-10 w-10 object-cover rounded border cursor-pointer hover:opacity-80"
+                                                        onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                      />
+                                                      <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-7 text-xs"
+                                                        onClick={() => window.open(emi.proofUrl!, '_blank')}
+                                                      >
+                                                        View Proof
+                                                      </Button>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      {mirrorLoanEmis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length === 0 && (
+                                        <p className="text-sm text-gray-500 text-center py-4">No mirror loan payments recorded yet</p>
+                                      )}
+                                    </div>
+                                  </ScrollArea>
+                                )}
                               </div>
                             )}
                           </div>
