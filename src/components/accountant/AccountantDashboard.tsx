@@ -130,52 +130,12 @@ const formatDateShort = (date: Date | string) => {
   return format(new Date(date), 'dd/MM/yyyy');
 };
 
-// Company type detection - uses isMirrorCompany field from database
-// Mirror companies (Company 1 & 2) have bank accounts
-// Original company (Company 3) has only cash book
+// Company type rule (simple and definitive):
+//   isMirrorCompany === true  → COMPANY_1_2 → full accounting suite (MoneyMitra, Keshardeep…)
+//   isMirrorCompany !== true  → COMPANY_3   → Day Book + Cash Book ONLY (PD Lagani, any non-mirror company)
 const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_3' => {
   if (!company) return 'COMPANY_1_2';
-  
-  // Check name and code for Company 3 patterns FIRST
-  // This ensures we detect Company 3 even if isMirrorCompany field is wrong in database
-  const upperName = company.name?.toUpperCase() || '';
-  const upperCode = company.code?.toUpperCase() || '';
-  
-  // Check for Company 3 patterns in name or code
-  const isCompany3ByName = 
-    upperName.includes('COMPANY 3') || 
-    upperName.includes('COMPANY3') || 
-    upperName === 'C3' ||
-    upperName.includes('ORIGINAL') ||
-    upperName.includes('CASH ONLY') ||
-    upperName.includes('PD LAGANI') ||
-    upperName.includes('LAGANI') ||
-    upperName === 'PD' ||
-    upperName.includes('SIMPLE') ||
-    upperName.includes('NORMAL') ||
-    upperName.includes('PERSONAL LOAN');
-    
-  const isCompany3ByCode = 
-    upperCode.includes('3') || 
-    upperCode === 'C3' || 
-    upperCode === 'COMPANY3' || 
-    upperCode === 'COMPANY_3' ||
-    upperCode.includes('ORIGINAL') ||
-    upperCode === 'PD' ||
-    upperCode.includes('LAGANI') ||
-    upperCode.includes('SIMPLE') ||
-    upperCode.includes('NORMAL');
-  
-  if (isCompany3ByName || isCompany3ByCode) {
-    return 'COMPANY_3';
-  }
-  
-  // Then use isMirrorCompany field if available
-  if (company.isMirrorCompany !== undefined) {
-    return company.isMirrorCompany ? 'COMPANY_1_2' : 'COMPANY_3';
-  }
-  
-  return 'COMPANY_1_2';
+  return company.isMirrorCompany === true ? 'COMPANY_1_2' : 'COMPANY_3';
 };
 
 // ============================================

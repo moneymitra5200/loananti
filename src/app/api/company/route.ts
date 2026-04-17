@@ -24,52 +24,51 @@ export async function GET(request: NextRequest) {
       where.isActive = true;
     }
 
-    const companies = await db.company.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        isActive: true,
-        defaultInterestRate: true,
-        defaultInterestType: true,
-        enableMirrorLoan: true,
-        mirrorInterestRate: true,
-        mirrorInterestType: true,
-        maxLoanAmount: true,
-        minLoanAmount: true,
-        maxTenureMonths: true,
-        createdAt: true,
-        contactEmail: true,
-        contactPhone: true,
-        isMirrorCompany: true,
-        accountingType: true,
-        logoUrl: true,
-        address: true,
-        city: true,
-        state: true,
-        gstNumber: true,
-        panNumber: true,
-        ownerName: true,
-        ownerPhone: true,
-      }
-    });
+    // Full select — includes newer fields like accountingType
+    const fullSelect = {
+      id: true, name: true, code: true, isActive: true,
+      defaultInterestRate: true, defaultInterestType: true,
+      enableMirrorLoan: true, mirrorInterestRate: true, mirrorInterestType: true,
+      maxLoanAmount: true, minLoanAmount: true, maxTenureMonths: true,
+      createdAt: true, contactEmail: true, contactPhone: true,
+      isMirrorCompany: true, accountingType: true,
+      logoUrl: true, address: true, city: true, state: true,
+      gstNumber: true, panNumber: true, ownerName: true, ownerPhone: true,
+    };
+
+    // Safe fallback select — excludes fields that may not exist in older production schema
+    const safeSelect = {
+      id: true, name: true, code: true, isActive: true,
+      defaultInterestRate: true, defaultInterestType: true,
+      enableMirrorLoan: true, mirrorInterestRate: true, mirrorInterestType: true,
+      maxLoanAmount: true, minLoanAmount: true, maxTenureMonths: true,
+      createdAt: true, contactEmail: true, contactPhone: true,
+      isMirrorCompany: true,
+      logoUrl: true, address: true, city: true, state: true,
+      gstNumber: true, panNumber: true, ownerName: true, ownerPhone: true,
+    };
+
+    let companies: any[];
+    try {
+      companies = await db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: fullSelect });
+    } catch (selectError) {
+      // Fallback: schema may be older on production — retry without accountingType
+      console.warn('[Company GET] Full select failed, using safe fallback:', selectError);
+      companies = await db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: safeSelect });
+    }
 
     // Deduplicate by code (in case of database issues)
     const seenCodes = new Set<string>();
     const deduplicatedCompanies = companies.filter(company => {
-      if (seenCodes.has(company.code)) {
-        return false; // Skip duplicate
-      }
+      if (seenCodes.has(company.code)) return false;
       seenCodes.add(company.code);
       return true;
     });
 
-    // Format response
     const formattedCompanies = deduplicatedCompanies.map(c => ({
       ...c,
-      loanCount: 0 // Will be fetched separately if needed
+      accountingType: (c as any).accountingType ?? 'FULL', // default if field missing
+      loanCount: 0
     }));
 
     // Cache the result
@@ -78,7 +77,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ companies: formattedCompanies });
   } catch (error) {
     console.error('Error fetching companies:', error);
-    return NextResponse.json({ error: 'Failed to fetch companies' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch companies', details: error instanceof Error ? error.message : 'Unknown' }, { status: 500 });
   }
 }
 
