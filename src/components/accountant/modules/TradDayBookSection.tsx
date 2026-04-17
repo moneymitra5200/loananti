@@ -208,6 +208,8 @@ function buildDayGroups(entries: DayEntry[], openingBalance: number): DayGroup[]
   for (const dateKey of sortedDates) {
     const dayEntries = byDate[dateKey];
     const dayOpen = running;
+    // Sort entries within day: newest first (by created time)
+    dayEntries.sort((a, b) => new Date(b.createdAt || b.entryDate).getTime() - new Date(a.createdAt || a.entryDate).getTime());
     const vouchers = dayEntries.map(entryToVoucher);
 
     const dayDr = vouchers.reduce((s, v) => s + v.drLines.reduce((ss, l) => ss + l.amount, 0), 0);
@@ -323,20 +325,44 @@ export default function TradDayBookSection({ selectedCompanyId }: { selectedComp
           <p>No entries found for this period</p>
         </CardContent></Card>
       ) : (
-        <div className="space-y-6">
-          {pagedGroups.map(group => (
+        <div className="space-y-4">
+          {pagedGroups.map((group, gIdx) => {
+            // Calculate running balance for each voucher
+            let runningBal = group.openingBalance;
+            const vouchersWithBal = group.vouchers.map(v => {
+              const bal = runningBal + v.balanceImpact;
+              runningBal = bal;
+              return { ...v, runningBalance: bal };
+            });
+
+            return (
             <Card key={group.dateKey} className="border shadow-md overflow-hidden">
               {/* Day header bar */}
-              <div className="flex items-center justify-between bg-gray-800 text-white px-4 py-2.5">
+              <div className="flex items-center justify-between bg-gradient-to-r from-gray-800 to-gray-700 text-white px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <span className="font-bold text-sm">{group.dateLabel}</span>
-                  <Badge className="bg-emerald-500 text-white text-[10px]">
-                    {group.vouchers.length} {group.vouchers.length === 1 ? 'entry' : 'entries'}
-                  </Badge>
+                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center font-bold">
+                    {format(new Date(group.dateKey), 'dd')}
+                  </div>
+                  <div>
+                    <span className="font-bold text-lg">{group.dateLabel}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge className="bg-emerald-500 text-white text-[10px]">
+                        {group.vouchers.length} {group.vouchers.length === 1 ? 'entry' : 'entries'}
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-gray-300">
-                  <span>Dr: <span className="font-mono text-blue-300">{INR(group.totalDr)}</span></span>
-                  <span>Cr: <span className="font-mono text-green-300">{INR(group.totalCr)}</span></span>
+                <div className="text-right">
+                  <div className="flex items-center gap-6 text-sm">
+                    <div className="text-right">
+                      <p className="text-gray-400 text-xs">Opening</p>
+                      <p className="font-mono font-bold text-amber-300">{INR(group.openingBalance)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-gray-400 text-xs">Closing</p>
+                      <p className="font-mono font-bold text-emerald-300">{INR(group.closingBalance)}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -344,127 +370,180 @@ export default function TradDayBookSection({ selectedCompanyId }: { selectedComp
                 <table className="w-full text-sm border-collapse">
                   {/* Column headers */}
                   <thead>
-                    <tr className="bg-gray-100 border-b border-gray-300">
-                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 w-16 border-r border-gray-200">Date</th>
-                      <th className="text-left py-2 px-4 text-xs font-semibold text-gray-600 border-r border-gray-200">
+                    <tr className="bg-slate-100 border-b-2 border-slate-300">
+                      <th className="text-left py-2 px-3 text-xs font-semibold text-gray-500 w-14 border-r border-slate-200">#</th>
+                      <th className="text-left py-2 px-4 text-xs font-semibold text-gray-600 border-r border-slate-200">
                         Particulars (Accounts &amp; Explanation)
                       </th>
-                      <th className="text-center py-2 px-2 text-xs font-semibold text-gray-400 w-10 border-r border-gray-200">L.F.</th>
-                      <th className="text-right py-2 px-4 text-xs font-semibold text-blue-700 w-36 border-r border-gray-200">Debit (Amount)</th>
-                      <th className="text-right py-2 px-4 text-xs font-semibold text-green-700 w-36">Credit (Amount)</th>
+                      <th className="text-center py-2 px-2 text-xs font-semibold text-gray-400 w-10 border-r border-slate-200">L.F.</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-blue-700 w-28 border-r border-slate-200">Debit (₹)</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-green-700 w-28 border-r border-slate-200">Credit (₹)</th>
+                      <th className="text-right py-2 px-3 text-xs font-semibold text-purple-700 w-32">Balance (₹)</th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {/* Opening balance row */}
-                    <tr className="bg-amber-50 border-b border-amber-200">
-                      <td className="py-2 px-3 text-xs text-amber-700 font-medium border-r border-amber-100"></td>
-                      <td className="py-2 px-4 text-amber-800 font-semibold flex items-center gap-1.5 border-r border-amber-100">
-                        <ArrowDown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                        To Balance b/d
-                        <span className="font-normal text-xs text-amber-600 ml-1">(Opening Balance)</span>
+                    {/* Opening balance row - highlighted */}
+                    <tr className="bg-gradient-to-r from-amber-50 to-yellow-50 border-b-2 border-amber-300">
+                      <td className="py-3 px-3 text-center border-r border-amber-200">
+                        <div className="w-6 h-6 rounded-full bg-amber-400 text-white flex items-center justify-center mx-auto">
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </div>
                       </td>
-                      <td className="py-2 px-2 text-center text-gray-300 border-r border-amber-100">–</td>
-                      <td className="py-2 px-4 border-r border-amber-100"></td>
-                      <td className="py-2 px-4 text-right font-mono font-bold text-amber-800">{INR(group.openingBalance)}</td>
+                      <td className="py-3 px-4 border-r border-amber-200">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-amber-800 text-base">To Balance b/d</span>
+                          <span className="text-xs bg-amber-200 text-amber-700 px-2 py-0.5 rounded-full">(Opening Balance)</span>
+                        </div>
+                        <p className="text-xs text-amber-600 mt-1 italic">Brought forward from previous day</p>
+                      </td>
+                      <td className="py-3 px-2 text-center text-gray-300 border-r border-amber-200">–</td>
+                      <td className="py-3 px-3 border-r border-amber-200"></td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-amber-800 text-base border-r border-amber-200">
+                        {INR(group.openingBalance)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-amber-800 text-base bg-amber-100">
+                        {INR(group.openingBalance)}
+                      </td>
                     </tr>
 
                     {/* Voucher rows */}
-                    {group.vouchers.map((v, vi) => {
+                    {vouchersWithBal.map((v, vi) => {
+                      const isIncome = v.balanceImpact > 0;
                       const isEven = vi % 2 === 0;
-                      const bg = isEven ? 'bg-white' : 'bg-gray-50/40';
-                      const maxLines = Math.max(v.drLines.length, v.crLines.length);
+                      const bgBase = isIncome 
+                        ? (isEven ? 'bg-emerald-50/50' : 'bg-emerald-50/30')
+                        : (isEven ? 'bg-rose-50/50' : 'bg-rose-50/30');
 
                       return (
                         <React.Fragment key={v.entryId}>
                           {/* Separator between vouchers */}
                           {vi > 0 && (
-                            <tr><td colSpan={5} className="py-0 border-t border-gray-200"></td></tr>
+                            <tr><td colSpan={6} className="py-0.5 bg-gray-100"></td></tr>
                           )}
 
                           {/* Dr lines — each on its own row */}
                           {v.drLines.map((dl, di) => (
-                            <tr key={`dr-${di}`} className={bg}>
-                              <td className="py-1.5 px-3 text-xs text-gray-500 font-medium border-r border-gray-100 align-top whitespace-nowrap">
-                                {di === 0 ? v.dateStr : ''}
+                            <tr key={`dr-${di}`} className={`${bgBase} hover:bg-opacity-70 transition-colors`}>
+                              <td className="py-2 px-3 text-center text-xs text-gray-400 font-medium border-r border-gray-200 align-top">
+                                {di === 0 ? vi + 1 : ''}
                               </td>
-                              <td className="py-1.5 px-4 font-semibold text-gray-800 border-r border-gray-100">
-                                {dl.account}&nbsp;&nbsp;(Dr.)
+                              <td className="py-2 px-4 font-semibold text-gray-800 border-r border-gray-200">
+                                <span className="text-blue-700">{dl.account}</span>
+                                <span className="text-xs text-gray-400 ml-1">(Dr.)</span>
                               </td>
-                              <td className="py-1.5 px-2 text-center text-gray-300 text-xs border-r border-gray-100">–</td>
-                              <td className="py-1.5 px-4 text-right font-mono font-bold text-blue-800 border-r border-gray-100">
+                              <td className="py-2 px-2 text-center text-gray-300 text-xs border-r border-gray-200">–</td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-blue-800 border-r border-gray-200 bg-blue-50/30">
                                 {INR(dl.amount)}
                               </td>
-                              <td className="py-1.5 px-4"></td>
+                              <td className="py-2 px-3 border-r border-gray-200"></td>
+                              <td className="py-2 px-3 border-r border-gray-200"></td>
                             </tr>
                           ))}
 
                           {/* Cr lines — indented "To …" */}
                           {v.crLines.map((cl, ci) => (
-                            <tr key={`cr-${ci}`} className={bg}>
-                              <td className="py-1.5 px-3 border-r border-gray-100"></td>
-                              <td className="py-1.5 px-4 border-r border-gray-100">
-                                <span className="pl-8 text-gray-700">
-                                  To&nbsp;&nbsp;{cl.account}&nbsp;&nbsp;(Cr.)
-                                </span>
+                            <tr key={`cr-${ci}`} className={`${bgBase} hover:bg-opacity-70 transition-colors`}>
+                              <td className="py-2 px-3 border-r border-gray-200"></td>
+                              <td className="py-2 px-4 border-r border-gray-200">
+                                <span className="pl-6 text-gray-600">To&nbsp;&nbsp;</span>
+                                <span className="text-green-700 font-semibold">{cl.account}</span>
+                                <span className="text-xs text-gray-400 ml-1">(Cr.)</span>
                               </td>
-                              <td className="py-1.5 px-2 text-center text-gray-300 text-xs border-r border-gray-100">–</td>
-                              <td className="py-1.5 px-4 border-r border-gray-100"></td>
-                              <td className="py-1.5 px-4 text-right font-mono font-bold text-green-800">
+                              <td className="py-2 px-2 text-center text-gray-300 text-xs border-r border-gray-200">–</td>
+                              <td className="py-2 px-3 border-r border-gray-200"></td>
+                              <td className="py-2 px-3 text-right font-mono font-bold text-green-800 bg-green-50/30 border-r border-gray-200">
                                 {INR(cl.amount)}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold border-r border-gray-200 bg-slate-50">
+                                <span className={v.runningBalance >= 0 ? 'text-emerald-700' : 'text-red-700'}>
+                                  {INR(v.runningBalance)}
+                                </span>
                               </td>
                             </tr>
                           ))}
 
-                          {/* Narration row */}
-                          <tr className={`${isEven ? 'bg-slate-50' : 'bg-gray-50/70'} border-b border-dashed border-gray-200`}>
-                            <td className="py-1 px-3 border-r border-gray-100"></td>
-                            <td className="py-1 px-4 italic text-xs text-gray-400 border-r border-gray-100" colSpan={4}>
-                              ({v.narration})
+                          {/* Narration row with impact indicator */}
+                          <tr className={`${isIncome ? 'bg-emerald-100/50' : 'bg-rose-100/50'} border-b border-dashed border-gray-300`}>
+                            <td className="py-1.5 px-3 border-r border-gray-200"></td>
+                            <td className="py-1.5 px-4 border-r border-gray-200" colSpan={3}>
+                              <span className="text-xs text-gray-500 italic">({v.narration})</span>
+                            </td>
+                            <td className="py-1.5 px-3 text-center border-r border-gray-200">
+                              {isIncome ? (
+                                <span className="text-xs text-emerald-600 font-medium">▲ Income</span>
+                              ) : (
+                                <span className="text-xs text-rose-600 font-medium">▼ Expense</span>
+                              )}
+                            </td>
+                            <td className={`py-1.5 px-3 text-right border-r border-gray-200 font-mono text-xs ${isIncome ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {isIncome ? '+' : ''}{INR(v.balanceImpact)}
                             </td>
                           </tr>
                         </React.Fragment>
                       );
                     })}
 
-                    {/* Day total row */}
-                    <tr className="bg-gray-100 border-t border-gray-300">
-                      <td className="py-2 px-3 border-r border-gray-300"></td>
-                      <td className="py-2 px-4 text-xs font-bold text-gray-600 uppercase tracking-wide border-r border-gray-300">
-                        Day Total
+                    {/* Day total row - highlighted */}
+                    <tr className="bg-gradient-to-r from-slate-100 to-slate-50 border-t-2 border-slate-400">
+                      <td className="py-3 px-3 border-r border-slate-300"></td>
+                      <td className="py-3 px-4 border-r border-slate-300">
+                        <span className="font-bold text-gray-700 uppercase tracking-wide">Day Total</span>
                       </td>
-                      <td className="py-2 px-2 text-center text-gray-400 border-r border-gray-300">–</td>
-                      <td className="py-2 px-4 text-right font-mono font-bold text-blue-900 text-sm border-r border-gray-300 underline decoration-double">
-                        {INR(group.totalDr)}
+                      <td className="py-3 px-2 text-center text-gray-400 border-r border-slate-300">–</td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-blue-900 border-r border-slate-300 bg-blue-100/50">
+                        <span className="underline decoration-double">{INR(group.totalDr)}</span>
                       </td>
-                      <td className="py-2 px-4 text-right font-mono font-bold text-green-900 text-sm underline decoration-double">
-                        {INR(group.totalCr + group.openingBalance)}
+                      <td className="py-3 px-3 text-right font-mono font-bold text-green-900 border-r border-slate-300 bg-green-100/50">
+                        <span className="underline decoration-double">{INR(group.totalCr + group.openingBalance)}</span>
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-slate-700 bg-slate-200/50">
+                        {INR(group.closingBalance)}
                       </td>
                     </tr>
                   </tbody>
 
-                  {/* Closing balance footer */}
+                  {/* Closing balance footer - highlighted */}
                   <tfoot>
-                    <tr className="bg-emerald-50 border-t-2 border-emerald-400">
-                      <td className="py-2.5 px-3 border-r border-emerald-200"></td>
-                      <td className="py-2.5 px-4 font-bold text-emerald-800 border-r border-emerald-200">
-                        <span className="flex items-center gap-1.5">
-                          <ArrowUp className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                          By Balance c/d
-                          <span className="font-normal text-xs text-emerald-600 ml-1">(Closing Balance → next day opening)</span>
-                        </span>
+                    <tr className="bg-gradient-to-r from-emerald-50 to-teal-50 border-t-2 border-emerald-400">
+                      <td className="py-3 px-3 border-r border-emerald-200">
+                        <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto">
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </div>
                       </td>
-                      <td className="py-2.5 px-2 text-center text-gray-400 border-r border-emerald-200">–</td>
-                      <td className="py-2.5 px-4 text-right font-mono font-bold text-emerald-900 text-sm border-r border-emerald-200">
+                      <td className="py-3 px-4 border-r border-emerald-200">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-emerald-800 text-base">By Balance c/d</span>
+                          <span className="text-xs bg-emerald-200 text-emerald-700 px-2 py-0.5 rounded-full">(Closing Balance)</span>
+                        </div>
+                        <p className="text-xs text-emerald-600 mt-1 italic">Carried forward to next day</p>
+                      </td>
+                      <td className="py-3 px-2 text-center text-gray-400 border-r border-emerald-200">–</td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-emerald-900 text-base border-r border-emerald-200 bg-emerald-100/50">
                         {INR(group.closingBalance)}
                       </td>
-                      <td className="py-2.5 px-4 text-right text-xs italic text-emerald-600">→ Opens next day</td>
+                      <td className="py-3 px-3 border-r border-emerald-200"></td>
+                      <td className="py-3 px-3 text-center text-xs font-medium text-emerald-700 bg-emerald-100">
+                        → Opens next day
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
+
+              {/* Connector to next day */}
+              {gIdx < pagedGroups.length - 1 && (
+                <div className="bg-gray-100 py-2 px-4 flex items-center justify-center gap-2 text-xs text-gray-500 border-t border-b">
+                  <div className="h-px w-12 bg-gray-300"></div>
+                  <span className="font-medium">Carried forward: {INR(group.closingBalance)}</span>
+                  <span>→</span>
+                  <span className="font-medium">Opens next day</span>
+                  <div className="h-px w-12 bg-gray-300"></div>
+                </div>
+              )}
             </Card>
-          ))}
+          );
+          })}
 
           {/* Pagination */}
           {totalPages > 1 && (
