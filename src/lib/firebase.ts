@@ -12,6 +12,7 @@ import {
   RecaptchaVerifier,
   signInWithCredential
 } from 'firebase/auth';
+import { getMessaging, getToken, onMessage, Messaging, MessagePayload } from 'firebase/messaging';
 import { getAnalytics, isSupported } from "firebase/analytics";
 
 // Your web app's Firebase configuration
@@ -37,6 +38,75 @@ if (typeof window !== "undefined") {
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Messaging (client-side only)
+let messagingInstance: Messaging | null = null;
+if (typeof window !== "undefined" && 'serviceWorker' in navigator) {
+  try {
+    messagingInstance = getMessaging(app);
+  } catch (error) {
+    console.error('[Firebase] Messaging initialization error:', error);
+  }
+}
+export const messaging_ = messagingInstance;
+
+// VAPID Key for web push
+const VAPID_KEY = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BGpGe_IFqrZnrDoeQ2DWvpBhxfjyAPBczKnoGrbvfK4QhKWUD95cirGDuYOJ0SzOO3F6ne5rtbKq5DySO_CdHY8';
+
+/**
+ * Request notification permission and get FCM token
+ */
+export const requestNotificationPermission = async (): Promise<{ success: boolean; token?: string; error?: string }> => {
+  try {
+    if (!messagingInstance) {
+      return { success: false, error: 'Messaging not initialized' };
+    }
+
+    // Request permission
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      return { success: false, error: 'Notification permission denied' };
+    }
+
+    // Get FCM token
+    const token = await getToken(messagingInstance, { vapidKey: VAPID_KEY });
+    console.log('[FCM] Token obtained:', token?.substring(0, 20) + '...');
+    
+    return { success: true, token };
+  } catch (error: any) {
+    console.error('[FCM] Error getting token:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Listen for foreground messages
+ */
+export const onForegroundMessage = (callback: (payload: MessagePayload) => void): (() => void) | undefined => {
+  if (!messagingInstance) {
+    console.warn('[FCM] Messaging not initialized');
+    return undefined;
+  }
+
+  return onMessage(messagingInstance, (payload) => {
+    console.log('[FCM] Foreground message received:', payload);
+    callback(payload);
+  });
+};
+
+/**
+ * Get current FCM token
+ */
+export const getCurrentFCMToken = async (): Promise<string | null> => {
+  try {
+    if (!messagingInstance) return null;
+    const token = await getToken(messagingInstance, { vapidKey: VAPID_KEY });
+    return token || null;
+  } catch (error) {
+    console.error('[FCM] Error getting current token:', error);
+    return null;
+  }
+};
 
 export const signInWithGoogle = async () => {
   try {

@@ -56,6 +56,9 @@ model User {
   loginType                    String                 @default("EMAIL")
   lastActivityAt               DateTime?
   lastLocation                 String?
+  // Push Notification Fields
+  fcmToken                     String?                // Firebase Cloud Messaging token for push notifications
+  notificationEnabled          Boolean                @default(true) // User preference for push notifications
   // Credit System Fields - Dual Credit System
   companyCredit                Float                  @default(0) // Company credit - only CASH payments increase this
   personalCredit               Float                  @default(0) // Personal credit - when money taken in personal account

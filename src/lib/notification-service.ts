@@ -6,9 +6,11 @@
  * - Send to individual users, roles, or segments
  * - Manage templates
  * - Track delivery and read status
+ * - Push notifications via FCM
  */
 
 import { db } from '@/lib/db';
+import { sendPushNotificationToUser, sendPushNotificationToRole } from './push-notification-service';
 
 // ==================== TYPES ====================
 
@@ -57,7 +59,7 @@ export interface NotificationTemplateData {
 // ==================== CORE NOTIFICATION FUNCTIONS ====================
 
 /**
- * Create a single notification
+ * Create a single notification (in-app + push)
  */
 export async function createNotification(data: CreateNotificationData) {
   try {
@@ -75,6 +77,16 @@ export async function createNotification(data: CreateNotificationData) {
         templateId: data.templateId,
       },
     });
+
+    // Also send push notification
+    await sendPushNotificationToUser({
+      userId: data.userId,
+      title: data.title,
+      body: data.message,
+      actionUrl: data.actionUrl,
+      data: data.data,
+    });
+
     return { success: true, notification };
   } catch (error) {
     console.error('Error creating notification:', error);
