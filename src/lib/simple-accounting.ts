@@ -924,9 +924,10 @@ export async function recordPrincipalOnlyJournal(params: {
         select: { id: true, currentBalance: true },
       });
       if (bankAcc) {
+        const newBalance = (bankAcc.currentBalance || 0) + principalAmount;
         await db.bankAccount.update({
           where: { id: bankAcc.id },
-          data: { currentBalance: { increment: principalAmount } },
+          data: { currentBalance: newBalance },
         });
         // Create bank transaction record for audit trail
         await db.bankTransaction.create({
@@ -934,14 +935,14 @@ export async function recordPrincipalOnlyJournal(params: {
             bankAccountId: bankAcc.id,
             transactionType: 'CREDIT',
             amount: principalAmount,
-            balanceAfter: (bankAcc.currentBalance || 0) + principalAmount,
+            balanceAfter: newBalance,
             description: `Principal-Only EMI #${installmentNumber} — ${loanNumber} (I:₹${writeOff} written off)`,
             referenceType: 'PRINCIPAL_ONLY_PAYMENT',
             referenceId: paymentId,
             createdById,
           },
         });
-        console.log(`[PrincipalOnly] ✅ Bank Account updated: +₹${principalAmount}`);
+        console.log(`[PrincipalOnly] ✅ Bank Account updated: +₹${principalAmount} → Balance: ₹${newBalance}`);
       }
     } else {
       // Find or create the company's cash book and update its balance
@@ -955,10 +956,11 @@ export async function recordPrincipalOnlyJournal(params: {
           select: { id: true, currentBalance: true },
         });
       }
+      const newCashBalance = (cashBook.currentBalance || 0) + principalAmount;
       await db.cashBook.update({
         where: { id: cashBook.id },
         data: {
-          currentBalance: { increment: principalAmount },
+          currentBalance: newCashBalance,
           lastUpdatedById: createdById,
           lastUpdatedAt: new Date(),
         },
@@ -969,14 +971,14 @@ export async function recordPrincipalOnlyJournal(params: {
           cashBookId: cashBook.id,
           entryType: 'CREDIT',
           amount: principalAmount,
-          balanceAfter: (cashBook.currentBalance || 0) + principalAmount,
+          balanceAfter: newCashBalance,
           description: `Principal-Only EMI #${installmentNumber} — ${loanNumber} (I:₹${writeOff} written off)`,
           referenceType: 'PRINCIPAL_ONLY_PAYMENT',
           referenceId: paymentId,
           createdById,
         },
       });
-      console.log(`[PrincipalOnly] ✅ Cash Book updated: +₹${principalAmount}`);
+      console.log(`[PrincipalOnly] ✅ Cash Book updated: +₹${principalAmount} → Balance: ₹${newCashBalance}`);
     }
 
     console.log(`[PrincipalOnly] ✅ Journal ${entryNumber}: P:₹${principalAmount} Dr ${cashBankCode}, Cr 1200; I:₹${writeOff} Dr 5500, Cr 4110 (company: ${companyId})`);
