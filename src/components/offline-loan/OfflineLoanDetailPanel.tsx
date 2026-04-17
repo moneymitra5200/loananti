@@ -1896,29 +1896,15 @@ export default function OfflineLoanDetailPanel({
               </p>
             ) : selectedEmi && (
               <div className="mb-4">
-                {/* Single EMI - Show if it's advance */}
-                {isEmiAdvancePayment(selectedEmi) && (
-                  <div className="p-2 bg-blue-50 rounded border border-blue-200 text-xs mb-2">
-                    <div className="flex items-center gap-1 text-blue-700 font-medium">
-                      <Info className="h-3 w-3" />
-                      Advance Payment - Principal Only
-                    </div>
-                    <div className="text-blue-600">
-                      Due date month not started. Only principal will be collected.
-                    </div>
-                  </div>
-                )}
+                {/* Single EMI - NO advance check. Pay full amount (principal + interest) */}
+                {/* Advance Payment logic ONLY applies to multi-EMI payment (select all) */}
                 {/* BUG-4 fix: show remaining amount not original total */}
                 <p className="text-sm text-gray-600">
-                  {isEmiAdvancePayment(selectedEmi) ? (
-                    <>Advance — Principal Only: {formatCurrency(selectedEmi.principalAmount - (selectedEmi.paidPrincipal || 0))}</>
-                  ) : (
-                    <>Due: {formatCurrency(selectedEmi.totalAmount - (selectedEmi.paidAmount || 0))}
-                      {(selectedEmi.paidAmount || 0) > 0 && (
-                        <span className="text-green-600 ml-1">(Paid: {formatCurrency(selectedEmi.paidAmount)})</span>
-                      )}
-                    </>
-                  )}
+                  <>Due: {formatCurrency(selectedEmi.totalAmount - (selectedEmi.paidAmount || 0))}
+                    {(selectedEmi.paidAmount || 0) > 0 && (
+                      <span className="text-green-600 ml-1">(Paid: {formatCurrency(selectedEmi.paidAmount)})</span>
+                    )}
+                  </>
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
                   P: {formatCurrency(selectedEmi.principalAmount - (selectedEmi.paidPrincipal || 0))} remaining
