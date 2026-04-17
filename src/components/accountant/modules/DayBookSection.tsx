@@ -72,14 +72,17 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency }: { 
     e.referenceType?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Group by date
   const byDate: Record<string, JournalEntry[]> = {};
   for (const e of filtered) {
     const d = fmtDate(e.entryDate);
     if (!byDate[d]) byDate[d] = [];
     byDate[d].push(e);
   }
-  const days = Object.keys(byDate).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  // Newest day first; within each day, highest entry number first
+  const days = Object.keys(byDate).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  for (const d of days) {
+    byDate[d].sort((a, b) => b.entryNumber.localeCompare(a.entryNumber, undefined, { numeric: true }));
+  }
   const totalPages = Math.ceil(days.length / PER_PAGE);
   const pagedDays = days.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
@@ -189,13 +192,12 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency }: { 
                             <tr key={line.id} className={`border-b border-dashed ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'}`}>
                               <td className="py-1.5 px-4 text-gray-400 text-xs">{i + 1}.</td>
                               <td className="py-1.5 px-2">
-                                <div className="font-medium text-gray-800">
-                                  {line.debitAmount > 0 ? '' : '\u00A0\u00A0\u00A0\u00A0'}
+                                <div className={`font-medium text-gray-800 ${line.debitAmount > 0 ? '' : 'pl-5'}`}>
                                   {line.account?.accountName || '—'}
                                 </div>
                                 {line.narration && <div className="text-xs text-gray-400">{line.narration}</div>}
                               </td>
-                              <td className="py-1.5 px-2">
+                              <td className="py-1.5 px-2 text-center">
                                 <span className="text-[10px] text-gray-400">{line.account?.accountType || ''}</span>
                               </td>
                               <td className={`py-1.5 px-4 text-right font-mono font-semibold ${line.debitAmount > 0 ? 'text-blue-700' : 'text-gray-200'}`}>
