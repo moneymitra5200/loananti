@@ -1,6 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
+/**
+ * Returns the penalty per day based on the loan amount.
+ * Tier table:
+ *   ≤ 1,00,000 (1 L)             → ₹100 / day
+ *   1,00,001 – 3,00,000 (1-3 L)  → ₹200 / day
+ *   > 3,00,000 (3 L+)            → ₹100 × ceil(amount / 1,00,000) per day
+ */
+function getPenaltyPerDay(loanAmount: number): number {
+  const lakhs = loanAmount / 100_000;
+  if (lakhs <= 1) return 100;
+  if (lakhs <= 3) return 200;
+  return Math.ceil(lakhs) * 100;
+}
+
+/**
+ * Calculate penalty for an EMI based on days overdue and loan amount
+ */
+function calculatePenalty(dueDate: Date, loanAmount: number, graceDays: number = 0): { daysOverdue: number; penaltyAmount: number; ratePerDay: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / msPerDay) - graceDays);
+  const ratePerDay = getPenaltyPerDay(loanAmount);
+  const penaltyAmount = daysOverdue * ratePerDay;
+  
+  return { daysOverdue, penaltyAmount, ratePerDay };
+}
+
 // GET - Get EMI reminders for a user
 export async function GET(request: NextRequest) {
   try {
@@ -13,6 +44,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'userId and userRole are required' }, { status: 400 });
     }
 
+    // Get system settings for grace days
+    let settings: any = await (db as any).systemSettings.findFirst();
+    const graceDays = settings?.penaltyGraceDays || 0;
+
     // Get today's and tomorrow's EMIs (both online and offline)
     if (action === 'today-tomorrow') {
       const today = new Date();
@@ -24,7 +59,7 @@ export async function GET(request: NextRequest) {
       const dayAfter = new Date(tomorrow);
       dayAfter.setDate(dayAfter.getDate() + 1);
 
-      // Get online loan EMIs
+      // Get online loan EMIs with loan amount for penalty calculation
       const onlineEmiWhere: Record<string, unknown> = {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] }
       };
@@ -47,13 +82,14 @@ export async function GET(request: NextRequest) {
               lastName: true,
               phone: true,
               address: true,
-              companyId: true
+              companyId: true,
+              sessionForm: { select: { approvedAmount: true } }
             }
           }
         }
       });
 
-      // Get offline loan EMIs
+      // Get offline loan EMIs with loan amount for penalty calculation
       const offlineEmiWhere: Record<string, unknown> = {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] }
       };
@@ -71,20 +107,48 @@ export async function GET(request: NextRequest) {
               loanNumber: true,
               customerName: true,
               customerPhone: true,
-              customerAddress: true
+              customerAddress: true,
+              loanAmount: true,
+              isMirrorLoan: true
             }
           }
         }
       });
 
+      // Add penalty info to online EMIs
+      const onlineEmisWithPenalty = onlineEmis.map(e => {
+        const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
+      // Add penalty info to offline EMIs
+      const offlineEmisWithPenalty = offlineEmis.map(e => {
+        const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
       // Categorize EMIs
       const todayEmis = {
-        online: onlineEmis.filter(e => {
+        online: onlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() === today.getTime();
         }),
-        offline: offlineEmis.filter(e => {
+        offline: offlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() === today.getTime();
@@ -92,12 +156,12 @@ export async function GET(request: NextRequest) {
       };
 
       const tomorrowEmis = {
-        online: onlineEmis.filter(e => {
+        online: onlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() === tomorrow.getTime();
         }),
-        offline: offlineEmis.filter(e => {
+        offline: offlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() === tomorrow.getTime();
@@ -105,31 +169,31 @@ export async function GET(request: NextRequest) {
       };
 
       const overdueEmis = {
-        online: onlineEmis.filter(e => {
+        online: onlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() < today.getTime();
         }),
-        offline: offlineEmis.filter(e => {
+        offline: offlineEmisWithPenalty.filter(e => {
           const dueDate = new Date(e.dueDate);
           dueDate.setHours(0, 0, 0, 0);
           return dueDate.getTime() < today.getTime();
         })
       };
 
-      // Calculate totals
+      // Calculate totals with penalties
       const summary = {
         today: {
           count: todayEmis.online.length + todayEmis.offline.length,
-          amount: [...todayEmis.online, ...todayEmis.offline].reduce((sum, e) => sum + e.totalAmount, 0)
+          amount: [...todayEmis.online, ...todayEmis.offline].reduce((sum, e) => sum + e.totalAmount + (e.penaltyAmount || 0), 0)
         },
         tomorrow: {
           count: tomorrowEmis.online.length + tomorrowEmis.offline.length,
-          amount: [...tomorrowEmis.online, ...tomorrowEmis.offline].reduce((sum, e) => sum + e.totalAmount, 0)
+          amount: [...tomorrowEmis.online, ...tomorrowEmis.offline].reduce((sum, e) => sum + e.totalAmount + (e.penaltyAmount || 0), 0)
         },
         overdue: {
           count: overdueEmis.online.length + overdueEmis.offline.length,
-          amount: [...overdueEmis.online, ...overdueEmis.offline].reduce((sum, e) => sum + e.totalAmount, 0)
+          amount: [...overdueEmis.online, ...overdueEmis.offline].reduce((sum, e) => sum + e.totalAmount + (e.penaltyAmount || 0), 0)
         }
       };
 
@@ -138,7 +202,8 @@ export async function GET(request: NextRequest) {
         todayEmis,
         tomorrowEmis,
         overdueEmis,
-        summary
+        summary,
+        penaltyTiers: '≤1L=₹100/day, 1-3L=₹200/day, >3L=₹100×lakhs/day'
       });
     }
 

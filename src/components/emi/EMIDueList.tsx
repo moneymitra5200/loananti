@@ -44,6 +44,8 @@ interface EMIItem {
   paidAmount: number;
   penaltyAmount?: number;
   daysOverdue?: number;
+  ratePerDay?: number;
+  loanAmount?: number;
   loanApplicationId?: string;
   loanApplication?: {
     id: string;
@@ -61,6 +63,7 @@ interface EMIItem {
     customerPhone: string;
     customerAddress: string;
     companyId?: string;
+    isMirrorLoan?: boolean;
   };
 }
 
@@ -331,21 +334,46 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
     const address = type === 'offline'
       ? emi.offlineLoan?.customerAddress
       : emi.loanApplication?.address;
+    
+    const hasPenalty = emi.penaltyAmount && emi.penaltyAmount > 0;
+    const isMirrorLoan = type === 'offline' && emi.offlineLoan?.isMirrorLoan;
 
     return (
       <motion.div
         key={emi.id}
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
-        className="p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
+        className={`p-3 rounded-lg border transition-all cursor-pointer ${
+          hasPenalty 
+            ? 'bg-red-50 border-red-300 hover:border-red-400 hover:shadow-md' 
+            : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
+        }`}
         onClick={() => openPaymentDialog(emi, type)}
       >
+        {/* Penalty Alert Banner */}
+        {hasPenalty && (
+          <div className="flex items-center gap-2 mb-2 p-2 bg-red-100 rounded border border-red-200">
+            <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-red-700">
+                PENALTY: ₹{emi.penaltyAmount?.toLocaleString('en-IN')} ({emi.daysOverdue} days × ₹{emi.ratePerDay}/day)
+              </p>
+              <p className="text-xs text-red-600">
+                Loan Amount: ₹{emi.loanAmount?.toLocaleString('en-IN')}
+              </p>
+            </div>
+          </div>
+        )}
+        
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Badge variant={type === 'offline' ? 'secondary' : 'outline'} className="text-xs">
                 {type === 'offline' ? 'Offline' : 'Online'}
               </Badge>
+              {isMirrorLoan && (
+                <Badge className="text-xs bg-purple-100 text-purple-700">Mirror</Badge>
+              )}
               <span className="text-xs text-gray-500">EMI #{emi.installmentNumber}</span>
             </div>
             <p className="font-medium text-gray-900 truncate">{customerName}</p>
@@ -362,20 +390,25 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
           </div>
           <div className="text-right flex-shrink-0">
             <p className="font-bold text-gray-900">{formatCurrency(emi.totalAmount)}</p>
-            {emi.penaltyAmount ? (
-              <p className="text-xs text-red-500 font-medium">+ {formatCurrency(emi.penaltyAmount)} Penalty</p>
-            ) : null}
-            <p className="text-xs text-gray-500">{formatDate(emi.dueDate)}</p>
+            {hasPenalty && (
+              <p className="text-xs text-red-600 font-bold animate-pulse">
+                + {formatCurrency(emi.penaltyAmount || 0)} PENALTY
+              </p>
+            )}
+            <p className="text-xs text-gray-500">Due: {formatDate(emi.dueDate)}</p>
+            {emi.daysOverdue && emi.daysOverdue > 0 && (
+              <p className="text-xs text-red-500 font-medium">{emi.daysOverdue} days overdue</p>
+            )}
             <Button
               size="sm"
-              className="mt-2 bg-emerald-500 hover:bg-emerald-600 h-7"
+              className={`mt-2 h-7 ${hasPenalty ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
               onClick={(e) => {
                 e.stopPropagation();
                 openPaymentDialog(emi, type);
               }}
             >
               <IndianRupee className="h-3 w-3 mr-1" />
-              Pay
+              Pay {hasPenalty && '+ Penalty'}
             </Button>
           </div>
         </div>
@@ -525,6 +558,37 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
 
           {selectedEmi && (
             <div className="space-y-4 pt-4">
+              {/* Penalty Alert Banner */}
+              {selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0 && (
+                <div className="p-4 bg-red-50 border-2 border-red-300 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-red-100 rounded-full">
+                      <AlertTriangle className="h-6 w-6 text-red-600" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="font-bold text-red-800 text-lg">PENALTY APPLIED</p>
+                      <p className="text-sm text-red-700">
+                        This EMI is <strong>{selectedEmi.daysOverdue} days overdue</strong>
+                      </p>
+                      <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-800">
+                        <div className="flex justify-between">
+                          <span>Penalty Rate:</span>
+                          <span className="font-bold">₹{selectedEmi.ratePerDay}/day</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Loan Amount:</span>
+                          <span className="font-bold">₹{selectedEmi.loanAmount?.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="flex justify-between border-t border-red-200 mt-1 pt-1">
+                          <span>Total Penalty:</span>
+                          <span className="font-bold text-red-900">₹{selectedEmi.penaltyAmount?.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               {/* EMI Details */}
               <div className="bg-gray-50 p-4 rounded-lg space-y-2 border border-blue-100">
                 <div className="flex justify-between">
@@ -535,10 +599,10 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
                   <span className="text-gray-500">Original EMI Amount</span>
                   <span className="font-medium">{formatCurrency(selectedEmi.totalAmount)}</span>
                 </div>
-                {selectedEmi.penaltyAmount ? (
-                  <div className="flex justify-between text-red-600">
-                    <span className="font-medium">Penalty Amount ({selectedEmi.daysOverdue || 0} days)</span>
-                    <span className="font-medium">+{formatCurrency(selectedEmi.penaltyAmount)}</span>
+                {selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0 ? (
+                  <div className="flex justify-between text-red-600 font-bold">
+                    <span>Penalty ({selectedEmi.daysOverdue || 0} days × ₹{selectedEmi.ratePerDay}/day)</span>
+                    <span>+{formatCurrency(selectedEmi.penaltyAmount)}</span>
                   </div>
                 ) : null}
                 {selectedEmi.paidAmount ? (
@@ -547,9 +611,9 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
                     <span className="font-medium">-{formatCurrency(selectedEmi.paidAmount)}</span>
                   </div>
                 ) : null}
-                <div className="flex justify-between border-t pt-2 mt-2">
-                  <span className="text-gray-700 font-bold">Remaining Due</span>
-                  <span className="font-bold text-lg text-rose-600">
+                <div className="flex justify-between border-t pt-2 mt-2 bg-amber-50 p-2 rounded -mx-2">
+                  <span className="text-gray-900 font-bold">TOTAL TO COLLECT</span>
+                  <span className="font-bold text-xl text-rose-600">
                     {formatCurrency((selectedEmi.totalAmount + (selectedEmi.penaltyAmount || 0)) - (selectedEmi.paidAmount || 0))}
                   </span>
                 </div>

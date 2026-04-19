@@ -1,6 +1,50 @@
 # Worklog - Accounting Portal Fixes
 
 ---
+Task ID: 6
+Agent: Main Agent
+Task: Implement proper penalty display for due/overdue EMIs with tiered calculation
+
+Work Log:
+1. Penalty Calculation System:
+   - Implemented tiered penalty calculation:
+     * ≤ ₹1 Lakh loan = ₹100/day
+     * ₹1-3 Lakh loan = ₹200/day
+     * > ₹3 Lakh loan = ₹100 × lakhs/day
+   - Added getPenaltyPerDay() function in emi-reminder/route.ts
+   - Added calculatePenalty() function to compute days overdue and penalty amount
+
+2. API Updates (emi-reminder/route.ts):
+   - Added loan amount to EMI queries for penalty calculation
+   - Added penalty calculation on-the-fly for all EMIs
+   - Included daysOverdue, penaltyAmount, ratePerDay, loanAmount in response
+   - Summary amounts now include penalties
+
+3. EMIDueList Component Updates:
+   - Added penalty alert banner with red highlight for overdue EMIs
+   - Shows: Penalty amount, days overdue, rate per day, loan amount
+   - EMI items with penalty have red background/border
+   - Payment button shows "Pay + Penalty" for penalized EMIs
+   - Payment dialog shows prominent PENALTY APPLIED banner
+   - Total to collect clearly shows EMI + Penalty
+
+4. Penalty Display:
+   - Red alert banner at top of payment dialog
+   - Penalty calculation breakdown shown
+   - Total to collect = EMI amount + Penalty amount
+   - Mirror loans identified with badge
+
+Stage Summary:
+- Penalty now properly calculated based on loan amount
+- Tier system: ≤1L=₹100/day, 1-3L=₹200/day, >3L=₹100×lakhs/day
+- Penalty prominently displayed in EMI list and payment dialog
+- All EMIs (online/offline, mirror/non-mirror) show penalties
+
+Files Modified:
+- /src/app/api/emi-reminder/route.ts (penalty calculation)
+- /src/components/emi/EMIDueList.tsx (penalty display)
+
+---
 Task ID: 5
 Agent: Main Agent
 Task: Allow ALL companies to create mirror loans and add EMI Due List with Today/Tomorrow/Overdue sections
