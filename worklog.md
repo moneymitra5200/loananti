@@ -1,6 +1,62 @@
 # Worklog - Accounting Portal Fixes
 
 ---
+Task ID: 7
+Agent: Main Agent
+Task: Simplify EMI Due Alert to open loan detail directly (no separate dialog)
+
+Work Log:
+1. Penalty Formula Updated:
+   - Changed from tiered to LINEAR formula
+   - New formula: loan_amount / 1000 = penalty per day
+   - Examples: ₹1L = ₹100/day, ₹2L = ₹200/day, ₹3L = ₹300/day
+
+2. EMIDueAlertBanner Simplified:
+   - REMOVED: Sheet/Dialog with EMIDueList component
+   - ADDED: onOpenLoanDetail callback prop
+   - Now directly opens loan detail panel when clicked
+   - Opens first loan from the selected category (overdue/today/tomorrow)
+
+3. EMI Section Penalty Display Added:
+   - Added calculatePenaltyInfo() helper function to EMISection.tsx
+   - Added loanAmount prop for penalty calculation
+   - Shows PENALTY banner for overdue EMIs with:
+     * Penalty amount in red
+     * Days overdue count
+     * Rate per day (₹X/day)
+     * Loan amount reference
+   - Overdue EMIs have red background/border
+   - AlertTriangle icon for overdue items
+   - Animated penalty amount display
+
+4. OfflineLoanDetailPanel Penalty Display Added:
+   - Added calculatePenaltyInfo() helper function
+   - Shows penalty banner for overdue EMIs
+   - Pay button changes to "Pay + Penalty" with red styling
+   - Overdue EMIs have red highlighting
+
+5. Dashboard Updates:
+   - CashierDashboard: Added offline loan panel state and handler
+   - SuperAdminDashboard: Added handler to open loan details from EMI alert
+   - Both now pass onOpenLoanDetail callback to EMIDueAlertBanner
+
+Stage Summary:
+- No more separate dialog/sheet for EMI list
+- Clicking EMI alert directly opens loan detail with EMI tab active
+- Overdue EMIs are highlighted in red with penalty calculations
+- Penalty formula simplified: loan_amount / 1000 per day
+- Works for both online and offline loans
+
+Files Modified:
+- /src/app/api/emi-reminder/route.ts (penalty formula)
+- /src/components/notification/EMIDueAlertBanner.tsx (removed sheet, added callback)
+- /src/components/loan/sections/EMISection.tsx (penalty display)
+- /src/components/loan/LoanDetailPanel.tsx (pass loanAmount prop)
+- /src/components/offline-loan/OfflineLoanDetailPanel.tsx (penalty display)
+- /src/components/cashier/CashierDashboard.tsx (added handler and offline panel)
+- /src/components/admin/SuperAdminDashboard.tsx (added handler)
+
+---
 Task ID: 6
 Agent: Main Agent
 Task: Implement proper penalty display for due/overdue EMIs with tiered calculation

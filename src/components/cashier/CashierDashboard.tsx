@@ -21,6 +21,7 @@ import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPag
 import ProfileSection from '@/components/shared/ProfileSection';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
+import OfflineLoanDetailPanel from '@/components/offline-loan/OfflineLoanDetailPanel';
 import EnquirySection from '@/components/shared/EnquirySection';
 import TicketManagement from '@/components/support/TicketManagement';
 import { DisbursementDialog, LoanDetailPanel, InterestPaymentDialog } from './modules';
@@ -48,6 +49,10 @@ export default function CashierDashboard() {
   const [saving, setSaving] = useState(false);
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);
+  
+  // Offline loan detail panel state
+  const [selectedOfflineLoanId, setSelectedOfflineLoanId] = useState<string | null>(null);
+  const [showOfflineLoanPanel, setShowOfflineLoanPanel] = useState(false);
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const { settings } = useSettings();
@@ -376,6 +381,18 @@ export default function CashierDashboard() {
       references: false
     });
     setShowDisbursementDialog(true);
+  };
+
+  // Handler to open loan detail from EMI alert banner
+  const handleOpenLoanFromEMI = (loanId: string, loanType: 'online' | 'offline') => {
+    if (loanType === 'offline') {
+      setSelectedOfflineLoanId(loanId);
+      setShowOfflineLoanPanel(true);
+    } else {
+      // For online loans, set the selected loan and open the detail panel
+      setSelectedLoan({ id: loanId } as Loan);
+      setShowLoanDetailPanel(true);
+    }
   };
 
   const handleDisburse = async () => {
@@ -1029,7 +1046,8 @@ export default function CashierDashboard() {
             {user?.id && (
               <EMIDueAlertBanner 
                 userId={user.id} 
-                userRole={user.role || 'CASHIER'} 
+                userRole={user.role || 'CASHIER'}
+                onOpenLoanDetail={handleOpenLoanFromEMI}
               />
             )}
 
@@ -1184,6 +1202,18 @@ export default function CashierDashboard() {
           onEMIPaid={() => fetchAllData(true)} // FIX-08: refresh all data after EMI payment
           userId={user?.id}
           userRole={user?.role || 'CASHIER'}
+        />
+      )}
+
+      {/* Offline Loan Detail Panel */}
+      {selectedOfflineLoanId && showOfflineLoanPanel && (
+        <OfflineLoanDetailPanel
+          loanId={selectedOfflineLoanId}
+          open={showOfflineLoanPanel}
+          onClose={() => { setShowOfflineLoanPanel(false); setSelectedOfflineLoanId(null); }}
+          userId={user?.id}
+          userRole={user?.role || 'CASHIER'}
+          onPaymentSuccess={() => fetchAllData(true)}
         />
       )}
 

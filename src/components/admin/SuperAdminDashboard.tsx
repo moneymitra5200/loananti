@@ -911,6 +911,13 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  // Handler to open loan detail from EMI alert banner
+  const handleOpenLoanFromEMI = (loanId: string, loanType: 'online' | 'offline') => {
+    setSelectedLoanId(loanId);
+    setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+    setShowLoanDetailPanel(true);
+  };
+
   const handleApproval = async (isFastApprove?: boolean, chargesAmount?: number) => {
     if (!selectedLoan) return;
     if (selectedLoan.status === 'SUBMITTED' && approvalAction === 'approve' && !selectedCompanyId) {
@@ -1774,7 +1781,8 @@ export default function SuperAdminDashboard() {
       {user?.id && (
         <EMIDueAlertBanner 
           userId={user.id} 
-          userRole="SUPER_ADMIN" 
+          userRole="SUPER_ADMIN"
+          onOpenLoanDetail={handleOpenLoanFromEMI}
         />
       )}
 
