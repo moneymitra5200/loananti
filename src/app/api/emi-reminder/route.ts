@@ -3,16 +3,16 @@ import { db } from '@/lib/db';
 
 /**
  * Returns the penalty per day based on the loan amount.
- * Tier table:
- *   ≤ 1,00,000 (1 L)             → ₹100 / day
- *   1,00,001 – 3,00,000 (1-3 L)  → ₹200 / day
- *   > 3,00,000 (3 L+)            → ₹100 × ceil(amount / 1,00,000) per day
+ * Formula: loan_amount / 1000 = penalty per day
+ * Examples:
+ *   ₹1,00,000 (1 L)   → ₹100 / day
+ *   ₹2,00,000 (2 L)   → ₹200 / day
+ *   ₹3,00,000 (3 L)   → ₹300 / day
+ *   ₹50,000           → ₹50 / day
+ *   ₹5,00,000 (5 L)   → ₹500 / day
  */
 function getPenaltyPerDay(loanAmount: number): number {
-  const lakhs = loanAmount / 100_000;
-  if (lakhs <= 1) return 100;
-  if (lakhs <= 3) return 200;
-  return Math.ceil(lakhs) * 100;
+  return Math.round(loanAmount / 1000);
 }
 
 /**
@@ -203,7 +203,7 @@ export async function GET(request: NextRequest) {
         tomorrowEmis,
         overdueEmis,
         summary,
-        penaltyTiers: '≤1L=₹100/day, 1-3L=₹200/day, >3L=₹100×lakhs/day'
+        penaltyFormula: 'loan_amount / 1000 per day (e.g., ₹1L loan = ₹100/day, ₹2L loan = ₹200/day)'
       });
     }
 

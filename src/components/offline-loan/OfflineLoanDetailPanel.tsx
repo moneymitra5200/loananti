@@ -160,6 +160,24 @@ interface EMI {
   deferredFromEMI?: number;   // Original installment number this was deferred from
 }
 
+/**
+ * Calculate penalty for overdue EMI
+ * Formula: loan_amount / 1000 = penalty per day
+ */
+function calculatePenaltyInfo(dueDate: string, loanAmount: number): { daysOverdue: number; penaltyAmount: number; ratePerDay: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / msPerDay));
+  const ratePerDay = Math.round(loanAmount / 1000);
+  const penaltyAmount = daysOverdue * ratePerDay;
+  
+  return { daysOverdue, penaltyAmount, ratePerDay };
+}
+
 export default function OfflineLoanDetailPanel({
   loanId,
   open,
@@ -1684,6 +1702,12 @@ export default function OfflineLoanDetailPanel({
                                   const isExtraEMI = loan?.isMirrored && loan?.mirrorTenure
                                     && emi.installmentNumber > loan.mirrorTenure
                                     && !emi.isDeferred;
+                                  
+                                  // Calculate penalty for overdue EMIs
+                                  const isOverdue = emi.paymentStatus === 'OVERDUE' || (emi.paymentStatus === 'PENDING' && new Date(emi.dueDate) < new Date());
+                                  const penaltyInfo = (isOverdue && !isPaidOrHandled && loan?.loanAmount) 
+                                    ? calculatePenaltyInfo(emi.dueDate, loan.loanAmount) 
+                                    : null;
 
                                   return (
                                     <div
@@ -1693,11 +1717,29 @@ export default function OfflineLoanDetailPanel({
                                           ? 'bg-green-50 border-green-200'
                                           : isSelected
                                             ? 'bg-emerald-50 border-emerald-300'
-                                            : emi.paymentStatus === 'OVERDUE'
-                                              ? 'bg-red-50 border-red-200'
+                                            : isOverdue
+                                              ? 'bg-red-50 border-red-300'
                                               : 'bg-white border-gray-200'
                                       }`}
                                     >
+                                      {/* Penalty Banner for Overdue EMIs */}
+                                      {penaltyInfo && penaltyInfo.penaltyAmount > 0 && (
+                                        <div className="mb-2 p-2 bg-gradient-to-r from-red-100 to-orange-100 rounded-lg border border-red-200">
+                                          <div className="flex items-center gap-2">
+                                            <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                <Badge className="bg-red-500 text-white text-xs">PENALTY</Badge>
+                                                <span className="font-bold text-red-700 text-sm">₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')}</span>
+                                                <span className="text-xs text-red-600">
+                                                  ({penaltyInfo.daysOverdue} days × ₹{penaltyInfo.ratePerDay}/day)
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      
                                       <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                           {/* Checkbox for multi-selection */}
@@ -1712,12 +1754,14 @@ export default function OfflineLoanDetailPanel({
                                               ? 'bg-green-200 text-green-700'
                                               : isSelected
                                                 ? 'bg-emerald-200 text-emerald-700'
-                                                : emi.paymentStatus === 'OVERDUE'
+                                                : isOverdue
                                                   ? 'bg-red-200 text-red-700'
                                                   : 'bg-emerald-100 text-emerald-700'
                                           }`}>
                                             {isPaidOrHandled ? (
                                               <CheckCircle className="h-5 w-5" />
+                                            ) : isOverdue ? (
+                                              <AlertTriangle className="h-5 w-5" />
                                             ) : (
                                               <span className="font-bold">{emi.installmentNumber}</span>
                                             )}
@@ -1762,6 +1806,11 @@ export default function OfflineLoanDetailPanel({
                                             ) : (
                                               <>
                                                 <p className="font-bold text-lg">{formatCurrency(emi.totalAmount)}</p>
+                                                {penaltyInfo && penaltyInfo.penaltyAmount > 0 && (
+                                                  <p className="text-sm text-red-600 font-bold animate-pulse">
+                                                    + ₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')} Penalty
+                                                  </p>
+                                                )}
                                                 <p className="text-xs text-gray-500">
                                                   P: {formatCurrency(emi.principalAmount)} | I: {formatCurrency(emi.interestAmount)}
                                                 </p>
@@ -1773,11 +1822,11 @@ export default function OfflineLoanDetailPanel({
                                           {canPay && (
                                             <Button
                                               size="sm"
-                                              className="bg-emerald-500 hover:bg-emerald-600"
+                                              className={penaltyInfo ? "bg-red-500 hover:bg-red-600" : "bg-emerald-500 hover:bg-emerald-600"}
                                               onClick={() => openPaymentDialog(emi)}
                                             >
                                               <IndianRupee className="h-4 w-4 mr-1" />
-                                              Pay
+                                              {penaltyInfo ? 'Pay + Penalty' : 'Pay'}
                                             </Button>
                                           )}
                                           {/* Eye Button - Show payment details for paid/partially paid EMIs */}

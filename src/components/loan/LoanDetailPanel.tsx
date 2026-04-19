@@ -885,6 +885,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                     currentUserId={currentUserId}
                     loanApplicationId={loanDetails?.id || ''}
                     companyId={loanDetails?.company?.id}
+                    loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
                     onPayEMI={openEMIPaymentDialog}
                     onPayMultiEMI={openMultiEMIPaymentDialog}
                     onChangeDate={openDateChangeDialog}

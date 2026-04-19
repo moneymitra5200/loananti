@@ -1,11 +1,13 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { 
-  Receipt, CheckCircle, Calendar, IndianRupee, Percent, FileText, Check, Download, Loader2
+  Receipt, CheckCircle, Calendar, IndianRupee, Percent, FileText, Check, Download, Loader2,
+  AlertTriangle, Clock
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
@@ -48,11 +50,30 @@ interface EMISectionProps {
   currentUserId: string;
   loanApplicationId: string;
   companyId?: string;
+  loanAmount?: number; // For penalty calculation
   onPayEMI: (emi: EMISchedule) => void;
   onPayMultiEMI?: (emis: EMISchedule[]) => void;
   onChangeDate: (emi: EMISchedule) => void;
   isMirrorLoan?: boolean;
   hasMirrorLoan?: boolean; // Whether this loan has a mirror loan attached
+}
+
+/**
+ * Calculate penalty for overdue EMI
+ * Formula: loan_amount / 1000 = penalty per day
+ */
+function calculatePenaltyInfo(dueDate: string, loanAmount: number): { daysOverdue: number; penaltyAmount: number; ratePerDay: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / msPerDay));
+  const ratePerDay = Math.round(loanAmount / 1000);
+  const penaltyAmount = daysOverdue * ratePerDay;
+  
+  return { daysOverdue, penaltyAmount, ratePerDay };
 }
 
 const EMISection = memo(function EMISection({ 
@@ -61,6 +82,7 @@ const EMISection = memo(function EMISection({
   currentUserId,
   loanApplicationId,
   companyId,
+  loanAmount = 0,
   onPayEMI, 
   onPayMultiEMI,
   onChangeDate,
@@ -288,6 +310,13 @@ const EMISection = memo(function EMISection({
                 const isPaid = emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID';
                 const isSelected = selectedEMIs.has(emi.id);
                 
+                // Calculate penalty for overdue EMIs
+                const isOverdue = emi.status === 'OVERDUE' || (emi.status === 'PENDING' && new Date(emi.dueDate) < new Date());
+                const penaltyInfo = (isOverdue && !isPaid && loanAmount > 0) 
+                  ? calculatePenaltyInfo(emi.dueDate, loanAmount) 
+                  : null;
+                const totalWithPenalty = emi.emiAmount + (penaltyInfo?.penaltyAmount || emi.lateFee || 0);
+                
                 return (
                 <motion.div 
                   key={emi.id}
@@ -295,12 +324,33 @@ const EMISection = memo(function EMISection({
                     emi.status === 'PAID' ? 'bg-green-50 border-green-200' :
                     emi.status === 'INTEREST_ONLY_PAID' ? 'bg-blue-50 border-blue-200' :
                     isSelected ? 'bg-emerald-50 border-emerald-300' :
-                    emi.status === 'OVERDUE' ? 'bg-red-50 border-red-200' :
+                    isOverdue ? 'bg-red-50 border-red-300' :
                     emi.status === 'PARTIALLY_PAID' ? 'bg-orange-50 border-orange-200' :
                     'bg-white'
                   }`}
                   whileHover={{ scale: 1.01 }}
                 >
+                  {/* Penalty Banner for Overdue EMIs */}
+                  {penaltyInfo && penaltyInfo.penaltyAmount > 0 && (
+                    <div className="mb-3 p-3 bg-gradient-to-r from-red-100 to-orange-100 rounded-lg border border-red-200">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-red-600" />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge className="bg-red-500 text-white text-xs">PENALTY</Badge>
+                            <span className="font-bold text-red-700">₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')}</span>
+                            <span className="text-xs text-red-600">
+                              ({penaltyInfo.daysOverdue} days × ₹{penaltyInfo.ratePerDay}/day)
+                            </span>
+                          </div>
+                          <p className="text-xs text-red-500 mt-1">
+                            Loan Amount: ₹{loanAmount.toLocaleString('en-IN')} → Rate: ₹{penaltyInfo.ratePerDay}/day
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       {/* Checkbox for multi-selection (only for payable EMIs, not for ACCOUNTANT) */}
@@ -314,7 +364,7 @@ const EMISection = memo(function EMISection({
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                         emi.status === 'PAID' ? 'bg-green-200' :
                         emi.status === 'INTEREST_ONLY_PAID' ? 'bg-blue-200' :
-                        emi.status === 'OVERDUE' ? 'bg-red-200' :
+                        isOverdue ? 'bg-red-200' :
                         emi.status === 'PARTIALLY_PAID' ? 'bg-orange-200' :
                         'bg-gray-100'
                       }`}>
@@ -322,6 +372,8 @@ const EMISection = memo(function EMISection({
                           <CheckCircle className="h-5 w-5 text-green-600" />
                         ) : emi.status === 'INTEREST_ONLY_PAID' ? (
                           <Percent className="h-5 w-5 text-blue-600" />
+                        ) : isOverdue ? (
+                          <AlertTriangle className="h-5 w-5 text-red-600" />
                         ) : (
                           <span className="font-semibold text-sm">{emi.emiNumber}</span>
                         )}
@@ -329,7 +381,7 @@ const EMISection = memo(function EMISection({
                       <div>
                         <p className="font-semibold">EMI #{emi.emiNumber}</p>
                         <p className="text-sm text-gray-500">Due: {formatDate(emi.dueDate)}</p>
-                        {emi.lateFee && emi.lateFee > 0 && (
+                        {emi.lateFee && emi.lateFee > 0 && !penaltyInfo && (
                           <p className="text-xs text-red-600">Late Fee: ₹{formatCurrency(emi.lateFee)}</p>
                         )}
                         {emi.status === 'PARTIALLY_PAID' && emi.paidAmount && (
@@ -358,7 +410,14 @@ const EMISection = memo(function EMISection({
                           <p className="text-xs text-green-600">✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.emiAmount)}</p>
                         </>
                       ) : (
-                        <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
+                        <>
+                          <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
+                          {penaltyInfo && penaltyInfo.penaltyAmount > 0 && (
+                            <p className="text-sm text-red-600 font-bold animate-pulse">
+                              + ₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')} Penalty
+                            </p>
+                          )}
+                        </>
                       )}
                       <div className="flex gap-2 mt-2 justify-end flex-wrap">
                         {/* EMI Settings Button - Available for all roles (but not for mirror loans or PAID EMIs) */}
