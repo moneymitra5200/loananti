@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Clock, CheckCircle, Receipt, Eye, ImageOff } from 'lucide-react';
+import { Clock, CheckCircle, Receipt, Eye, ImageOff, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { LoanDetails } from './types';
 
@@ -175,7 +175,24 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
                 <div key={payment.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold">{formatCurrency(payment.amount)}</p>
-                    <p className="text-xs text-gray-500">
+                    {/* Payment breakdown */}
+                    {(payment.principalComponent > 0 || payment.interestComponent > 0 || payment.penaltyComponent > 0) && (
+                      <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                        {payment.principalComponent > 0 && (
+                          <p>Principal: {formatCurrency(payment.principalComponent)}</p>
+                        )}
+                        {payment.interestComponent > 0 && (
+                          <p>Interest: {formatCurrency(payment.interestComponent)}</p>
+                        )}
+                        {payment.penaltyComponent > 0 && (
+                          <p className="text-red-600 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Penalty: {formatCurrency(payment.penaltyComponent)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    <p className="text-xs text-gray-500 mt-1">
                       {payment.paymentMode} • {formatDate(payment.createdAt)}
                     </p>
                     {payment.cashier && (

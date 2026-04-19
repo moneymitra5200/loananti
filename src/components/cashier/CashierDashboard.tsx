@@ -33,7 +33,6 @@ import { useLoansStore } from '@/stores/loansStore';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
-import ReceiptTemplateSection from '@/components/receipt/ReceiptTemplateSection';
 import CashierExpenseSection from '@/components/expense/CashierExpenseSection';
 
 export default function CashierDashboard() {
@@ -1015,9 +1014,6 @@ export default function CashierDashboard() {
       case 'myCredit':
         return <MyCreditPassbook />;
 
-      case 'receipts':
-        return <ReceiptTemplateSection userId={user?.id || ''} userRole={user?.role || 'CASHIER'} />;
-
       case 'expense':
         return (
           <CashierExpenseSection
@@ -1031,7 +1027,11 @@ export default function CashierDashboard() {
           <div className="space-y-6">
             {/* EMI Due Alert Banner */}
             {user?.id && (
-              <EMIDueAlertBanner userId={user.id} userRole={user.role || 'CASHIER'} />
+              <EMIDueAlertBanner 
+                userId={user.id} 
+                userRole={user.role || 'CASHIER'} 
+                onAlertClick={(type) => setActiveTab('emi-collection')}
+              />
             )}
 
             {/* Bank Balance Summary */}

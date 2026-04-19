@@ -39,6 +39,8 @@ interface EMIItem {
   isPartialPayment?: boolean;
   isInterestOnly?: boolean;
   nextPaymentDate?: string;
+  penaltyAmount?: number;
+  daysOverdue?: number;
   offlineLoan?: {
     id: string;
     loanNumber: string;
@@ -55,6 +57,7 @@ interface EMIItem {
     firstName: string;
     lastName: string;
     phone: string;
+    loanAmount?: number;
     company?: { id: string; name: string };
   };
 }
@@ -109,6 +112,9 @@ export default function EMIPaymentDialog({
   // Split payment state (BUG-9)
   const [splitCashAmount, setSplitCashAmount] = useState('');
   const [splitOnlineAmount, setSplitOnlineAmount] = useState('');
+  
+  // Penalty state
+  const [penaltyWaiver, setPenaltyWaiver] = useState('0');
 
   // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
   const isInterestOnlyLoan = emi?.isInterestOnly === true;
@@ -205,6 +211,41 @@ export default function EMIPaymentDialog({
       year: 'numeric'
     });
   };
+
+  // Penalty calculation helper
+  const getPenaltyPerDay = (loanAmount: number): number => {
+    const lakhs = loanAmount / 100_000;
+    if (lakhs <= 1) return 100;
+    if (lakhs <= 3) return 200;
+    return Math.ceil(lakhs) * 100;
+  };
+
+  // Check if EMI is overdue
+  const isEmiOverdue = emi.paymentStatus === 'OVERDUE' || (emi.daysOverdue && emi.daysOverdue > 0);
+  
+  // Get loan amount for penalty calculation
+  const getLoanAmountForPenalty = (): number => {
+    if (type === 'offline') {
+      return emi.offlineLoan?.loanAmount || emi.totalAmount;
+    }
+    return emi.loanApplication?.loanAmount || emi.totalAmount;
+  };
+  
+  // Calculate penalty details
+  const calculatePenaltyDetails = () => {
+    if (!isEmiOverdue) return { penaltyAmount: 0, daysOverdue: 0, ratePerDay: 0, netPenalty: 0 };
+    
+    const loanAmount = getLoanAmountForPenalty();
+    const ratePerDay = getPenaltyPerDay(loanAmount);
+    const daysOverdue = emi.daysOverdue || 0;
+    const penaltyAmount = emi.penaltyAmount || (daysOverdue * ratePerDay);
+    const waiver = parseFloat(penaltyWaiver) || 0;
+    const netPenalty = Math.max(0, penaltyAmount - waiver);
+    
+    return { penaltyAmount, daysOverdue, ratePerDay, netPenalty };
+  };
+  
+  const penaltyDetails = calculatePenaltyDetails();
 
   // Check if EMI is advance payment (due date month not started)
   const isEmiAdvancePayment = () => {
@@ -380,7 +421,7 @@ export default function EMIPaymentDialog({
           userId,
           userRole,
           paymentMode: creditType === 'PERSONAL' ? 'CASH' : paymentMode,
-          amount: details.amount,
+          amount: details.amount + penaltyDetails.netPenalty, // Include penalty in total
           paymentType: paymentType === 'FULL_EMI' ? 'FULL'
                       : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL'
                       : paymentType === 'INTEREST_ONLY' ? 'INTEREST_ONLY'
@@ -395,6 +436,10 @@ export default function EMIPaymentDialog({
           isMirrorLoan: mirrorLoanInfo?.isMirrorLoan || false,
           mirrorPrincipal: mirrorLoanInfo?.mirrorPrincipal,
           mirrorInterest: mirrorLoanInfo?.mirrorInterest,
+          // Penalty fields
+          penaltyAmount: penaltyDetails.penaltyAmount,
+          penaltyWaiver: parseFloat(penaltyWaiver) || 0,
+          penaltyPaymentMode: paymentMode === 'ONLINE' ? 'BANK' : 'CASH',
         };
 
         if (paymentType === 'PARTIAL_PAYMENT' && nextPaymentDate) {
@@ -410,11 +455,12 @@ export default function EMIPaymentDialog({
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
+            const totalCollected = details.amount + penaltyDetails.netPenalty;
             toast({
               title: 'Payment Successful',
               description: creditType === 'PERSONAL' 
-                ? `${formatCurrency(details.amount)} collected (Personal Credit - Company 3 Cashbook)`
-                : `${formatCurrency(details.amount)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)`
+                ? `${formatCurrency(totalCollected)} collected (Personal Credit - Company 3 Cashbook)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
+                : `${formatCurrency(totalCollected)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
             });
             onPaymentComplete();
             onOpenChange(false);
@@ -431,7 +477,7 @@ export default function EMIPaymentDialog({
         const formData = new FormData();
         formData.append('emiId', emi.id);
         formData.append('loanId', emi.loanApplication?.id || '');
-        formData.append('amount', details.amount.toString());
+        formData.append('amount', (details.amount + penaltyDetails.netPenalty).toString()); // Include penalty in total
         // BUG-9 fix: pass split fields for online loans
         const isSplit = paymentMode === 'SPLIT';
         const scAmt = parseFloat(splitCashAmount) || 0;
@@ -461,6 +507,13 @@ export default function EMIPaymentDialog({
         if (mirrorLoanInfo?.mirrorInterest) {
           formData.append('mirrorInterest', mirrorLoanInfo.mirrorInterest.toString());
         }
+        
+        // Penalty fields
+        if (penaltyDetails.penaltyAmount > 0) {
+          formData.append('penaltyAmount', penaltyDetails.penaltyAmount.toString());
+          formData.append('penaltyWaiver', (parseFloat(penaltyWaiver) || 0).toString());
+          formData.append('penaltyPaymentMode', paymentMode === 'ONLINE' ? 'BANK' : 'CASH');
+        }
 
         if (paymentType === 'PARTIAL_PAYMENT') {
           formData.append('partialAmount', partialAmount);
@@ -475,11 +528,12 @@ export default function EMIPaymentDialog({
         if (res.ok) {
           const data = await res.json();
           if (data.success) {
+            const totalCollected = details.amount + penaltyDetails.netPenalty;
             toast({
               title: 'Payment Successful',
               description: creditType === 'PERSONAL' 
-                ? `${formatCurrency(details.amount)} collected (Personal Credit - Company 3 Cashbook)`
-                : `${formatCurrency(details.amount)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)`
+                ? `${formatCurrency(totalCollected)} collected (Personal Credit - Company 3 Cashbook)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
+                : `${formatCurrency(totalCollected)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
             });
             onPaymentComplete();
             onOpenChange(false);
@@ -510,6 +564,7 @@ export default function EMIPaymentDialog({
     setNextPaymentDate(undefined);
     setPaymentReference('');
     setInterestOnlyConfirmed(false);
+    setPenaltyWaiver('0');
     // editedInterest removed (BUG-11)
   };
 
@@ -575,6 +630,73 @@ export default function EMIPaymentDialog({
               </>
             )}
           </div>
+
+          {/* Penalty Section - Show when EMI is overdue */}
+          {isEmiOverdue && penaltyDetails.penaltyAmount > 0 && (
+            <div className="bg-red-50 p-4 rounded-lg border-2 border-red-200">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                <span className="font-semibold text-red-700">Penalty for Overdue EMI</span>
+                <Badge variant="destructive" className="ml-auto">
+                  {penaltyDetails.daysOverdue} day(s) overdue
+                </Badge>
+              </div>
+              
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-red-600">Penalty Rate</span>
+                  <span className="font-medium text-red-700">
+                    ₹{penaltyDetails.ratePerDay}/day
+                    <span className="text-xs text-gray-500 ml-1">
+                      ({getLoanAmountForPenalty() <= 100000 ? '≤1L' : getLoanAmountForPenalty() <= 300000 ? '1-3L' : '>3L'} tier)
+                    </span>
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-red-600">Total Penalty</span>
+                  <span className="font-medium text-red-700">{formatCurrency(penaltyDetails.penaltyAmount)}</span>
+                </div>
+                
+                {/* Penalty Waiver Input */}
+                <div className="pt-2 border-t border-red-200 mt-2">
+                  <Label className="text-sm text-red-700">Waive Penalty (Optional)</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="relative flex-1">
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        type="number"
+                        value={penaltyWaiver}
+                        onChange={(e) => setPenaltyWaiver(e.target.value)}
+                        placeholder="0"
+                        min="0"
+                        max={penaltyDetails.penaltyAmount.toString()}
+                        className="pl-8"
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                      Max: {formatCurrency(penaltyDetails.penaltyAmount)}
+                    </span>
+                  </div>
+                  {parseFloat(penaltyWaiver) > penaltyDetails.penaltyAmount && (
+                    <p className="text-xs text-red-500 mt-1">Waiver cannot exceed penalty amount</p>
+                  )}
+                </div>
+                
+                {/* Net Penalty After Waiver */}
+                <div className="flex justify-between items-center pt-2 border-t border-red-200 mt-2">
+                  <span className="font-medium text-red-700">Penalty to Collect</span>
+                  <span className="font-bold text-lg text-red-700">
+                    {formatCurrency(penaltyDetails.netPenalty)}
+                    {parseFloat(penaltyWaiver) > 0 && (
+                      <span className="text-xs text-green-600 ml-1">
+                        (waived: {formatCurrency(parseFloat(penaltyWaiver))})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Extra EMI / Mirror Loan Badge */}
           {(isActuallyExtraEMI || mirrorLoanInfo?.isMirrorLoan) && (
@@ -1044,10 +1166,39 @@ export default function EMIPaymentDialog({
               </span>
             </div>
             <p className="text-sm text-gray-600 mb-2">{details.description}</p>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Amount to Collect</span>
-              <span className="text-xl font-bold text-gray-800">{formatCurrency(details.amount)}</span>
+            
+            {/* Amount breakdown */}
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">EMI Amount</span>
+                <span className="font-medium">{formatCurrency(details.amount)}</span>
+              </div>
+              
+              {/* Penalty breakdown */}
+              {penaltyDetails.penaltyAmount > 0 && (
+                <>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-red-600">Penalty ({penaltyDetails.daysOverdue} days)</span>
+                    <span className="font-medium text-red-600">{formatCurrency(penaltyDetails.penaltyAmount)}</span>
+                  </div>
+                  {parseFloat(penaltyWaiver) > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-green-600">Waiver</span>
+                      <span className="font-medium text-green-600">-{formatCurrency(parseFloat(penaltyWaiver))}</span>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
+            
+            {/* Total to Collect */}
+            <div className="flex justify-between items-center pt-2 mt-2 border-t border-gray-200">
+              <span className="text-gray-700 font-medium">Total to Collect</span>
+              <span className="text-xl font-bold text-gray-800">
+                {formatCurrency(details.amount + penaltyDetails.netPenalty)}
+              </span>
+            </div>
+            
             {paymentType === 'PARTIAL_PAYMENT' && details.remainingAfter > 0 && (
               <div className="mt-2 pt-2 border-t border-gray-200">
                 <div className="flex justify-between text-sm">
@@ -1088,10 +1239,11 @@ export default function EMIPaymentDialog({
               disabled={
                 processing || 
                 (paymentType === 'PARTIAL_PAYMENT' && (!partialAmount || !nextPaymentDate)) ||
-                (paymentType === 'INTEREST_ONLY' && !interestOnlyConfirmed)
+                (paymentType === 'INTEREST_ONLY' && !interestOnlyConfirmed) ||
+                (parseFloat(penaltyWaiver) > penaltyDetails.penaltyAmount)
               }
             >
-              {processing ? 'Processing...' : `Collect ${formatCurrency(details.amount)}`}
+              {processing ? 'Processing...' : `Collect ${formatCurrency(details.amount + penaltyDetails.netPenalty)}`}
             </Button>
           </div>
         </div>

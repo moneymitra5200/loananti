@@ -68,8 +68,6 @@ const ProductsTab = lazy(() => import('./modules/ProductsTab'));
 const PendingTab = lazy(() => import('./modules/PendingTab'));
 const FinalTab = lazy(() => import('./modules/FinalTab'));
 const SimpleTabs = lazy(() => import('./modules/SimpleTabs'));
-const WorkflowValidatorDashboard = lazy(() => import('./modules/WorkflowValidatorDashboard'));
-const ReceiptTemplateSection = lazy(() => import('@/components/receipt/ReceiptTemplateSection'));
 const SuperAdminExpenseSection = lazy(() => import('@/components/expense/SuperAdminExpenseSection'));
 
 // Eager load components used in dialogs
@@ -1646,20 +1644,6 @@ export default function SuperAdminDashboard() {
       case 'profile':
         return <ProfileSection />;
 
-      case 'ai-validator':
-        return (
-          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-purple-600" /></div>}>
-            <WorkflowValidatorDashboard userId={user?.id} userName={user?.name} />
-          </Suspense>
-        );
-
-      case 'receipts':
-        return (
-          <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>}>
-            <ReceiptTemplateSection userId={user?.id || ''} userRole={user?.role || 'SUPER_ADMIN'} />
-          </Suspense>
-        );
-
       case 'expense':
         return (
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-rose-600" /></div>}>
@@ -1787,7 +1771,13 @@ export default function SuperAdminDashboard() {
       logoIcon={Shield}
     >
       {/* EMI Due Alert Banner for SuperAdmin */}
-      {user?.id && <EMIDueAlertBanner userId={user.id} userRole="SUPER_ADMIN" />}
+      {user?.id && (
+        <EMIDueAlertBanner 
+          userId={user.id} 
+          userRole="SUPER_ADMIN" 
+          onAlertClick={(type) => setActiveTab('emi-collection')}
+        />
+      )}
 
       {renderContent()}
 

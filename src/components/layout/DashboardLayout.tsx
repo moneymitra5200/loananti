@@ -450,9 +450,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'risk', label: 'Risk Management', icon: AlertTriangle },
     { id: 'products', label: 'Loan Products', icon: Briefcase },
     { id: 'website', label: 'Website Management', icon: Globe },
-    { id: 'audit', label: 'Audit Logs', icon: Activity },
-    { id: 'receipts', label: 'Receipt Templates', icon: Receipt },
-    { id: 'ai-validator', label: 'AI Validator', icon: Sparkles }
+    { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],
   COMPANY: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -507,7 +505,6 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
-    { id: 'receipts', label: 'Receipt Templates', icon: Receipt },
     { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
     { id: 'tickets', label: 'Support Tickets', icon: MessageCircle },
     { id: 'messages', label: 'Messages', icon: MessageCircle },
