@@ -1030,7 +1030,6 @@ export default function CashierDashboard() {
               <EMIDueAlertBanner 
                 userId={user.id} 
                 userRole={user.role || 'CASHIER'} 
-                onAlertClick={(type) => setActiveTab('emi-collection')}
               />
             )}
 

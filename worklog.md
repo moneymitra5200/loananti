@@ -1,6 +1,47 @@
 # Worklog - Accounting Portal Fixes
 
 ---
+Task ID: 5
+Agent: Main Agent
+Task: Allow ALL companies to create mirror loans and add EMI Due List with Today/Tomorrow/Overdue sections
+
+Work Log:
+1. Mirror Loan Restriction Removed:
+   - Previously: Mirror loans could ONLY be created by Company 3
+   - Now: ANY company can create a mirror loan to ANY OTHER company
+   - Updated API route validation to only check mirror company is different from original
+   - Updated frontend form to show mirror loan option for ALL companies
+
+2. EMI Due List Component Created:
+   - Created new EMIDueList.tsx component with 3 sections:
+     * Overdue EMIs (highest priority, shown first)
+     * Today's Due EMIs (second priority)
+     * Tomorrow's Due EMIs (third priority)
+   - Each section is expandable/collapsible
+   - Every EMI is clickable and opens payment dialog
+   - Payment dialog supports all payment modes (Cash, Online, Cheque, Split)
+
+3. EMIDueAlertBanner Enhanced:
+   - Now opens a Sheet with the full EMI Due List when clicked
+   - Each alert type (Overdue/Today/Tomorrow) is clickable
+   - Removed onAlertClick prop - now handles internally
+   - Updated CashierDashboard and SuperAdminDashboard to use new component
+
+Stage Summary:
+- Mirror loans now work from ANY company to ANY OTHER company
+- EMI Due List shows Overdue → Today → Tomorrow in order
+- All EMIs are clickable for payment collection
+- Simplified component interface (no external click handler needed)
+
+Files Modified:
+- /src/app/api/offline-loan/route.ts (removed Company 3 validation)
+- /src/components/offline-loan/OfflineLoanForm.tsx (availableMirrorCompanies for all)
+- /src/components/emi/EMIDueList.tsx (NEW - full EMI list with payment)
+- /src/components/notification/EMIDueAlertBanner.tsx (updated to show sheet)
+- /src/components/cashier/CashierDashboard.tsx (removed onAlertClick)
+- /src/components/admin/SuperAdminDashboard.tsx (removed onAlertClick)
+
+---
 Task ID: 4
 Agent: Main Agent
 Task: Fix Daybook, Bank, and Cash Book entries not created for offline loan disbursement - ROOT CAUSE FOUND AND FIXED

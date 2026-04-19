@@ -1775,7 +1775,6 @@ export default function SuperAdminDashboard() {
         <EMIDueAlertBanner 
           userId={user.id} 
           userRole="SUPER_ADMIN" 
-          onAlertClick={(type) => setActiveTab('emi-collection')}
         />
       )}
 
