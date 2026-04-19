@@ -1829,6 +1829,8 @@ export default function OfflineLoanDetailPanel({
                       <ReceiptSection
                         loanDetails={{
                           ...loan,
+                          loanId: loan.id,
+                          isOffline: true,
                           applicationNo: loan.loanNumber,
                           requestedAmount: loan.loanAmount,
                           sessionForm: {
@@ -1852,6 +1854,7 @@ export default function OfflineLoanDetailPanel({
                           interestAmount: e.interestAmount,
                           outstandingPrincipal: e.outstandingPrincipal,
                           status: e.paymentStatus,
+                          paymentStatus: e.paymentStatus,
                           paidAmount: e.paidAmount,
                           paidPrincipal: e.paidPrincipal,
                           paidInterest: e.paidInterest,

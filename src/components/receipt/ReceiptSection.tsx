@@ -206,7 +206,7 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
 
   // Filter paid EMIs
   const paidEmis = emiSchedules.filter(emi => 
-    emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID'
+    emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID'
   );
 
   if (!loanDetails) {
@@ -292,28 +292,31 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
             </div>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {paidEmis.map((emi) => (
+              {paidEmis.map((emi) => {
+                const isPaid = emi.paymentStatus === 'PAID' || emi.status === 'PAID';
+                const isInterestOnly = emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.status === 'INTEREST_ONLY_PAID';
+                return (
                 <div
                   key={emi.id}
                   className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200"
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      emi.status === 'PAID' ? 'bg-green-200' : 'bg-blue-200'
+                      isPaid ? 'bg-green-200' : 'bg-blue-200'
                     }`}>
                       <FileText className={`h-4 w-4 ${
-                        emi.status === 'PAID' ? 'text-green-600' : 'text-blue-600'
+                        isPaid ? 'text-green-600' : 'text-blue-600'
                       }`} />
                     </div>
                     <div>
                       <p className="font-medium">
-                        EMI #{emi.emiNumber}
-                        {emi.status === 'INTEREST_ONLY_PAID' && (
+                        EMI #{emi.emiNumber || emi.installmentNumber}
+                        {isInterestOnly && (
                           <span className="text-xs text-blue-600 ml-2">(Interest Only)</span>
                         )}
                       </p>
                       <p className="text-sm text-gray-500">
-                        Paid: {formatDate(emi.paidDate)} | ₹{formatCurrency(emi.paidAmount || emi.emiAmount)}
+                        Paid: {formatDate(emi.paidDate)} | ₹{formatCurrency(emi.paidAmount || emi.emiAmount || emi.totalAmount)}
                       </p>
                     </div>
                   </div>
@@ -334,7 +337,7 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
                     )}
                   </Button>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </CardContent>
