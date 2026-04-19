@@ -205,10 +205,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     isInterestOnly: false
   });
 
-  // Get mirror companies (companies with isMirrorCompany = true)
-  const mirrorCompanies = useMemo(() => {
-    return companies.filter(c => c.isMirrorCompany === true);
-  }, [companies]);
+  // Get all companies that can be mirror target (ALL companies except the selected one)
+  // Any company can create a mirror loan to any OTHER company
+  const availableMirrorCompanies = useMemo(() => {
+    return companies.filter(c => c.id !== formData.companyId);
+  }, [companies, formData.companyId]);
 
   // Calculate EMI schedule for original loan
   const originalEmiSchedule = useMemo(() => {
@@ -426,7 +427,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       fetchPaymentSources(formData.companyId);
       fetchCashbookBalance(formData.companyId);
     }
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Fetch bank accounts AND cashbook when company changes
   useEffect(() => {
@@ -1225,8 +1227,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 </div>
               )}
 
-              {/* Mirror Loan Checkbox - Only for Company 3 and non-Interest Only loans */}
-              {!isInterestOnly && isSelectedCompany3() && (
+              {/* Mirror Loan Checkbox - Available for ALL companies with non-Interest Only loans */}
+              {!isInterestOnly && formData.companyId && (
                 <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <input
                     type="checkbox"
@@ -1242,7 +1244,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       Create Mirror Loan
                     </Label>
                     <p className="text-sm text-blue-600 mt-1">
-                      Create a duplicate loan record in another company with reducing interest. Company 1 = 15% Reducing, Company 2 = 24% Reducing.
+                      Create a duplicate loan record in another company with different interest rate/type.
                     </p>
                     {isMirrorLoan && (
                       <div className="mt-3 space-y-3">
@@ -1254,15 +1256,15 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                               <SelectValue placeholder="Select mirror company..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {mirrorCompanies.filter(c => c.id !== formData.companyId).map(c => (
+                              {availableMirrorCompanies.map(c => (
                                 <SelectItem key={c.id} value={c.id}>
                                   {c.name} ({c.code})
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
-                          {mirrorCompanies.length === 0 && (
-                            <p className="text-xs text-red-500 mt-1">No mirror companies found. Create a company with "Is Mirror Company" checked.</p>
+                          {availableMirrorCompanies.length === 0 && (
+                            <p className="text-xs text-red-500 mt-1">No other companies available. Create another company to enable mirror loan.</p>
                           )}
                         </div>
 
@@ -1412,18 +1414,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 </div>
               )}
               
-              {/* Show info message for non-Company 3 selections */}
-              {!isInterestOnly && formData.companyId && !isSelectedCompany3() && (
-                <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <Info className="h-5 w-5 text-gray-400 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-600">
-                      <span className="font-medium">Mirror Loan:</span> Only available for Company 3 loans. 
-                      Select Company 3 to enable mirror loan functionality.
-                    </p>
-                  </div>
-                </div>
-              )}
+              {/* Mirror loan is now available for ALL companies - no info message needed */}
             </div>
 
             {/* ═══ C3 NON-MIRROR: Secondary Payment Page ═══════════════════════════════ */}

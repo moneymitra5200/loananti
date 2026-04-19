@@ -576,28 +576,28 @@ export async function POST(request: NextRequest) {
     }
 
     // ============================================
-    // CRITICAL VALIDATION: Mirror loans ONLY for Company 3
-    // If loan is from Company 1 or Company 2, mirror is NOT allowed
+    // VALIDATION: Mirror loans can be created by ANY company
+    // Just ensure the mirror company is different from the original company
     // ============================================
     if (isMirrorLoan && mirrorCompanyId) {
-      // Check if the company creating the loan is Company 3
-      const companies = await db.company.findMany({
-        orderBy: { createdAt: 'asc' },
-        take: 3,
-        select: { id: true, code: true, name: true }
+      // Validate that mirror company is different from original company
+      if (mirrorCompanyId === companyId) {
+        return NextResponse.json({ 
+          error: 'Invalid mirror company',
+          message: 'Mirror company must be different from the original company.',
+        }, { status: 400 });
+      }
+      
+      // Verify the mirror company exists and is active
+      const mirrorCompany = await db.company.findUnique({
+        where: { id: mirrorCompanyId },
+        select: { id: true, code: true, name: true, isActive: true }
       });
       
-      const company3 = companies.length >= 3 ? companies[2] : null;
-      const isCompany3ById = company3?.id === companyId;
-      const isCompany3ByCode = companies.find(c => c.id === companyId)?.code === 'C3';
-      const isFromCompany3 = isCompany3ById || isCompany3ByCode;
-      
-      if (!isFromCompany3) {
-        const currentCompany = companies.find(c => c.id === companyId);
+      if (!mirrorCompany || !mirrorCompany.isActive) {
         return NextResponse.json({ 
-          error: 'Mirror loan not allowed',
-          message: `Mirror loans can ONLY be created for loans from Company 3. This loan is being created under ${currentCompany?.name || 'Company 1/2'} (${currentCompany?.code || 'not C3'}). Please select Company 3 to use mirror loan functionality.`,
-          isCompany3: false
+          error: 'Invalid mirror company',
+          message: 'The selected mirror company does not exist or is not active.',
         }, { status: 400 });
       }
     }
