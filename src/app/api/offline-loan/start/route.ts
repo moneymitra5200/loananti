@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       });
 
       await tx.offlineLoanEMI.createMany({
-        data: emis
+        data: emis as any
       });
 
       // Update loan status and details

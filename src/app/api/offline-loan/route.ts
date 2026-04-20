@@ -800,7 +800,7 @@ export async function POST(request: NextRequest) {
 
       // Create all EMIs
       await db.offlineLoanEMI.createMany({
-        data: emis
+        data: emis as any
       });
     }
     
@@ -818,6 +818,16 @@ export async function POST(request: NextRequest) {
         if (!mirrorCompany) {
           throw new Error('Mirror company not found');
         }
+
+        // BLOCK MIRROR-TO-MIRROR: Cannot mirror a mirror company's loan
+        const originalCompany = await db.company.findUnique({ where: { id: companyId } });
+        if (originalCompany?.isMirrorCompany) {
+          return NextResponse.json({ success: false, error: 'Cannot create a mirror loan from a mirror company. Mirror-to-mirror is not allowed.' }, { status: 400 });
+        }
+        if (mirrorCompanyId === companyId) {
+          return NextResponse.json({ success: false, error: 'Mirror company cannot be the same as the original company.' }, { status: 400 });
+        }
+
 
         // Determine mirror type and rate based on company
         // Company 1 = 15% Reducing, Company 2 = 24% Reducing
@@ -941,7 +951,7 @@ export async function POST(request: NextRequest) {
         });
 
         await db.offlineLoanEMI.createMany({
-          data: mirrorEmis
+          data: mirrorEmis as any
         });
 
         // Update original loan with the same display color

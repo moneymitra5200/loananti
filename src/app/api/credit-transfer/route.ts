@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// Local type definitions - Prisma schema uses strings, not enums
-type CreditType = 'PERSONAL' | 'COMPANY';
-type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+// Schema uses String types for these fields (SQLite - no native enums)
 
 // GET - Get credit transfer history and balances
 export async function GET(request: NextRequest) {
@@ -143,8 +140,8 @@ export async function POST(request: NextRequest) {
             userId: fromUserId,
             transactionType: 'CREDIT_DECREASE',
             amount: -amount,
-            paymentMode: paymentMode as PaymentModeType,
-            creditType: creditType as CreditType,
+            paymentMode: paymentMode as any,
+            creditType: creditType as any,
             companyBalanceAfter: creditType === 'COMPANY' ? fromUser.companyCredit - amount : fromUser.companyCredit,
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,
@@ -161,8 +158,8 @@ export async function POST(request: NextRequest) {
             userId: toUserId,
             transactionType: 'CREDIT_INCREASE',
             amount: amount,
-            paymentMode: paymentMode as PaymentModeType,
-            creditType: creditType as CreditType,
+            paymentMode: paymentMode as any,
+            creditType: creditType as any,
             companyBalanceAfter: creditType === 'COMPANY' ? toUser.companyCredit + amount : toUser.companyCredit,
             personalBalanceAfter: creditType === 'PERSONAL' ? toUser.personalCredit + amount : toUser.personalCredit,
             balanceAfter: toUser.credit + amount,
@@ -241,8 +238,8 @@ export async function POST(request: NextRequest) {
             userId: fromUserId,
             transactionType: 'CREDIT_DECREASE',
             amount: -amount,
-            paymentMode: paymentMode as PaymentModeType,
-            creditType: creditType as CreditType,
+            paymentMode: paymentMode as any,
+            creditType: creditType as any,
             companyBalanceAfter: creditType === 'COMPANY' ? fromUser.companyCredit - amount : fromUser.companyCredit,
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,
@@ -308,7 +305,7 @@ export async function POST(request: NextRequest) {
             transactionType: 'CREDIT_DECREASE',
             amount: -amount,
             paymentMode: 'CASH',
-            creditType: creditType as CreditType,
+            creditType: creditType as any,
             companyBalanceAfter: creditType === 'COMPANY' ? fromUser.companyCredit - amount : fromUser.companyCredit,
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,

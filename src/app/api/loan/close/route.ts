@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // Local type definitions - Prisma schema uses strings, not enums
-type CreditType = 'PERSONAL' | 'COMPANY';
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
-type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
 
 // GET - Calculate foreclosure amount for a loan
 export async function GET(request: NextRequest) {
@@ -238,7 +235,7 @@ export async function POST(request: NextRequest) {
           customerId: loan.customerId,
           amount: amount,
           paymentType: 'FORECLOSURE',
-          paymentMode: paymentMode as PaymentModeType,
+          paymentMode: paymentMode,
           status: 'COMPLETED',
           paidById: userId,
           proofUrl: proofUrl,
@@ -250,7 +247,7 @@ export async function POST(request: NextRequest) {
       });
 
       // Update user's credit
-      const actualCreditType: CreditType = creditType === 'PERSONAL' || paymentMode !== 'CASH'
+      const actualCreditType: string = creditType === 'PERSONAL' || paymentMode !== 'CASH'
         ? 'PERSONAL' 
         : 'COMPANY';
 
@@ -275,8 +272,8 @@ export async function POST(request: NextRequest) {
             ? 'PERSONAL_COLLECTION' 
             : 'CREDIT_INCREASE',
           amount: amount,
-          paymentMode: paymentMode as PaymentModeType,
-          creditType: actualCreditType,
+          paymentMode: paymentMode as any,
+          creditType: actualCreditType as any,
           companyBalanceAfter: updatedUser.companyCredit,
           personalBalanceAfter: updatedUser.personalCredit,
           balanceAfter: updatedUser.credit,

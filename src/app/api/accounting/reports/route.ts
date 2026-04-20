@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { LoanStatus, EMIPaymentStatus } from '@prisma/client';
 
-// Types for loan status (not enums in schema)
-type LoanStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DISBURSED' | 'ACTIVE' | 'CLOSED' | 'CANCELLED';
-type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'WAIVED';
-
-// Constants for status values
 const LoanStatusConst = {
-  ACTIVE: 'ACTIVE' as LoanStatus,
-  DISBURSED: 'DISBURSED' as LoanStatus,
-  CLOSED: 'CLOSED' as LoanStatus,
+  ACTIVE: LoanStatus.ACTIVE,
+  DISBURSED: LoanStatus.DISBURSED,
+  CLOSED: LoanStatus.CLOSED,
 };
 
 const EMIPaymentStatusConst = {
-  OVERDUE: 'OVERDUE' as EMIPaymentStatus,
+  OVERDUE: EMIPaymentStatus.OVERDUE,
 };
 
 // Helper to get valid company ID

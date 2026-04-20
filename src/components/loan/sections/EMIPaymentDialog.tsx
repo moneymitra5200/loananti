@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,22 @@ import {
 
 import { formatCurrency } from '@/utils/helpers';
 import type { EMISchedule, EMIPaymentForm } from './types';
+
+/** Penalty formula: N lakh = N×₹100/day → rate = loanAmount / 1000 */
+function calcPenalty(dueDate: string, loanAmount: number) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due   = new Date(dueDate); due.setHours(0,0,0,0);
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / 86400000));
+  const ratePerDay = Math.round(loanAmount / 1000);
+  return { daysOverdue, ratePerDay, auto: daysOverdue * ratePerDay };
+}
+
+function isEMIOverdue(emi: EMISchedule | null): boolean {
+  if (!emi) return false;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const due   = new Date(emi.dueDate); due.setHours(0,0,0,0);
+  return today > due || emi.status === 'OVERDUE';
+}
 
 interface MirrorCompanyInfo {
   id: string;
@@ -39,6 +55,8 @@ interface EMIPaymentDialogProps {
   hasMirrorLoan?: boolean;
   mirrorCompany?: MirrorCompanyInfo | null;
   originalCompanyName?: string;
+  /** Loan amount for auto penalty calculation (N lakh = N×₹100/day) */
+  loanAmount?: number;
 }
 
 const EMIPaymentDialog = memo(function EMIPaymentDialog({
@@ -56,8 +74,19 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
   onPay,
   hasMirrorLoan = false,
   mirrorCompany = null,
-  originalCompanyName = 'Your Company'
+  originalCompanyName = 'Your Company',
+  loanAmount = 0,
 }: EMIPaymentDialogProps) {
+  // ── Auto-calculated penalty (editable) ─────────────────────────────────────
+  const [editedPenalty, setEditedPenalty] = useState<string>('');
+  const isOverdue = isEMIOverdue(selectedEMI);
+  const penaltyCalc = selectedEMI ? calcPenalty(selectedEMI.dueDate, loanAmount) : { daysOverdue: 0, ratePerDay: 0, auto: 0 };
+  // Use lateFee from DB if no loanAmount, else auto-calculated
+  const autoPenalty = loanAmount > 0 ? penaltyCalc.auto : (selectedEMI?.lateFee || 0);
+  const finalPenalty = editedPenalty !== '' ? (parseFloat(editedPenalty) || 0) : autoPenalty;
+
+  // Reset penalty when EMI changes
+  useEffect(() => { setEditedPenalty(''); }, [selectedEMI?.id, open]);
   // Calculate remaining amount
   const totalAmount = (selectedEMI?.emiAmount || 0) + (selectedEMI?.lateFee || 0);
   const alreadyPaid = selectedEMI?.paidAmount || 0;
@@ -263,44 +292,78 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
             </div>
           )}
 
-          {/* ── Penalty Waiver Section ───────────────────────────── */}
-          {(selectedEMI?.lateFee || 0) > 0 && (
-            <div className="p-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200">
-              <Label className="text-red-800 font-semibold mb-3 block flex items-center gap-2">
-                <ShieldMinus className="h-4 w-4" />
-                Penalty Management
-              </Label>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-red-700">Total Penalty Accrued:</span>
-                  <span className="font-bold text-red-800">₹{(selectedEMI?.lateFee || 0).toLocaleString('en-IN')}</span>
-                </div>
-                <div>
-                  <Label className="text-xs text-red-700 mb-1 block">Penalty to Waive (₹) — Leave 0 to charge full penalty</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={selectedEMI?.lateFee || 0}
-                    value={emiPaymentForm.penaltyWaiver}
-                    onChange={e => {
-                      const w = Math.min(parseFloat(e.target.value) || 0, selectedEMI?.lateFee || 0);
-                      setEmiPaymentForm({ ...emiPaymentForm, penaltyWaiver: w });
-                    }}
-                    className="border-red-300 focus:border-red-500"
-                    placeholder="0"
-                  />
-                </div>
-                <div className="flex items-center justify-between text-sm pt-2 border-t border-red-200">
-                  <span className="text-gray-600">Penalty Customer Pays:</span>
-                  <span className="font-bold text-orange-700">
-                    ₹{Math.max(0, (selectedEMI?.lateFee || 0) - emiPaymentForm.penaltyWaiver).toLocaleString('en-IN')}
+          {/* ── PENALTY — Always visible when EMI due date has passed ── */}
+          {isOverdue && (
+            <div className="p-4 bg-rose-50 rounded-lg border-2 border-rose-200 space-y-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-rose-600" />
+                <span className="font-semibold text-rose-700">Penalty for Overdue EMI</span>
+                <span className="ml-auto px-2 py-1 bg-rose-200 text-rose-800 text-xs font-medium rounded">
+                  {penaltyCalc.daysOverdue} day(s) overdue
+                </span>
+              </div>
+
+              {/* Rate info */}
+              {loanAmount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-rose-600">Penalty Rate</span>
+                  <span className="font-medium text-rose-700">
+                    ₹{penaltyCalc.ratePerDay}/day
+                    <span className="text-xs text-gray-500 ml-1">(₹{loanAmount.toLocaleString('en-IN')} loan)</span>
                   </span>
                 </div>
+              )}
+
+              {/* Editable penalty amount */}
+              <div className="pt-2 border-t border-rose-200">
+                <Label className="text-sm text-rose-700 font-medium">Penalty Amount (Editable)</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="number"
+                      min="0"
+                      className="pl-8"
+                      value={editedPenalty !== '' ? editedPenalty : autoPenalty}
+                      onChange={e => setEditedPenalty(e.target.value)}
+                      placeholder={String(autoPenalty)}
+                    />
+                  </div>
+                  <Button type="button" variant="outline" size="sm" className="text-xs"
+                    onClick={() => setEditedPenalty('')}>
+                    Reset
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Calculated: ₹{autoPenalty} ({penaltyCalc.daysOverdue} days × ₹{penaltyCalc.ratePerDay}/day)
+                  {editedPenalty !== '' && <span className="text-amber-600 ml-1">— Custom value set</span>}
+                </p>
+              </div>
+
+              {/* Waiver */}
+              <div className="pt-2 border-t border-rose-200">
+                <Label className="text-sm text-rose-700">Waive Penalty (Optional)</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="number" min="0" max={finalPenalty} className="pl-8"
+                      value={emiPaymentForm.penaltyWaiver}
+                      onChange={e => setEmiPaymentForm({ ...emiPaymentForm, penaltyWaiver: Math.min(parseFloat(e.target.value)||0, finalPenalty) })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 whitespace-nowrap">Max: ₹{finalPenalty}</span>
+                </div>
                 {emiPaymentForm.penaltyWaiver > 0 && (
-                  <p className="text-xs text-purple-700 bg-purple-50 border border-purple-200 rounded p-2">
-                    ⚠️ Super Admin will be notified of the ₹{emiPaymentForm.penaltyWaiver.toLocaleString('en-IN')} penalty waiver.
-                  </p>
+                  <p className="text-xs text-purple-700 mt-1">⚠️ ₹{emiPaymentForm.penaltyWaiver} waived — Super Admin notified.</p>
                 )}
+              </div>
+
+              {/* Net penalty */}
+              <div className="flex justify-between items-center pt-2 border-t border-rose-200 font-medium">
+                <span className="text-rose-700">Penalty to Collect</span>
+                <span className="font-bold text-lg text-rose-700">₹{Math.max(0, finalPenalty - emiPaymentForm.penaltyWaiver).toLocaleString('en-IN')}</span>
               </div>
             </div>
           )}

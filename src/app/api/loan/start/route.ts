@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
 
-// Local type definitions - Prisma schema uses strings, not enums
-type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
-type LoanStatus = 'SUBMITTED' | 'SA_APPROVED' | 'COMPANY_APPROVED' | 'AGENT_APPROVED_STAGE1' | 'LOAN_FORM_COMPLETED' | 'SESSION_CREATED' | 'CUSTOMER_SESSION_APPROVED' | 'FINAL_APPROVED' | 'ACTIVE' | 'ACTIVE_INTEREST_ONLY' | 'REJECTED_BY_SA' | 'REJECTED_BY_COMPANY' | 'REJECTED_FINAL' | 'SESSION_REJECTED' | 'CANCELLED' | 'CLOSED' | 'DISBURSED';
 
 // POST - Start a loan (convert from interest-only to normal EMI)
 export async function POST(request: NextRequest) {
@@ -46,14 +43,14 @@ export async function POST(request: NextRequest) {
     // Allow starting if:
     // 1. Loan is in ACTIVE_INTEREST_ONLY status, OR
     // 2. Loan is marked as Interest Only (isInterestOnlyLoan or loanType) and is in DISBURSED/ACTIVE status
-    const validStatuses: LoanStatus[] = ['ACTIVE_INTEREST_ONLY', 'DISBURSED', 'ACTIVE'];
+    const validStatuses = ['ACTIVE_INTEREST_ONLY', 'DISBURSED', 'ACTIVE'] as string[];
     if (!isInterestOnlyLoan) {
       return NextResponse.json({ 
         error: 'This endpoint is only for Interest Only loans. This loan is not an Interest Only loan.' 
       }, { status: 400 });
     }
     
-    if (!validStatuses.includes(loan.status as LoanStatus)) {
+    if (!validStatuses.includes(loan.status as any)) {
       return NextResponse.json({ 
         error: 'Loan must be in ACTIVE_INTEREST_ONLY, DISBURSED, or ACTIVE status to start. Current status: ' + loan.status 
       }, { status: 400 });
@@ -127,7 +124,7 @@ export async function POST(request: NextRequest) {
       });
 
       await tx.eMISchedule.createMany({
-        data: emiSchedules
+        data: emiSchedules as any
       });
 
       // Update session form if exists
@@ -162,7 +159,7 @@ export async function POST(request: NextRequest) {
           loanApplicationId: loanId,
           actionById: startedBy || 'system',
           action: 'LOAN_STARTED',
-          previousStatus: loan.status as LoanStatus,
+          previousStatus: loan.status as any,
           newStatus: 'ACTIVE',
           remarks: `Loan started with tenure: ${tenure} months, interest rate: ${interestRate}%`
         }

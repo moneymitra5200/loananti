@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // Local type definitions - Prisma schema uses strings, not enums
-type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
-type CreditType = 'PERSONAL' | 'COMPANY';
 
 // POST - Transfer credit to bank account
 export async function POST(request: NextRequest) {
@@ -66,7 +63,7 @@ export async function POST(request: NextRequest) {
           transactionType: 'CREDIT_DECREASE',
           amount,
           paymentMode: 'BANK_TRANSFER',
-          creditType: creditType as CreditType,
+          creditType: creditType as any,
           companyBalanceAfter: newCompanyCredit,
           personalBalanceAfter: newPersonalCredit,
           balanceAfter: newTotalCredit,

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 // Local type definitions - Prisma schema uses strings, not enums
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
 
 // POST - Process EMI payment (Full, Partial, or Interest Only)
@@ -147,7 +146,7 @@ export async function POST(request: NextRequest) {
               userId: agentId,
               transactionType: 'CREDIT_INCREASE',
               amount: totalAmount,
-              paymentMode: 'ONLINE' as PaymentModeType,
+              paymentMode: 'ONLINE',
               creditType: 'PERSONAL',
               sourceType: 'EMI_PAYMENT',
               loanApplicationId: loanId,
@@ -241,7 +240,7 @@ export async function POST(request: NextRequest) {
               userId: partialAgentId,
               transactionType: 'CREDIT_INCREASE',
               amount: paymentAmount,
-              paymentMode: 'ONLINE' as PaymentModeType,
+              paymentMode: 'ONLINE',
               creditType: 'PERSONAL',
               sourceType: 'EMI_PAYMENT',
               loanApplicationId: loanId,
@@ -329,7 +328,7 @@ export async function POST(request: NextRequest) {
               userId: interestAgentId,
               transactionType: 'CREDIT_INCREASE',
               amount: interestAmount,
-              paymentMode: 'ONLINE' as PaymentModeType,
+              paymentMode: 'ONLINE',
               creditType: 'PERSONAL',
               sourceType: 'EMI_PAYMENT',
               loanApplicationId: loanId,

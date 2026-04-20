@@ -3,9 +3,6 @@ import { db } from '@/lib/db';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type SettlementStatus = 'PENDING' | 'VERIFIED' | 'COMPLETED' | 'REJECTED';
-type CreditType = 'PERSONAL' | 'COMPANY';
-type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // ============================================
 // CREDIT SETTLEMENT API
@@ -149,7 +146,7 @@ export async function POST(request: NextRequest) {
         userId,
         cashierId: superAdminId,
         amount,
-        paymentMode: paymentMode as PaymentModeType || 'CASH',
+        paymentMode: paymentMode || 'CASH',
         chequeNumber,
         chequeDate: chequeDate ? new Date(chequeDate) : null,
         bankRefNumber,
@@ -242,7 +239,7 @@ export async function PUT(request: NextRequest) {
     // Complete settlement
     if (normalizedAction === 'complete') {
       const amount = settlement.amount;
-      const actualCreditType: CreditType = (settlement as any).creditType || creditType || 'COMPANY';
+      const actualCreditType = (settlement as any).creditType || creditType || 'COMPANY';
 
       // Check user has enough credit in specified type
       const userAvailableCredit = actualCreditType === 'COMPANY' 
@@ -312,7 +309,7 @@ export async function PUT(request: NextRequest) {
             transactionType: 'CREDIT_DECREASE',
             amount: amount,
             paymentMode: settlement.paymentMode,
-            creditType: actualCreditType,
+            creditType: actualCreditType as any,
             companyBalanceAfter: newUserCompanyCredit,
             personalBalanceAfter: newUserPersonalCredit,
             balanceAfter: newUserTotalCredit,
@@ -333,7 +330,7 @@ export async function PUT(request: NextRequest) {
               : 'CREDIT_INCREASE',
             amount: amount,
             paymentMode: settlement.paymentMode,
-            creditType: actualCreditType,
+            creditType: actualCreditType as any,
             companyBalanceAfter: newSACompanyCredit,
             personalBalanceAfter: newSAPersonalCredit,
             balanceAfter: newSATotalCredit,

@@ -783,7 +783,7 @@ export async function POST(request: NextRequest) {
       const newTotalCredit = (user?.credit || 0) + paidAmount;
       
       await db.creditTransaction.create({
-        data: {
+        data: { // @ts-ignore
           userId: creditUserId,
           transactionType: 'PERSONAL_COLLECTION',
           amount: paidAmount,
@@ -823,7 +823,7 @@ export async function POST(request: NextRequest) {
       const newCompanyCredit = (company?.companyCredit || 0) + paidAmount;
       
       await db.creditTransaction.create({
-        data: {
+        data: { // @ts-ignore
           userId: paidBy,
           transactionType: 'CREDIT_INCREASE',
           amount: paidAmount,

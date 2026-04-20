@@ -5,9 +5,6 @@ import { createEMIPaymentEntry, AccountingService } from '@/lib/accounting-servi
 
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
-type CreditType = 'PERSONAL' | 'COMPANY';
-type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
-type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // GET - Fetch EMI schedules with NPA tracking
 export async function GET(request: NextRequest) {
@@ -434,7 +431,7 @@ export async function PUT(request: NextRequest) {
       // - If creditType is explicitly 'COMPANY' and payment is ONLINE → Company Credit (but won't increase)
       // - If creditType is explicitly 'PERSONAL' → Personal Credit
       // - If creditType not specified: CASH → Company Credit, Non-CASH → Personal Credit
-      const actualCreditType: CreditType = creditType === 'COMPANY' 
+      const actualCreditType = creditType === 'COMPANY' 
         ? 'COMPANY' 
         : creditType === 'PERSONAL' 
           ? 'PERSONAL' 
@@ -792,8 +789,8 @@ export async function PUT(request: NextRequest) {
                     userId: userId,
                     transactionType: 'CREDIT_INCREASE',
                     amount: profitAmount,
-                    paymentMode: actualPaymentMode as PaymentModeType,
-                    creditType: actualCreditType,
+                    paymentMode: actualPaymentMode,
+                    creditType: actualCreditType as any,
                     companyBalanceAfter: newCompanyCredit,
                     personalBalanceAfter: newPersonalCredit,
                     balanceAfter: newTotalCredit,
@@ -859,8 +856,8 @@ export async function PUT(request: NextRequest) {
                 ? 'PERSONAL_COLLECTION' 
                 : 'CREDIT_INCREASE',
             amount: creditIncreaseAmount, // 0 for Company Online, full amount for others
-            paymentMode: actualPaymentMode as PaymentModeType,
-            creditType: actualCreditType,
+            paymentMode: actualPaymentMode,
+            creditType: actualCreditType as any,
             companyBalanceAfter: newCompanyCredit,
             personalBalanceAfter: newPersonalCredit,
             balanceAfter: newTotalCredit,
@@ -1040,7 +1037,7 @@ export async function PUT(request: NextRequest) {
                   userId:              pageOwner.id,
                   transactionType:     'PERSONAL_COLLECTION',
                   amount:              paidAmount,
-                  paymentMode:         actualPaymentMode as PaymentModeType,
+                  paymentMode:         actualPaymentMode,
                   creditType:          'PERSONAL',
                   companyBalanceAfter: pageOwner.companyCredit,
                   personalBalanceAfter: newPersonalCr,

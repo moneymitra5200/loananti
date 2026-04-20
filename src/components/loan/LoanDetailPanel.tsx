@@ -415,7 +415,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     // Calculate remaining amount (total - already paid)
     const remainingAmount = emi.emiAmount - (emi.paidAmount || 0);
     setEmiPaymentForm({
-      amount: remainingAmount + (emi.lateFee || 0), // Default to remaining amount
+      amount: remainingAmount, // EMI amount only — penalty handled separately
       paymentMode: 'CASH',
       paymentRef: '',
       creditType: 'COMPANY',
@@ -611,8 +611,14 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           formData.append('nextPaymentDate', emiPaymentForm.remainingPaymentDate || '');
         }
 
-        // Penalty
-        formData.append('penaltyAmount', String(emi.lateFee || 0));
+        // Penalty — use auto-calculated formula if loanAmount is available, else fall back to lateFee
+        const loanAmt = loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0;
+        const overdueMs = emi.dueDate ? Date.now() - new Date(emi.dueDate).setHours(0,0,0,0) : 0;
+        const daysOverdue = Math.max(0, Math.floor(overdueMs / 86400000));
+        const autoPenaltyRate = Math.round(loanAmt / 1000);
+        const autoPenaltyAmount = daysOverdue * autoPenaltyRate;
+        const penaltyToSend = emisToPay.length === 1 ? autoPenaltyAmount : 0;
+        formData.append('penaltyAmount', String(penaltyToSend));
         formData.append('penaltyWaiver', String(emisToPay.length > 1 ? 0 : (emiPaymentForm.penaltyWaiver || 0)));
         formData.append('penaltyPaymentMode', emiPaymentForm.paymentMode === 'SPLIT' ? 'CASH' : (emiPaymentForm.penaltyPaymentMode || 'CASH'));
 
@@ -938,6 +944,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       hasMirrorLoan={hasMirrorLoan}
       mirrorCompany={mirrorCompanyInfo}
       originalCompanyName={loanDetails?.company?.name || 'Your Company'}
+      loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
     />
 
     {/* EMI Date Change Dialog */}

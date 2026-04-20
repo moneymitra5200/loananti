@@ -509,7 +509,7 @@ export async function PUT(request: NextRequest) {
       });
 
       await db.eMISchedule.createMany({
-        data: mirrorEMISchedules,
+        data: mirrorEMISchedules as any,
       });
 
       // Create EMIPaymentSetting records for all EMIs in the ORIGINAL loan

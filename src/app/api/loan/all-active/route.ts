@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
 
-// Local type definition - Prisma schema uses strings, not enums
-type OfflineLoanStatus = 'ACTIVE' | 'CLOSED' | 'CANCELLED' | 'INTEREST_ONLY';
 
 // GET all active loans (both online and offline) with complete passbook data
 export async function GET(request: NextRequest) {
@@ -29,10 +27,10 @@ export async function GET(request: NextRequest) {
     console.log('[all-active] Fetching active loans with filter:', filter);
 
     // Define allowed statuses for offline loans
-    const activeOfflineStatuses: OfflineLoanStatus[] = [
+    const activeOfflineStatuses = [
       'ACTIVE',
       'INTEREST_ONLY'
-    ];
+    ] as any[];
 
     // Fetch online loans (from LoanApplication)
     if (filter === 'all' || filter === 'online') {

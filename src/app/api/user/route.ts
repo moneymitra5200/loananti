@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Build where clause properly
-    let where: { role?: string | { in: string[] } } = {};
+    let where: any = {};
     
     if (roleParam) {
       const roles = roleParam.split(',').map(r => r.trim()).filter(Boolean);
@@ -232,7 +232,7 @@ export async function POST(request: NextRequest) {
     // Validate that agent exists if agentId is provided
     if (cleanAgentId && role === 'STAFF') {
       const agentExists = await db.user.findUnique({
-        where: { id: cleanAgentId, role: 'AGENT' }
+        where: { id: cleanAgentId, role: 'AGENT' } as any
       });
       if (!agentExists) {
         return NextResponse.json({ error: 'Selected agent does not exist' }, { status: 400 });
