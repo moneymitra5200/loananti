@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { processBankTransaction } from '@/lib/bank-transaction-service';
-import { EMIPaymentStatus } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
 import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { recordOfflineLoanDisbursement as recordDaybookDisbursement } from '@/lib/accounting-helper';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
 
 // Get or create the global loan sequence
 async function getNextLoanSequence(): Promise<number> {

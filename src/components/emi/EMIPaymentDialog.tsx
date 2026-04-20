@@ -117,18 +117,6 @@ export default function EMIPaymentDialog({
   const [penaltyWaiver, setPenaltyWaiver] = useState('0');
   const [editedPenaltyAmount, setEditedPenaltyAmount] = useState<string>(''); // User can edit the penalty
 
-  // Calculate days overdue locally (for cases where emi.daysOverdue is not set)
-  const calculateDaysOverdue = (): number => {
-    if (emi.daysOverdue && emi.daysOverdue > 0) return emi.daysOverdue;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dueDate = new Date(emi.dueDate);
-    dueDate.setHours(0, 0, 0, 0);
-    const diffMs = today.getTime() - dueDate.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    return Math.max(0, diffDays);
-  };
-
   // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
   const isInterestOnlyLoan = emi?.isInterestOnly === true;
   // Bank details state

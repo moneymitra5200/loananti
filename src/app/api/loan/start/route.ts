@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    if (!validStatuses.includes(loan.status)) {
+    if (!validStatuses.includes(loan.status as LoanStatus)) {
       return NextResponse.json({ 
         error: 'Loan must be in ACTIVE_INTEREST_ONLY, DISBURSED, or ACTIVE status to start. Current status: ' + loan.status 
       }, { status: 400 });
