@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { SettlementStatus, PaymentModeType, CreditTransactionType } from '@prisma/client';
 import { createSettlementEntry } from '@/lib/accounting-service';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type SettlementStatus = 'PENDING' | 'VERIFIED' | 'COMPLETED' | 'REJECTED';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
 
 // Generate unique settlement number
 function generateSettlementNumber(): string {
@@ -23,7 +27,7 @@ export async function GET(request: NextRequest) {
     // Get pending settlements for cashier to receive
     if (action === 'pending') {
       const pendingSettlements = await db.cashierSettlement.findMany({
-        where: { status: SettlementStatus.PENDING },
+        where: { status: 'PENDING' },
         orderBy: { createdAt: 'desc' },
         include: {
           user: { select: { id: true, name: true, email: true, role: true, credit: true } }
@@ -164,7 +168,7 @@ export async function POST(request: NextRequest) {
       db.creditTransaction.create({
         data: {
           userId,
-          transactionType: CreditTransactionType.CREDIT_DECREASE,
+          transactionType: 'CREDIT_DECREASE',
           amount,
           paymentMode: paymentMode as PaymentModeType,
           balanceAfter: user.credit - amount,
@@ -235,7 +239,7 @@ export async function PUT(request: NextRequest) {
       const updatedSettlement = await db.cashierSettlement.update({
         where: { id: settlementId },
         data: {
-          status: SettlementStatus.VERIFIED,
+          status: 'VERIFIED',
           verifiedById,
           verifiedAt: new Date()
         }
@@ -249,7 +253,7 @@ export async function PUT(request: NextRequest) {
       const updatedSettlement = await db.cashierSettlement.update({
         where: { id: settlementId },
         data: {
-          status: SettlementStatus.COMPLETED
+          status: 'COMPLETED'
         }
       });
 
@@ -288,7 +292,7 @@ export async function PUT(request: NextRequest) {
           db.creditTransaction.create({
             data: {
               userId: settlement.cashierId,
-              transactionType: CreditTransactionType.SETTLEMENT,
+              transactionType: 'SETTLEMENT',
               amount: settlement.amount,
               paymentMode: settlement.paymentMode,
               balanceAfter: cashier.credit + settlement.amount,
@@ -313,7 +317,7 @@ export async function PUT(request: NextRequest) {
       const updatedSettlement = await db.cashierSettlement.update({
         where: { id: settlementId },
         data: {
-          status: SettlementStatus.REJECTED,
+          status: 'REJECTED',
           rejectionReason
         }
       });
@@ -323,7 +327,7 @@ export async function PUT(request: NextRequest) {
         db.creditTransaction.create({
           data: {
             userId: settlement.userId,
-            transactionType: CreditTransactionType.ADJUSTMENT,
+            transactionType: 'ADJUSTMENT',
             amount: settlement.amount,
             paymentMode: settlement.paymentMode,
             balanceAfter: (settlement.user?.credit || 0) + settlement.amount,

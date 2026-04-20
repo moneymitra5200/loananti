@@ -7,8 +7,10 @@ import {
   signOut as firebaseSignOut
 } from 'firebase/auth';
 import { auth, signInWithGoogle, signInWithEmail } from '@/lib/firebase';
-import { UserRole } from '@prisma/client';
 import { useDeployLogout } from '@/hooks/useDeployLogout';
+
+// Local type definition - Prisma schema uses strings, not enums
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AGENT' | 'ACCOUNTANT' | 'CUSTOMER' | 'STAFF' | 'COMPANY';
 
 export interface User {
   id: string;

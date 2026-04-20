@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+
+// Local type definition - Prisma schema uses strings, not enums
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AGENT' | 'ACCOUNTANT' | 'CUSTOMER' | 'STAFF' | 'COMPANY';
 
 // PERMANENT SUPER ADMIN - This email is reserved and cannot be deleted
 const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
@@ -21,7 +23,7 @@ async function ensurePermanentSuperAdmin() {
           email: PERMANENT_SUPER_ADMIN_EMAIL,
           firebaseUid: `permanent-super-admin-${Date.now()}`,
           name: 'Money Mitra Admin',
-          role: UserRole.SUPER_ADMIN,
+          role: 'SUPER_ADMIN',
           password: hashedPassword,
           plainPassword: PERMANENT_SUPER_ADMIN_PASSWORD,
           isActive: true,
@@ -31,11 +33,11 @@ async function ensurePermanentSuperAdmin() {
       });
     } else {
       // Ensure admin has correct role and is active
-      if (existingAdmin.role !== UserRole.SUPER_ADMIN || !existingAdmin.isActive) {
+      if (existingAdmin.role !== 'SUPER_ADMIN' || !existingAdmin.isActive) {
         await db.user.update({
           where: { id: existingAdmin.id },
           data: {
-            role: UserRole.SUPER_ADMIN,
+            role: 'SUPER_ADMIN',
             isActive: true,
             isLocked: false,
             password: hashedPassword,
@@ -158,7 +160,8 @@ export async function POST(request: NextRequest) {
         include: { company: true, agent: true }
       });
     } else {
-      const userRole = role && Object.values(UserRole).includes(role) ? role : UserRole.CUSTOMER;
+      const validRoles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'CASHIER', 'AGENT', 'ACCOUNTANT', 'CUSTOMER', 'STAFF', 'COMPANY'];
+      const userRole = role && validRoles.includes(role) ? role : 'CUSTOMER';
       
       let companyId: string | undefined;
       let createdCompany: { id: string; name: string; code: string } | null = null;

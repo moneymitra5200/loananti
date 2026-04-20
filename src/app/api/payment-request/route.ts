@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { PaymentType, PaymentRequestStatus } from '@prisma/client';
 import { AccountingService } from '@/lib/accounting-service';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type PaymentType = 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY';
+type PaymentRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 // GET - List payment requests (for cashier/admin)
 export async function GET(request: NextRequest) {

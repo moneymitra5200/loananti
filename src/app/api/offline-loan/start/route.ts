@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { EMIPaymentStatus } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
 
 // POST - Start an offline loan (convert from interest-only to normal EMI)
 export async function POST(request: NextRequest) {
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest) {
           interestAmount: item.interest,
           totalAmount: item.totalAmount,
           outstandingPrincipal: item.outstandingPrincipal,
-          paymentStatus: EMIPaymentStatus.PENDING
+          paymentStatus: 'PENDING'
         };
       });
 

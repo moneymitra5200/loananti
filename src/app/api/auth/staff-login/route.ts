@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+
+// Local type definition - Prisma schema uses strings, not enums
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AGENT' | 'ACCOUNTANT' | 'CUSTOMER' | 'STAFF' | 'COMPANY';
 
 // PERMANENT SUPER ADMIN - This email is reserved and cannot be deleted
 const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
@@ -68,13 +70,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const staffRoles: UserRole[] = [
-      UserRole.SUPER_ADMIN, 
-      UserRole.COMPANY, 
-      UserRole.AGENT, 
-      UserRole.STAFF, 
-      UserRole.CASHIER,
-      UserRole.ACCOUNTANT
+    const staffRoles: string[] = [
+      'SUPER_ADMIN',
+      'COMPANY',
+      'AGENT',
+      'STAFF',
+      'CASHIER',
+      'ACCOUNTANT'
     ];
     
     if (!staffRoles.includes(user.role)) {

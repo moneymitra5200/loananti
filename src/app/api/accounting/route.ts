@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { AccountType } from '@prisma/client';
 import { 
   getTrialBalance, 
   getProfitAndLoss, 
   getBalanceSheet,
   initializeChartOfAccounts,
 } from '@/lib/accounting';
+
+// Account types as strings (not enum in schema)
+type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
 // GET - Fetch accounting overview data
 export async function GET(request: NextRequest) {

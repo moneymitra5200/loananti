@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { PaymentModeType } from '@prisma/client';
+
+// Local type definition - Prisma schema uses strings, not enums
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // GET - Fetch daily collection data
 export async function GET(request: NextRequest) {

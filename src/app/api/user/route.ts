@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { UserRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { generateCode } from '@/utils/helpers';
 import { cache, CacheKeys, CacheTTL, invalidateUserCache } from '@/lib/cache';
@@ -19,11 +18,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ users: cachedUsers, cached: true });
     }
 
-    // Build where clause properly with Prisma types
-    let where: { role?: UserRole | { in: UserRole[] } } = {};
+    // Build where clause properly
+    let where: { role?: string | { in: string[] } } = {};
     
     if (roleParam) {
-      const roles = roleParam.split(',').map(r => r.trim() as UserRole).filter(Boolean);
+      const roles = roleParam.split(',').map(r => r.trim()).filter(Boolean);
       if (roles.length === 1) {
         where = { role: roles[0] };
       } else if (roles.length > 1) {
@@ -266,7 +265,7 @@ export async function POST(request: NextRequest) {
           password: hashedPassword,
           plainPassword: password,
           firebaseUid,
-          role: role as UserRole,
+          role: role,
           companyId: userCompanyId,
           agentId: role === 'STAFF' ? cleanAgentId : null,
           agentCode: role === 'AGENT' ? roleCodes.AGENT : null,

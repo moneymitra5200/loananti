@@ -13,7 +13,9 @@
  */
 
 import { db } from '@/lib/db';
-import { AccountType } from '@prisma/client';
+
+// Account types as strings (not enum in schema)
+type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
 // ============================================
 // COMPLETE CHART OF ACCOUNTS FOR LOAN BUSINESS

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { CreditType, CreditTransactionType, PaymentModeType, SettlementStatus } from '@prisma/client';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type SettlementStatus = 'PENDING' | 'VERIFIED' | 'COMPLETED' | 'REJECTED';
+type CreditType = 'PERSONAL' | 'COMPANY';
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // ============================================
 // CREDIT SETTLEMENT API
@@ -20,7 +25,7 @@ export async function GET(request: NextRequest) {
     // Get pending settlements for Super Admin to review
     if (action === 'pending') {
       const pendingSettlements = await db.cashierSettlement.findMany({
-        where: { status: SettlementStatus.PENDING },
+        where: { status: 'PENDING' },
         include: {
           user: {
             select: {
@@ -144,12 +149,12 @@ export async function POST(request: NextRequest) {
         userId,
         cashierId: superAdminId,
         amount,
-        paymentMode: paymentMode as PaymentModeType || PaymentModeType.CASH,
+        paymentMode: paymentMode as PaymentModeType || 'CASH',
         chequeNumber,
         chequeDate: chequeDate ? new Date(chequeDate) : null,
         bankRefNumber,
         utrNumber,
-        status: SettlementStatus.PENDING,
+        status: 'PENDING',
         remarks
       }
     });
@@ -200,7 +205,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Settlement not found' }, { status: 404 });
     }
 
-    if (settlement.status !== SettlementStatus.PENDING) {
+    if (settlement.status !== 'PENDING') {
       return NextResponse.json({ error: 'Settlement already processed' }, { status: 400 });
     }
 
@@ -226,7 +231,7 @@ export async function PUT(request: NextRequest) {
       const updated = await db.cashierSettlement.update({
         where: { id: settlementId },
         data: {
-          status: SettlementStatus.REJECTED,
+          status: 'REJECTED',
           rejectionReason: notes
         }
       });
@@ -237,10 +242,10 @@ export async function PUT(request: NextRequest) {
     // Complete settlement
     if (normalizedAction === 'complete') {
       const amount = settlement.amount;
-      const actualCreditType: CreditType = (settlement as any).creditType || creditType || CreditType.COMPANY;
+      const actualCreditType: CreditType = (settlement as any).creditType || creditType || 'COMPANY';
 
       // Check user has enough credit in specified type
-      const userAvailableCredit = actualCreditType === CreditType.COMPANY 
+      const userAvailableCredit = actualCreditType === 'COMPANY' 
         ? settlement.user.companyCredit 
         : settlement.user.personalCredit;
 
@@ -252,19 +257,19 @@ export async function PUT(request: NextRequest) {
 
       // Calculate new balances
       // User's credit DECREASES
-      const newUserCompanyCredit = actualCreditType === CreditType.COMPANY 
+      const newUserCompanyCredit = actualCreditType === 'COMPANY' 
         ? settlement.user.companyCredit - amount 
         : settlement.user.companyCredit;
-      const newUserPersonalCredit = actualCreditType === CreditType.PERSONAL 
+      const newUserPersonalCredit = actualCreditType === 'PERSONAL' 
         ? settlement.user.personalCredit - amount 
         : settlement.user.personalCredit;
       const newUserTotalCredit = newUserCompanyCredit + newUserPersonalCredit;
 
       // Super Admin's credit INCREASES (same type)
-      const newSACompanyCredit = actualCreditType === CreditType.COMPANY 
+      const newSACompanyCredit = actualCreditType === 'COMPANY' 
         ? superAdmin.companyCredit + amount 
         : superAdmin.companyCredit;
-      const newSAPersonalCredit = actualCreditType === CreditType.PERSONAL 
+      const newSAPersonalCredit = actualCreditType === 'PERSONAL' 
         ? superAdmin.personalCredit + amount 
         : superAdmin.personalCredit;
       const newSATotalCredit = newSACompanyCredit + newSAPersonalCredit;
@@ -275,7 +280,7 @@ export async function PUT(request: NextRequest) {
         const updatedSettlement = await tx.cashierSettlement.update({
           where: { id: settlementId },
           data: {
-            status: SettlementStatus.COMPLETED,
+            status: 'COMPLETED',
             remarks: notes ? `${settlement.remarks || ''} | ${notes}` : settlement.remarks
           }
         });
@@ -304,7 +309,7 @@ export async function PUT(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: settlement.userId,
-            transactionType: CreditTransactionType.CREDIT_DECREASE,
+            transactionType: 'CREDIT_DECREASE',
             amount: amount,
             paymentMode: settlement.paymentMode,
             creditType: actualCreditType,
@@ -323,9 +328,9 @@ export async function PUT(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: resolvedSAId,
-            transactionType: actualCreditType === CreditType.PERSONAL 
-              ? CreditTransactionType.PERSONAL_COLLECTION 
-              : CreditTransactionType.CREDIT_INCREASE,
+            transactionType: actualCreditType === 'PERSONAL' 
+              ? 'PERSONAL_COLLECTION' 
+              : 'CREDIT_INCREASE',
             amount: amount,
             paymentMode: settlement.paymentMode,
             creditType: actualCreditType,

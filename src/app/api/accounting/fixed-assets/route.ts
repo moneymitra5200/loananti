@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { AssetCategory, AssetStatus, DepreciationMethod } from '@prisma/client';
+
+// Types for fixed assets (not enums in schema)
+type AssetCategory = 'MACHINERY' | 'VEHICLE' | 'FURNITURE' | 'COMPUTER' | 'BUILDING' | 'LAND' | 'OTHER';
+type AssetStatus = 'ACTIVE' | 'DISPOSED' | 'SOLD' | 'WRITTEN_OFF';
+type DepreciationMethod = 'STRAIGHT_LINE' | 'DIMINISHING_BALANCE' | 'WRITTEN_DOWN_VALUE';
 
 // GET - List all fixed assets with filtering
 export async function GET(request: NextRequest) {

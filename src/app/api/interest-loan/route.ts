@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { LoanStatus } from '@prisma/client';
+
+// Local type definition - Prisma schema uses strings, not enums
+type LoanStatus = 'SUBMITTED' | 'SA_APPROVED' | 'COMPANY_APPROVED' | 'AGENT_APPROVED_STAGE1' | 'LOAN_FORM_COMPLETED' | 'SESSION_CREATED' | 'CUSTOMER_SESSION_APPROVED' | 'FINAL_APPROVED' | 'ACTIVE' | 'ACTIVE_INTEREST_ONLY' | 'REJECTED_BY_SA' | 'REJECTED_BY_COMPANY' | 'REJECTED_FINAL' | 'SESSION_REJECTED' | 'CANCELLED' | 'CLOSED' | 'DISBURSED';
 
 // GET - List all Interest Only Loans
 export async function GET(request: NextRequest) {
@@ -149,7 +151,7 @@ export async function POST(request: NextRequest) {
           applicationNo,
           customerId,
           loanType: 'INTEREST_ONLY',
-          status: LoanStatus.FINAL_APPROVED, // Auto-approve since it's created by Super Admin
+          status: 'FINAL_APPROVED', // Auto-approve since it's created by Super Admin
           requestedAmount: principalAmount,
           requestedTenure: 0, // Will be set when EMI phase starts
           requestedInterestRate: interestOnlyRate,
@@ -232,7 +234,7 @@ export async function POST(request: NextRequest) {
           loanApplicationId: loanApplication.id,
           actionById: userId || 'system',
           previousStatus: null,
-          newStatus: LoanStatus.FINAL_APPROVED,
+          newStatus: 'FINAL_APPROVED',
           action: 'CREATE_INTEREST_ONLY_LOAN',
           remarks: 'Interest Only Loan application created and approved'
         }
@@ -327,7 +329,7 @@ export async function PUT(request: NextRequest) {
             interestRate: emiInterestRate,
             emiAmount,
             loanAmount: interestLoan.principalAmount,
-            status: LoanStatus.ACTIVE
+            status: 'ACTIVE'
           }
         });
 
@@ -366,8 +368,8 @@ export async function PUT(request: NextRequest) {
           data: {
             loanApplicationId: interestLoan.loanApplicationId,
             actionById: userId || 'system',
-            previousStatus: LoanStatus.FINAL_APPROVED,
-            newStatus: LoanStatus.ACTIVE,
+            previousStatus: 'FINAL_APPROVED',
+            newStatus: 'ACTIVE',
             action: 'START_EMI_PHASE',
             remarks: `EMI Phase started. EMI: ${emiAmount.toFixed(2)}, Tenure: ${emiTenureMonths} months`
           }

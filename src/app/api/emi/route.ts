@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { EMIPaymentStatus, CreditType, CreditTransactionType, PaymentModeType } from '@prisma/client';
 import { calculateEMI } from '@/utils/helpers';
 import { createEMIPaymentEntry, AccountingService } from '@/lib/accounting-service';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
+type CreditType = 'PERSONAL' | 'COMPANY';
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // GET - Fetch EMI schedules with NPA tracking
 export async function GET(request: NextRequest) {
@@ -161,7 +166,7 @@ export async function POST(request: NextRequest) {
             totalAmount: item.totalAmount,
             outstandingPrincipal: item.outstandingPrincipal,
             outstandingInterest: 0,
-            paymentStatus: EMIPaymentStatus.PENDING
+            paymentStatus: 'PENDING'
           }
         })
       )
@@ -217,7 +222,7 @@ async function updateOverdueStatus() {
     await db.eMISchedule.update({
       where: { id: emi.id },
       data: {
-        paymentStatus: EMIPaymentStatus.OVERDUE,
+        paymentStatus: 'OVERDUE',
         daysOverdue,
         penaltyAmount
       }
@@ -430,18 +435,18 @@ export async function PUT(request: NextRequest) {
       // - If creditType is explicitly 'PERSONAL' → Personal Credit
       // - If creditType not specified: CASH → Company Credit, Non-CASH → Personal Credit
       const actualCreditType: CreditType = creditType === 'COMPANY' 
-        ? CreditType.COMPANY 
+        ? 'COMPANY' 
         : creditType === 'PERSONAL' 
-          ? CreditType.PERSONAL 
+          ? 'PERSONAL' 
           : actualPaymentMode === 'CASH' 
-            ? CreditType.COMPANY 
-            : CreditType.PERSONAL;
+            ? 'COMPANY' 
+            : 'PERSONAL';
 
       // Validate proof requirements:
       // PERSONAL Credit → proof always required (agent must verify they received cash)
       // COMPANY + ONLINE → proof is optional (admin/cashier can record without attachment)
       // COMPANY + CASH   → no proof needed
-      const requiresProof = actualCreditType === CreditType.PERSONAL;
+      const requiresProof = actualCreditType === 'PERSONAL';
       
       if (requiresProof && !proofUrl) {
         return NextResponse.json({ 
@@ -462,7 +467,7 @@ export async function PUT(request: NextRequest) {
         // Money went directly to company bank account
         console.log(`[EMI Payment] Company Online Payment: Credit NOT increased. Money went to bank directly.`);
         creditIncreaseAmount = 0;
-      } else if (actualCreditType === CreditType.COMPANY) {
+      } else if (actualCreditType === 'COMPANY') {
         // Company Credit + CASH: Credit increases
         newCompanyCredit = user.companyCredit + paidAmount;
         creditIncreaseAmount = paidAmount;
@@ -474,7 +479,7 @@ export async function PUT(request: NextRequest) {
       const newTotalCredit = newCompanyCredit + newPersonalCredit;
 
       // Determine payment status based on payment type
-      let newPaymentStatus: EMIPaymentStatus = emi.paymentStatus;
+      let newPaymentStatus: string = emi.paymentStatus;
       let updatedPaidAmount = (emi.paidAmount || 0) + paidAmount;
       let emiNotes = remarks || '';
 
@@ -482,15 +487,15 @@ export async function PUT(request: NextRequest) {
 
       if (normalizedPaymentType === 'INTEREST_ONLY') {
         // Interest only - mark as INTEREST_ONLY_PAID, principal deferred to new EMI
-        newPaymentStatus = EMIPaymentStatus.INTEREST_ONLY_PAID;
+        newPaymentStatus = 'INTEREST_ONLY_PAID';
         emiNotes = `${emiNotes}\n[INTEREST ONLY] Paid interest ₹${paidAmount}. Principal ₹${emi.principalAmount} + Interest ₹${emi.interestAmount} moved to new EMI.`;
       } else if (normalizedPaymentType === 'PARTIAL') {
         // Partial payment
-        newPaymentStatus = EMIPaymentStatus.PARTIALLY_PAID;
+        newPaymentStatus = 'PARTIALLY_PAID';
         emiNotes = `${emiNotes}\n[PARTIAL] Paid ₹${paidAmount}. Remaining ₹${remainingAmount} due on ${remainingPaymentDate}.`;
       } else {
         // Full payment
-        newPaymentStatus = updatedPaidAmount >= emi.totalAmount ? EMIPaymentStatus.PAID : EMIPaymentStatus.PARTIALLY_PAID;
+        newPaymentStatus = updatedPaidAmount >= emi.totalAmount ? 'PAID' : 'PARTIALLY_PAID';
       }
 
       console.log(`[EMI Payment] Setting paymentStatus to: ${newPaymentStatus}`);
@@ -658,7 +663,7 @@ export async function PUT(request: NextRequest) {
               totalAmount: newEmiAmount,
               outstandingPrincipal: emi.principalAmount,
               outstandingInterest: emi.interestAmount,
-              paymentStatus: EMIPaymentStatus.PENDING,
+              paymentStatus: 'PENDING',
               notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]} (EMI #${emi.installmentNumber} due + 1 month). Due date pattern: Day ${dueDateDay}`
             }
           });
@@ -691,7 +696,7 @@ export async function PUT(request: NextRequest) {
               await tx.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: EMIPaymentStatus.INTEREST_ONLY_PAID,
+                  paymentStatus: 'INTEREST_ONLY_PAID',
                   isInterestOnly: true,
                   interestOnlyPaidAt: new Date(),
                   interestOnlyAmount: mirrorInterestAmount,
@@ -772,7 +777,7 @@ export async function PUT(request: NextRequest) {
                   totalAmount: newMirrorEmiAmount,
                   outstandingPrincipal: mirrorEmi.principalAmount,
                   outstandingInterest: mirrorEmi.interestAmount,
-                  paymentStatus: EMIPaymentStatus.PENDING,
+                  paymentStatus: 'PENDING',
                   notes: `[NEW EMI SYNC] From EMI #${mirrorEmi.installmentNumber} (Interest Only). Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]} (EMI #${mirrorEmi.installmentNumber} due + 1 month). Due date pattern: Day ${mirrorDueDateDay}`
                 }
               });
@@ -785,7 +790,7 @@ export async function PUT(request: NextRequest) {
                 await tx.creditTransaction.create({
                   data: {
                     userId: userId,
-                    transactionType: CreditTransactionType.CREDIT_INCREASE,
+                    transactionType: 'CREDIT_INCREASE',
                     amount: profitAmount,
                     paymentMode: actualPaymentMode as PaymentModeType,
                     creditType: actualCreditType,
@@ -849,10 +854,10 @@ export async function PUT(request: NextRequest) {
           data: {
             userId: userId,
             transactionType: isCompanyOnlinePayment 
-              ? CreditTransactionType.BANK_DIRECT 
-              : actualCreditType === CreditType.PERSONAL 
-                ? CreditTransactionType.PERSONAL_COLLECTION 
-                : CreditTransactionType.CREDIT_INCREASE,
+              ? 'BANK_DIRECT' 
+              : actualCreditType === 'PERSONAL' 
+                ? 'PERSONAL_COLLECTION' 
+                : 'CREDIT_INCREASE',
             amount: creditIncreaseAmount, // 0 for Company Online, full amount for others
             paymentMode: actualPaymentMode as PaymentModeType,
             creditType: actualCreditType,
@@ -878,7 +883,7 @@ export async function PUT(request: NextRequest) {
             proofDocument: proofUrl,
             proofType: proofUrl ? 'document' : null,
             proofUploadedAt: proofUrl ? new Date() : null,
-            proofVerified: actualCreditType === CreditType.COMPANY, // Auto-verify company credit
+            proofVerified: actualCreditType === 'COMPANY', // Auto-verify company credit
             transactionDate: new Date()
           }
         });
@@ -953,7 +958,7 @@ export async function PUT(request: NextRequest) {
               await tx.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: EMIPaymentStatus.PAID,
+                  paymentStatus: 'PAID',
                   paidAmount: mirrorEmi.totalAmount,
                   paidDate: new Date(),
                   paymentMode: 'ONLINE', // Mirror is always internal
@@ -970,10 +975,10 @@ export async function PUT(request: NextRequest) {
                 await tx.creditTransaction.create({
                   data: {
                     userId: userId,
-                    transactionType: CreditTransactionType.CREDIT_INCREASE,
+                    transactionType: 'CREDIT_INCREASE',
                     amount: profitAmount,
                     paymentMode: 'ONLINE',
-                    creditType: CreditType.COMPANY,
+                    creditType: 'COMPANY',
                     companyBalanceAfter: newCompanyCredit,
                     personalBalanceAfter: newPersonalCredit,
                     balanceAfter: newTotalCredit,
@@ -1033,10 +1038,10 @@ export async function PUT(request: NextRequest) {
               await tx.creditTransaction.create({
                 data: {
                   userId:              pageOwner.id,
-                  transactionType:     CreditTransactionType.PERSONAL_COLLECTION,
+                  transactionType:     'PERSONAL_COLLECTION',
                   amount:              paidAmount,
                   paymentMode:         actualPaymentMode as PaymentModeType,
-                  creditType:          CreditType.PERSONAL,
+                  creditType:          'PERSONAL',
                   companyBalanceAfter: pageOwner.companyCredit,
                   personalBalanceAfter: newPersonalCr,
                   balanceAfter:        newTotalCr,

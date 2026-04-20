@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { CreditType, CreditTransactionType, PaymentModeType } from '@prisma/client';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type CreditType = 'PERSONAL' | 'COMPANY';
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
 
 // GET - Get credit transfer history and balances
 export async function GET(request: NextRequest) {
@@ -137,7 +141,7 @@ export async function POST(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: fromUserId,
-            transactionType: CreditTransactionType.CREDIT_DECREASE,
+            transactionType: 'CREDIT_DECREASE',
             amount: -amount,
             paymentMode: paymentMode as PaymentModeType,
             creditType: creditType as CreditType,
@@ -155,7 +159,7 @@ export async function POST(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: toUserId,
-            transactionType: CreditTransactionType.CREDIT_INCREASE,
+            transactionType: 'CREDIT_INCREASE',
             amount: amount,
             paymentMode: paymentMode as PaymentModeType,
             creditType: creditType as CreditType,
@@ -235,7 +239,7 @@ export async function POST(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: fromUserId,
-            transactionType: CreditTransactionType.CREDIT_DECREASE,
+            transactionType: 'CREDIT_DECREASE',
             amount: -amount,
             paymentMode: paymentMode as PaymentModeType,
             creditType: creditType as CreditType,
@@ -301,7 +305,7 @@ export async function POST(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId: fromUserId,
-            transactionType: CreditTransactionType.CREDIT_DECREASE,
+            transactionType: 'CREDIT_DECREASE',
             amount: -amount,
             paymentMode: 'CASH',
             creditType: creditType as CreditType,

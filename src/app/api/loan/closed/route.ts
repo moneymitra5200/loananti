@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { OfflineLoanStatus } from '@prisma/client';
+
+// Local type definition - Prisma schema uses strings, not enums
+type OfflineLoanStatus = 'ACTIVE' | 'CLOSED' | 'CANCELLED' | 'INTEREST_ONLY';
 
 // GET all closed loans (both online and offline) with mirror pair grouping
 export async function GET(request: NextRequest) {
@@ -40,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     // ── Offline closed loans ────────────────────────────────────────────────
     if (filter === 'all' || filter === 'offline') {
-      const offlineWhere: any = { status: OfflineLoanStatus.CLOSED };
+      const offlineWhere: any = { status: 'CLOSED' };
       if (companyId)   offlineWhere.companyId   = companyId;
       if (agentId)     offlineWhere.agentId      = agentId;
       if (createdById) offlineWhere.createdById  = createdById;

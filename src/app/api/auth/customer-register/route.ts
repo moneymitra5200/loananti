@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { UserRole } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+
+// Local type definition - Prisma schema uses strings, not enums
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AGENT' | 'ACCOUNTANT' | 'CUSTOMER' | 'STAFF' | 'COMPANY';
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
         name: name || email.split('@')[0],
         phone,
         firebaseUid: `email-${Date.now()}`,
-        role: UserRole.CUSTOMER,
+        role: 'CUSTOMER' as UserRole,
         loginType: 'EMAIL',
         lastLoginAt: new Date()
       }

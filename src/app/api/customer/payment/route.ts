@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PaymentModeType, EMIPaymentStatus } from '@prisma/client';
 import { db } from '@/lib/db';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
 
 // POST - Process EMI payment (Full, Partial, or Interest Only)
 export async function POST(request: NextRequest) {
@@ -404,7 +407,7 @@ export async function POST(request: NextRequest) {
               totalAmount: deferredPrincipal,
               outstandingPrincipal: deferredPrincipal,
               outstandingInterest: 0,
-              paymentStatus: EMIPaymentStatus.PENDING,
+              paymentStatus: 'PENDING',
               paidAmount: 0,
               notes: 'Deferred principal from interest-only payment'
             }

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { CreditTransactionType, PaymentModeType, CreditType } from '@prisma/client';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+type CreditType = 'PERSONAL' | 'COMPANY';
 
 // POST - Deduct credit from a user
 export async function POST(request: NextRequest) {
@@ -71,9 +75,9 @@ export async function POST(request: NextRequest) {
       const deductionTx = await tx.creditTransaction.create({
         data: {
           userId: targetUser.id,
-          transactionType: CreditTransactionType.CREDIT_DECREASE,
+          transactionType: 'CREDIT_DECREASE',
           amount,
-          paymentMode: PaymentModeType.SYSTEM,
+          paymentMode: 'SYSTEM',
           creditType: creditType as CreditType,
           companyBalanceAfter: newTargetCompanyCredit,
           personalBalanceAfter: newTargetPersonalCredit,
@@ -99,10 +103,10 @@ export async function POST(request: NextRequest) {
         data: {
           userId: superAdmin.id,
           transactionType: creditType === 'PERSONAL' 
-            ? CreditTransactionType.PERSONAL_COLLECTION 
-            : CreditTransactionType.CREDIT_INCREASE,
+            ? 'PERSONAL_COLLECTION' 
+            : 'CREDIT_INCREASE',
           amount,
-          paymentMode: PaymentModeType.SYSTEM,
+          paymentMode: 'SYSTEM',
           creditType: creditType as CreditType,
           companyBalanceAfter: newSACompanyCredit,
           personalBalanceAfter: newSAPersonalCredit,

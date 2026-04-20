@@ -113,8 +113,21 @@ export default function EMIPaymentDialog({
   const [splitCashAmount, setSplitCashAmount] = useState('');
   const [splitOnlineAmount, setSplitOnlineAmount] = useState('');
   
-  // Penalty state
+  // Penalty state - EDITABLE penalty amount (default calculated automatically)
   const [penaltyWaiver, setPenaltyWaiver] = useState('0');
+  const [editedPenaltyAmount, setEditedPenaltyAmount] = useState<string>(''); // User can edit the penalty
+
+  // Calculate days overdue locally (for cases where emi.daysOverdue is not set)
+  const calculateDaysOverdue = (): number => {
+    if (emi.daysOverdue && emi.daysOverdue > 0) return emi.daysOverdue;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(emi.dueDate);
+    dueDate.setHours(0, 0, 0, 0);
+    const diffMs = today.getTime() - dueDate.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+  };
 
   // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
   const isInterestOnlyLoan = emi?.isInterestOnly === true;
@@ -212,16 +225,17 @@ export default function EMIPaymentDialog({
     });
   };
 
-  // Penalty calculation helper
+  // Penalty calculation helper - N lakh = N*100 per day
+  // Formula: loan_amount / 1000 = penalty per day
   const getPenaltyPerDay = (loanAmount: number): number => {
-    const lakhs = loanAmount / 100_000;
-    if (lakhs <= 1) return 100;
-    if (lakhs <= 3) return 200;
-    return Math.ceil(lakhs) * 100;
+    return Math.round(loanAmount / 1000);
   };
 
-  // Check if EMI is overdue
-  const isEmiOverdue = emi.paymentStatus === 'OVERDUE' || (emi.daysOverdue && emi.daysOverdue > 0);
+  // Check if EMI is overdue - due date has passed
+  const isEmiOverdue = (() => {
+    const daysOverdue = calculateDaysOverdue();
+    return emi.paymentStatus === 'OVERDUE' || daysOverdue > 0 || (emi.daysOverdue && emi.daysOverdue > 0);
+  })();
   
   // Get loan amount for penalty calculation
   const getLoanAmountForPenalty = (): number => {
@@ -231,18 +245,21 @@ export default function EMIPaymentDialog({
     return emi.loanApplication?.loanAmount || emi.totalAmount;
   };
   
-  // Calculate penalty details
+  // Calculate penalty details - ALWAYS calculated when overdue, but EDITABLE
   const calculatePenaltyDetails = () => {
-    if (!isEmiOverdue) return { penaltyAmount: 0, daysOverdue: 0, ratePerDay: 0, netPenalty: 0 };
+    const daysOverdue = calculateDaysOverdue();
+    if (daysOverdue <= 0) return { penaltyAmount: 0, daysOverdue: 0, ratePerDay: 0, netPenalty: 0 };
     
     const loanAmount = getLoanAmountForPenalty();
     const ratePerDay = getPenaltyPerDay(loanAmount);
-    const daysOverdue = emi.daysOverdue || 0;
-    const penaltyAmount = emi.penaltyAmount || (daysOverdue * ratePerDay);
+    const calculatedPenalty = daysOverdue * ratePerDay; // Default calculated amount
+    
+    // Allow user to edit the penalty - use edited value if set, otherwise calculated
+    const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : calculatedPenalty;
     const waiver = parseFloat(penaltyWaiver) || 0;
     const netPenalty = Math.max(0, penaltyAmount - waiver);
     
-    return { penaltyAmount, daysOverdue, ratePerDay, netPenalty };
+    return { penaltyAmount, daysOverdue, ratePerDay, netPenalty, calculatedPenalty };
   };
   
   const penaltyDetails = calculatePenaltyDetails();
@@ -565,6 +582,7 @@ export default function EMIPaymentDialog({
     setPaymentReference('');
     setInterestOnlyConfirmed(false);
     setPenaltyWaiver('0');
+    setEditedPenaltyAmount('');
     // editedInterest removed (BUG-11)
   };
 
@@ -631,8 +649,8 @@ export default function EMIPaymentDialog({
             )}
           </div>
 
-          {/* Penalty Section - Show when EMI is overdue */}
-          {isEmiOverdue && penaltyDetails.penaltyAmount > 0 && (
+          {/* Penalty Section - ALWAYS visible when EMI due date has passed */}
+          {isEmiOverdue && (
             <div className="bg-red-50 p-4 rounded-lg border-2 border-red-200">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-5 w-5 text-red-600" />
@@ -648,13 +666,40 @@ export default function EMIPaymentDialog({
                   <span className="font-medium text-red-700">
                     ₹{penaltyDetails.ratePerDay}/day
                     <span className="text-xs text-gray-500 ml-1">
-                      ({getLoanAmountForPenalty() <= 100000 ? '≤1L' : getLoanAmountForPenalty() <= 300000 ? '1-3L' : '>3L'} tier)
+                      ({formatCurrency(getLoanAmountForPenalty())} loan = ₹{penaltyDetails.ratePerDay}/day)
                     </span>
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-red-600">Total Penalty</span>
-                  <span className="font-medium text-red-700">{formatCurrency(penaltyDetails.penaltyAmount)}</span>
+                
+                {/* EDITABLE Penalty Amount */}
+                <div className="pt-2 border-t border-red-200 mt-2">
+                  <Label className="text-sm text-red-700 font-medium">Penalty Amount (Editable)</Label>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="relative flex-1">
+                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        type="number"
+                        value={editedPenaltyAmount !== '' ? editedPenaltyAmount : penaltyDetails.calculatedPenalty}
+                        onChange={(e) => setEditedPenaltyAmount(e.target.value)}
+                        placeholder={String(penaltyDetails.calculatedPenalty || 0)}
+                        min="0"
+                        className="pl-8"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditedPenaltyAmount('')}
+                      className="text-xs"
+                    >
+                      Reset
+                    </Button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Calculated: ₹{penaltyDetails.calculatedPenalty || 0} ({penaltyDetails.daysOverdue} days × ₹{penaltyDetails.ratePerDay}/day)
+                    {editedPenaltyAmount !== '' && <span className="text-amber-600"> - Custom value set</span>}
+                  </p>
                 </div>
                 
                 {/* Penalty Waiver Input */}

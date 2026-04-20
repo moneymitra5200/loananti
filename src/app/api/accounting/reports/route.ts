@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { LoanStatus, EMIPaymentStatus } from '@prisma/client';
+
+// Types for loan status (not enums in schema)
+type LoanStatus = 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'DISBURSED' | 'ACTIVE' | 'CLOSED' | 'CANCELLED';
+type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'WAIVED';
+
+// Constants for status values
+const LoanStatusConst = {
+  ACTIVE: 'ACTIVE' as LoanStatus,
+  DISBURSED: 'DISBURSED' as LoanStatus,
+  CLOSED: 'CLOSED' as LoanStatus,
+};
+
+const EMIPaymentStatusConst = {
+  OVERDUE: 'OVERDUE' as EMIPaymentStatus,
+};
 
 // Helper to get valid company ID
 async function getValidCompanyId(providedCompanyId: string): Promise<string | null> {
@@ -302,12 +316,12 @@ async function getLoanPortfolioReport(companyId: string | null) {
   try {
     // Build where clause
     const loanWhere = companyId 
-      ? { companyId, status: { in: [LoanStatus.ACTIVE, LoanStatus.DISBURSED, LoanStatus.CLOSED] } } 
-      : { status: { in: [LoanStatus.ACTIVE, LoanStatus.DISBURSED, LoanStatus.CLOSED] } };
+      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } } 
+      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } };
     
     const activeLoanWhere = companyId 
-      ? { companyId, status: { in: [LoanStatus.ACTIVE, LoanStatus.DISBURSED] } } 
-      : { status: { in: [LoanStatus.ACTIVE, LoanStatus.DISBURSED] } };
+      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED] } } 
+      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED] } };
 
     // Get loan statistics
     const [totalDisbursed, totalOutstanding, activeLoans] = await Promise.all([
@@ -416,8 +430,8 @@ async function getReceivablesAging(companyId: string | null) {
   
   try {
     const emiWhere = companyId 
-      ? { paymentStatus: EMIPaymentStatus.OVERDUE, loanApplication: { companyId } } 
-      : { paymentStatus: EMIPaymentStatus.OVERDUE };
+      ? { paymentStatus: EMIPaymentStatusConst.OVERDUE, loanApplication: { companyId } } 
+      : { paymentStatus: EMIPaymentStatusConst.OVERDUE };
     
     const overdueEMIs = await db.eMISchedule.findMany({
       where: emiWhere,

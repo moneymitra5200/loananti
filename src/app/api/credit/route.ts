@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { CreditTransactionType, PaymentModeType, CreditType } from '@prisma/client';
 import { createEMIPaymentEntry } from '@/lib/accounting-service';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+type CreditType = 'PERSONAL' | 'COMPANY';
 
 // ============================================
 // DUAL CREDIT SYSTEM API
@@ -340,8 +344,8 @@ export async function POST(request: NextRequest) {
     // If creditType is explicitly PERSONAL, always use personal credit
     // Otherwise, COMPANY credit only for CASH payments
     const actualCreditType: CreditType = creditType === 'PERSONAL' 
-      ? CreditType.PERSONAL 
-      : (paymentMode === 'CASH' ? CreditType.COMPANY : CreditType.PERSONAL);
+      ? 'PERSONAL' 
+      : (paymentMode === 'CASH' ? 'COMPANY' : 'PERSONAL');
 
     // Validate proof requirements
     // CHEQUE, ONLINE, UPI, BANK_TRANSFER always require proof
@@ -380,8 +384,8 @@ export async function POST(request: NextRequest) {
 
     // Determine transaction type
     const transactionType: CreditTransactionType = actualCreditType === 'PERSONAL'
-      ? CreditTransactionType.PERSONAL_COLLECTION
-      : CreditTransactionType.CREDIT_INCREASE;
+      ? 'PERSONAL_COLLECTION'
+      : 'CREDIT_INCREASE';
 
     // Create credit transaction and update user credit
     const [transaction] = await db.$transaction([
@@ -558,10 +562,10 @@ export async function PUT(request: NextRequest) {
 
     // Determine transaction type
     const transactionType: CreditTransactionType = clearPersonalCredit
-      ? CreditTransactionType.PERSONAL_CLEARANCE
-      : CreditTransactionType.CREDIT_DECREASE;
+      ? 'PERSONAL_CLEARANCE'
+      : 'CREDIT_DECREASE';
 
-    const actualCreditType: CreditType = decreasePersonal ? CreditType.PERSONAL : CreditType.COMPANY;
+    const actualCreditType: CreditType = decreasePersonal ? 'PERSONAL' : 'COMPANY';
 
     const [transaction] = await db.$transaction([
       db.creditTransaction.create({

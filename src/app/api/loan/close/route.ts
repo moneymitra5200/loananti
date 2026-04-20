@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { CreditType, PaymentModeType, CreditTransactionType } from '@prisma/client';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type CreditType = 'PERSONAL' | 'COMPANY';
+type PaymentModeType = 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CARD' | 'SYSTEM';
+type CreditTransactionType = 'CREDIT_INCREASE' | 'CREDIT_DECREASE' | 'PERSONAL_COLLECTION' | 'SETTLEMENT' | 'ADJUSTMENT' | 'BANK_DIRECT' | 'PERSONAL_CLEARANCE';
 
 // GET - Calculate foreclosure amount for a loan
 export async function GET(request: NextRequest) {
@@ -247,17 +251,17 @@ export async function POST(request: NextRequest) {
 
       // Update user's credit
       const actualCreditType: CreditType = creditType === 'PERSONAL' || paymentMode !== 'CASH'
-        ? CreditType.PERSONAL 
-        : CreditType.COMPANY;
+        ? 'PERSONAL' 
+        : 'COMPANY';
 
       const updatedUser = await tx.user.update({
         where: { id: userId },
         data: {
           credit: { increment: amount },
-          personalCredit: actualCreditType === CreditType.PERSONAL 
+          personalCredit: actualCreditType === 'PERSONAL' 
             ? { increment: amount } 
             : undefined,
-          companyCredit: actualCreditType === CreditType.COMPANY 
+          companyCredit: actualCreditType === 'COMPANY' 
             ? { increment: amount } 
             : undefined
         }
@@ -267,9 +271,9 @@ export async function POST(request: NextRequest) {
       await tx.creditTransaction.create({
         data: {
           userId: userId,
-          transactionType: actualCreditType === CreditType.PERSONAL 
-            ? CreditTransactionType.PERSONAL_COLLECTION 
-            : CreditTransactionType.CREDIT_INCREASE,
+          transactionType: actualCreditType === 'PERSONAL' 
+            ? 'PERSONAL_COLLECTION' 
+            : 'CREDIT_INCREASE',
           amount: amount,
           paymentMode: paymentMode as PaymentModeType,
           creditType: actualCreditType,
@@ -286,7 +290,7 @@ export async function POST(request: NextRequest) {
           description: `Foreclosure payment - ${loan.applicationNo}`,
           proofDocument: proofUrl,
           proofUploadedAt: proofUrl ? new Date() : null,
-          proofVerified: actualCreditType === CreditType.COMPANY,
+          proofVerified: actualCreditType === 'COMPANY',
           transactionDate: new Date()
         }
       });

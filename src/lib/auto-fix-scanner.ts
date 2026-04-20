@@ -10,7 +10,9 @@
 
 import { db } from './db';
 import { ACCOUNT_CODES, DEFAULT_CHART_OF_ACCOUNTS } from './accounting-service';
-import { AccountType } from '@prisma/client';
+
+// Account types as strings (not enum in schema)
+type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
 export interface ScanResult {
   scanName: string;

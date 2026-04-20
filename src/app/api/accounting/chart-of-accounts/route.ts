@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService, DEFAULT_CHART_OF_ACCOUNTS } from '@/lib/accounting-service';
-import { AccountType } from '@prisma/client';
+
+// Account types as strings (not enum in schema)
+type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
 // GET - Fetch chart of accounts with LIVE computed balances
 export async function GET(request: NextRequest) {

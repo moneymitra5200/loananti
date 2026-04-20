@@ -10,7 +10,9 @@
  */
 
 import { db } from './db';
-import { AccountType } from '@prisma/client';
+
+// Account types as strings (not enum in schema)
+type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
 // ============================================
 // CHART OF ACCOUNTS DEFAULT STRUCTURE

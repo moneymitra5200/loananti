@@ -35,6 +35,7 @@ interface EMI {
   paidInterest: number;
   paymentStatus: string;
   lateFee?: number;
+  loanAmount?: number; // For penalty calculation
 }
 
 interface OfflineEMIPaymentDialogProps {
@@ -57,6 +58,7 @@ interface OfflineEMIPaymentDialogProps {
   isMirrored?: boolean;
   loanCompanyName?: string;
   mirrorCompanyName?: string;
+  loanAmount?: number; // For penalty calculation
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +75,35 @@ function isAdvancePayment(emi: EMI): boolean {
     now.getFullYear() < due.getFullYear() ||
     (now.getFullYear() === due.getFullYear() && now.getMonth() < due.getMonth())
   );
+}
+
+/**
+ * Calculate penalty info based on loan amount
+ * Formula: loan_amount / 1000 = penalty per day (N lakh = N*100/day)
+ */
+function calculatePenaltyInfo(dueDate: string, loanAmount: number): { daysOverdue: number; calculatedPenalty: number; ratePerDay: number } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate);
+  due.setHours(0, 0, 0, 0);
+  
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / msPerDay));
+  const ratePerDay = Math.round(loanAmount / 1000);
+  const calculatedPenalty = daysOverdue * ratePerDay;
+  
+  return { daysOverdue, calculatedPenalty, ratePerDay };
+}
+
+/**
+ * Check if EMI is overdue (due date has passed)
+ */
+function isEMIOverdue(emi: EMI): boolean {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(emi.dueDate);
+  due.setHours(0, 0, 0, 0);
+  return today > due || emi.paymentStatus === 'OVERDUE';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +127,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   isMirrored,
   loanCompanyName = 'Loan Company',
   mirrorCompanyName = 'Mirror Company',
+  loanAmount: propLoanAmount,
 }: OfflineEMIPaymentDialogProps) {
 
   // ── Determine if bulk/multi mode ───────────────────────────────────────────

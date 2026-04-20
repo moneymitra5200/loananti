@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { LoanStatus, LoanType } from '@prisma/client';
 import { identifyCompanyType } from '@/lib/mirror-company-utils';
 import { invalidateLoanCache } from '@/lib/cache';
 import NotificationService from '@/lib/notification-service';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
+
+// Local type definitions - Prisma schema uses strings, not enums
+type LoanStatus = 'SUBMITTED' | 'SA_APPROVED' | 'COMPANY_APPROVED' | 'AGENT_APPROVED_STAGE1' | 'LOAN_FORM_COMPLETED' | 'SESSION_CREATED' | 'CUSTOMER_SESSION_APPROVED' | 'FINAL_APPROVED' | 'ACTIVE' | 'ACTIVE_INTEREST_ONLY' | 'REJECTED_BY_SA' | 'REJECTED_BY_COMPANY' | 'REJECTED_FINAL' | 'SESSION_REJECTED' | 'CANCELLED' | 'CLOSED' | 'DISBURSED';
+type LoanType = 'PERSONAL' | 'GOLD' | 'VEHICLE' | 'BUSINESS' | 'HOME' | 'EDUCATION' | 'AGRICULTURAL' | 'MORTGAGE' | 'INTEREST_ONLY';
 
 // Generate loan number with company code prefix
 // Format: {CompanyCode}{ProductCode}{Sequence}
@@ -77,46 +80,46 @@ const ALLOWED_ACTIONS: Record<string, Record<string, {
   requiresAssignment?: 'companyId' | 'agentId' | 'staffId';
 }>> = {
   SUBMITTED: {
-    approve: { nextStatus: LoanStatus.SA_APPROVED, roles: ['SUPER_ADMIN'], requiresAssignment: 'companyId' },
-    reject: { nextStatus: LoanStatus.REJECTED_BY_SA, roles: ['SUPER_ADMIN'] }
+    approve: { nextStatus: 'SA_APPROVED', roles: ['SUPER_ADMIN'], requiresAssignment: 'companyId' },
+    reject: { nextStatus: 'REJECTED_BY_SA', roles: ['SUPER_ADMIN'] }
   },
   SA_APPROVED: {
-    approve: { nextStatus: LoanStatus.COMPANY_APPROVED, roles: ['COMPANY'], requiresAssignment: 'agentId' },
-    agent_direct_approve: { nextStatus: LoanStatus.AGENT_APPROVED_STAGE1, roles: ['AGENT'], requiresAssignment: 'staffId' },
-    reject: { nextStatus: LoanStatus.REJECTED_BY_COMPANY, roles: ['COMPANY', 'AGENT'] },
-    send_back: { nextStatus: LoanStatus.SUBMITTED, roles: ['SUPER_ADMIN'] }
+    approve: { nextStatus: 'COMPANY_APPROVED', roles: ['COMPANY'], requiresAssignment: 'agentId' },
+    agent_direct_approve: { nextStatus: 'AGENT_APPROVED_STAGE1', roles: ['AGENT'], requiresAssignment: 'staffId' },
+    reject: { nextStatus: 'REJECTED_BY_COMPANY', roles: ['COMPANY', 'AGENT'] },
+    send_back: { nextStatus: 'SUBMITTED', roles: ['SUPER_ADMIN'] }
   },
   COMPANY_APPROVED: {
-    approve: { nextStatus: LoanStatus.AGENT_APPROVED_STAGE1, roles: ['AGENT'], requiresAssignment: 'staffId' },
-    reject: { nextStatus: LoanStatus.REJECTED_FINAL, roles: ['AGENT'] },
-    send_back: { nextStatus: LoanStatus.SA_APPROVED, roles: ['COMPANY', 'SUPER_ADMIN'] }
+    approve: { nextStatus: 'AGENT_APPROVED_STAGE1', roles: ['AGENT'], requiresAssignment: 'staffId' },
+    reject: { nextStatus: 'REJECTED_FINAL', roles: ['AGENT'] },
+    send_back: { nextStatus: 'SA_APPROVED', roles: ['COMPANY', 'SUPER_ADMIN'] }
   },
   AGENT_APPROVED_STAGE1: {
-    complete_form: { nextStatus: LoanStatus.LOAN_FORM_COMPLETED, roles: ['STAFF'] },
-    reject: { nextStatus: LoanStatus.REJECTED_FINAL, roles: ['STAFF'] },
-    send_back: { nextStatus: LoanStatus.SA_APPROVED, roles: ['AGENT', 'COMPANY', 'SUPER_ADMIN'] }
+    complete_form: { nextStatus: 'LOAN_FORM_COMPLETED', roles: ['STAFF'] },
+    reject: { nextStatus: 'REJECTED_FINAL', roles: ['STAFF'] },
+    send_back: { nextStatus: 'SA_APPROVED', roles: ['AGENT', 'COMPANY', 'SUPER_ADMIN'] }
   },
   LOAN_FORM_COMPLETED: {
-    create_session: { nextStatus: LoanStatus.SESSION_CREATED, roles: ['AGENT'] },
-    send_back: { nextStatus: LoanStatus.AGENT_APPROVED_STAGE1, roles: ['AGENT', 'SUPER_ADMIN'] }
+    create_session: { nextStatus: 'SESSION_CREATED', roles: ['AGENT'] },
+    send_back: { nextStatus: 'AGENT_APPROVED_STAGE1', roles: ['AGENT', 'SUPER_ADMIN'] }
   },
   SESSION_CREATED: {
-    approve_session: { nextStatus: LoanStatus.CUSTOMER_SESSION_APPROVED, roles: ['CUSTOMER', 'SUPER_ADMIN'] },
-    fast_approve: { nextStatus: LoanStatus.FINAL_APPROVED, roles: ['SUPER_ADMIN'] },
-    reject_session: { nextStatus: LoanStatus.SESSION_REJECTED, roles: ['CUSTOMER', 'SUPER_ADMIN'] },
-    send_back: { nextStatus: LoanStatus.LOAN_FORM_COMPLETED, roles: ['AGENT', 'SUPER_ADMIN'] }
+    approve_session: { nextStatus: 'CUSTOMER_SESSION_APPROVED', roles: ['CUSTOMER', 'SUPER_ADMIN'] },
+    fast_approve: { nextStatus: 'FINAL_APPROVED', roles: ['SUPER_ADMIN'] },
+    reject_session: { nextStatus: 'SESSION_REJECTED', roles: ['CUSTOMER', 'SUPER_ADMIN'] },
+    send_back: { nextStatus: 'LOAN_FORM_COMPLETED', roles: ['AGENT', 'SUPER_ADMIN'] }
   },
   CUSTOMER_SESSION_APPROVED: {
-    approve: { nextStatus: LoanStatus.FINAL_APPROVED, roles: ['SUPER_ADMIN'] },
-    reject: { nextStatus: LoanStatus.REJECTED_FINAL, roles: ['SUPER_ADMIN'] },
-    send_back: { nextStatus: LoanStatus.SESSION_CREATED, roles: ['SUPER_ADMIN'] }
+    approve: { nextStatus: 'FINAL_APPROVED', roles: ['SUPER_ADMIN'] },
+    reject: { nextStatus: 'REJECTED_FINAL', roles: ['SUPER_ADMIN'] },
+    send_back: { nextStatus: 'SESSION_CREATED', roles: ['SUPER_ADMIN'] }
   },
   FINAL_APPROVED: {
-    disburse: { nextStatus: LoanStatus.ACTIVE, roles: ['CASHIER'] },
-    send_back: { nextStatus: LoanStatus.CUSTOMER_SESSION_APPROVED, roles: ['CASHIER', 'SUPER_ADMIN'] }
+    disburse: { nextStatus: 'ACTIVE', roles: ['CASHIER'] },
+    send_back: { nextStatus: 'CUSTOMER_SESSION_APPROVED', roles: ['CASHIER', 'SUPER_ADMIN'] }
   },
   ACTIVE: {
-    send_back: { nextStatus: LoanStatus.FINAL_APPROVED, roles: ['SUPER_ADMIN'] }
+    send_back: { nextStatus: 'FINAL_APPROVED', roles: ['SUPER_ADMIN'] }
   }
 };
 
@@ -288,10 +291,10 @@ async function processSingleApproval({
 
   // Status-specific updates
   switch (nextStatus) {
-    case LoanStatus.SA_APPROVED: updateData.saApprovedAt = new Date(); break;
-    case LoanStatus.COMPANY_APPROVED: updateData.companyApprovedAt = new Date(); break;
-    case LoanStatus.AGENT_APPROVED_STAGE1: updateData.agentApprovedAt = new Date(); break;
-    case LoanStatus.LOAN_FORM_COMPLETED:
+    case 'SA_APPROVED': updateData.saApprovedAt = new Date(); break;
+    case 'COMPANY_APPROVED': updateData.companyApprovedAt = new Date(); break;
+    case 'AGENT_APPROVED_STAGE1': updateData.agentApprovedAt = new Date(); break;
+    case 'LOAN_FORM_COMPLETED':
       updateData.loanFormCompletedAt = new Date();
       updateData.currentStage = 'SESSION_CREATION';
       if (userId) {
@@ -299,17 +302,17 @@ async function processSingleApproval({
         if (staff?.agentId) updateData.currentHandlerId = staff.agentId;
       }
       break;
-    case LoanStatus.SESSION_CREATED: updateData.sessionCreatedAt = new Date(); break;
-    case LoanStatus.CUSTOMER_SESSION_APPROVED: 
+    case 'SESSION_CREATED': updateData.sessionCreatedAt = new Date(); break;
+    case 'CUSTOMER_SESSION_APPROVED': 
       updateData.customerApprovedAt = new Date(); 
       break;
-    case LoanStatus.FINAL_APPROVED: updateData.finalApprovedAt = new Date(); break;
-    case LoanStatus.ACTIVE:
-    case LoanStatus.ACTIVE_INTEREST_ONLY:
+    case 'FINAL_APPROVED': updateData.finalApprovedAt = new Date(); break;
+    case 'ACTIVE':
+    case 'ACTIVE_INTEREST_ONLY':
       // Check if this is an INTEREST_ONLY loan
       if (loan.isInterestOnlyLoan) {
         // For INTEREST_ONLY loans, set status to ACTIVE_INTEREST_ONLY
-        updateData.status = LoanStatus.ACTIVE_INTEREST_ONLY;
+        updateData.status = 'ACTIVE_INTEREST_ONLY';
         updateData.interestOnlyStartDate = new Date();
         
         // Calculate monthly interest amount based on approved amount and interest rate
@@ -342,38 +345,38 @@ async function processSingleApproval({
         }
       }
       break;
-    case LoanStatus.REJECTED_BY_SA:
-    case LoanStatus.REJECTED_BY_COMPANY:
-    case LoanStatus.REJECTED_FINAL:
-    case LoanStatus.SESSION_REJECTED:
+    case 'REJECTED_BY_SA':
+    case 'REJECTED_BY_COMPANY':
+    case 'REJECTED_FINAL':
+    case 'SESSION_REJECTED':
       updateData.rejectedAt = new Date();
       updateData.rejectionReason = remarks;
       updateData.rejectedById = userId;
       break;
     // Send Back Cases - Reset to previous stage
-    case LoanStatus.SUBMITTED:
+    case 'SUBMITTED':
       // Sending back from SA_APPROVED to SUBMITTED
       updateData.saApprovedAt = null;
       updateData.currentStage = 'SA_REVIEW';
       updateData.currentHandlerId = null;
       break;
-    case LoanStatus.SA_APPROVED:
+    case 'SA_APPROVED':
       // Sending back from COMPANY_APPROVED or AGENT_APPROVED_STAGE1 to SA_APPROVED
       updateData.companyApprovedAt = null;
       updateData.agentApprovedAt = null;
       updateData.currentStage = 'COMPANY_ASSIGNMENT';
       break;
-    case LoanStatus.AGENT_APPROVED_STAGE1:
+    case 'AGENT_APPROVED_STAGE1':
       // Sending back from LOAN_FORM_COMPLETED to AGENT_APPROVED_STAGE1
       updateData.loanFormCompletedAt = null;
       updateData.currentStage = 'STAFF_VERIFICATION';
       break;
-    case LoanStatus.SESSION_CREATED:
+    case 'SESSION_CREATED':
       // Sending back from CUSTOMER_SESSION_APPROVED to SESSION_CREATED
       updateData.customerApprovedAt = null;
       updateData.currentStage = 'CUSTOMER_APPROVAL';
       break;
-    case LoanStatus.CUSTOMER_SESSION_APPROVED:
+    case 'CUSTOMER_SESSION_APPROVED':
       // Sending back from FINAL_APPROVED or ACTIVE to CUSTOMER_SESSION_APPROVED
       updateData.finalApprovedAt = null;
       updateData.disbursedAt = null;
@@ -390,7 +393,7 @@ async function processSingleApproval({
     // Update loan
     await tx.loanApplication.update({ where: { id: loanId }, data: updateData });
 
-    if (nextStatus === LoanStatus.CUSTOMER_SESSION_APPROVED && signatureData) {
+    if (nextStatus === 'CUSTOMER_SESSION_APPROVED' && signatureData) {
       await tx.sessionForm.update({
         where: { loanApplicationId: loanId },
         data: { customerSignature: signatureData }
@@ -399,7 +402,7 @@ async function processSingleApproval({
     }
 
     // Create first Interest EMI for Interest Only loans
-    if (loan.isInterestOnlyLoan && (nextStatus === LoanStatus.ACTIVE || nextStatus === LoanStatus.ACTIVE_INTEREST_ONLY)) {
+    if (loan.isInterestOnlyLoan && (nextStatus === 'ACTIVE' || nextStatus === 'ACTIVE_INTEREST_ONLY')) {
       const approvedAmount = loan.sessionForm?.approvedAmount || loan.requestedAmount || 0;
       const interestRate = loan.sessionForm?.interestRate || 0;
       const monthlyInterest = (approvedAmount * interestRate / 100) / 12;
@@ -437,7 +440,7 @@ async function processSingleApproval({
     }
 
     // Handle disbursement accounting
-    if (nextStatus === LoanStatus.ACTIVE && disbursementData?.amount) {
+    if (nextStatus === 'ACTIVE' && disbursementData?.amount) {
       // Check if there's a pending mirror loan for this loan
       // If yes, skip the disbursement accounting here - it will be handled when mirror loan is disbursed
       const pendingMirrorLoan = await tx.pendingMirrorLoan.findFirst({
