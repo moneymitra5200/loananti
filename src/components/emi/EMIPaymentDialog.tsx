@@ -115,7 +115,6 @@ export default function EMIPaymentDialog({
   
   // Penalty state
   const [penaltyWaiver, setPenaltyWaiver] = useState('0');
-  const [editedPenalty, setEditedPenalty] = useState(''); // Staff can edit penalty amount
 
   // Derive whether this is an interest-only loan product (PRINCIPAL_ONLY option hidden for these)
   const isInterestOnlyLoan = emi?.isInterestOnly === true;
@@ -213,34 +212,16 @@ export default function EMIPaymentDialog({
     });
   };
 
-  // Penalty calculation helper - formula: loan_amount / 1000 per day
+  // Penalty calculation helper
   const getPenaltyPerDay = (loanAmount: number): number => {
-    return Math.ceil(loanAmount / 1000);
-  };
-
-  // Check if EMI due date has passed (more reliable than checking paymentStatus)
-  const hasDueDatePassed = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dueDate = new Date(emi.dueDate);
-    dueDate.setHours(0, 0, 0, 0);
-    return today > dueDate;
-  };
-
-  // Calculate days overdue (days after due date)
-  const calculateDaysOverdue = (): number => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dueDate = new Date(emi.dueDate);
-    dueDate.setHours(0, 0, 0, 0);
-    const diffTime = today.getTime() - dueDate.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return Math.max(0, diffDays);
+    const lakhs = loanAmount / 100_000;
+    if (lakhs <= 1) return 100;
+    if (lakhs <= 3) return 200;
+    return Math.ceil(lakhs) * 100;
   };
 
   // Check if EMI is overdue
-  const isEmiOverdue = hasDueDatePassed();
-  const daysOverdue = calculateDaysOverdue();
+  const isEmiOverdue = emi.paymentStatus === 'OVERDUE' || (emi.daysOverdue && emi.daysOverdue > 0);
   
   // Get loan amount for penalty calculation
   const getLoanAmountForPenalty = (): number => {
@@ -252,18 +233,16 @@ export default function EMIPaymentDialog({
   
   // Calculate penalty details
   const calculatePenaltyDetails = () => {
-    if (!isEmiOverdue) return { penaltyAmount: 0, daysOverdue: 0, ratePerDay: 0, netPenalty: 0, calculatedPenalty: 0 };
+    if (!isEmiOverdue) return { penaltyAmount: 0, daysOverdue: 0, ratePerDay: 0, netPenalty: 0 };
     
     const loanAmount = getLoanAmountForPenalty();
     const ratePerDay = getPenaltyPerDay(loanAmount);
-    const calculatedPenalty = ratePerDay * daysOverdue; // This is the calculated/real penalty
-    
-    // Use edited penalty if provided, otherwise use calculated
-    const penaltyAmount = editedPenalty !== '' ? parseFloat(editedPenalty) || 0 : calculatedPenalty;
+    const daysOverdue = emi.daysOverdue || 0;
+    const penaltyAmount = emi.penaltyAmount || (daysOverdue * ratePerDay);
     const waiver = parseFloat(penaltyWaiver) || 0;
     const netPenalty = Math.max(0, penaltyAmount - waiver);
     
-    return { penaltyAmount, daysOverdue, ratePerDay, netPenalty, calculatedPenalty };
+    return { penaltyAmount, daysOverdue, ratePerDay, netPenalty };
   };
   
   const penaltyDetails = calculatePenaltyDetails();
@@ -586,7 +565,6 @@ export default function EMIPaymentDialog({
     setPaymentReference('');
     setInterestOnlyConfirmed(false);
     setPenaltyWaiver('0');
-    setEditedPenalty('');
     // editedInterest removed (BUG-11)
   };
 
@@ -653,8 +631,8 @@ export default function EMIPaymentDialog({
             )}
           </div>
 
-          {/* Penalty Section - ALWAYS show when due date has passed */}
-          {isEmiOverdue && (
+          {/* Penalty Section - Show when EMI is overdue */}
+          {isEmiOverdue && penaltyDetails.penaltyAmount > 0 && (
             <div className="bg-red-50 p-4 rounded-lg border-2 border-red-200">
               <div className="flex items-center gap-2 mb-3">
                 <AlertTriangle className="h-5 w-5 text-red-600" />
@@ -666,44 +644,17 @@ export default function EMIPaymentDialog({
               
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between items-center">
-                  <span className="text-red-600">Loan Amount</span>
-                  <span className="font-medium text-gray-700">{formatCurrency(getLoanAmountForPenalty())}</span>
-                </div>
-                <div className="flex justify-between items-center">
                   <span className="text-red-600">Penalty Rate</span>
                   <span className="font-medium text-red-700">
                     ₹{penaltyDetails.ratePerDay}/day
                     <span className="text-xs text-gray-500 ml-1">
-                      (Loan ÷ 1000)
+                      ({getLoanAmountForPenalty() <= 100000 ? '≤1L' : getLoanAmountForPenalty() <= 300000 ? '1-3L' : '>3L'} tier)
                     </span>
                   </span>
                 </div>
-                
-                {/* Calculated Penalty Reference */}
-                <div className="flex justify-between items-center bg-red-100 p-2 rounded">
-                  <span className="text-red-700 font-medium">Calculated Penalty</span>
-                  <span className="font-bold text-red-800">{formatCurrency(penaltyDetails.calculatedPenalty)}</span>
-                </div>
-                
-                {/* Editable Penalty Amount */}
-                <div className="pt-2 border-t border-red-200 mt-2">
-                  <Label className="text-sm text-red-700 font-medium">Penalty to Collect (Editable)</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="relative flex-1">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        type="number"
-                        value={editedPenalty}
-                        onChange={(e) => setEditedPenalty(e.target.value)}
-                        placeholder={penaltyDetails.calculatedPenalty.toString()}
-                        min="0"
-                        className="pl-8"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Default: {formatCurrency(penaltyDetails.calculatedPenalty)}. You can edit this amount.
-                  </p>
+                <div className="flex justify-between items-center">
+                  <span className="text-red-600">Total Penalty</span>
+                  <span className="font-medium text-red-700">{formatCurrency(penaltyDetails.penaltyAmount)}</span>
                 </div>
                 
                 {/* Penalty Waiver Input */}
@@ -733,17 +684,12 @@ export default function EMIPaymentDialog({
                 
                 {/* Net Penalty After Waiver */}
                 <div className="flex justify-between items-center pt-2 border-t border-red-200 mt-2">
-                  <span className="font-medium text-red-700">Final Penalty to Collect</span>
+                  <span className="font-medium text-red-700">Penalty to Collect</span>
                   <span className="font-bold text-lg text-red-700">
                     {formatCurrency(penaltyDetails.netPenalty)}
                     {parseFloat(penaltyWaiver) > 0 && (
                       <span className="text-xs text-green-600 ml-1">
                         (waived: {formatCurrency(parseFloat(penaltyWaiver))})
-                      </span>
-                    )}
-                    {editedPenalty !== '' && parseFloat(editedPenalty) !== penaltyDetails.calculatedPenalty && (
-                      <span className="text-xs text-blue-600 ml-1">
-                        (edited from {formatCurrency(penaltyDetails.calculatedPenalty)})
                       </span>
                     )}
                   </span>
