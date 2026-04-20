@@ -209,6 +209,11 @@ export default function OfflineLoanDetailPanel({
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
 
+  // Penalty state
+  const [editedPenalty, setEditedPenalty] = useState(''); // Staff can edit penalty
+  const [penaltyWaiver, setPenaltyWaiver] = useState(0);
+  const [penaltyPaymentMode, setPenaltyPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
+
   const [personalCredit, setPersonalCredit] = useState(0);
   const [companyCredit, setCompanyCredit] = useState(0);
 
@@ -358,6 +363,10 @@ export default function OfflineLoanDetailPanel({
     setPaymentRemarks('');
     setProofFile(null);
     setProofPreview(null);
+    // Reset penalty state
+    setEditedPenalty('');
+    setPenaltyWaiver(0);
+    setPenaltyPaymentMode('CASH');
     setPaymentDialogOpen(true);
     setIsInterestOnlyPayment(false);
     setIsMultiEmiPayment(false);
@@ -717,13 +726,27 @@ export default function OfflineLoanDetailPanel({
         // SINGLE EMI: Always pay full amount (principal + interest) - NO advance logic
         // Advance logic only applies when using "Select All" (multi-EMI payment)
         requestBody.isAdvancePayment = false;
+        
+        // Calculate penalty for overdue EMI
+        const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+        const isOverdue = penaltyInfo.daysOverdue > 0;
+        if (isOverdue) {
+          const effectivePenalty = editedPenalty !== '' ? parseFloat(editedPenalty) || 0 : penaltyInfo.penaltyAmount;
+          const netPenalty = Math.max(0, effectivePenalty - penaltyWaiver);
+          if (netPenalty > 0) {
+            requestBody.penaltyAmount = effectivePenalty;
+            requestBody.penaltyWaiver = penaltyWaiver;
+            requestBody.penaltyPaymentMode = penaltyPaymentMode;
+          }
+        }
+        
         if (paymentType === 'PARTIAL') {
           requestBody.remainingPaymentDate = remainingPaymentDate;
           requestBody.amount = paymentAmount;
         } else if (paymentType === 'INTEREST_ONLY') {
           // BUG-2 fix: send REMAINING interest (not original total)
           const remainingInterest = selectedEmi.interestAmount - (selectedEmi.paidInterest || 0);
-          requestBody.amount = remainingInterest;
+          requestBody.amount = paymentAmount;
           // BUG-6 fix: removed duplicate interestAmount field — amount alone is sufficient
         } else {
           requestBody.amount = paymentAmount;
@@ -2750,6 +2773,101 @@ export default function OfflineLoanDetailPanel({
                 />
               </div>
             )}
+
+            {/* Penalty Section - ALWAYS show when due date has passed */}
+            {!isInterestOnlyPayment && !isMultiEmiPayment && selectedEmi && loan && (() => {
+              const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+              const isOverdue = penaltyInfo.daysOverdue > 0;
+              const effectivePenalty = editedPenalty !== '' ? parseFloat(editedPenalty) || 0 : penaltyInfo.penaltyAmount;
+              const netPenalty = Math.max(0, effectivePenalty - penaltyWaiver);
+              return isOverdue ? (
+                <div className="p-4 bg-rose-50 rounded-lg border-2 border-rose-200 space-y-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle className="h-5 w-5 text-rose-600" />
+                    <Label className="text-rose-800 font-semibold">
+                      Penalty for Overdue EMI
+                    </Label>
+                    <span className="ml-auto text-xs bg-rose-200 text-rose-800 px-2 py-1 rounded-full font-medium">
+                      {penaltyInfo.daysOverdue} day(s) overdue
+                    </span>
+                  </div>
+                  
+                  {/* Loan Info & Calculation */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-rose-600">Loan Amount</span>
+                      <span className="font-medium text-gray-700">{formatCurrency(loan.loanAmount)}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-rose-600">Penalty Rate</span>
+                      <span className="font-medium text-rose-700">
+                        ₹{penaltyInfo.ratePerDay}/day
+                        <span className="text-xs text-gray-500 ml-1">(Loan ÷ 1000)</span>
+                      </span>
+                    </div>
+                    
+                    {/* Calculated Penalty Reference */}
+                    <div className="flex justify-between items-center bg-rose-100 p-2 rounded">
+                      <span className="text-rose-700 font-medium">Calculated Penalty</span>
+                      <span className="font-bold text-rose-800">{formatCurrency(penaltyInfo.penaltyAmount)}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Editable Penalty Amount */}
+                  <div className="pt-2 border-t border-rose-200">
+                    <Label className="text-sm text-rose-700 font-medium">Penalty to Collect (Editable)</Label>
+                    <Input 
+                      type="number" 
+                      value={editedPenalty}
+                      onChange={(e) => setEditedPenalty(e.target.value)}
+                      placeholder={penaltyInfo.penaltyAmount.toString()}
+                      className="mt-1" />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Default: {formatCurrency(penaltyInfo.penaltyAmount)}. You can edit this amount.
+                    </p>
+                  </div>
+                  
+                  {/* Waiver */}
+                  <div className="pt-2 border-t border-rose-200">
+                    <Label className="text-xs text-gray-600">Waiver (₹)</Label>
+                    <Input 
+                      type="number" 
+                      value={penaltyWaiver}
+                      onChange={(e) => setPenaltyWaiver(parseFloat(e.target.value) || 0)}
+                      placeholder="0" 
+                      max={effectivePenalty} />
+                  </div>
+                  
+                  {/* Net Penalty & Payment Mode */}
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-rose-700">
+                      Final Penalty to Collect: <span className="font-bold text-lg">{formatCurrency(netPenalty)}</span>
+                      {penaltyWaiver > 0 && (
+                        <span className="text-xs text-green-600 ml-1">(waived: {formatCurrency(penaltyWaiver)})</span>
+                      )}
+                      {editedPenalty !== '' && parseFloat(editedPenalty) !== penaltyInfo.penaltyAmount && (
+                        <span className="text-xs text-blue-600 ml-1">(edited from {formatCurrency(penaltyInfo.penaltyAmount)})</span>
+                      )}
+                    </p>
+                    
+                    {/* Payment Mode for Penalty */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {(['CASH', 'BANK'] as const).map((mode) => (
+                        <button key={mode} type="button"
+                          onClick={() => setPenaltyPaymentMode(mode)}
+                          className={`p-2 rounded-lg border-2 text-xs text-left transition-all ${
+                            penaltyPaymentMode === mode ? 'border-rose-500 bg-rose-100' : 'border-gray-200 bg-white'}`}>
+                          <div className="flex items-center gap-1">
+                            {mode === 'CASH' ? <Banknote className="h-3 w-3" /> : <Landmark className="h-3 w-3" />}
+                            <span className="font-medium">{mode}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null;
+            })()}
 
             {/* Transaction Reference */}
             <div>

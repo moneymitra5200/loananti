@@ -1,6 +1,69 @@
 # Worklog - Accounting Portal Fixes
 
 ---
+Task ID: 8
+Agent: Main Agent
+Task: Implement editable penalty field that is ALWAYS visible when EMI due date has passed
+
+Work Log:
+1. Penalty Field Requirements:
+   - Penalty field ALWAYS visible when due date has passed (not just when penaltyAmount > 0)
+   - Default = calculated value using formula: loan_amount / 1000 × days_late
+   - Editable field - any staff role can modify the penalty amount
+   - Show calculated/real amount for reference
+   - Works for both online and offline loans
+   - Works with or without mirror company setup
+
+2. EMIPaymentDialog.tsx (Online Loans) Updates:
+   - Changed penalty formula from tiered to LINEAR: loan_amount / 1000 per day
+   - Added hasDueDatePassed() function - checks if due date has passed
+   - Added calculateDaysOverdue() function - calculates days after due date
+   - Added editedPenalty state - allows staff to edit penalty amount
+   - Updated penalty UI section:
+     * Shows calculated penalty as reference (highlighted in red box)
+     * Editable input field with placeholder showing default
+     * Waiver input field
+     * Final penalty to collect display
+     * Shows "edited from X" when penalty is modified
+   - Updated resetForm() to clear editedPenalty
+
+3. OfflineEMIPaymentDialog.tsx Updates:
+   - Added loanAmount prop for penalty calculation
+   - Added helper functions: hasDueDatePassed, calculateDaysOverdue, getPenaltyPerDay
+   - Added editedPenalty state for staff modification
+   - Added penalty calculation: penaltyPerDay * daysOverdue
+   - Updated penalty UI to show:
+     * Calculated penalty reference
+     * Editable penalty input
+     * Waiver input
+     * Final penalty display with edit/waiver indicators
+   - Updated useEffect to reset penalty on dialog open
+
+4. OfflineLoanDetailPanel.tsx Updates:
+   - Added penalty state: editedPenalty, penaltyWaiver, penaltyPaymentMode
+   - Added penalty section in payment dialog (IIFE for inline calculation)
+   - Shows penalty UI ONLY when EMI is overdue (daysOverdue > 0)
+   - Added penalty fields to payment submission:
+     * penaltyAmount
+     * penaltyWaiver  
+     * penaltyPaymentMode
+   - Reset penalty state when opening payment dialog
+
+Stage Summary:
+- Penalty field now ALWAYS visible when due date has passed
+- Default calculated using: loan_amount / 1000 × days_late
+- Staff can edit penalty amount with reference to calculated value
+- Shows "edited from X" when modified
+- Works for online loans (EMIPaymentDialog)
+- Works for offline loans (OfflineEMIPaymentDialog, OfflineLoanDetailPanel)
+- API already handles penalty accounting entries correctly
+
+Files Modified:
+- /src/components/emi/EMIPaymentDialog.tsx (penalty calculation and UI)
+- /src/components/offline-loan/OfflineEMIPaymentDialog.tsx (penalty calculation and UI)
+- /src/components/offline-loan/OfflineLoanDetailPanel.tsx (penalty state, UI, and submission)
+
+---
 Task ID: 7
 Agent: Main Agent
 Task: Simplify EMI Due Alert to open loan detail directly (no separate dialog)
