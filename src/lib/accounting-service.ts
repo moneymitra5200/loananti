@@ -265,7 +265,6 @@ export class AccountingService {
           openingBalance: 0,
           currentBalance: 0,
         })),
-        skipDuplicates: true,
       });
     }
 

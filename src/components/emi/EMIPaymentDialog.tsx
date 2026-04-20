@@ -219,6 +219,18 @@ export default function EMIPaymentDialog({
     return Math.round(loanAmount / 1000);
   };
 
+  // Calculate days overdue based on due date
+  const calculateDaysOverdue = (): number => {
+    if (!emi?.dueDate) return 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(emi.dueDate);
+    dueDate.setHours(0, 0, 0, 0);
+    const diffTime = today.getTime() - dueDate.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+  };
+
   // Check if EMI is overdue - due date has passed
   const isEmiOverdue = (() => {
     const daysOverdue = calculateDaysOverdue();
