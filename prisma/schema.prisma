@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "mysql"
-  url       = env("DATABASE_URL")
-  directUrl  = env("DATABASE_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -14,7 +13,7 @@ model User {
   email                        String                 @unique
   phone                        String?
   name                         String?
-  role                         UserRole               @default(CUSTOMER)
+  role                         String                 @default("CUSTOMER")
   isActive                     Boolean                @default(true)
   isLocked                     Boolean                @default(false)
   failedLoginAttempts          Int                    @default(0)
@@ -235,8 +234,8 @@ model LoanApplication {
   applicationNo             String                   @unique
   customerId                String
   companyId                 String?
-  loanType                  LoanType                 @default(PERSONAL)
-  status                    LoanStatus               @default(SUBMITTED)
+  loanType                  String                   @default("PERSONAL")
+  status                    String                   @default("SUBMITTED")
   requestedAmount           Float
   requestedTenure           Int
   requestedInterestRate     Float?
@@ -311,18 +310,18 @@ model LoanApplication {
   interestRate              Float?
   emiAmount                 Float?
   processingFee             Float?
-  panCardDoc                String?   @db.LongText
-  aadhaarFrontDoc           String?   @db.LongText
-  aadhaarBackDoc            String?   @db.LongText
-  incomeProofDoc            String?   @db.LongText
-  addressProofDoc           String?   @db.LongText
-  photoDoc                  String?   @db.LongText
-  bankStatementDoc          String?   @db.LongText
-  passbookDoc               String?   @db.LongText
-  salarySlipDoc             String?   @db.LongText
-  electionCardDoc           String?   @db.LongText
-  housePhotoDoc             String?   @db.LongText
-  otherDocs                 String?   @db.LongText
+  panCardDoc                String?
+  aadhaarFrontDoc           String?
+  aadhaarBackDoc            String?
+  incomeProofDoc            String?
+  addressProofDoc           String?
+  photoDoc                  String?
+  bankStatementDoc          String?
+  passbookDoc               String?
+  salarySlipDoc             String?
+  electionCardDoc           String?
+  housePhotoDoc             String?
+  otherDocs                 String?
   reference1Name            String?
   reference1Phone           String?
   reference1Relation        String?
@@ -331,7 +330,7 @@ model LoanApplication {
   reference2Phone           String?
   reference2Relation        String?
   reference2Address         String?
-  digitalSignature          String?   @db.LongText
+  digitalSignature          String?
   signatureHash             String?
   consentGiven              Boolean                  @default(false)
   consentTimestamp          DateTime?
@@ -350,7 +349,7 @@ model LoanApplication {
   disbursedById             String?
   disbursementMode          String?
   disbursementRef           String?
-  disbursementProof         String?   @db.LongText
+  disbursementProof         String?
   submittedAt               DateTime                 @default(now())
   saApprovedAt              DateTime?
   companyApprovedAt         DateTime?
@@ -469,7 +468,7 @@ model SessionForm {
   requestedInterestRate Float?
   customerApproved      Boolean         @default(false)
   customerApprovedAt    DateTime?
-  customerSignature     String?   @db.LongText
+  customerSignature     String?
   customerSignatureHash String?
   rejected              Boolean         @default(false)
   rejectedAt            DateTime?
@@ -559,7 +558,7 @@ model EMISchedule {
   paidAmount           Float              @default(0)
   paidPrincipal        Float              @default(0)
   paidInterest         Float              @default(0)
-  paymentStatus        EMIPaymentStatus   @default(PENDING)
+  paymentStatus        String             @default("PENDING")
   paidDate             DateTime?
   paymentMode          String?
   paymentReference     String?
@@ -589,7 +588,7 @@ model EMISchedule {
   duplicatedEMINumber  Int? // If this EMI was duplicated due to interest only payment
   originalEMIId        String? // Reference to original EMI if this is a duplicate
   // Payment History JSON - stores array of payment records
-  paymentHistoryJson   String?  @db.LongText // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
+  paymentHistoryJson   String? // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
   loanApplication      LoanApplication    @relation(fields: [loanApplicationId], references: [id])
@@ -610,7 +609,7 @@ model Payment {
   customerId         String
   cashierId          String?
   paidById           String? // Who made the payment (staff/cashier/agent)
-  paymentType        PaymentType     @default(FULL_EMI)
+  paymentType        String           @default("FULL_EMI")
   amount             Float
   principalComponent Float           @default(0)
   interestComponent  Float           @default(0)
@@ -620,7 +619,7 @@ model Payment {
   paymentMode        String?
   paymentGateway     String?
   gatewayResponse    String?
-  status             PaymentStatus   @default(PENDING)
+  status             String          @default("PENDING")
   verified           Boolean         @default(false)
   verifiedById       String?
   verifiedAt         DateTime?
@@ -946,7 +945,7 @@ model ChartOfAccount {
   companyId       String             @default("default") // Company this account belongs to
   accountCode     String
   accountName     String
-  accountType     AccountType
+  accountType     String
   parentAccountId String?
   parentAccount   ChartOfAccount?    @relation("AccountHierarchy", fields: [parentAccountId], references: [id])
   subAccounts     ChartOfAccount[]   @relation("AccountHierarchy")
@@ -1183,7 +1182,7 @@ model BankAccount {
 
   // Payment Display Settings (for customer payment page)
   upiId     String? // UPI ID for receiving payments
-  qrCodeUrl String? @db.Text // QR Code image (base64 data URL or file URL)
+  qrCodeUrl String? // QR Code image (base64 data URL or file URL)
 
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
@@ -1470,83 +1469,6 @@ model CompanyAccountingSettings {
   suspenseAccountId         String?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
-}
-
-// Account Types Enum
-enum AccountType {
-  ASSET
-  LIABILITY
-  INCOME
-  EXPENSE
-  EQUITY
-}
-
-enum UserRole {
-  SUPER_ADMIN
-  COMPANY
-  AGENT
-  STAFF
-  CASHIER
-  CUSTOMER
-  ACCOUNTANT
-}
-
-enum LoanStatus {
-  SUBMITTED
-  SA_APPROVED
-  COMPANY_APPROVED
-  AGENT_APPROVED_STAGE1
-  LOAN_FORM_COMPLETED
-  SESSION_CREATED
-  CUSTOMER_SESSION_APPROVED
-  FINAL_APPROVED
-  DISBURSED
-  ACTIVE
-  ACTIVE_INTEREST_ONLY
-  CLOSED
-  REJECTED_BY_SA
-  REJECTED_BY_COMPANY
-  REJECTED_FINAL
-  SESSION_REJECTED
-}
-
-enum LoanType {
-  PERSONAL
-  BUSINESS
-  HOME
-  VEHICLE
-  EDUCATION
-  GOLD
-  OTHER
-  INTEREST_ONLY
-}
-
-enum EMIPaymentStatus {
-  PENDING
-  PAID
-  PARTIALLY_PAID
-  OVERDUE
-  INTEREST_ONLY_PAID
-  WAIVED
-}
-
-enum PaymentStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  REFUNDED
-}
-
-enum PaymentType {
-  FULL_EMI
-  PARTIAL_PAYMENT
-  INTEREST_ONLY
-  INTEREST_ONLY_PAYMENT // Monthly interest payment during interest-only phase
-  PRINCIPAL_ONLY        // Principal collected; interest written off as Irrecoverable Debt
-  PENALTY
-  PROCESSING_FEE
-  FORECLOSURE
 }
 
 // ==================== ADVANCED LOAN FEATURES ====================
@@ -1910,12 +1832,12 @@ model LoanProgressTimeline {
 model CreditTransaction {
   id              String                @id @default(cuid())
   userId          String // User whose credit is affected
-  transactionType CreditTransactionType // CREDIT_INCREASE, CREDIT_DECREASE, SETTLEMENT, PERSONAL_CLEARANCE
+  transactionType String // CREDIT_INCREASE, CREDIT_DECREASE, SETTLEMENT, PERSONAL_CLEARANCE
   amount          Float // Amount involved
-  paymentMode     PaymentModeType // CASH, CHEQUE, ONLINE, UPI, BANK_TRANSFER
+  paymentMode     String // CASH, CHEQUE, ONLINE, UPI, BANK_TRANSFER
 
   // Dual Credit System
-  creditType           CreditType @default(COMPANY) // COMPANY or PERSONAL
+  creditType           String     @default("COMPANY") // COMPANY or PERSONAL
   companyBalanceAfter  Float? // Company credit balance after this transaction
   personalBalanceAfter Float? // Personal credit balance after this transaction
   balanceAfter         Float // Total credit balance after this transaction (legacy)
@@ -1994,14 +1916,14 @@ model CashierSettlement {
   userId             String // User giving the money
   cashierId          String // Cashier receiving the money
   amount             Float // Total amount settled
-  paymentMode        PaymentModeType // CASH, CHEQUE, ONLINE
+  paymentMode        String // CASH, CHEQUE, ONLINE
   // Payment details
   chequeNumber       String?
   chequeDate         DateTime?
   bankRefNumber      String?
   utrNumber          String?
   // Status
-  status             SettlementStatus    @default(PENDING) // PENDING, VERIFIED, COMPLETED
+  status             String              @default("PENDING") // PENDING, VERIFIED, COMPLETED
   verifiedById       String? // Accountant who verified
   verifiedAt         DateTime?
   // Denomination breakdown for cash
@@ -2053,41 +1975,6 @@ model DailyCollection {
   @@index([companyId])
 }
 
-// Credit Transaction Types Enum
-enum CreditTransactionType {
-  CREDIT_INCREASE // When role collects EMI payment
-  CREDIT_DECREASE // When role settles with cashier/superadmin
-  SETTLEMENT // When cashier receives payment
-  ADJUSTMENT // Manual adjustment by admin
-  PERSONAL_CLEARANCE // When personal credit is cleared by superadmin
-  PERSONAL_COLLECTION // When money collected in personal account
-  BANK_DIRECT // When customer pays directly to bank (Company Credit + ONLINE)
-}
-
-// Credit Type Enum - Dual Credit System
-enum CreditType {
-  COMPANY // Company credit - only CASH increases this
-  PERSONAL // Personal credit - requires proof for all transactions
-}
-
-// Payment Mode Enum
-enum PaymentModeType {
-  CASH // Only CASH increases company credit
-  CHEQUE // Requires proof, doesn't increase company credit
-  ONLINE // Requires proof, doesn't increase company credit
-  UPI // Requires proof, doesn't increase company credit
-  BANK_TRANSFER // Requires proof, doesn't increase company credit
-  SYSTEM // For system-generated transactions (deductions, transfers, etc.)
-}
-
-// Settlement Status Enum
-enum SettlementStatus {
-  PENDING
-  VERIFIED
-  COMPLETED
-  REJECTED
-}
-
 // ==================== OFFLINE LOAN SYSTEM ====================
 
 // Offline Loan - Created by SuperAdmin or Agent directly
@@ -2120,7 +2007,7 @@ model OfflineLoan {
   reference2Phone           String?
   reference2Relation        String?
   // Loan details
-  loanType                  LoanType           @default(PERSONAL)
+  loanType                  String             @default("PERSONAL")
   interestType              String             @default("FLAT") // FLAT or REDUCING
   loanAmount                Float
   interestRate              Float
@@ -2131,7 +2018,7 @@ model OfflineLoan {
   disbursementMode          String? // CASH, BANK_TRANSFER, CHEQUE
   disbursementRef           String? // Transaction reference
   // Status
-  status                    OfflineLoanStatus  @default(ACTIVE)
+  status                    String             @default("ACTIVE")
   // Payment options control
   allowInterestOnly         Boolean            @default(true) // Allow interest-only payments
   allowPartialPayment       Boolean            @default(true) // Allow partial payments
@@ -2151,17 +2038,17 @@ model OfflineLoan {
   notes                     String?
   internalNotes             String?
   // Documents
-  panCardDoc                String?   @db.LongText
-  aadhaarFrontDoc           String?   @db.LongText
-  aadhaarBackDoc            String?   @db.LongText
-  incomeProofDoc            String?   @db.LongText
-  addressProofDoc           String?   @db.LongText
-  photoDoc                  String?   @db.LongText
-  electionCardDoc           String?   @db.LongText
-  housePhotoDoc             String?   @db.LongText
-  guarantorPhotoDoc         String?   @db.LongText
-  passbookPhotoDoc          String?   @db.LongText
-  otherDocs                 String?   @db.LongText
+  panCardDoc                String?
+  aadhaarFrontDoc           String?
+  aadhaarBackDoc            String?
+  incomeProofDoc            String?
+  addressProofDoc           String?
+  photoDoc                  String?
+  electionCardDoc           String?
+  housePhotoDoc             String?
+  guarantorPhotoDoc         String?
+  passbookPhotoDoc          String?
+  otherDocs                 String?
   applicationLocation       String?
   // Product reference
   productId                 String? // Reference to CMSService (loan product)
@@ -2213,7 +2100,7 @@ model OfflineLoanEMI {
   paidAmount           Float            @default(0)
   paidPrincipal        Float            @default(0)
   paidInterest         Float            @default(0)
-  paymentStatus        EMIPaymentStatus @default(PENDING)
+  paymentStatus        String           @default("PENDING")
   paidDate             DateTime?
   paymentMode          String?
   paymentReference     String?
@@ -2249,7 +2136,7 @@ model OfflineLoanEMI {
   offlineLoan          OfflineLoan      @relation(fields: [offlineLoanId], references: [id], onDelete: Cascade)
   collector            User?            @relation(fields: [collectedById], references: [id])
   // Payment History JSON - stores array of payment records
-  paymentHistoryJson   String?  @db.LongText // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
+  paymentHistoryJson   String? // JSON array of {amount, principal, interest, penalty, mode, reference, paidAt, collectedBy}
 
   @@unique([offlineLoanId, installmentNumber])
   @@index([offlineLoanId])
@@ -2291,16 +2178,6 @@ model EMIReminderLog {
   @@index([offlineLoanEMIId])
   @@index([sentAt])
   @@index([reminderType])
-}
-
-// Offline Loan Status Enum
-enum OfflineLoanStatus {
-  PENDING_APPROVAL // Initial state for Interest Only Loan
-  INTEREST_ONLY // Loan in interest-only phase
-  ACTIVE // Normal EMI payments started
-  CLOSED
-  DEFAULTED
-  RESTRUCTURED
 }
 
 // Secure Document Upload - For Interest Only Loan staff visit
@@ -2398,7 +2275,7 @@ model FixedAsset {
   // Asset Identification
   assetCode     String // Unique asset code (e.g., FA-001)
   assetName     String // Name of the asset
-  assetCategory AssetCategory // Category of the asset
+  assetCategory String // Category of the asset
 
   // Asset Details
   description  String? // Detailed description
@@ -2416,14 +2293,14 @@ model FixedAsset {
   usefulLifeMonths Int // Useful life in months
 
   // Depreciation Details
-  depreciationMethod      DepreciationMethod @default(STRAIGHT_LINE)
+  depreciationMethod      String             @default("STRAIGHT_LINE")
   depreciationRate        Float              @default(0) // Annual depreciation rate (%)
   accumulatedDepreciation Float              @default(0) // Total depreciation till date
   currentBookValue        Float              @default(0) // Current book value after depreciation
   lastDepreciationDate    DateTime? // Last depreciation calculated date
 
   // Status & Lifecycle
-  status          AssetStatus @default(ACTIVE)
+  status          String      @default("ACTIVE")
   acquisitionDate DateTime? // Date when asset was acquired
   disposalDate    DateTime? // Date when asset was disposed
   disposalValue   Float? // Value received on disposal
@@ -2498,38 +2375,6 @@ model AssetDepreciationLog {
   @@index([financialYear])
 }
 
-// Asset Category Enum
-enum AssetCategory {
-  FURNITURE_FIXTURES // Tables, chairs, cabinets
-  OFFICE_EQUIPMENT // Computers, printers, scanners
-  VEHICLES // Cars, bikes, trucks
-  MACHINERY_PLANT // Manufacturing equipment
-  BUILDINGS // Office buildings, warehouses
-  LAND // Land assets
-  ELECTRONICS // Laptops, phones, tablets
-  ELECTRICAL_INSTALLATIONS // ACs, generators, electrical fittings
-  INTANGIBLE_ASSETS // Software licenses, patents
-  OTHER // Any other fixed assets
-}
-
-// Depreciation Method Enum
-enum DepreciationMethod {
-  STRAIGHT_LINE // Equal depreciation each year
-  DIMINISHING_BALANCE // Reducing balance method
-  WRITTEN_DOWN_VALUE // WDV method (common in India)
-  UNITS_OF_PRODUCTION // Based on usage
-}
-
-// Asset Status Enum
-enum AssetStatus {
-  ACTIVE // Currently in use
-  UNDER_MAINTENANCE // Being repaired/maintained
-  DISPOSED // Sold or scrapped
-  WRITTEN_OFF // Fully depreciated or lost
-  SOLD // Sold to another party
-  IDLE // Not in use but not disposed
-}
-
 // ==================== PAYMENT REQUEST SYSTEM ====================
 
 // Payment Request - Customer initiated payment requests
@@ -2543,7 +2388,7 @@ model PaymentRequest {
   customerId        String
 
   // Payment Details
-  paymentType     PaymentType @default(FULL_EMI)
+  paymentType     String      @default("FULL_EMI")
   requestedAmount Float
 
   // For Partial Payment
@@ -2568,7 +2413,7 @@ model PaymentRequest {
   bankAccountDetails String? // JSON string with bank details
 
   // Status & Approval
-  status PaymentRequestStatus @default(PENDING)
+  status String              @default("PENDING")
 
   // Approval Details
   reviewedById    String?
@@ -2594,15 +2439,6 @@ model PaymentRequest {
   @@index([customerId])
   @@index([status])
   @@index([createdAt])
-}
-
-enum PaymentRequestStatus {
-  PENDING // Waiting for cashier review
-  UNDER_REVIEW // Being reviewed by cashier
-  APPROVED // Approved by cashier, EMI marked paid
-  REJECTED // Rejected by cashier
-  EXPIRED // Request expired (e.g., time limit passed)
-  CANCELLED // Cancelled by customer
 }
 
 // Payment Option Settings - Role-based settings for payment options
@@ -2690,7 +2526,7 @@ model CompanyPaymentPage {
 
   // Payment Display Details (what customer sees)
   upiId     String? // UPI ID for receiving payments
-  qrCodeUrl String? @db.Text // QR Code image (base64 data URL or file URL)
+  qrCodeUrl String? // QR Code image (base64 data URL or file URL)
 
   // Bank Details (from company's bank account)
   bankAccountId String? @unique // Linked bank account
@@ -2731,7 +2567,7 @@ model SecondaryPaymentPage {
 
   // Payment Display Details (what customer sees)
   upiId         String? // UPI ID shown to customer
-  qrCodeUrl     String? @db.Text // QR Code image shown to customer
+  qrCodeUrl     String? // QR Code image shown to customer
   bankName      String? // Bank name shown to customer
   accountNumber String? // Account number shown to customer
   accountName   String? // Account holder name shown to customer
@@ -3457,7 +3293,7 @@ model Enquiry {
   email         String
   phone         String?
   subject       String
-  message       String    @db.Text
+  message       String
   status        String    @default("PENDING") // PENDING | SEEN | RESOLVED
   seenByCashier Boolean   @default(false)
   seenBySA      Boolean   @default(false)
@@ -3480,7 +3316,7 @@ model Message {
   toUserId      String? // null = broadcast / announcement
   toRole        String? // AGENT, STAFF, CASHIER, CUSTOMER, ALL
   subject       String?
-  body          String    @db.Text
+  body          String
   isRead        Boolean   @default(false)
   readAt        DateTime?
   loanId        String? // Optional: linked loan context
