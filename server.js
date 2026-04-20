@@ -1,4 +1,6 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // server.js - Entry point for Hostinger Node.js hosting
+// This file uses CommonJS as required by Node.js hosting providers
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');

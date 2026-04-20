@@ -77,14 +77,24 @@ export function invalidateSystemSettingsCache() {
   fetchPromise = null;
 }
 
+// Get initial settings synchronously for useState lazy initializer
+function getInitialSettings(): SystemSettings {
+  return cachedSettings ?? DEFAULT;
+}
+
+// Get initial loading state synchronously for useState lazy initializer
+function getInitialLoading(): boolean {
+  return !cachedSettings;
+}
+
 export function useSystemSettings() {
-  const [settings, setSettings] = useState<SystemSettings>(cachedSettings ?? DEFAULT);
-  const [loading, setLoading] = useState(!cachedSettings);
+  // Use lazy initializers to avoid calling setState in effect
+  const [settings, setSettings] = useState<SystemSettings>(getInitialSettings);
+  const [loading, setLoading] = useState<boolean>(getInitialLoading);
 
   useEffect(() => {
+    // If we already have cached settings, no need to fetch
     if (cachedSettings) {
-      setSettings(cachedSettings);
-      setLoading(false);
       return;
     }
     loadSettings().then(s => {

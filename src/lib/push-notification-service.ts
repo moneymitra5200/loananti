@@ -303,7 +303,7 @@ export async function sendPaymentConfirmationPush(
   });
 }
 
-export default {
+const pushNotificationService = {
   sendPushNotificationToUser,
   sendPushNotificationToRole,
   saveUserFCMToken,
@@ -312,3 +312,5 @@ export default {
   sendLoanStatusPush,
   sendPaymentConfirmationPush,
 };
+
+export default pushNotificationService;

@@ -84,21 +84,16 @@ function getInitialUser(): User | null {
   return null;
 }
 
-// Helper to get initial loading state
-function getInitialLoading(): boolean {
-  if (typeof window === 'undefined') return true;
-  // If we have a user in sessionStorage, we're not loading
-  return !sessionStorage.getItem('demoUser');
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   // Detect redeployment and auto-logout for security
   useDeployLogout();
 
   // Use lazy initializers to read from sessionStorage during initial render
-  const [user, setUser] = useState<User | null>(null);
+  // This avoids calling setState in effects
+  const [user, setUser] = useState<User | null>(getInitialUser);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  // Loading is false if we have a cached user, true otherwise
+  const [loading, setLoading] = useState<boolean>(() => !getInitialUser());
   const initializedRef = useRef(false);
 
   const fetchUserData = useCallback(async (fbUser: FirebaseUser) => {
@@ -133,15 +128,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (initializedRef.current) return;
     initializedRef.current = true;
     
-    // 1. Try to restore from sessionStorage FIRST (fastest)
-    const storedUser = getInitialUser();
-    if (storedUser) {
-      setUser(storedUser);
-      setLoading(false);
+    // If we already have a user from sessionStorage, we're done (loading is already false)
+    if (user) {
       return;
     }
 
-    // 2. No cached user, check Firebase auth
+    // No cached user, check Firebase auth
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
@@ -153,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsubscribe();
-  }, [fetchUserData]);
+  }, [user, fetchUserData]);
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);

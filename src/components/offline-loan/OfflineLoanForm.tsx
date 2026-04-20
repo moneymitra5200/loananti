@@ -427,7 +427,6 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       fetchPaymentSources(formData.companyId);
       fetchCashbookBalance(formData.companyId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Fetch bank accounts AND cashbook when company changes
