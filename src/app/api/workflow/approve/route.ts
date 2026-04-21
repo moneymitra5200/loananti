@@ -391,7 +391,7 @@ async function processSingleApproval({
   // Single transaction for all critical operations
   await db.$transaction(async (tx) => {
     // Update loan
-    await tx.loanApplication.update({ where: { id: loanId }, data: updateData });
+    await tx.loanApplication.update({ where: { id: loanId }, data: updateData as any });
 
     if (nextStatus === 'CUSTOMER_SESSION_APPROVED' && signatureData) {
       await tx.sessionForm.update({
@@ -427,7 +427,7 @@ async function processSingleApproval({
           paidAmount: 0,
           paidPrincipal: 0,
           paidInterest: 0,
-          paymentStatus: 'PENDING',
+          paymentStatus: 'PENDING' as any,
           penaltyAmount: 0,
           penaltyPaid: 0,
           daysOverdue: 0,
@@ -716,8 +716,8 @@ async function processSingleApproval({
       data: {
         loanApplicationId: loanId,
         actionById: userId || 'system',
-        previousStatus: currentStatus,
-        newStatus: nextStatus,
+        previousStatus: currentStatus as any,
+        newStatus: nextStatus as any,
         action: normalizedAction,
         remarks,
         ipAddress: request.headers.get('x-forwarded-for') || 'unknown'
@@ -735,7 +735,7 @@ async function processSingleApproval({
         await tx.loanApplication.update({
           where: { id: mirrorMapping.mirrorLoanId },
           data: {
-            status: nextStatus,
+            status: nextStatus as any,
             rejectedAt: new Date(),
             rejectionReason: remarks || 'Original loan rejected/cancelled',
             rejectedById: userId
@@ -769,7 +769,7 @@ async function processSingleApproval({
             paymentStatus: 'PENDING'
           },
           data: {
-            paymentStatus: 'WAIVED',
+            paymentStatus: 'WAIVED' as any,
             notes: 'Loan closed due to original loan foreclosure'
           }
         });
