@@ -280,11 +280,150 @@ export async function GET(request: NextRequest) {
       (a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime()
     );
 
+    // ── 7. Enrich descriptions with customer names ─────────────────────────
+    // Collect all referenceIds that might be loan IDs
+    const refIds = allEntries
+      .map(e => e.referenceId)
+      .filter((id): id is string => !!id);
+
+    // Build a lookup map: loanId → customerName + loanNumber
+    const loanLookup = new Map<string, { customerName: string; loanNumber: string; loanType: string }>();
+
+    if (refIds.length > 0) {
+      try {
+        // Fetch offline loans
+        const offlineLoans = await db.offlineLoan.findMany({
+          where: { id: { in: refIds } },
+          select: {
+            id: true,
+            loanNumber: true,
+            customer: { select: { name: true } }
+          }
+        });
+        for (const loan of offlineLoans) {
+          if (loan.customer?.name) {
+            loanLookup.set(loan.id, {
+              customerName: loan.customer.name,
+              loanNumber: loan.loanNumber,
+              loanType: 'offline'
+            });
+          }
+        }
+
+        // Fetch online loans
+        const onlineLoans = await db.loanApplication.findMany({
+          where: { id: { in: refIds } },
+          select: {
+            id: true,
+            applicationNo: true,
+            customer: { select: { name: true } }
+          }
+        });
+        for (const loan of onlineLoans) {
+          if (loan.customer?.name) {
+            loanLookup.set(loan.id, {
+              customerName: loan.customer.name,
+              loanNumber: loan.applicationNo,
+              loanType: 'online'
+            });
+          }
+        }
+
+        // Also look up EMI schedules to get loan's customer
+        const emiSchedules = await db.eMISchedule.findMany({
+          where: { id: { in: refIds } },
+          select: {
+            id: true,
+            installmentNumber: true,
+            loanApplication: {
+              select: {
+                id: true,
+                applicationNo: true,
+                customer: { select: { name: true } }
+              }
+            }
+          }
+        });
+        for (const emi of emiSchedules) {
+          if (emi.loanApplication?.customer?.name) {
+            loanLookup.set(emi.id, {
+              customerName: emi.loanApplication.customer.name,
+              loanNumber: emi.loanApplication.applicationNo,
+              loanType: 'online-emi'
+            });
+          }
+        }
+
+        // Also look up offline EMI
+        const offlineEmis = await db.offlineLoanEMI.findMany({
+          where: { id: { in: refIds } },
+          select: {
+            id: true,
+            installmentNumber: true,
+            offlineLoan: {
+              select: {
+                id: true,
+                loanNumber: true,
+                customer: { select: { name: true } }
+              }
+            }
+          }
+        });
+        for (const emi of offlineEmis) {
+          if (emi.offlineLoan?.customer?.name) {
+            loanLookup.set(emi.id, {
+              customerName: emi.offlineLoan.customer.name,
+              loanNumber: emi.offlineLoan.loanNumber,
+              loanType: 'offline-emi'
+            });
+          }
+        }
+      } catch (lookupErr) {
+        console.warn('[DayBook] Customer lookup failed (non-critical):', lookupErr);
+      }
+    }
+
+    // Apply enrichment — replace "mirror" and add customer name
+    const enrichedEntries = allEntries.map(entry => {
+      let desc = entry.description || '';
+      const refType = (entry.referenceType || '').toUpperCase();
+
+      // Remove "mirror" (case insensitive) from descriptions
+      desc = desc.replace(/mirror\s*/gi, '').replace(/\s{2,}/g, ' ').trim();
+
+      const info = entry.referenceId ? loanLookup.get(entry.referenceId) : null;
+
+      if (info) {
+        const customerName = info.customerName;
+        const loanNum = info.loanNumber;
+
+        // Extract EMI number from description if present
+        const emiMatch = desc.match(/EMI\s*#?\s*(\d+)/i);
+        const emiNum = emiMatch ? `EMI #${emiMatch[1]}` : '';
+
+        if (refType.includes('DISBURSEMENT') || refType.includes('OFFLINE_LOAN') || refType.includes('ONLINE_LOAN')) {
+          desc = `Loan disbursed to ${customerName} — ${loanNum}`;
+        } else if (refType.includes('EMI_PAYMENT') || refType.includes('REPAYMENT')) {
+          desc = `EMI received from ${customerName} — ${loanNum}${emiNum ? ` — ${emiNum}` : ''}`;
+        } else if (refType.includes('PROCESSING_FEE')) {
+          desc = `Processing fee from ${customerName} — ${loanNum}`;
+        } else if (refType.includes('PENALTY')) {
+          desc = `Penalty from ${customerName} — ${loanNum}${emiNum ? ` — ${emiNum}` : ''}`;
+        } else if (refType.includes('INTEREST')) {
+          desc = `Interest from ${customerName} — ${loanNum}`;
+        } else if (customerName && !desc.toLowerCase().includes(customerName.toLowerCase())) {
+          desc = `${desc} — ${customerName}`;
+        }
+      }
+
+      return { ...entry, description: desc };
+    });
+
     return NextResponse.json({
       success: true,
       openingBalance,
-      entries: allEntries,
-      count: allEntries.length,
+      entries: enrichedEntries,
+      count: enrichedEntries.length,
     });
   } catch (error: any) {
     console.error('[DayBook API] Error:', error?.message || error);

@@ -1,22 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, memo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { 
-  FileText, Search, RefreshCw, Download, Eye, ChevronRight,
-  User, Phone, Mail, MapPin, IndianRupee,
-  Calendar, CreditCard, TrendingUp, AlertTriangle, Building,
-  CheckCircle, Clock, BarChart3, ArrowUpRight, ArrowDownRight,
-  BookOpen, Receipt
+  Search, RefreshCw, User, Phone, IndianRupee,
+  CheckCircle, BookOpen, Receipt, ArrowLeft, Printer,
+  TrendingDown, Clock, AlertTriangle
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from '@/hooks/use-toast';
@@ -27,7 +24,7 @@ interface PersonalLedgerTabProps {
   formatDate: (date: Date | string) => string;
 }
 
-interface Customer {
+interface CustomerBasic {
   id: string;
   name: string;
   phone: string;
@@ -37,34 +34,43 @@ interface Customer {
   totalPaid: number;
 }
 
-interface JournalEntry {
-  id: string;
-  entryNumber: string;
+interface LoanStatement {
+  loanId: string;
+  loanNumber: string;
+  loanType: 'ONLINE' | 'OFFLINE';
+  loanAmount: number;
+  interestRate: number;
+  tenure: number;
+  status: string;
+  disbursementDate: string;
+  rows: StatementRow[];
+  outstanding: number;
+  totalPaid: number;
+  totalInterestPaid: number;
+  totalPrincipalPaid: number;
+}
+
+interface StatementRow {
   date: string;
+  description: string;
+  totalPayment: number | null;   // null = initial loan row
+  interestPaid: number | null;
+  principalPaid: number | null;
+  remainingBalance: number;
   referenceType: string;
-  narration: string;
-  paymentMode: string;
-  createdBy: string;
-  lines: Array<{
-    accountCode: string;
-    accountName: string;
-    debitAmount: number;
-    creditAmount: number;
-  }>;
-  loanReceivableChange: number;
-  runningBalance: number;
+  emiNumber?: number;
+  isPenalty?: boolean;
+  penaltyAmount?: number;
 }
 
 function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, formatDate }: PersonalLedgerTabProps) {
   const [loading, setLoading] = useState(true);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<CustomerBasic[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [showLedgerDialog, setShowLedgerDialog] = useState(false);
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
-  const [loadingEntries, setLoadingEntries] = useState(false);
-  const [customerSummary, setCustomerSummary] = useState<any>(null);
-  const [totals, setTotals] = useState<any>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerBasic | null>(null);
+  const [loanStatements, setLoanStatements] = useState<LoanStatement[]>([]);
+  const [selectedLoan, setSelectedLoan] = useState<LoanStatement | null>(null);
+  const [loadingLedger, setLoadingLedger] = useState(false);
 
   useEffect(() => {
     fetchCustomers();
@@ -73,14 +79,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const fetchCustomers = async () => {
     setLoading(true);
     try {
-      // Use borrower-ledger API for customer list, then we'll fetch personal ledger for each
-      const companyFilter = selectedCompanyIds.length > 0
-        ? selectedCompanyIds.join(',')
-        : 'all';
-      
+      const companyFilter = selectedCompanyIds.length > 0 ? selectedCompanyIds.join(',') : 'all';
       const res = await fetch(`/api/accounting/borrower-ledger?companyId=${companyFilter}`);
       const data = await res.json();
-      
       if (data.success) {
         setCustomers(data.borrowers || []);
       }
@@ -91,39 +92,155 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     }
   };
 
-  const fetchPersonalLedger = async (customerId: string) => {
-    setLoadingEntries(true);
+  const fetchLoanStatements = async (customerId: string) => {
+    setLoadingLedger(true);
+    setLoanStatements([]);
+    setSelectedLoan(null);
     try {
       const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}`);
       const data = await res.json();
-      
+
       if (data.success) {
-        setJournalEntries(data.entries || []);
-        setCustomerSummary(data.customerSummary);
-        setTotals(data.totals);
+        // Transform API response into loan statement format
+        const statements = buildLoanStatements(data);
+        setLoanStatements(statements);
+        if (statements.length === 1) setSelectedLoan(statements[0]); // auto-select if only one loan
       } else {
-        toast({
-          title: 'Error',
-          description: data.error || 'Failed to fetch ledger',
-          variant: 'destructive'
-        });
+        toast({ title: 'Error', description: data.error || 'Failed to fetch ledger', variant: 'destructive' });
       }
     } catch (error) {
-      console.error('Error fetching personal ledger:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch personal ledger',
-        variant: 'destructive'
-      });
+      toast({ title: 'Error', description: 'Failed to fetch personal ledger', variant: 'destructive' });
     } finally {
-      setLoadingEntries(false);
+      setLoadingLedger(false);
     }
   };
 
-  const handleViewLedger = async (customer: Customer) => {
+  /**
+   * Convert raw API journal entries into clean loan statement rows
+   * Format: Initial Loan → EMI payments (Principal | Interest | Remaining Balance)
+   */
+  const buildLoanStatements = (data: any): LoanStatement[] => {
+    const customer = data.customerSummary;
+    if (!customer) return [];
+
+    const allLoans = [
+      ...(customer.onlineLoans || []).map((l: any) => ({ ...l, loanType: 'ONLINE' as const })),
+      ...(customer.offlineLoans || []).map((l: any) => ({ ...l, loanType: 'OFFLINE' as const }))
+    ];
+
+    const entries: any[] = data.entries || [];
+
+    return allLoans.map((loan) => {
+      // Get journal entries related to this loan
+      const loanEntries = entries.filter((e: any) =>
+        e.referenceId === loan.id ||
+        (e.narration && e.narration.includes(loan.loanNumber))
+      );
+
+      const rows: StatementRow[] = [];
+      let runningBalance = loan.amount;
+
+      // Row 1: Initial Loan (Disbursement)
+      rows.push({
+        date: loan.disbursementDate || new Date().toISOString(),
+        description: `Initial Loan - ${loan.loanNumber}`,
+        totalPayment: null,
+        interestPaid: null,
+        principalPaid: null,
+        remainingBalance: loan.amount,
+        referenceType: 'LOAN_DISBURSEMENT'
+      });
+
+      // Process entries in chronological order
+      const sortedEntries = [...loanEntries].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+
+      for (const entry of sortedEntries) {
+        if (entry.referenceType === 'LOAN_DISBURSEMENT') continue; // skip disbursement — already shown
+
+        // Determine interest paid and principal paid from journal lines
+        let interestPaid = 0;
+        let principalPaid = 0;
+        let penaltyCollected = 0;
+
+        for (const line of (entry.lines || [])) {
+          const code = line.accountCode;
+          if (['4001', '4002', '4100'].includes(code)) {
+            // Income / Interest accounts — credit = interest earned from customer
+            interestPaid += line.creditAmount;
+          } else if (['5001', '5002', '5100'].includes(code)) {
+            // Penalty income
+            penaltyCollected += line.creditAmount;
+          } else if (['1200', '1201', '1210'].includes(code)) {
+            // Loans Receivable — credit = principal repaid
+            principalPaid += line.creditAmount;
+          }
+        }
+
+        const totalPayment = principalPaid + interestPaid + penaltyCollected;
+        if (totalPayment <= 0) continue;
+
+        runningBalance = Math.max(0, runningBalance - principalPaid);
+
+        const emiMatch = entry.narration?.match(/EMI #?(\d+)/i);
+        const emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
+
+        const isPenalty = entry.referenceType === 'PENALTY_COLLECTION' || penaltyCollected > 0;
+        const description = buildDescription(entry, emiNumber, isPenalty, penaltyCollected);
+
+        rows.push({
+          date: entry.date,
+          description,
+          totalPayment,
+          interestPaid,
+          principalPaid,
+          remainingBalance: runningBalance,
+          referenceType: entry.referenceType,
+          emiNumber,
+          isPenalty,
+          penaltyAmount: penaltyCollected
+        });
+      }
+
+      const totalPaid = rows.reduce((s, r) => s + (r.totalPayment || 0), 0);
+      const totalInterestPaid = rows.reduce((s, r) => s + (r.interestPaid || 0), 0);
+      const totalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid || 0), 0);
+
+      return {
+        loanId: loan.id,
+        loanNumber: loan.loanNumber,
+        loanType: loan.loanType,
+        loanAmount: loan.amount,
+        interestRate: loan.interestRate || 0,
+        tenure: loan.tenure || 0,
+        status: loan.status,
+        disbursementDate: loan.disbursementDate,
+        rows,
+        outstanding: Math.max(0, loan.amount - totalPrincipalPaid),
+        totalPaid,
+        totalInterestPaid,
+        totalPrincipalPaid
+      };
+    });
+  };
+
+  const buildDescription = (entry: any, emiNumber?: number, isPenalty?: boolean, penaltyAmount?: number): string => {
+    const type = entry.referenceType;
+    if (type === 'PROCESSING_FEE_COLLECTION') return 'Processing Fee';
+    if (type === 'PENALTY_COLLECTION') return `Late Penalty — ${penaltyAmount ? `₹${penaltyAmount.toFixed(0)}` : ''}`;
+    if (type === 'EMI_PAYMENT' || type === 'MIRROR_EMI_PAYMENT') {
+      let desc = emiNumber ? `Monthly EMI #${emiNumber}` : 'Monthly EMI';
+      if (penaltyAmount && penaltyAmount > 0) desc += ` + Penalty`;
+      return desc;
+    }
+    if (type === 'PRINCIPAL_ONLY_PAYMENT') return 'Extra Principal Payment';
+    return entry.narration?.replace(/mirror/gi, '').trim() || type?.replace(/_/g, ' ') || 'Payment';
+  };
+
+  const handleSelectCustomer = async (customer: CustomerBasic) => {
     setSelectedCustomer(customer);
-    setShowLedgerDialog(true);
-    await fetchPersonalLedger(customer.id);
+    await fetchLoanStatements(customer.id);
   };
 
   const filteredCustomers = customers.filter(c =>
@@ -134,20 +251,251 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const totalOutstanding = customers.reduce((sum, c) => sum + c.totalOutstanding, 0);
   const totalPaid = customers.reduce((sum, c) => sum + c.totalPaid, 0);
 
-  // Get reference type badge color
-  const getRefTypeBadge = (refType: string) => {
-    const colors: Record<string, string> = {
-      'LOAN_DISBURSEMENT': 'bg-blue-500 text-white',
-      'EMI_PAYMENT': 'bg-green-500 text-white',
-      'PENALTY_COLLECTION': 'bg-red-500 text-white',
-      'PROCESSING_FEE_COLLECTION': 'bg-purple-500 text-white',
-      'INTEREST_COLLECTION': 'bg-amber-500 text-white',
-      'MIRROR_EMI_PAYMENT': 'bg-indigo-500 text-white',
-      'PRINCIPAL_ONLY_PAYMENT': 'bg-orange-500 text-white',
-    };
-    return colors[refType] || 'bg-gray-500 text-white';
-  };
+  // --- LOAN STATEMENT VIEW (after choosing customer + loan) ---
+  if (selectedCustomer && selectedLoan) {
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => { setSelectedLoan(null); }}>
+            <ArrowLeft className="h-4 w-4 mr-1" /> Back to Loans
+          </Button>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">
+              Loan Statement — {selectedCustomer.name}
+            </h2>
+            <p className="text-sm text-gray-500">{selectedLoan.loanNumber} • {selectedLoan.loanType}</p>
+          </div>
+        </div>
 
+        {/* Loan Info Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="border-0 shadow-sm bg-blue-50">
+            <CardContent className="p-4">
+              <p className="text-xs text-blue-600 font-medium">Loan Amount</p>
+              <p className="text-lg font-bold text-blue-800">{formatCurrency(selectedLoan.loanAmount)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm bg-green-50">
+            <CardContent className="p-4">
+              <p className="text-xs text-green-600 font-medium">Total Paid</p>
+              <p className="text-lg font-bold text-green-800">{formatCurrency(selectedLoan.totalPaid)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm bg-red-50">
+            <CardContent className="p-4">
+              <p className="text-xs text-red-600 font-medium">Outstanding Balance</p>
+              <p className="text-lg font-bold text-red-800">{formatCurrency(selectedLoan.outstanding)}</p>
+            </CardContent>
+          </Card>
+          <Card className="border-0 shadow-sm bg-amber-50">
+            <CardContent className="p-4">
+              <p className="text-xs text-amber-600 font-medium">Interest Earned</p>
+              <p className="text-lg font-bold text-amber-800">{formatCurrency(selectedLoan.totalInterestPaid)}</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Statement Table — Exactly like the bank passbook format from user's photo */}
+        <Card className="border shadow-sm overflow-hidden">
+          <CardHeader className="bg-gradient-to-r from-slate-800 to-slate-700 text-white py-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BookOpen className="h-4 w-4" />
+              Loan Repayment Statement
+              <Badge className="ml-auto bg-white/20 text-white text-xs">
+                {selectedLoan.rows.length - 1} Payment{selectedLoan.rows.length !== 2 ? 's' : ''}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 border-b-2">
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider">Date</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider">Description</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Total Payment</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Interest Paid</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Principal Paid</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Remaining Balance</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {selectedLoan.rows.map((row, idx) => {
+                  const isFirstRow = idx === 0;
+                  const isPenaltyRow = row.isPenalty && row.principalPaid === 0;
+                  return (
+                    <motion.tr
+                      key={idx}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.02 }}
+                      className={`border-b transition-colors ${
+                        isFirstRow
+                          ? 'bg-blue-50 hover:bg-blue-100 font-semibold'
+                          : isPenaltyRow
+                          ? 'bg-red-50 hover:bg-red-100'
+                          : idx % 2 === 0
+                          ? 'bg-white hover:bg-gray-50'
+                          : 'bg-slate-50/60 hover:bg-slate-100'
+                      }`}
+                    >
+                      <TableCell className="text-sm py-3">
+                        {formatDate(row.date)}
+                      </TableCell>
+                      <TableCell className="py-3">
+                        <div className="flex items-center gap-2">
+                          {isFirstRow && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
+                          {!isFirstRow && isPenaltyRow && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
+                          {!isFirstRow && !isPenaltyRow && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
+                          <span className={`text-sm ${isFirstRow ? 'text-blue-800 font-semibold' : isPenaltyRow ? 'text-red-700' : 'text-gray-800'}`}>
+                            {row.description}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right py-3">
+                        {row.totalPayment !== null ? (
+                          <span className="font-semibold text-emerald-700">{formatCurrency(row.totalPayment)}</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right py-3">
+                        {row.interestPaid !== null && row.interestPaid > 0 ? (
+                          <span className="text-amber-700">{formatCurrency(row.interestPaid)}</span>
+                        ) : row.interestPaid === null ? (
+                          <span className="text-gray-400 text-sm">—</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">₹0</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right py-3">
+                        {row.principalPaid !== null && row.principalPaid > 0 ? (
+                          <span className="text-blue-700 font-medium">{formatCurrency(row.principalPaid)}</span>
+                        ) : row.principalPaid === null ? (
+                          <span className="text-gray-400 text-sm">—</span>
+                        ) : (
+                          <span className="text-gray-400 text-sm">₹0</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right py-3">
+                        <span className={`font-bold text-base ${row.remainingBalance <= 0 ? 'text-green-600' : 'text-slate-800'}`}>
+                          {formatCurrency(row.remainingBalance)}
+                        </span>
+                      </TableCell>
+                    </motion.tr>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Totals Footer */}
+          <div className="bg-slate-800 text-white px-6 py-4">
+            <div className="grid grid-cols-3 gap-8 text-sm">
+              <div>
+                <p className="text-slate-400 text-xs uppercase tracking-wide">Total Collected</p>
+                <p className="text-xl font-bold text-white">{formatCurrency(selectedLoan.totalPaid)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs uppercase tracking-wide">Interest Earned</p>
+                <p className="text-xl font-bold text-amber-300">{formatCurrency(selectedLoan.totalInterestPaid)}</p>
+              </div>
+              <div>
+                <p className="text-slate-400 text-xs uppercase tracking-wide">Outstanding</p>
+                <p className={`text-xl font-bold ${selectedLoan.outstanding <= 0 ? 'text-green-400' : 'text-red-300'}`}>
+                  {formatCurrency(selectedLoan.outstanding)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  // --- LOAN SELECTION VIEW (after choosing customer, before choosing loan) ---
+  if (selectedCustomer && !selectedLoan) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => { setSelectedCustomer(null); setLoanStatements([]); }}>
+            <ArrowLeft className="h-4 w-4 mr-1" /> All Customers
+          </Button>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <User className="h-5 w-5 text-emerald-500" />
+              {selectedCustomer.name}
+            </h2>
+            <p className="text-sm text-gray-500 flex items-center gap-1">
+              <Phone className="h-3.5 w-3.5" /> {selectedCustomer.phone || 'No phone'}
+            </p>
+          </div>
+        </div>
+
+        {loadingLedger ? (
+          <div className="flex items-center justify-center py-20">
+            <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+          </div>
+        ) : loanStatements.length === 0 ? (
+          <Card className="border-0 shadow-sm">
+            <CardContent className="text-center py-16">
+              <BookOpen className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+              <p className="text-gray-500">No loans found for this customer</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {loanStatements.map((loan) => (
+              <motion.div
+                key={loan.loanId}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileHover={{ scale: 1.01 }}
+                className="cursor-pointer"
+                onClick={() => setSelectedLoan(loan)}
+              >
+                <Card className="border shadow-sm hover:shadow-md hover:border-emerald-300 transition-all">
+                  <CardContent className="p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <p className="font-bold text-gray-900">{loan.loanNumber}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{loan.loanType} Loan • {loan.tenure} months @ {loan.interestRate}%</p>
+                      </div>
+                      <Badge variant={loan.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-xs">
+                        {loan.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 pt-3 border-t">
+                      <div>
+                        <p className="text-xs text-gray-400">Loan</p>
+                        <p className="font-semibold text-blue-700">{formatCurrency(loan.loanAmount)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Paid</p>
+                        <p className="font-semibold text-green-700">{formatCurrency(loan.totalPaid)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-400">Outstanding</p>
+                        <p className={`font-semibold ${loan.outstanding > 0 ? 'text-red-700' : 'text-green-600'}`}>{formatCurrency(loan.outstanding)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <p className="text-xs text-gray-400">{loan.rows.length - 1} EMI payment{loan.rows.length !== 2 ? 's' : ''} recorded</p>
+                      <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
+                        View Statement →
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- CUSTOMER LIST VIEW ---
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -157,9 +505,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             <BookOpen className="h-6 w-6 text-emerald-500" />
             Personal Ledger (Khata)
           </h2>
-          <p className="text-gray-500 mt-1">
-            Customer-wise complete journal entries - Real Accounting
-          </p>
+          <p className="text-gray-500 mt-1">Customer-wise loan statements — Tap a customer to view their ledger</p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchCustomers}>
           <RefreshCw className="h-4 w-4 mr-2" />
@@ -168,8 +514,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm">
+      <div className="grid grid-cols-3 gap-4">
+        <Card className="border-0 shadow-sm bg-emerald-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-emerald-100 rounded-lg">
@@ -177,16 +523,16 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               </div>
               <div>
                 <p className="text-sm text-gray-500">Total Customers</p>
-                <p className="text-xl font-bold">{customers.length}</p>
+                <p className="text-2xl font-bold">{customers.length}</p>
               </div>
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
+        <Card className="border-0 shadow-sm bg-red-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-red-100 rounded-lg">
-                <IndianRupee className="h-5 w-5 text-red-600" />
+                <TrendingDown className="h-5 w-5 text-red-600" />
               </div>
               <div>
                 <p className="text-sm text-gray-500">Total Outstanding</p>
@@ -195,7 +541,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm">
+        <Card className="border-0 shadow-sm bg-green-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg">
@@ -204,19 +550,6 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               <div>
                 <p className="text-sm text-gray-500">Total Collected</p>
                 <p className="text-lg font-bold text-green-700">{formatCurrency(totalPaid)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Receipt className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Ledger Entries</p>
-                <p className="text-xl font-bold">{customers.reduce((s, c) => s + c.totalLoans, 0)}</p>
               </div>
             </div>
           </CardContent>
@@ -238,11 +571,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         </CardContent>
       </Card>
 
-      {/* Customers Table */}
+      {/* Customer Table */}
       <Card className="border-0 shadow-sm">
         <CardHeader>
           <CardTitle>Customer Accounts ({filteredCustomers.length})</CardTitle>
-          <CardDescription>Click "View Ledger" to see all journal entries</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -253,7 +585,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="bg-gray-50">
                     <TableHead>Customer</TableHead>
                     <TableHead className="text-center">Loans</TableHead>
                     <TableHead className="text-right">Outstanding</TableHead>
@@ -268,19 +600,19 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.01 }}
-                      className="border-b hover:bg-gray-50 cursor-pointer"
-                      onClick={() => handleViewLedger(customer)}
+                      className="border-b hover:bg-emerald-50 cursor-pointer transition-colors"
+                      onClick={() => handleSelectCustomer(customer)}
                     >
                       <TableCell>
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <User className="h-5 w-5 text-emerald-600" />
+                          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-700 text-sm">
+                            {customer.name?.charAt(0)?.toUpperCase() || '?'}
                           </div>
                           <div>
                             <p className="font-medium">{customer.name}</p>
                             <p className="text-xs text-gray-500 flex items-center gap-1">
                               <Phone className="h-3 w-3" />
-                              {customer.phone}
+                              {customer.phone || 'No phone'}
                             </p>
                           </div>
                         </div>
@@ -295,8 +627,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                         {formatCurrency(customer.totalPaid)}
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button size="sm" variant="ghost">
-                          View Ledger <ChevronRight className="h-4 w-4 ml-1" />
+                        <Button size="sm" variant="ghost" className="text-emerald-600">
+                          View Ledger →
                         </Button>
                       </TableCell>
                     </motion.tr>
@@ -307,191 +639,6 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           )}
         </CardContent>
       </Card>
-
-      {/* Personal Ledger Dialog */}
-      <Dialog open={showLedgerDialog} onOpenChange={setShowLedgerDialog}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <BookOpen className="h-5 w-5 text-emerald-500" />
-              Personal Ledger - {selectedCustomer?.name}
-            </DialogTitle>
-            <DialogDescription>
-              Complete journal entries for this customer (Real Accounting)
-            </DialogDescription>
-          </DialogHeader>
-
-          <ScrollArea className="flex-1">
-            <div className="space-y-6 py-4">
-              {/* Customer Info */}
-              {customerSummary && (
-                <Card className="border shadow-sm">
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{customerSummary.phone || 'N/A'}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">{customerSummary.email || 'N/A'}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm">Total Loans: {customerSummary.onlineLoans?.length + customerSummary.offlineLoans?.length || 0}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <IndianRupee className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm font-semibold">Outstanding: {formatCurrency(totals?.currentOutstanding || 0)}</span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Loans List */}
-              {customerSummary && (customerSummary.onlineLoans?.length > 0 || customerSummary.offlineLoans?.length > 0) && (
-                <div>
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Loan Accounts
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {customerSummary.onlineLoans?.map((loan: any) => (
-                      <div key={loan.id} className="p-3 border rounded-lg bg-blue-50 border-blue-200">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium">{loan.loanNumber}</p>
-                            <p className="text-sm text-gray-500">Online Loan</p>
-                          </div>
-                          <Badge variant={loan.status === 'ACTIVE' ? 'default' : 'outline'}>
-                            {loan.status}
-                          </Badge>
-                        </div>
-                        <div className="mt-2 text-sm">
-                          <span className="text-gray-500">Amount:</span> {formatCurrency(loan.amount)}
-                        </div>
-                      </div>
-                    ))}
-                    {customerSummary.offlineLoans?.map((loan: any) => (
-                      <div key={loan.id} className="p-3 border rounded-lg bg-gray-50 border-gray-200">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <p className="font-medium">{loan.loanNumber}</p>
-                            <p className="text-sm text-gray-500">Offline Loan</p>
-                          </div>
-                          <Badge variant={loan.status === 'ACTIVE' ? 'default' : 'outline'}>
-                            {loan.status}
-                          </Badge>
-                        </div>
-                        <div className="mt-2 text-sm">
-                          <span className="text-gray-500">Amount:</span> {formatCurrency(loan.amount)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <Separator />
-
-              {/* Journal Entries Table */}
-              <div>
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4" />
-                  Journal Entries ({journalEntries.length})
-                </h4>
-                {loadingEntries ? (
-                  <div className="flex items-center justify-center py-8">
-                    <RefreshCw className="h-6 w-6 animate-spin text-gray-400" />
-                  </div>
-                ) : journalEntries.length > 0 ? (
-                  <div className="overflow-x-auto border rounded-lg">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-gray-50">
-                          <TableHead>Date</TableHead>
-                          <TableHead>Entry #</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead className="text-right">Debit</TableHead>
-                          <TableHead className="text-right">Credit</TableHead>
-                          <TableHead className="text-right">Balance</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {journalEntries.map((entry, idx) => {
-                          const totalDebit = entry.lines.reduce((s, l) => s + l.debitAmount, 0);
-                          const totalCredit = entry.lines.reduce((s, l) => s + l.creditAmount, 0);
-                          return (
-                            <TableRow key={entry.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                              <TableCell className="text-sm">{formatDate(entry.date)}</TableCell>
-                              <TableCell className="text-xs font-mono">{entry.entryNumber}</TableCell>
-                              <TableCell>
-                                <Badge className={getRefTypeBadge(entry.referenceType)}>
-                                  {entry.referenceType?.replace(/_/g, ' ').slice(0, 15)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="max-w-[200px]">
-                                <p className="text-sm truncate">{entry.narration}</p>
-                                <p className="text-xs text-gray-500">by {entry.createdBy}</p>
-                              </TableCell>
-                              <TableCell className="text-right font-medium text-green-600">
-                                {totalDebit > 0 ? formatCurrency(totalDebit) : '-'}
-                              </TableCell>
-                              <TableCell className="text-right font-medium text-red-600">
-                                {totalCredit > 0 ? formatCurrency(totalCredit) : '-'}
-                              </TableCell>
-                              <TableCell className="text-right font-bold">
-                                <span className={entry.runningBalance > 0 ? 'text-red-600' : 'text-green-600'}>
-                                  {formatCurrency(Math.abs(entry.runningBalance))}
-                                  {entry.runningBalance > 0 ? ' Dr' : ' Cr'}
-                                </span>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
-                    <BookOpen className="h-12 w-12 mx-auto mb-2 text-gray-300" />
-                    <p>No journal entries found for this customer</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Totals Summary */}
-              {totals && journalEntries.length > 0 && (
-                <Card className="border-2 border-emerald-200 bg-emerald-50">
-                  <CardContent className="p-4">
-                    <h4 className="font-semibold mb-3 text-emerald-800">Ledger Summary</h4>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-500">Total Entries</p>
-                        <p className="text-xl font-bold">{totals.totalEntries}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Total Debits</p>
-                        <p className="text-xl font-bold text-green-600">{formatCurrency(totals.totalDebits)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Total Credits</p>
-                        <p className="text-xl font-bold text-red-600">{formatCurrency(totals.totalCredits)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-500">Current Outstanding</p>
-                        <p className="text-xl font-bold text-emerald-700">{formatCurrency(totals.currentOutstanding)}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

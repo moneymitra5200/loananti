@@ -170,24 +170,18 @@ function CashBookSection({
   const [entries, setEntries] = useState<CashBookEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showOpeningDialog, setShowOpeningDialog] = useState(false);
   const [addAmount, setAddAmount] = useState('');
   const [addDescription, setAddDescription] = useState('');
+  const [addEntryType, setAddEntryType] = useState<'CREDIT' | 'DEBIT'>('CREDIT');
+  const [openingAmount, setOpeningAmount] = useState('');
   const [adding, setAdding] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [addingOpening, setAddingOpening] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      // First, try to sync cashbook with chart of accounts
-      try {
-        await fetch(`/api/accounting/sync-cashbook?companyId=${selectedCompanyId}`, {
-          method: 'POST'
-        });
-      } catch (syncError) {
-        console.log('Sync skipped:', syncError);
-      }
-
       const res = await fetch(`/api/accountant/cashbook?companyId=${selectedCompanyId}`);
       const data = await res.json();
       setCashBook(data);
@@ -203,28 +197,7 @@ function CashBookSection({
     loadData();
   }, [loadData]);
 
-  const handleSync = async () => {
-    if (!selectedCompanyId) return;
-    setSyncing(true);
-    try {
-      const res = await fetch(`/api/accounting/sync-cashbook?companyId=${selectedCompanyId}`, {
-        method: 'POST'
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(data.message || 'CashBook synced successfully');
-        loadData();
-      } else {
-        toast.error('Failed to sync CashBook');
-      }
-    } catch (error) {
-      toast.error('Failed to sync CashBook');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const handleAddEntry = async (type: 'CREDIT' | 'DEBIT') => {
+  const handleAddEntry = async () => {
     const amount = parseFloat(addAmount);
     if (!amount || amount <= 0) {
       toast.error('Please enter a valid amount');
@@ -242,7 +215,7 @@ function CashBookSection({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: selectedCompanyId,
-          entryType: type,
+          entryType: addEntryType,
           amount,
           description: addDescription,
           referenceType: 'MANUAL_ENTRY'
@@ -250,10 +223,11 @@ function CashBookSection({
       });
 
       if (res.ok) {
-        toast.success(`Cash ${type === 'CREDIT' ? 'added' : 'deducted'} successfully`);
+        toast.success(`Cash ${addEntryType === 'CREDIT' ? 'added' : 'deducted'} successfully`);
         setShowAddDialog(false);
         setAddAmount('');
         setAddDescription('');
+        setAddEntryType('CREDIT');
         loadData();
       } else {
         const error = await res.json();
@@ -266,6 +240,68 @@ function CashBookSection({
     }
   };
 
+  const handleAddOpeningBalance = async () => {
+    const amount = parseFloat(openingAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Please enter a valid opening balance amount');
+      return;
+    }
+
+    setAddingOpening(true);
+    try {
+      // Step 1: Add to cashbook as CREDIT (Opening Balance)
+      const cashRes = await fetch('/api/accountant/cashbook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: selectedCompanyId,
+          entryType: 'CREDIT',
+          amount,
+          description: 'Opening Balance',
+          referenceType: 'OPENING_BALANCE'
+        })
+      });
+
+      if (!cashRes.ok) {
+        const err = await cashRes.json();
+        toast.error(err.error || 'Failed to record opening balance in cash book');
+        return;
+      }
+
+      // Step 2: Also create a Day Book / Journal entry: Dr Cash in Hand / Cr Opening Balance
+      try {
+        await fetch('/api/accounting/journals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyId: selectedCompanyId,
+            entryDate: new Date().toISOString(),
+            referenceType: 'OPENING_BALANCE',
+            narration: `Opening Balance — Cash in Hand`,
+            paymentMode: 'CASH',
+            lines: [
+              { accountCode: '1001', debitAmount: amount, creditAmount: 0, narration: 'Cash in Hand — Opening Balance' },
+              { accountCode: '3100', debitAmount: 0, creditAmount: amount, narration: 'Opening Balance / Capital' }
+            ],
+            createdById: 'system',
+            isAutoEntry: false
+          })
+        });
+      } catch (journalError) {
+        console.warn('[CashBook] Day book entry failed (non-critical):', journalError);
+      }
+
+      toast.success(`Opening Balance of ${formatCurrency(amount)} recorded successfully!`);
+      setShowOpeningDialog(false);
+      setOpeningAmount('');
+      loadData();
+    } catch (error) {
+      toast.error('Failed to record opening balance');
+    } finally {
+      setAddingOpening(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -274,9 +310,9 @@ function CashBookSection({
           Cash Book
         </h2>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleSync} disabled={syncing}>
-            {syncing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-            Sync from Equity
+          <Button variant="outline" onClick={() => setShowOpeningDialog(true)}>
+            <PiggyBank className="h-4 w-4 mr-2" />
+            Opening Balance
           </Button>
           <Button onClick={() => setShowAddDialog(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -313,6 +349,7 @@ function CashBookSection({
               <div className="py-14 text-center text-gray-500">
                 <Wallet className="h-10 w-10 mx-auto mb-2 opacity-30" />
                 <p>No cash transactions found</p>
+                <p className="text-xs text-gray-400 mt-1">Click "Opening Balance" to get started</p>
               </div>
             ) : (
               Object.entries(
@@ -378,16 +415,85 @@ function CashBookSection({
         </CardContent>
       </Card>
 
+      {/* Opening Balance Dialog */}
+      <Dialog open={showOpeningDialog} onOpenChange={setShowOpeningDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PiggyBank className="h-5 w-5 text-teal-600" />
+              Set Opening Balance
+            </DialogTitle>
+            <div className="text-sm text-gray-500">
+              Records the initial cash balance for this company.
+              <div className="mt-2 font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                Dr: Cash in Hand → Cr: Opening Balance / Capital
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Opening Cash Balance (₹) *</Label>
+              <Input
+                type="number"
+                value={openingAmount}
+                onChange={(e) => setOpeningAmount(e.target.value)}
+                placeholder="Enter opening cash amount"
+                className="text-lg font-bold"
+              />
+            </div>
+            <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 text-sm text-teal-800">
+              This will:
+              <ul className="mt-1 list-disc list-inside text-teal-700 space-y-0.5">
+                <li>Add ₹{parseFloat(openingAmount) > 0 ? formatCurrency(parseFloat(openingAmount)) : '0'} to Cash Book</li>
+                <li>Record a Day Book entry: Dr Cash / Cr Capital</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowOpeningDialog(false)}>Cancel</Button>
+            <Button
+              onClick={handleAddOpeningBalance}
+              disabled={addingOpening || !openingAmount || parseFloat(openingAmount) <= 0}
+              className="bg-teal-600 hover:bg-teal-700"
+            >
+              {addingOpening ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Set Opening Balance
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Add Entry Dialog */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Cash Entry</DialogTitle>
-            <DialogDescription>Record a manual cash receipt or payment in the cash book.</DialogDescription>
+            <div className="text-sm text-gray-500">Record a manual cash receipt or payment in the cash book.</div>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Amount</Label>
+              <Label>Entry Type *</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={addEntryType === 'CREDIT' ? 'default' : 'outline'}
+                  className={addEntryType === 'CREDIT' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
+                  onClick={() => setAddEntryType('CREDIT')}
+                >
+                  <Plus className="h-4 w-4 mr-1" /> Cash In (Receipt)
+                </Button>
+                <Button
+                  type="button"
+                  variant={addEntryType === 'DEBIT' ? 'default' : 'outline'}
+                  className={addEntryType === 'DEBIT' ? 'bg-red-600 hover:bg-red-700' : ''}
+                  onClick={() => setAddEntryType('DEBIT')}
+                >
+                  Cash Out (Payment)
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Amount (₹) *</Label>
               <Input
                 type="number"
                 value={addAmount}
@@ -396,7 +502,7 @@ function CashBookSection({
               />
             </div>
             <div className="space-y-2">
-              <Label>Description</Label>
+              <Label>Description *</Label>
               <Input
                 value={addDescription}
                 onChange={(e) => setAddDescription(e.target.value)}
@@ -406,20 +512,13 @@ function CashBookSection({
           </div>
           <DialogFooter className="flex gap-2">
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>Cancel</Button>
-            <Button 
-              variant="destructive" 
-              onClick={() => handleAddEntry('DEBIT')}
+            <Button
+              onClick={handleAddEntry}
               disabled={adding}
-            >
-              Cash Out
-            </Button>
-            <Button 
-              onClick={() => handleAddEntry('CREDIT')}
-              disabled={adding}
-              className="bg-green-600 hover:bg-green-700"
+              className={addEntryType === 'CREDIT' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
             >
               {adding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Cash In
+              {addEntryType === 'CREDIT' ? 'Add Cash In' : 'Add Cash Out'}
             </Button>
           </DialogFooter>
         </DialogContent>

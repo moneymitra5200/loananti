@@ -756,33 +756,13 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 </div>
               )}
 
-              {/* Penalty Destination — only for single-mode when penalty exists */}
+              {/* Penalty info — collected via SAME mode as EMI payment (no separate selector) */}
               {paymentMode !== 'SPLIT' && selectedEmi.penaltyAmount && selectedEmi.penaltyAmount > 0 && penaltyWaiver < selectedEmi.penaltyAmount && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-red-700">Penalty collected via</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      variant={penaltyPaymentMode === 'CASH' ? 'default' : 'outline'}
-                      className={penaltyPaymentMode === 'CASH' ? 'bg-emerald-500 hover:bg-emerald-600' : 'border-emerald-300'}
-                      onClick={() => setPenaltyPaymentMode('CASH')}
-                    >
-                      <Banknote className="h-4 w-4 mr-1" />
-                      Cash
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={penaltyPaymentMode === 'BANK' ? 'default' : 'outline'}
-                      className={penaltyPaymentMode === 'BANK' ? 'bg-blue-500 hover:bg-blue-600' : 'border-blue-300'}
-                      onClick={() => setPenaltyPaymentMode('BANK')}
-                    >
-                      <CreditCard className="h-4 w-4 mr-1" />
-                      Bank
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Net penalty after waiver: <strong>₹{Math.max(0, (selectedEmi.penaltyAmount || 0) - penaltyWaiver).toFixed(0)}</strong> → goes to {penaltyPaymentMode === 'BANK' ? 'Bank Account' : 'Cash Book'}
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm font-medium text-red-700">
+                    Penalty: ₹{Math.max(0, (selectedEmi.penaltyAmount || 0) - penaltyWaiver).toFixed(0)} collected via <strong>{paymentMode === 'CASH' ? 'Cash' : paymentMode === 'CHEQUE' ? 'Cheque' : 'Online / Bank'}</strong> (same as EMI)
                   </p>
+                  <p className="text-xs text-gray-500 mt-0.5">Penalty is always collected in the same mode as the EMI payment</p>
                 </div>
               )}
 
