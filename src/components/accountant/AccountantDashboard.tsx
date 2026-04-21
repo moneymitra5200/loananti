@@ -31,6 +31,7 @@ import ManualJournalEntryDialog from '@/components/accounting/ManualJournalEntry
 import ExpenseRequestPanel from '@/components/expense/ExpenseRequestPanel';
 import NewDayBookSection from '@/components/accountant/modules/DayBookSection';
 import LedgerSection from '@/components/accountant/modules/LedgerSection';
+import PersonalLedgerTab from '@/components/accountant/tabs/PersonalLedgerTab';
 import TradDayBookSection from '@/components/accountant/modules/TradDayBookSection';
 import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
 
@@ -2494,6 +2495,7 @@ export default function UnifiedAccountantDashboard() {
         { id: 'journal-entry',    label: 'Journal Entry',    icon: BookCheck },
         { id: 'day-book',         label: 'Day Book',         icon: BookOpen },
         { id: 'ledger',           label: 'Ledger',           icon: BookCopy },
+        { id: 'personal-ledger',  label: 'Personal Ledger',  icon: User },
         { id: 'bank',             label: 'Bank',             icon: Landmark },
         { id: 'cash-book',        label: 'Cash Book',        icon: Wallet },
         { id: 'chart-of-accounts',label: 'Chart of Accounts',icon: BookCopy },
@@ -2545,6 +2547,14 @@ export default function UnifiedAccountantDashboard() {
         return <TradDayBookSection selectedCompanyId={selectedCompanyId} />;
       case 'ledger':
         return <LedgerSection selectedCompanyId={selectedCompanyId} />;
+      case 'personal-ledger':
+        return (
+          <PersonalLedgerTab
+            selectedCompanyIds={selectedCompanyId ? [selectedCompanyId] : []}
+            formatCurrency={formatCurrency}
+            formatDate={formatDate}
+          />
+        );
       case 'cash-book':
         return (
           <CashBookSection
