@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
+import { sendPaymentConfirmationPush } from '@/lib/push-notification-service';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type PaymentType = 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY';
@@ -425,7 +426,10 @@ export async function PUT(request: NextRequest) {
       include: {
         emiSchedule: true,
         loanApplication: {
-          include: { sessionForm: true }
+          include: {
+            sessionForm: true,
+            customer: { select: { id: true, name: true } }
+          }
         }
       }
     });
@@ -689,22 +693,37 @@ export async function PUT(request: NextRequest) {
         return updated;
       }, { timeout: 30000 }); // 30 second timeout for complex payment processing
 
-      // ── Customer approval notification ─────────────────────────────
-      // Send APPROVED notification for FULL_EMI and PARTIAL_PAYMENT
-      if (paymentRequest.paymentType !== 'INTEREST_ONLY') {
-        const paidAmtForNotif = paymentRequest.paymentType === 'PARTIAL_PAYMENT'
-          ? (paymentRequest.partialAmount || 0)
+      // ── Customer approval notification (in-app + push) ──────────────
+      const paidAmtForNotif = paymentRequest.paymentType === 'PARTIAL_PAYMENT'
+        ? (paymentRequest.partialAmount || 0)
+        : paymentRequest.paymentType === 'INTEREST_ONLY'
+          ? emi.interestAmount
           : paymentRequest.requestedAmount;
-        const typeLabel = paymentRequest.paymentType === 'PARTIAL_PAYMENT' ? 'Partial Payment' : 'EMI Payment';
-        await db.notification.create({
-          data: {
-            userId: paymentRequest.customerId,
-            type: 'PAYMENT_CONFIRMATION',
-            title: `${typeLabel} Approved ✅`,
-            message: `Your payment request ${paymentRequest.requestNumber} of ₹${paidAmtForNotif.toFixed(2)} has been approved. EMI #${emi?.installmentNumber} is now updated.`
-          }
-        }).catch(e => console.error('[PR Notification] Approval notify failed:', e));
-      }
+      const typeLabels: Record<string, string> = {
+        FULL_EMI: 'EMI Payment',
+        PARTIAL_PAYMENT: 'Partial Payment',
+        INTEREST_ONLY: 'Interest Payment',
+      };
+      const typeLabel = typeLabels[paymentRequest.paymentType] || 'Payment';
+      const appNo = paymentRequest.loanApplication?.applicationNo || '';
+
+      // 1. In-app DB notification
+      await db.notification.create({
+        data: {
+          userId: paymentRequest.customerId,
+          type: 'PAYMENT_CONFIRMATION',
+          title: `${typeLabel} Approved ✅`,
+          message: `Your payment of ₹${paidAmtForNotif.toFixed(2)} for loan ${appNo} (EMI #${emi?.installmentNumber}) has been approved by cashier.`
+        }
+      }).catch(e => console.error('[PR Notification] In-app notify failed:', e));
+
+      // 2. FCM Push notification to customer phone
+      sendPaymentConfirmationPush(paymentRequest.customerId, {
+        amount: paidAmtForNotif,
+        paymentId: paymentRequest.id,
+        loanId: paymentRequest.loanApplicationId,
+        applicationNo: appNo,
+      }).catch(e => console.error('[PR Notification] Push notify failed:', e));
 
       // ============================================================
       // POST-APPROVAL ACCOUNTING + MIRROR SYNC  (SYNCHRONOUS — awaited)
@@ -777,7 +796,7 @@ export async function PUT(request: NextRequest) {
                 companyId:       mirrorCompanyId,
                 transactionType: 'CREDIT',
                 amount:          mirrorTotal,
-                description:     `MIRROR EMI RECEIPT (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} (P:₹${mirrorPrincipal} + I:₹${mirrorInterest})`,
+                description:     `MIRROR EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber} (P:₹${mirrorPrincipal} + I:₹${mirrorInterest})`,
                 referenceType:   'MIRROR_EMI_PAYMENT',
                 referenceId:     paymentId,
                 createdById:     reviewedById
@@ -883,7 +902,7 @@ export async function PUT(request: NextRequest) {
                       companyId:       mirrorCompanyId,
                       transactionType: 'CREDIT',
                       amount:          procFee,
-                      description:     `Processing Fee Collection (UPI) - ${loan.applicationNo} EMI #1 (Last EMI ₹${mirrorEmi?.totalAmount ?? 0} vs Regular EMI ₹${regularEMI})`,
+                      description:     `Processing Fee Collection (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #1 (Last EMI ₹${mirrorEmi?.totalAmount ?? 0} vs Regular EMI ₹${regularEMI})`,
                       referenceType:   'PROCESSING_FEE',
                       referenceId:     `${loan.id}-PF-PR`,
                       createdById:     reviewedById
@@ -894,7 +913,7 @@ export async function PUT(request: NextRequest) {
                       entryDate:     new Date(),
                       referenceType: 'PROCESSING_FEE_COLLECTION',
                       referenceId:   `${loan.id}-MIR-PF-PR`,
-                      narration:     `Processing Fee (Mirror) - ${loan.applicationNo} EMI #1 ₹${procFee} (Regular EMI ₹${regularEMI} - Last Mirror EMI ₹${mirrorEmi?.totalAmount ?? 0})`,
+                      narration:     `Processing Fee (Mirror) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #1 ₹${procFee}`,
                       createdById:   reviewedById,
                       isAutoEntry:   true,
                       lines: [

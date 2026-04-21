@@ -1129,7 +1129,8 @@ export async function PUT(request: NextRequest) {
 
               // ── Also update the physical Cashbook / BankAccount passbook ──
               // (journal entry alone doesn't update the passbook balances)
-              const pfDesc = `Processing Fee Collection - ${emi.loanApplication?.applicationNo || loanId}`;
+              const customerName = emi.loanApplication?.customer?.name || '';
+              const pfDesc = `Processing Fee Collection - ${emi.loanApplication?.applicationNo || loanId}${customerName ? ` [${customerName}]` : ''}`;
               const pfRef = `PF-${loanId}`;
               if (actualPaymentMode === 'CASH') {
                 // Cash → CashBook
@@ -1169,7 +1170,8 @@ export async function PUT(request: NextRequest) {
           try {
             const isCash = actualPaymentMode === 'CASH';
             const loanAppNo = emi.loanApplication?.applicationNo || loanId;
-            const passbookDesc = `EMI #${emi.installmentNumber} Collection - ${loanAppNo}`;
+            const custName  = emi.loanApplication?.customer?.name || '';
+            const passbookDesc = `EMI #${emi.installmentNumber} Collection - ${loanAppNo}${custName ? ` [${custName}]` : ''}`;
 
             // ── SPLIT: create separate cash + bank entries ────────────────────
             if (isSplitMode && (splitCashAmount > 0 || splitOnlineAmount > 0)) {
