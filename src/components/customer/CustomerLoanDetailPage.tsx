@@ -145,6 +145,8 @@ export default function CustomerLoanDetailPage() {
   const [loading, setLoading] = useState(true);
   const [selectedEmi, setSelectedEmi] = useState<EMISchedule | null>(null);
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings | null>(null);
+  // Track EMI IDs that already have a pending payment request (In Processing)
+  const [pendingRequestEmiIds, setPendingRequestEmiIds] = useState<Set<string>>(new Set());
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
   // Mirror loan tenure — EMIs beyond this number are "extra EMIs" going to original company
   const [mirrorTenure, setMirrorTenure] = useState<number>(0);
@@ -339,10 +341,25 @@ export default function CustomerLoanDetailPage() {
     }
   }, [loanId]);
 
+  // Fetch pending payment requests for this loan to detect In Processing EMIs
+  const fetchPendingEmiRequests = useCallback(async () => {
+    if (!loanId) return;
+    try {
+      const res = await fetch(`/api/payment-request?loanId=${loanId}&status=PENDING`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const ids = new Set<string>(
+        (data.paymentRequests || []).map((r: any) => r.emiScheduleId).filter(Boolean)
+      );
+      setPendingRequestEmiIds(ids);
+    } catch (_) { /* non-critical */ }
+  }, [loanId]);
+
   useEffect(() => {
     fetchLoanDetails();
     fetchPaymentSettings();
-  }, [fetchLoanDetails, fetchPaymentSettings]);
+    fetchPendingEmiRequests();
+  }, [fetchLoanDetails, fetchPaymentSettings, fetchPendingEmiRequests]);
 
   // Once loan is loaded, fetch the company's real bank account details
   // Pass loanId so the API resolves the mirror mapping and returns
@@ -617,6 +634,7 @@ export default function CustomerLoanDetailPage() {
         resetPaymentForm();
         setSelectedEmi(null);
         fetchLoanDetails();
+        fetchPendingEmiRequests();
       } else {
         console.log('API ERROR:', data.error);
         toast({ title: 'Error', description: data.error || 'Failed to submit payment request', variant: 'destructive' });
@@ -665,6 +683,7 @@ export default function CustomerLoanDetailPage() {
       OVERDUE: { className: 'bg-red-100 text-red-700', label: 'Overdue' },
       PARTIALLY_PAID: { className: 'bg-orange-100 text-orange-700', label: 'Partial' },
       INTEREST_ONLY_PAID: { className: 'bg-purple-100 text-purple-700', label: 'Interest Paid' },
+      IN_PROCESSING: { className: 'bg-blue-100 text-blue-700', label: '⏳ In Processing' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
     return <Badge className={c.className}>{c.label}</Badge>;
@@ -1067,6 +1086,7 @@ export default function CustomerLoanDetailPage() {
                   const isOverdue = emi.paymentStatus === 'OVERDUE';
                   const isPartial = emi.paymentStatus === 'PARTIALLY_PAID';
                   const isInterestPaid = emi.paymentStatus === 'INTEREST_ONLY_PAID';
+                  const isInProcessing = pendingRequestEmiIds.has(emi.id);
                   const { canPay, reason } = canPayEmi(emi);
                   const firstUnpaid = getFirstUnpaidEmi();
                   const isNextToPay = firstUnpaid && firstUnpaid.id === emi.id;
@@ -1077,9 +1097,14 @@ export default function CustomerLoanDetailPage() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`p-4 ${!isPaid && canPay ? 'cursor-pointer hover:bg-gray-50' : ''} ${!isPaid && !canPay ? 'opacity-60 bg-gray-50' : ''}`}
+                      className={`p-4 ${!isPaid && canPay && !isInProcessing ? 'cursor-pointer hover:bg-gray-50' : ''} ${(!isPaid && !canPay) || isInProcessing ? 'opacity-70 bg-blue-50/40' : ''}`}
                       onClick={() => {
-                        if (!isPaid && canPay) {
+                        if (isInProcessing) {
+                          toast({
+                            title: '⏳ Payment In Processing',
+                            description: 'Your payment request is pending cashier confirmation. Please wait.',
+                          });
+                        } else if (!isPaid && canPay) {
                           setSelectedEmi(emi);
                           fetchEmiSpecificSettings(emi.id);
                           setShowPaymentDialog(true);
@@ -1110,8 +1135,11 @@ export default function CustomerLoanDetailPage() {
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="font-semibold">EMI #{emi.installmentNumber}</p>
-                              {getStatusBadge(emi.paymentStatus)}
-                              {isNextToPay && !isPaid && (
+                              {isInProcessing
+                                ? <Badge className="bg-blue-500 text-white text-xs animate-pulse">⏳ In Processing</Badge>
+                                : getStatusBadge(emi.paymentStatus)
+                              }
+                              {isNextToPay && !isPaid && !isInProcessing && (
                                 <Badge className="bg-amber-500 text-white text-xs">Pay Next</Badge>
                               )}
                               {emi.isInterestOnly && (
@@ -1193,7 +1221,13 @@ export default function CustomerLoanDetailPage() {
                               <span className="text-sm">{emi.daysOverdue}d overdue</span>
                             </div>
                           )}
-                          {!isPaid && canPay && (
+                          {isInProcessing && (
+                            <div className="flex items-center gap-1 text-blue-600">
+                              <Clock className="h-4 w-4 animate-pulse" />
+                              <span className="text-xs font-medium">Verifying</span>
+                            </div>
+                          )}
+                          {!isPaid && canPay && !isInProcessing && (
                             <ChevronRight className="h-5 w-5 text-amber-500" />
                           )}
                         </div>

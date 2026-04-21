@@ -23,6 +23,7 @@ import {
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { openDoc } from '@/utils/openDoc';
 
 interface PaymentRequest {
   id: string;
@@ -363,44 +364,11 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
             <Button variant="outline" onClick={fetchRequests}>
               <RefreshCw className="h-4 w-4 mr-2" /> Refresh
             </Button>
-            <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={() => setShowSettingsDialog(true)}>
-              <Settings className="h-4 w-4 mr-2" /> Payment Settings
-            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {/* Settings Preview Card */}
-      {(settings.companyUpiId || settings.bankName) && (
-        <Card className="border-emerald-200 bg-emerald-50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <QrCode className="h-5 w-5 text-emerald-600" />
-              <span className="font-medium text-emerald-800">Active Payment Configuration</span>
-            </div>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              {settings.companyUpiId && (
-                <div className="text-center">
-                  <p className="text-gray-500">UPI ID</p>
-                  <p className="font-mono font-medium">{settings.companyUpiId}</p>
-                </div>
-              )}
-              {settings.companyQrCodeUrl && (
-                <div className="text-center">
-                  <p className="text-gray-500">QR Code</p>
-                  <p className="font-medium text-emerald-600">✓ Uploaded</p>
-                </div>
-              )}
-              {settings.bankName && (
-                <div className="text-center">
-                  <p className="text-gray-500">Bank</p>
-                  <p className="font-medium">{settings.bankName}</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* Requests List */}
       <Card className="border-0 shadow-sm">
@@ -681,7 +649,11 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                             <span className="opacity-0 group-hover:opacity-100 text-white bg-black/50 px-3 py-1 rounded text-sm font-medium transition-all">🔍 Click to enlarge</span>
                           </div>
                         </div>
-                        <a href={selectedRequest.proofUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 underline mt-1 inline-block">Open in new tab ↗</a>
+                        <button
+                          type="button"
+                          onClick={() => openDoc(selectedRequest.proofUrl)}
+                          className="text-xs text-blue-500 underline mt-1 inline-block hover:text-blue-700"
+                        >Open in new tab ↗</button>
                       </div>
                     )}
                   </CardContent>
@@ -990,13 +962,11 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
               className="max-h-[85vh] max-w-full object-contain rounded-lg mx-auto block"
               onClick={e => e.stopPropagation()}
             />
-            <a
-              href={fullscreenPhoto}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
               className="block text-center mt-3 text-blue-400 underline text-sm"
-              onClick={e => e.stopPropagation()}
-            >Open original image ↗</a>
+              onClick={e => { e.stopPropagation(); openDoc(fullscreenPhoto); }}
+            >Open original image ↗</button>
           </div>
         </div>
       )}

@@ -1122,55 +1122,6 @@ function BankSection({
 
             <Separator />
 
-            {/* Payment Settings */}
-            <div className="space-y-4">
-              <h4 className="font-semibold text-gray-700">Payment Display Settings</h4>
-              <p className="text-sm text-gray-500">These details will be shown to customers when they pay EMI</p>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <Label>UPI ID</Label>
-                  <Input 
-                    value={bankForm.upiId} 
-                    onChange={(e) => setBankForm({ ...bankForm, upiId: e.target.value })}
-                    placeholder="e.g., company@upi"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Customer will see this UPI ID to make payments</p>
-                </div>
-                
-                <div className="col-span-2">
-                  <Label>QR Code Image</Label>
-                  <div className="flex items-center gap-4">
-                    {bankForm.qrCodeUrl && (
-                      <img 
-                        src={bankForm.qrCodeUrl} 
-                        alt="QR Code" 
-                        className="w-24 h-24 rounded border object-cover"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      />
-                    )}
-
-                    <div className="flex-1">
-                      <Input 
-                        type="file" 
-                        accept="image/*"
-                        onChange={handleQrCodeUpload}
-                        disabled={uploadingQr}
-                      />
-                      {uploadingQr && (
-                        <p className="text-sm text-blue-600 mt-1 flex items-center gap-1">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Uploading...
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">Upload QR code image for customer payments</p>
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
             {/* Default Setting */}
             <div className="flex items-center gap-2">
               <input 

@@ -692,52 +692,6 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                 Remaining after payment: ₹{formatCurrency(remainingAmount - emiPaymentForm.amount)}
               </p>
             </div>
-          ) : emiPaymentForm.paymentType === 'FULL' && currentUserRole !== 'ACCOUNTANT' ? (
-            /* FULL EMI — allow staff to edit principal/interest split */
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-emerald-800 font-semibold">Payment Amount</Label>
-                <span className="text-xl font-bold text-emerald-700">₹{formatCurrency(emiPaymentForm.amount)}</span>
-              </div>
-              <p className="text-xs text-emerald-600">You can edit the principal and interest breakdown (mirror loan just records the total paid, not the split)</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs text-gray-600">Principal (₹)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={emiPaymentForm.editedPrincipal ?? remainingPrincipal}
-                    onChange={(e) => {
-                      const p = parseFloat(e.target.value) || 0;
-                      setEmiPaymentForm({ ...emiPaymentForm, editedPrincipal: p, editedInterest: Math.max(0, emiPaymentForm.amount - p) });
-                    }}
-                    className="mt-1 border-emerald-300"
-                    placeholder={remainingPrincipal.toFixed(2)}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-gray-600">Interest (₹)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={emiPaymentForm.editedInterest ?? remainingInterest}
-                    onChange={(e) => {
-                      const i = parseFloat(e.target.value) || 0;
-                      setEmiPaymentForm({ ...emiPaymentForm, editedInterest: i, editedPrincipal: Math.max(0, emiPaymentForm.amount - i) });
-                    }}
-                    className="mt-1 border-emerald-300"
-                    placeholder={remainingInterest.toFixed(2)}
-                  />
-                </div>
-              </div>
-              {((emiPaymentForm.editedPrincipal !== undefined || emiPaymentForm.editedInterest !== undefined)) && (
-                <p className="text-xs text-amber-600">
-                  ⚠️ Edited split: P ₹{formatCurrency(emiPaymentForm.editedPrincipal ?? remainingPrincipal)} + I ₹{formatCurrency(emiPaymentForm.editedInterest ?? remainingInterest)} = ₹{formatCurrency((emiPaymentForm.editedPrincipal ?? remainingPrincipal) + (emiPaymentForm.editedInterest ?? remainingInterest))}
-                </p>
-              )}
-            </div>
           ) : (
             <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
               <div className="flex items-center justify-between">
