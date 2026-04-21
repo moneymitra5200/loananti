@@ -335,7 +335,14 @@ export async function POST(request: NextRequest) {
       paymentMode: paymentMode,
       proofUrl: proofUrl,
       notes: remarks,
-      waivedAmount: penaltyWaiver,
+      // ── PENALTY ─────────────────────────────────────────────────────────────
+      // penaltyAmount: total charged (auto-calculated, editable by staff)
+      // penaltyPaid:   net collected after waiver
+      // waivedAmount:  amount waived
+      penaltyAmount: (emi.penaltyAmount || 0) + penaltyAmount,   // accumulate if multiple payments
+      penaltyPaid:   (emi.penaltyPaid   || 0) + netPenalty,      // net actually collected
+      waivedAmount:  (emi.waivedAmount  || 0) + penaltyWaiver,   // total waived
+      // ─────────────────────────────────────────────────────────────────────────
       isPartialPayment,
       isInterestOnly,
       principalDeferred,
@@ -1101,8 +1108,11 @@ export async function POST(request: NextRequest) {
             const mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
             const mirrorPrincipal = Math.min(mirrorEMI.totalAmount - mirrorInterest, mirrorEMI.outstandingPrincipal);
             
-            // Record ONLY mirror interest as income in Mirror Company's CashBook
-            if (mirrorInterest > 0) {
+            // Record FULL mirror EMI (P+I) in Mirror Company's CashBook
+            // This is the correct behavior: the mirror company receives the full EMI amount,
+            // which consists of principal repayment + interest income.
+            const mirrorEMIFullAmount = mirrorEMI.totalAmount; // full P+I
+            if (mirrorEMIFullAmount > 0) {
               let mirrorCashBook = await db.cashBook.findUnique({
                 where: { companyId: mirrorCompanyId }
               });
@@ -1116,7 +1126,7 @@ export async function POST(request: NextRequest) {
                 });
               }
               
-              const newBalance = mirrorCashBook.currentBalance + mirrorInterest;
+              const newBalance = mirrorCashBook.currentBalance + mirrorEMIFullAmount;
               
               await db.cashBook.update({
                 where: { id: mirrorCashBook.id },
@@ -1127,16 +1137,16 @@ export async function POST(request: NextRequest) {
                 data: {
                   cashBookId: mirrorCashBook.id,
                   entryType: 'CREDIT',
-                  amount: mirrorInterest,
+                  amount: mirrorEMIFullAmount,
                   balanceAfter: newBalance,
-                  description: `MIRROR INTEREST INCOME - ${emi.loanApplication?.applicationNo} - EMI #${installmentNumber}`,
-                  referenceType: 'MIRROR_INTEREST_INCOME',
+                  description: `MIRROR EMI RECEIPT - ${emi.loanApplication?.applicationNo} - EMI #${installmentNumber} (P:₹${mirrorPrincipal} + I:₹${mirrorInterest})`,
+                  referenceType: 'MIRROR_EMI_PAYMENT',
                   referenceId: payment.id,
                   createdById: paidBy
                 }
               });
               
-              console.log(`[Mirror Interest] Recorded ₹${mirrorInterest} as Interest Income in Mirror Company CashBook`);
+              console.log(`[Mirror EMI] Recorded full EMI ₹${mirrorEMIFullAmount} (P:₹${mirrorPrincipal}+I:₹${mirrorInterest}) in Mirror Company CashBook`);
             }
 
             // Mark mirror EMI as paid

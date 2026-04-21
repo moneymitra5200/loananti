@@ -2404,6 +2404,10 @@ export async function PUT(request: NextRequest) {
             collectedById: userId,
             collectedByName: user.name,
             collectedAt: now,
+            // ── PENALTY: save auto-calc (editable) penalty to DB ─────────────
+            penaltyAmount:  (emi.penaltyAmount  || 0) + penaltyAmount,   // cumulative
+            penaltyPaid:    (emi.penaltyPaid    || 0) + netPenalty,       // net collected
+            // ────────────────────────────────────────────────────────────────
             ...(paymentType === 'PARTIAL' && remainingPaymentDate ? {
               dueDate: new Date(remainingPaymentDate),
               nextPaymentDate: new Date(remainingPaymentDate),
