@@ -1067,7 +1067,6 @@ export default function CustomerDashboard() {
                           <p className="text-sm text-gray-500">{offer.company.name}</p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-medium text-emerald-600">{offer.interestRate}% p.a.</p>
                           <p className="text-xs text-gray-400">Up to {offer.maxTenure} months</p>
                         </div>
                       </div>
@@ -1797,10 +1796,6 @@ export default function CustomerDashboard() {
                       <p className="font-bold text-lg text-emerald-700">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Interest Rate</p>
-                      <p className="font-semibold">{selectedLoan.sessionForm.interestRate}% p.a.</p>
-                    </div>
-                    <div>
                       <p className="text-gray-500">Tenure</p>
                       <p className="font-semibold">{selectedLoan.sessionForm.tenure} months</p>
                     </div>
@@ -1809,11 +1804,7 @@ export default function CustomerDashboard() {
                       <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.emiAmount)}/mo</p>
                     </div>
                     <div>
-                      <p className="text-gray-500">Total Interest</p>
-                      <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.totalInterest)}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Total Amount</p>
+                      <p className="text-gray-500">Total Payable</p>
                       <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.totalAmount)}</p>
                     </div>
                   </div>

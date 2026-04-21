@@ -927,17 +927,11 @@ export default function CustomerLoanDetailPage() {
                 <div className="space-y-4">
                   {/* Interest Summary */}
                   {interestEmiData?.loan && (
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-white rounded-lg border border-amber-200">
                         <p className="text-xs text-gray-500">Principal Amount</p>
                         <p className="text-lg font-bold text-gray-900">
                           {formatCurrency(interestEmiData.loan.principalAmount)}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-white rounded-lg border border-amber-200">
-                        <p className="text-xs text-gray-500">Interest Rate</p>
-                        <p className="text-lg font-bold text-amber-700">
-                          {interestEmiData.loan.interestRate}% p.a.
                         </p>
                       </div>
                       <div className="p-3 bg-white rounded-lg border border-amber-200">

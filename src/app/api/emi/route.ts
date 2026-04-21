@@ -520,13 +520,33 @@ export async function PUT(request: NextRequest) {
           })
         };
 
-        // FIX-26: Set paidPrincipal + paidInterest proportionally for FULL payments
+        // Calculate paidPrincipal / paidInterest from the EMI's own schedule values.
+        // Do NOT use a ratio — the EMI record already has the correct split.
+        // For a full payment: paidPrincipal = EMI's principalAmount, paidInterest = EMI's interestAmount
+        // For a partial payment: split proportionally using EMI schedule ratios (but guard against zero)
         if (normalizedPaymentType !== 'INTEREST_ONLY') {
-          const principalRatio = emiPrincipal / emiTotal;
-          const paidPrincipal = Math.round(paidAmount * principalRatio * 100) / 100;
-          const paidInterest = Math.round((paidAmount - paidPrincipal) * 100) / 100;
-          updateData.paidPrincipal = (emi.paidPrincipal || 0) + paidPrincipal;
-          updateData.paidInterest  = (emi.paidInterest  || 0) + paidInterest;
+          let paidPrincipal: number;
+          let paidInterest: number;
+
+          if (staffPrincipal !== undefined && staffInterest !== undefined) {
+            // Staff explicitly overrode the split (e.g., advanced payment with different breakdown)
+            paidPrincipal = Number(staffPrincipal) || 0;
+            paidInterest  = Number(staffInterest)  || 0;
+          } else if (normalizedPaymentType === 'FULL' && paidAmount >= emiTotal - 0.01) {
+            // Full EMI payment: use exact schedule values (most accurate)
+            paidPrincipal = emiPrincipal;
+            paidInterest  = emiInterest;
+          } else {
+            // Partial payment or advance: split proportionally
+            // Guard: if emiTotal is 0, avoid divide-by-zero
+            const safeTotal = emiTotal > 0 ? emiTotal : 1;
+            const principalRatio = emiPrincipal / safeTotal;
+            paidPrincipal = Math.round(paidAmount * principalRatio * 100) / 100;
+            paidInterest  = Math.round((paidAmount - paidPrincipal) * 100) / 100;
+          }
+
+          updateData.paidPrincipal = Math.round(((emi.paidPrincipal || 0) + paidPrincipal) * 100) / 100;
+          updateData.paidInterest  = Math.round(((emi.paidInterest  || 0) + paidInterest)  * 100) / 100;
         }
 
 

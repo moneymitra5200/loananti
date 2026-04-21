@@ -105,21 +105,24 @@ export async function GET(request: NextRequest) {
     if (role === 'SUPER_ADMIN') {
       // Super admin sees all loans
     } else if (role === 'CUSTOMER' && customerId) {
-      // Customer should only see ORIGINAL loans, not mirror loans
-      // Fetch mirror loan IDs first
+      // MIRROR RULE: If a loan has a mirror mapping, customer sees ONLY the MIRROR loan.
+      // The original loan is the internal company record; the mirror is the customer-facing loan.
+      // So: filter OUT original loans that have mirrors (customer should not see those)
+      //     and SHOW the mirror loans (they belong to the customer via same customerId)
       try {
         const mirrorMappings = await db.mirrorLoanMapping.findMany({
-          select: { mirrorLoanId: true }
+          select: { originalLoanId: true, mirrorLoanId: true }
         });
-        const mirrorLoanIds = mirrorMappings
-          .map(m => m.mirrorLoanId)
-          .filter(id => id !== null) as string[];
-          
-        if (mirrorLoanIds.length > 0) {
-          where.id = { notIn: mirrorLoanIds };
+        // Original loan IDs that have mirrors — these should NOT be shown to customer
+        const originalLoanIdsWithMirror = mirrorMappings
+          .map(m => m.originalLoanId)
+          .filter((id): id is string => Boolean(id));
+
+        if (originalLoanIdsWithMirror.length > 0) {
+          // Exclude originals that have mirrors; mirror loans (same customerId) will still appear
+          where.id = { notIn: originalLoanIdsWithMirror };
         }
       } catch (err) {
-        // If mirrorLoanMapping doesn't exist or fails, just continue without filtering
         console.warn("Could not filter mirror loans", err);
       }
     } else if (role === 'COMPANY') {

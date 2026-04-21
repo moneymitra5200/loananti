@@ -56,15 +56,33 @@ export async function GET(request: NextRequest) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Rename "Loans Receivable" → "Loan Given" in all display labels
+// ─────────────────────────────────────────────────────────────────────────────
+function toLoanGivenLabel(accountName: string, customerName?: string): string {
+  const base = accountName.replace(/loans? receivable/gi, 'Loan Given');
+  if (customerName && base.toLowerCase().includes('loan given') && !base.includes(customerName)) {
+    return `Loan Given — ${customerName}`;
+  }
+  return base;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Get the Loans Receivable account IDs for a company (or all companies)
+// Falls back to all-company search if company-specific accounts not found
+// (e.g. new company that hasn't been initialized yet)
 // ─────────────────────────────────────────────────────────────────────────────
 async function getLRAccountIds(companyId: string | null): Promise<string[]> {
   const where: any = { accountCode: { in: LR_CODES } };
   if (companyId) where.companyId = companyId;
-  const accounts = await db.chartOfAccount.findMany({
-    where,
-    select: { id: true }
-  });
+  let accounts = await db.chartOfAccount.findMany({ where, select: { id: true } });
+
+  // Fallback: if no accounts found for specific company, search all companies
+  if (accounts.length === 0 && companyId) {
+    accounts = await db.chartOfAccount.findMany({
+      where: { accountCode: { in: LR_CODES } },
+      select: { id: true }
+    });
+  }
   return accounts.map(a => a.id);
 }
 
@@ -525,7 +543,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         lines: je.lines.map((l: any) => ({
           accountCode: l.account?.accountCode || '',
           accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
-            ? `Loans Receivable — ${customer?.name || ''}`
+            ? toLoanGivenLabel('Loan Given', customer?.name || '')
             : (l.account?.accountName || 'Account'),
           debitAmount: l.debitAmount,
           creditAmount: l.creditAmount,
@@ -791,3 +809,4 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     source: journalEntries.length > 0 ? 'journal_entries' : 'no_data',
   });
 }
+

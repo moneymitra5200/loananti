@@ -236,12 +236,31 @@ async function getBalanceSheet(companyId: string | null) {
   };
 
   // Non-bank asset accounts (shown normally)
-  const nonBankAssets = allAssetAccounts.filter(a => !isBankCode(a.accountCode, a.accountName));
+  // Also exclude: Online Loan Receivable / Offline Loan Receivable — these are sub-types
+  // of the unified "Loan Given" account and would double-count the receivable.
+  const EXCLUDE_ASSET_NAMES = [
+    'online loan receivable', 'offline loan receivable',
+    'online loans receivable', 'offline loans receivable',
+    'online loan', 'offline loan',
+  ];
+  const nonBankAssets = allAssetAccounts.filter(a => {
+    if (isBankCode(a.accountCode, a.accountName)) return false;
+    const nameLower = a.accountName.trim().toLowerCase();
+    if (EXCLUDE_ASSET_NAMES.some(ex => nameLower.includes(ex))) return false;
+    return true;
+  });
+
+  // Rename display labels: "Loans Receivable" → "Loan Given"
+  const renameAssetLabel = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.includes('loans receivable') || lower === 'loan receivable') return 'Loan Given';
+    return name;
+  };
 
   // Build flat asset array: non-bank accounts + bank HEAD + bank SUB-HEADS
   const assets: any[] = nonBankAssets.map(account => ({
     accountCode: account.accountCode,
-    accountName: account.accountName,
+    accountName: renameAssetLabel(account.accountName),
     amount: account.currentBalance,
     isHead: false,
   }));

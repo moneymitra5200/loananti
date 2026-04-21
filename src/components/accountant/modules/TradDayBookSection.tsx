@@ -57,13 +57,14 @@ function extractCustomerFromNarration(text: string): string {
   return '';
 }
 
-// Enrich a Loans Receivable account label with customer name (subsidiary ledger)
+// Enrich a Loan Given account label with customer name (subsidiary ledger)
 function enrichReceivableLabel(accountName: string, customerName: string): string {
-  if (!accountName.toLowerCase().includes('loans receivable')) return accountName;
-  if (customerName && !accountName.includes(customerName)) {
-    return `Loans Receivable — ${customerName}`;
+  // Rename Loans Receivable → Loan Given in display
+  const displayName = accountName.replace(/loans? receivable/gi, 'Loan Given');
+  if (customerName && displayName.toLowerCase().includes('loan given') && !displayName.includes(customerName)) {
+    return `Loan Given — ${customerName}`;
   }
-  return accountName;
+  return displayName;
 }
 
 function resolveAccounts(
@@ -101,8 +102,8 @@ function resolveAccounts(
   // ── CASHBOOK / BANK – map by referenceType ──────
   // Build the receivable label with customer name (subsidiary ledger style)
   const receivableLabel = customerName
-    ? `Loans Receivable — ${customerName} A/c`
-    : 'Loans Receivable A/c';
+    ? `Loan Given — ${customerName} A/c`
+    : 'Loan Given A/c';
 
   // Loan disbursement (money out)
   if (ref.includes('OFFLINE_LOAN') || ref.includes('LOAN_DISBURSEMENT') || ref === 'ONLINE_LOAN') {
@@ -116,7 +117,7 @@ function resolveAccounts(
   if (ref.includes('EMI_PAYMENT') || ref.includes('REPAYMENT')) {
     return {
       drLines: [{ account: cashLabel, amount: amt }],
-      crLines: [{ account: 'Loans Receivable A/c', amount: amt }],
+      crLines: [{ account: receivableLabel, amount: amt }],
     };
   }
 

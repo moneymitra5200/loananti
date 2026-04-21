@@ -643,20 +643,33 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                             src={selectedRequest.proofUrl}
                             alt="Payment proof"
                             className="max-h-60 w-full object-contain rounded-lg border hover:opacity-90 transition-opacity"
-                            onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
+                            onError={e => {
+                              const img = e.target as HTMLImageElement;
+                              img.style.display = 'none';
+                              // Show a fallback div
+                              const fallback = img.nextSibling as HTMLElement;
+                              if (fallback) fallback.style.display = 'flex';
+                            }}
                           />
+                          {/* Fallback when image fails to load */}
+                          <div
+                            style={{ display: 'none' }}
+                            className="h-32 w-full rounded-lg border bg-gray-50 items-center justify-center flex-col gap-2 text-gray-400"
+                          >
+                            <span className="text-3xl">🖼️</span>
+                            <p className="text-sm">Image preview unavailable</p>
+                            <p className="text-xs">Click "Open in Browser" to view</p>
+                          </div>
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all rounded-lg flex items-center justify-center">
                             <span className="opacity-0 group-hover:opacity-100 text-white bg-black/50 px-3 py-1 rounded text-sm font-medium transition-all">🔍 Click to enlarge</span>
                           </div>
                         </div>
-                        {/* Use <a> not button+onClick — browser popup blocker allows anchor navigation */}
-                        <a
-                          href={selectedRequest.proofUrl.startsWith('data:') ? '#' : selectedRequest.proofUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={selectedRequest.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(selectedRequest.proofUrl); } : undefined}
-                          className="text-xs text-blue-500 underline mt-1 inline-block hover:text-blue-700"
-                        >Open in new tab ↗</a>
+                        {/* Always show open button — works even if image doesn't load in preview */}
+                        <button
+                          type="button"
+                          className="text-xs text-blue-500 underline mt-2 inline-block hover:text-blue-700"
+                          onClick={() => openDoc(selectedRequest.proofUrl)}
+                        >Open in Browser ↗</button>
                       </div>
                     )}
                   </CardContent>
