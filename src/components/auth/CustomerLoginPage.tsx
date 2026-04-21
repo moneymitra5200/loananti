@@ -199,13 +199,16 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                   <div className="space-y-2">
                     <Label className="text-gray-700 text-sm font-medium">Full Name *</Label>
                     <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                        <User className="h-5 w-5 text-gray-400" />
+                      </span>
                       <Input
                         type="text"
                         placeholder="John Doe"
                         value={name}
                         onChange={(e) => { setName(e.target.value); clearError(); }}
                         className="pl-12 h-12 bg-gray-50 border-gray-200 rounded-xl text-sm"
+                        style={{ paddingLeft: '3rem' }}
                       />
                     </div>
                   </div>
@@ -214,7 +217,9 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                 <div className="space-y-2">
                   <Label className="text-gray-700 text-sm font-medium">Email Address *</Label>
                   <div className="relative">
-                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                      <Mail className="h-5 w-5 text-gray-400" />
+                    </span>
                     <Input
                       type="email"
                       autoComplete={isSignUp ? 'email' : 'username'}
@@ -224,6 +229,7 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                       className={`pl-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
                         error ? 'border-red-300 bg-red-50' : 'border-gray-200'
                       }`}
+                      style={{ paddingLeft: '3rem' }}
                     />
                   </div>
                 </div>
@@ -232,13 +238,16 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                   <div className="space-y-2">
                     <Label className="text-gray-700 text-sm font-medium">Phone Number</Label>
                     <div className="relative">
-                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                        <Phone className="h-5 w-5 text-gray-400" />
+                      </span>
                       <Input
                         type="tel"
                         placeholder="+91 98765 43210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="pl-12 h-12 bg-gray-50 border-gray-200 rounded-xl text-sm"
+                        style={{ paddingLeft: '3rem' }}
                       />
                     </div>
                   </div>
@@ -247,7 +256,9 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                 <div className="space-y-2">
                   <Label className="text-gray-700 text-sm font-medium">Password *</Label>
                   <div className="relative">
-                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                      <Lock className="h-5 w-5 text-gray-400" />
+                    </span>
                     <Input
                       type={showPassword ? 'text' : 'password'}
                       autoComplete={isSignUp ? 'new-password' : 'current-password'}
@@ -257,11 +268,12 @@ export default function CustomerLoginPage({ onBack }: CustomerLoginPageProps) {
                       className={`pl-12 pr-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
                         error ? 'border-red-300 bg-red-50' : 'border-gray-200'
                       }`}
+                      style={{ paddingLeft: '3rem' }}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors z-10"
                       tabIndex={-1}
                     >
                       {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}

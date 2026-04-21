@@ -122,7 +122,9 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
                   <div className="space-y-2">
                     <Label className="text-gray-700 text-sm font-medium">Email Address</Label>
                     <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                        <Mail className="h-5 w-5 text-gray-400" />
+                      </span>
                       <Input
                         id="staff-email"
                         type="email"
@@ -133,6 +135,7 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
                         className={`pl-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
                           error ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-emerald-500'
                         }`}
+                        style={{ paddingLeft: '3rem' }}
                       />
                     </div>
                   </div>
@@ -140,7 +143,9 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
                   <div className="space-y-2">
                     <Label className="text-gray-700 text-sm font-medium">Password</Label>
                     <div className="relative">
-                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                      <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 z-10">
+                        <Lock className="h-5 w-5 text-gray-400" />
+                      </span>
                       <Input
                         id="staff-password"
                         type={showPassword ? 'text' : 'password'}
@@ -151,11 +156,12 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
                         className={`pl-12 pr-12 h-12 bg-gray-50 rounded-xl text-sm transition-colors ${
                           error ? 'border-red-300 bg-red-50 focus:border-red-400' : 'border-gray-200 focus:border-emerald-500'
                         }`}
+                        style={{ paddingLeft: '3rem' }}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors z-10"
                         tabIndex={-1}
                       >
                         {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}

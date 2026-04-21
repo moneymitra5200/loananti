@@ -349,8 +349,13 @@ input, textarea, select {
   color: hsl(var(--foreground)) !important;
   font-size: var(--text-sm) !important;
   min-height: clamp(34px, 3.8vh, 48px);
-  padding: var(--space-xs) var(--space-sm) !important;
   border-radius: calc(var(--radius) * 0.75) !important;
+}
+
+/* Default padding only when no pl or pr override is applied — keeps icon-input spacing intact */
+input:not([class*="pl-"]):not([class*="pr-"]),
+textarea:not([class*="pl-"]):not([class*="pr-"]) {
+  padding: var(--space-xs) var(--space-sm);
 }
 
 label {
