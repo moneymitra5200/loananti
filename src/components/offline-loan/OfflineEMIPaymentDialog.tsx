@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import {
   IndianRupee, CheckCircle, Receipt, Percent,
   User, Building, Wallet, AlertCircle, Loader2,
@@ -448,6 +449,22 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Loan Type Info - Offline, Mirror Status */}
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary" className="bg-gray-600 hover:bg-gray-700 text-white">
+              📁 Offline Loan
+            </Badge>
+            {isMirrored && (
+              <Badge className="bg-purple-500 hover:bg-purple-600">
+                🔄 Mirror Loan
+              </Badge>
+            )}
+            {!isMirrored && (
+              <Badge variant="outline" className="border-green-500 text-green-600">
+                ✅ Original Loan
+              </Badge>
+            )}
+          </div>
 
           {/* ── ADVANCE PAYMENT BANNER ── */}
           {isAdvance && (
@@ -654,21 +671,23 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               onChange={(e) => setAmount(parseFloat(e.target.value) || 0)} />
           </div>
 
-          {/* ── PENALTY UI - ALWAYS visible when EMI due date has passed ── */}
-          {!isInterestOnlyLoan && !isMultiMode && isPenaltyOverdue && (
-            <div className="p-4 bg-rose-50 rounded-lg border-2 border-rose-200 space-y-3">
+          {/* ── PENALTY UI - ALWAYS visible, ACTIVE only after EMI due date ── */}
+          {!isInterestOnlyLoan && !isMultiMode && (
+            <div className={`p-4 rounded-lg border-2 space-y-3 ${isPenaltyOverdue ? 'bg-rose-50 border-rose-200' : 'bg-gray-50 border-gray-200 opacity-60'}`}>
               <div className="flex items-center gap-2 mb-2">
-                <AlertTriangle className="h-5 w-5 text-rose-600" />
-                <span className="font-semibold text-rose-700">Penalty for Overdue EMI</span>
-                <span className="ml-auto px-2 py-1 bg-rose-200 text-rose-800 text-xs font-medium rounded">
-                  {penaltyInfo.daysOverdue} day(s) overdue
+                <AlertTriangle className={`h-5 w-5 ${isPenaltyOverdue ? 'text-rose-600' : 'text-gray-400'}`} />
+                <span className={`font-semibold ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-500'}`}>
+                  Penalty {isPenaltyOverdue ? 'for Overdue EMI' : '(Not Applicable)'}
+                </span>
+                <span className={`ml-auto px-2 py-1 text-xs font-medium rounded ${isPenaltyOverdue ? 'bg-rose-200 text-rose-800' : 'bg-gray-200 text-gray-600'}`}>
+                  {isPenaltyOverdue ? `${penaltyInfo.daysOverdue} day(s) overdue` : 'Due date not passed'}
                 </span>
               </div>
 
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between items-center">
-                  <span className="text-rose-600">Penalty Rate</span>
-                  <span className="font-medium text-rose-700">
+                  <span className={isPenaltyOverdue ? 'text-rose-600' : 'text-gray-400'}>Penalty Rate</span>
+                  <span className={`font-medium ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-400'}`}>
                     ₹{penaltyInfo.ratePerDay}/day
                     <span className="text-xs text-gray-500 ml-1">
                       ({fmt(loanAmountForPenalty)} loan = ₹{penaltyInfo.ratePerDay}/day)
@@ -676,19 +695,22 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                   </span>
                 </div>
 
-                {/* EDITABLE Penalty Amount */}
-                <div className="pt-2 border-t border-rose-200 mt-2">
-                  <Label className="text-sm text-rose-700 font-medium">Penalty Amount (Editable)</Label>
+                {/* EDITABLE Penalty Amount - only when overdue */}
+                <div className="pt-2 border-t border-gray-200 mt-2">
+                  <Label className={`text-sm font-medium ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-400'}`}>
+                    Penalty Amount {isPenaltyOverdue ? '(Editable)' : '- Disabled until due date passes'}
+                  </Label>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="relative flex-1">
                       <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <Input
                         type="number"
-                        value={editedPenaltyAmount !== '' ? editedPenaltyAmount : penaltyInfo.calculatedPenalty}
-                        onChange={(e) => setEditedPenaltyAmount(e.target.value)}
+                        value={isPenaltyOverdue ? (editedPenaltyAmount !== '' ? editedPenaltyAmount : penaltyInfo.calculatedPenalty) : 0}
+                        onChange={(e) => isPenaltyOverdue && setEditedPenaltyAmount(e.target.value)}
                         placeholder={String(penaltyInfo.calculatedPenalty || 0)}
                         min="0"
                         className="pl-8"
+                        disabled={!isPenaltyOverdue}
                       />
                     </div>
                     <Button
@@ -697,30 +719,38 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                       size="sm"
                       onClick={() => setEditedPenaltyAmount('')}
                       className="text-xs"
+                      disabled={!isPenaltyOverdue}
                     >
                       Reset
                     </Button>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Calculated: ₹{penaltyInfo.calculatedPenalty || 0} ({penaltyInfo.daysOverdue} days × ₹{penaltyInfo.ratePerDay}/day)
-                    {editedPenaltyAmount !== '' && <span className="text-amber-600"> - Custom value set</span>}
+                    {isPenaltyOverdue ? (
+                      <>
+                        Calculated: ₹{penaltyInfo.calculatedPenalty || 0} ({penaltyInfo.daysOverdue} days × ₹{penaltyInfo.ratePerDay}/day)
+                        {editedPenaltyAmount !== '' && <span className="text-amber-600"> - Custom value set</span>}
+                      </>
+                    ) : (
+                      'Penalty will be calculated automatically when EMI becomes overdue'
+                    )}
                   </p>
                 </div>
 
-                {/* Penalty Waiver Input */}
-                <div className="pt-2 border-t border-rose-200 mt-2">
-                  <Label className="text-sm text-rose-700">Waive Penalty (Optional)</Label>
+                {/* Penalty Waiver Input - only when overdue */}
+                <div className="pt-2 border-t border-gray-200 mt-2">
+                  <Label className={`text-sm ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-400'}`}>Waive Penalty (Optional)</Label>
                   <div className="flex items-center gap-2 mt-1">
                     <div className="relative flex-1">
                       <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                       <Input
                         type="number"
-                        value={penaltyWaiver}
-                        onChange={(e) => setPenaltyWaiver(parseFloat(e.target.value) || 0)}
+                        value={isPenaltyOverdue ? penaltyWaiver : 0}
+                        onChange={(e) => isPenaltyOverdue && setPenaltyWaiver(parseFloat(e.target.value) || 0)}
                         placeholder="0"
                         min="0"
                         max={penaltyAmount}
                         className="pl-8"
+                        disabled={!isPenaltyOverdue}
                       />
                     </div>
                     <span className="text-xs text-gray-500 whitespace-nowrap">
@@ -733,11 +763,11 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                 </div>
 
                 {/* Net Penalty After Waiver */}
-                <div className="flex justify-between items-center pt-2 border-t border-rose-200 mt-2">
-                  <span className="font-medium text-rose-700">Penalty to Collect</span>
-                  <span className="font-bold text-lg text-rose-700">
-                    ₹{fmt(netPenalty)}
-                    {penaltyWaiver > 0 && (
+                <div className="flex justify-between items-center pt-2 border-t border-gray-200 mt-2">
+                  <span className={`font-medium ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-400'}`}>Penalty to Collect</span>
+                  <span className={`font-bold text-lg ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-400'}`}>
+                    ₹{fmt(isPenaltyOverdue ? netPenalty : 0)}
+                    {isPenaltyOverdue && penaltyWaiver > 0 && (
                       <span className="text-xs text-green-600 ml-1">
                         (waived: ₹{fmt(penaltyWaiver)})
                       </span>
@@ -745,8 +775,8 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                   </span>
                 </div>
 
-                {/* Penalty Payment Mode */}
-                {netPenalty > 0 && (
+                {/* Penalty Payment Mode - only when penalty is active */}
+                {isPenaltyOverdue && netPenalty > 0 && (
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     {(['CASH', 'BANK'] as const).map((mode) => (
                       <button key={mode} type="button"

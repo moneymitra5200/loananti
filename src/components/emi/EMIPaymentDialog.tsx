@@ -603,6 +603,28 @@ export default function EMIPaymentDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Loan Type Info - Offline/Online, Mirror Status */}
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={type === 'offline' ? 'secondary' : 'default'} className={type === 'online' ? 'bg-blue-500 hover:bg-blue-600' : ''}>
+              {type === 'offline' ? '📁 Offline Loan' : '🌐 Online Loan'}
+            </Badge>
+            {mirrorLoanInfo?.isMirrorLoan && (
+              <Badge className="bg-purple-500 hover:bg-purple-600">
+                🔄 Mirror Loan
+              </Badge>
+            )}
+            {isActuallyExtraEMI && (
+              <Badge className="bg-amber-500 hover:bg-amber-600">
+                ⭐ Extra EMI
+              </Badge>
+            )}
+            {!mirrorLoanInfo?.isMirrorLoan && type === 'online' && (
+              <Badge variant="outline" className="border-green-500 text-green-600">
+                ✅ Original Loan
+              </Badge>
+            )}
+          </div>
+
           {/* EMI Details */}
           <div className="bg-gray-50 p-4 rounded-lg space-y-2">
             <div className="flex justify-between items-center">
@@ -649,99 +671,110 @@ export default function EMIPaymentDialog({
             )}
           </div>
 
-          {/* Penalty Section - ALWAYS visible when EMI due date has passed */}
-          {isEmiOverdue && (
-            <div className="bg-red-50 p-4 rounded-lg border-2 border-red-200">
-              <div className="flex items-center gap-2 mb-3">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-                <span className="font-semibold text-red-700">Penalty for Overdue EMI</span>
-                <Badge variant="destructive" className="ml-auto">
-                  {penaltyDetails.daysOverdue} day(s) overdue
-                </Badge>
+          {/* Penalty Section - ALWAYS visible, ACTIVE only after EMI due date */}
+          <div className={`p-4 rounded-lg border-2 ${isEmiOverdue ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200 opacity-60'}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className={`h-5 w-5 ${isEmiOverdue ? 'text-red-600' : 'text-gray-400'}`} />
+              <span className={`font-semibold ${isEmiOverdue ? 'text-red-700' : 'text-gray-500'}`}>
+                Penalty {isEmiOverdue ? 'for Overdue EMI' : '(Not Applicable)'}
+              </span>
+              <Badge variant={isEmiOverdue ? 'destructive' : 'secondary'} className="ml-auto">
+                {isEmiOverdue ? `${penaltyDetails.daysOverdue} day(s) overdue` : 'Due date not passed'}
+              </Badge>
+            </div>
+
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between items-center">
+                <span className={isEmiOverdue ? 'text-red-600' : 'text-gray-400'}>Penalty Rate</span>
+                <span className={`font-medium ${isEmiOverdue ? 'text-red-700' : 'text-gray-400'}`}>
+                  ₹{penaltyDetails.ratePerDay}/day
+                  <span className="text-xs text-gray-500 ml-1">
+                    ({formatCurrency(getLoanAmountForPenalty())} loan = ₹{penaltyDetails.ratePerDay}/day)
+                  </span>
+                </span>
               </div>
-              
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between items-center">
-                  <span className="text-red-600">Penalty Rate</span>
-                  <span className="font-medium text-red-700">
-                    ₹{penaltyDetails.ratePerDay}/day
-                    <span className="text-xs text-gray-500 ml-1">
-                      ({formatCurrency(getLoanAmountForPenalty())} loan = ₹{penaltyDetails.ratePerDay}/day)
-                    </span>
-                  </span>
-                </div>
-                
-                {/* EDITABLE Penalty Amount */}
-                <div className="pt-2 border-t border-red-200 mt-2">
-                  <Label className="text-sm text-red-700 font-medium">Penalty Amount (Editable)</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="relative flex-1">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        type="number"
-                        value={editedPenaltyAmount !== '' ? editedPenaltyAmount : penaltyDetails.calculatedPenalty}
-                        onChange={(e) => setEditedPenaltyAmount(e.target.value)}
-                        placeholder={String(penaltyDetails.calculatedPenalty || 0)}
-                        min="0"
-                        className="pl-8"
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditedPenaltyAmount('')}
-                      className="text-xs"
-                    >
-                      Reset
-                    </Button>
+
+              {/* EDITABLE Penalty Amount - only when overdue */}
+              <div className="pt-2 border-t border-gray-200 mt-2">
+                <Label className={`text-sm font-medium ${isEmiOverdue ? 'text-red-700' : 'text-gray-400'}`}>
+                  Penalty Amount {isEmiOverdue ? '(Editable)' : '- Disabled until due date passes'}
+                </Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="number"
+                      value={isEmiOverdue ? (editedPenaltyAmount !== '' ? editedPenaltyAmount : penaltyDetails.calculatedPenalty) : 0}
+                      onChange={(e) => isEmiOverdue && setEditedPenaltyAmount(e.target.value)}
+                      placeholder={String(penaltyDetails.calculatedPenalty || 0)}
+                      min="0"
+                      className="pl-8"
+                      disabled={!isEmiOverdue}
+                    />
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Calculated: ₹{penaltyDetails.calculatedPenalty || 0} ({penaltyDetails.daysOverdue} days × ₹{penaltyDetails.ratePerDay}/day)
-                    {editedPenaltyAmount !== '' && <span className="text-amber-600"> - Custom value set</span>}
-                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditedPenaltyAmount('')}
+                    className="text-xs"
+                    disabled={!isEmiOverdue}
+                  >
+                    Reset
+                  </Button>
                 </div>
-                
-                {/* Penalty Waiver Input */}
-                <div className="pt-2 border-t border-red-200 mt-2">
-                  <Label className="text-sm text-red-700">Waive Penalty (Optional)</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="relative flex-1">
-                      <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                      <Input
-                        type="number"
-                        value={penaltyWaiver}
-                        onChange={(e) => setPenaltyWaiver(e.target.value)}
-                        placeholder="0"
-                        min="0"
-                        max={penaltyDetails.penaltyAmount.toString()}
-                        className="pl-8"
-                      />
-                    </div>
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
-                      Max: {formatCurrency(penaltyDetails.penaltyAmount)}
-                    </span>
-                  </div>
-                  {parseFloat(penaltyWaiver) > penaltyDetails.penaltyAmount && (
-                    <p className="text-xs text-red-500 mt-1">Waiver cannot exceed penalty amount</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {isEmiOverdue ? (
+                    <>
+                      Calculated: ₹{penaltyDetails.calculatedPenalty || 0} ({penaltyDetails.daysOverdue} days × ₹{penaltyDetails.ratePerDay}/day)
+                      {editedPenaltyAmount !== '' && <span className="text-amber-600"> - Custom value set</span>}
+                    </>
+                  ) : (
+                    'Penalty will be calculated automatically when EMI becomes overdue'
                   )}
-                </div>
-                
-                {/* Net Penalty After Waiver */}
-                <div className="flex justify-between items-center pt-2 border-t border-red-200 mt-2">
-                  <span className="font-medium text-red-700">Penalty to Collect</span>
-                  <span className="font-bold text-lg text-red-700">
-                    {formatCurrency(penaltyDetails.netPenalty)}
-                    {parseFloat(penaltyWaiver) > 0 && (
-                      <span className="text-xs text-green-600 ml-1">
-                        (waived: {formatCurrency(parseFloat(penaltyWaiver))})
-                      </span>
-                    )}
+                </p>
+              </div>
+
+              {/* Penalty Waiver Input - only when overdue */}
+              <div className="pt-2 border-t border-gray-200 mt-2">
+                <Label className={`text-sm ${isEmiOverdue ? 'text-red-700' : 'text-gray-400'}`}>Waive Penalty (Optional)</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="number"
+                      value={isEmiOverdue ? penaltyWaiver : '0'}
+                      onChange={(e) => isEmiOverdue && setPenaltyWaiver(e.target.value)}
+                      placeholder="0"
+                      min="0"
+                      max={penaltyDetails.penaltyAmount.toString()}
+                      className="pl-8"
+                      disabled={!isEmiOverdue}
+                    />
+                  </div>
+                  <span className="text-xs text-gray-500 whitespace-nowrap">
+                    Max: {formatCurrency(penaltyDetails.penaltyAmount)}
                   </span>
                 </div>
+                {parseFloat(penaltyWaiver) > penaltyDetails.penaltyAmount && (
+                  <p className="text-xs text-red-500 mt-1">Waiver cannot exceed penalty amount</p>
+                )}
+              </div>
+
+              {/* Net Penalty After Waiver */}
+              <div className="flex justify-between items-center pt-2 border-t border-gray-200 mt-2">
+                <span className={`font-medium ${isEmiOverdue ? 'text-red-700' : 'text-gray-400'}`}>Penalty to Collect</span>
+                <span className={`font-bold text-lg ${isEmiOverdue ? 'text-red-700' : 'text-gray-400'}`}>
+                  {formatCurrency(isEmiOverdue ? penaltyDetails.netPenalty : 0)}
+                  {isEmiOverdue && parseFloat(penaltyWaiver) > 0 && (
+                    <span className="text-xs text-green-600 ml-1">
+                      (waived: {formatCurrency(parseFloat(penaltyWaiver))})
+                    </span>
+                  )}
+                </span>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Extra EMI / Mirror Loan Badge */}
           {(isActuallyExtraEMI || mirrorLoanInfo?.isMirrorLoan) && (
