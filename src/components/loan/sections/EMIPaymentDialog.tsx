@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useEffect } from 'react';
+import { memo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,15 +78,13 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
   loanAmount = 0,
 }: EMIPaymentDialogProps) {
   // ── Auto-calculated penalty (editable) ─────────────────────────────────────
+  // Key to reset penalty when EMI changes (parent passes key={selectedEMI?.id})
   const [editedPenalty, setEditedPenalty] = useState<string>('');
   const isOverdue = isEMIOverdue(selectedEMI);
   const penaltyCalc = selectedEMI ? calcPenalty(selectedEMI.dueDate, loanAmount) : { daysOverdue: 0, ratePerDay: 0, auto: 0 };
   // Use lateFee from DB if no loanAmount, else auto-calculated
   const autoPenalty = loanAmount > 0 ? penaltyCalc.auto : (selectedEMI?.lateFee || 0);
   const finalPenalty = editedPenalty !== '' ? (parseFloat(editedPenalty) || 0) : autoPenalty;
-
-  // Reset penalty when EMI changes
-  useEffect(() => { setEditedPenalty(''); }, [selectedEMI?.id, open]);
   // Calculate remaining amount
   const totalAmount = (selectedEMI?.emiAmount || 0) + (selectedEMI?.lateFee || 0);
   const alreadyPaid = selectedEMI?.paidAmount || 0;
