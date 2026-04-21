@@ -3074,10 +3074,14 @@ export async function PUT(request: NextRequest) {
             console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);
           } else {
             accountingResult = await recordEMIPaymentAccounting({
-              amount: actualPaymentAmount,
+              // FIX: For split payment, only the CASH portion goes to cashbook.
+              // The online portion is recorded separately via recordBankTransaction below.
+              amount: (isSplitPayment && splitCashAmt > 0) ? splitCashAmt : actualPaymentAmount,
               principalComponent: acctPrincipal,
               interestComponent: acctInterest,
-              paymentMode: (effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
+              // FIX: Force CASH mode for split so recordEMIPaymentAccounting routes to Cashbook only.
+              // The bank portion will be added separately.
+              paymentMode: (isSplitPayment ? 'CASH' : effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
               paymentType: paymentType || 'FULL',
               creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
               loanCompanyId: loanCompanyId || (company3Id ?? ''),

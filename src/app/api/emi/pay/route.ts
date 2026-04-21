@@ -1103,60 +1103,26 @@ export async function POST(request: NextRequest) {
           });
           
           if (mirrorEMI) {
-            // Calculate MIRROR interest based on mirror rate
-            const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
-            const mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-            const mirrorPrincipal = Math.min(mirrorEMI.totalAmount - mirrorInterest, mirrorEMI.outstandingPrincipal);
+            // ── FIX: Use STORED principal & interest from mirror EMI record (NOT recalculated from rate)
+            // Recalculating from rate gives wrong values (e.g. 3% rate → ₹2.5 instead of ₹26.87)
+            // The EMI schedule already has the correct pre-computed P+I breakdown.
+            const mirrorInterest  = Number(mirrorEMI.interestAmount  || 0);
+            const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
+            const mirrorEMIFullAmount = mirrorEMI.totalAmount; // full P+I (e.g. ₹1026.87)
             
-            // Record FULL mirror EMI (P+I) in Mirror Company's CashBook
-            // This is the correct behavior: the mirror company receives the full EMI amount,
-            // which consists of principal repayment + interest income.
-            const mirrorEMIFullAmount = mirrorEMI.totalAmount; // full P+I
-            if (mirrorEMIFullAmount > 0) {
-              let mirrorCashBook = await db.cashBook.findUnique({
-                where: { companyId: mirrorCompanyId }
-              });
-              
-              if (!mirrorCashBook) {
-                mirrorCashBook = await db.cashBook.create({
-                  data: {
-                    companyId: mirrorCompanyId,
-                    currentBalance: 0
-                  }
-                });
-              }
-              
-              const newBalance = mirrorCashBook.currentBalance + mirrorEMIFullAmount;
-              
-              await db.cashBook.update({
-                where: { id: mirrorCashBook.id },
-                data: { currentBalance: newBalance }
-              });
+            // NOTE: Do NOT create a separate cashbook entry here.
+            // recordEMIPaymentAccounting (called later in the accounting block) will create
+            // the SINGLE authoritative cashbook entry + journal entry using these correct amounts.
+            // Creating one here would result in a DUPLICATE entry.
 
-              await db.cashBookEntry.create({
-                data: {
-                  cashBookId: mirrorCashBook.id,
-                  entryType: 'CREDIT',
-                  amount: mirrorEMIFullAmount,
-                  balanceAfter: newBalance,
-                  description: `MIRROR EMI RECEIPT - ${emi.loanApplication?.applicationNo} - EMI #${installmentNumber} (P:₹${mirrorPrincipal} + I:₹${mirrorInterest})`,
-                  referenceType: 'MIRROR_EMI_PAYMENT',
-                  referenceId: payment.id,
-                  createdById: paidBy
-                }
-              });
-              
-              console.log(`[Mirror EMI] Recorded full EMI ₹${mirrorEMIFullAmount} (P:₹${mirrorPrincipal}+I:₹${mirrorInterest}) in Mirror Company CashBook`);
-            }
-
-            // Mark mirror EMI as paid
+            // Mark mirror EMI as paid (status only — no cashbook yet)
             await db.eMISchedule.update({
               where: { id: mirrorEMI.id },
               data: {
                 paymentStatus: 'PAID',
-                paidAmount: mirrorEMI.totalAmount,
+                paidAmount:    mirrorEMIFullAmount,
                 paidPrincipal: mirrorPrincipal,
-                paidInterest: mirrorInterest,
+                paidInterest:  mirrorInterest,
                 paidDate: new Date(),
                 paymentMode: paymentMode,
                 notes: `Synced from original loan EMI payment`
@@ -1166,11 +1132,11 @@ export async function POST(request: NextRequest) {
             await db.payment.create({
               data: {
                 loanApplicationId: mirrorMapping.mirrorLoanId,
-                emiScheduleId: mirrorEMI.id,
-                customerId: emi.loanApplication?.customerId || '',
-                amount: mirrorEMI.totalAmount,
+                emiScheduleId:     mirrorEMI.id,
+                customerId:        emi.loanApplication?.customerId || '',
+                amount:            mirrorEMIFullAmount,
                 principalComponent: mirrorPrincipal,
-                interestComponent: mirrorInterest,
+                interestComponent:  mirrorInterest,
                 paymentMode: paymentMode,
                 status: 'COMPLETED',
                 receiptNumber: `RCP-MIRROR-${Date.now()}`,
@@ -1180,7 +1146,7 @@ export async function POST(request: NextRequest) {
               }
             });
             
-            console.log(`[Mirror Loan] Synced EMI #${installmentNumber} to mirror loan ${mirrorMapping.mirrorLoanId}`);
+            console.log(`[Mirror Loan] Synced EMI #${installmentNumber} → mirror. P:₹${mirrorPrincipal} I:₹${mirrorInterest} Total:₹${mirrorEMIFullAmount}. Cashbook will be created in accounting block.`);
           }
         }
       }
@@ -1333,28 +1299,26 @@ export async function POST(request: NextRequest) {
           where: { loanApplicationId: mirrorMappingForAccounting.mirrorLoanId, installmentNumber: emi.installmentNumber }
         });
         if (mirrorEmiForAcc) {
-          // ── PRINCIPAL_ONLY: Use MIRROR EMI's principal and interest directly ──
-          // For PRINCIPAL_ONLY, we write off the mirror interest (not collect it)
-          // So we use the mirror EMI's full principal and interest amounts directly
+          // ── FIX: Always use STORED amounts from mirror EMI (not recalculated from rate) ──
+          // Recalculating from rate gives wrong interest (e.g. low mirror rate → ₹2.5 instead of ₹26.87).
+          // The EMI schedule stores the correct pre-computed P+I breakdown.
           if (paymentType === 'PRINCIPAL_ONLY') {
+            // PRINCIPAL_ONLY: principal is collected, interest is written off
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
-            mirrorInterestForAccounting = Number(mirrorEmiForAcc.interestAmount || 0);
-            console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: Using MIRROR EMI values directly - P:₹${mirrorPrincipalForAccounting} (to collect), I:₹${mirrorInterestForAccounting} (to write off)`);
+            mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
+            console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: P:₹${mirrorPrincipalForAccounting} (collect), I:₹${mirrorInterestForAccounting} (write off)`);
           } else {
-            // For other payment types: Calculate using mirror rate
-            const mirrorMonthlyRate = mirrorMappingForAccounting.mirrorInterestRate / 12 / 100;
-            mirrorInterestForAccounting = Math.round(mirrorEmiForAcc.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-            mirrorPrincipalForAccounting = Math.min(
-              mirrorEmiForAcc.totalAmount - mirrorInterestForAccounting,
-              mirrorEmiForAcc.outstandingPrincipal
-            );
-            // For partial: scale proportionally
-            if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0) {
-              const ratio = paidAmount / (emi.totalAmount || 1);
-              const scaledTotal = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
-              mirrorInterestForAccounting = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal) * 100) / 100;
+            // FULL / PARTIAL / INTEREST_ONLY: use stored P+I from the mirror EMI record
+            mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
+            mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
+            // For partial payment: scale proportionally to session amount
+            if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0 && emi.totalAmount > 0) {
+              const ratio = Math.min(paidAmount / emi.totalAmount, 1);
+              const scaledTotal   = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
+              mirrorInterestForAccounting  = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal)  * 100) / 100;
               mirrorPrincipalForAccounting = Math.round(Math.max(0, scaledTotal - mirrorInterestForAccounting) * 100) / 100;
             }
+            console.log(`[Accounting] ONLINE MIRROR EMI: Using STORED amounts — I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (was recalculated, now fixed)`);
           }
         }
       }
@@ -1432,11 +1396,22 @@ export async function POST(request: NextRequest) {
         // ── ALL OTHER PAYMENT TYPES: unified recordEMIPaymentAccounting ─────────
         // This handles: FULL_EMI, PARTIAL_PAYMENT, INTEREST_ONLY, ADVANCE
         // for both mirror and non-mirror loans, all payment modes.
+        //
+        // SPLIT PAYMENT: recordEMIPaymentAccounting handles the CASH portion only.
+        // The online portion is recorded separately below via recordBankTransaction.
+        // Passing full paidAmount to cashbook would double-count the online portion.
+        const acctAmount = isSplitPayment
+          ? splitCashAmount  // Only the cash portion → Cashbook
+          : paidAmount;      // Full amount → Cashbook or Bank (based on paymentMode)
+        const acctPaymentMode = isSplitPayment
+          ? ('CASH' as const)   // Force CASH so recordEMIPaymentAccounting routes to Cashbook
+          : ((paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE') || 'CASH');
+
         const accountingResult = await recordEMIPaymentAccounting({
-          amount: paidAmount,
+          amount: acctAmount,
           principalComponent: paidPrincipal,
           interestComponent: paidInterest,
-          paymentMode: (paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE') || 'CASH',
+          paymentMode: acctPaymentMode,
           paymentType: (paymentType === 'FULL_EMI' ? 'FULL'
             : paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL'
             : paymentType === 'ADVANCE' ? 'ADVANCE'
@@ -1454,6 +1429,7 @@ export async function POST(request: NextRequest) {
           mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
           mirrorPrincipal: isMirrorPayment ? (mirrorPrincipalForAccounting ?? 0) : undefined,
           mirrorInterest: isMirrorPayment ? (mirrorInterestForAccounting ?? 0) : undefined,
+
           mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
           isMirrorPayment,
         });

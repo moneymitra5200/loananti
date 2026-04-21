@@ -214,6 +214,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       // here — that would create duplicate credit transactions.
 
       if (selectedType === 'offline') {
+        const balanceDue = (selectedEmi.totalAmount + (selectedEmi.penaltyAmount || 0)) - (selectedEmi.paidAmount || 0);
+        const isPartial = payingAmount < balanceDue - 0.5;
         const res = await fetch('/api/offline-loan', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -221,12 +223,22 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
             action: 'pay-emi',
             emiId: selectedEmi.id,
             userId,
-            userRole,          // FIX-20: pass role
-            creditType,        // FIX-20: pass credit type
+            userRole,
+            creditType,
             paymentMode,
-            paymentType: payingAmount < selectedEmi.totalAmount ? 'PARTIAL' : 'FULL',
+            paymentType: isPartial ? 'PARTIAL' : 'FULL',
             amount: payingAmount,
-            penaltyWaiver: canWaivePenalty ? penaltyWaiver : 0
+            paymentReference: chequeNumber || utrNumber || undefined,
+            remarks,
+            remainingPaymentDate: isPartial && nextPaymentDate ? nextPaymentDate : undefined,
+            // Penalty fields
+            penaltyAmount: selectedEmi.penaltyAmount || 0,
+            penaltyWaiver: canWaivePenalty ? penaltyWaiver : 0,
+            penaltyPaymentMode: paymentMode === 'SPLIT' ? 'CASH' : penaltyPaymentMode,
+            // Split payment fields
+            isSplitPayment: paymentMode === 'SPLIT',
+            splitCashAmount: paymentMode === 'SPLIT' ? splitCashAmount : undefined,
+            splitOnlineAmount: paymentMode === 'SPLIT' ? splitOnlineAmount : undefined,
           })
         });
 
@@ -239,6 +251,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           const error = await res.json();
           throw new Error(error.error || 'Failed to process payment');
         }
+
       } else {
         // Online Loan
         const formData = new FormData();
