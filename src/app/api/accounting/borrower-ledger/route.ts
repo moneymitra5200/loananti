@@ -147,7 +147,7 @@ export async function GET(request: NextRequest) {
     // 2. GET OFFLINE LOAN CUSTOMERS
     // ============================================
     const offlineLoanWhereClause: any = {
-      status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] }
+      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] }
     };
     if (companyId !== 'all') {
       offlineLoanWhereClause.companyId = companyId;
@@ -170,6 +170,7 @@ export async function GET(request: NextRequest) {
     const offlineLoansByCustomer = new Map<string, any[]>();
     for (const loan of offlineLoans) {
       const customerId = loan.customerId;
+      if (!customerId) continue; // Skip loans without customer
       if (!offlineLoansByCustomer.has(customerId)) {
         offlineLoansByCustomer.set(customerId, []);
       }
@@ -181,7 +182,7 @@ export async function GET(request: NextRequest) {
       // Check if this customer already exists in borrowers (from online loans)
       const existingBorrower = borrowers.find(b => b.id === customerId);
       
-      const activeLoans = loans.filter(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
+      const activeLoans = loans.filter(l => ['ACTIVE', 'INTEREST_ONLY'].includes(l.status));
       const totalBorrowed = loans.reduce((sum, l) => sum + l.loanAmount, 0);
       
       const totalOutstanding = loans.reduce((sum, loan) => {
@@ -388,7 +389,7 @@ async function getBorrowerTransactions(borrowerId: string) {
     const offlineLoans = await db.offlineLoan.findMany({
       where: {
         customerId: borrowerId,
-        status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] }
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] }
       },
       include: {
         emis: {

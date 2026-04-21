@@ -23,7 +23,7 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap, Edit, BookCheck
+  Wrench, Zap, Edit, BookCheck, User
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';

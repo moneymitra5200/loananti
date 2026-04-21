@@ -39,8 +39,16 @@ export async function GET(request: NextRequest) {
       where: whereClause,
       include: {
         journalEntry: {
-          include: {
-            createdBy: { select: { id: true, name: true } }
+          select: {
+            id: true,
+            entryNumber: true,
+            entryDate: true,
+            referenceType: true,
+            referenceId: true,
+            narration: true,
+            paymentMode: true,
+            isAutoEntry: true,
+            createdById: true
           }
         },
         account: { 
@@ -74,7 +82,7 @@ export async function GET(request: NextRequest) {
           referenceId: line.journalEntry.referenceId,
           narration: line.journalEntry.narration,
           paymentMode: line.journalEntry.paymentMode,
-          createdBy: line.journalEntry.createdBy?.name || 'System',
+          createdBy: line.journalEntry.createdById || 'System',
           isAutoEntry: line.journalEntry.isAutoEntry,
           lines: []
         });
@@ -116,7 +124,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Get customer summary
-    let customerSummary = null;
+    let customerSummary: any = null;
     
     if (customerId) {
       const customer = await db.user.findUnique({
@@ -145,7 +153,7 @@ export async function GET(request: NextRequest) {
         });
 
         const offlineLoans = await db.offlineLoan.findMany({
-          where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] } },
+          where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
           select: {
             id: true,
             loanNumber: true,
@@ -184,7 +192,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get loan summary if specific loan requested
-    let loanSummary = null;
+    let loanSummary: any = null;
     
     if (loanId) {
       // Try online loan first
