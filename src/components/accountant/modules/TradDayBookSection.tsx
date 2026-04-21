@@ -4,8 +4,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, RefreshCw, BookOpen, ChevronLeft, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
+import { Loader2, RefreshCw, BookOpen, ChevronLeft, ChevronRight, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
+import { exportToExcel, fmtINR as fmtExcelINR } from '@/utils/exportToExcel';
 
 // ─────────────────────────────────────────────────
 // TYPES
@@ -345,6 +346,47 @@ export default function TradDayBookSection({ selectedCompanyId }: { selectedComp
           <Button size="sm" variant="outline" className="h-8" onClick={load} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} />
             Refresh
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 border-emerald-400 text-emerald-700 hover:bg-emerald-50"
+            disabled={entries.length === 0 || loading}
+            onClick={() => {
+              const allGroups = buildDayGroups(entries, openingBalance);
+              const rows: any[] = [];
+              for (const g of [...allGroups].reverse()) {
+                let runBal = g.openingBalance;
+                rows.push({ Date: g.dateLabel, Narration: '--- Opening Balance ---', 'Debit Account': '', 'Debit (₹)': '', 'Credit Account': '', 'Credit (₹)': '', 'Balance (₹)': fmtExcelINR(g.openingBalance) });
+                for (const v of g.vouchers) {
+                  runBal += v.balanceImpact;
+                  const drAmt = v.drLines.reduce((s, l) => s + l.amount, 0);
+                  const crAmt = v.crLines.reduce((s, l) => s + l.amount, 0);
+                  rows.push({
+                    Date: format(new Date(g.dateKey), 'dd/MM/yyyy'),
+                    Narration: v.narration,
+                    'Debit Account': v.drLines.map(l => l.account).join(' | '),
+                    'Debit (₹)': drAmt > 0 ? fmtExcelINR(drAmt) : '',
+                    'Credit Account': v.crLines.map(l => l.account).join(' | '),
+                    'Credit (₹)': crAmt > 0 ? fmtExcelINR(crAmt) : '',
+                    'Balance (₹)': fmtExcelINR(runBal),
+                  });
+                }
+                rows.push({ Date: '', Narration: `--- Day Total: Dr ${fmtExcelINR(g.totalDr)} | Cr ${fmtExcelINR(g.totalCr)} | Closing ${fmtExcelINR(g.closingBalance)} ---`, 'Debit Account': '', 'Debit (₹)': '', 'Credit Account': '', 'Credit (₹)': '', 'Balance (₹)': '' });
+                rows.push({ Date: '', Narration: '', 'Debit Account': '', 'Debit (₹)': '', 'Credit Account': '', 'Credit (₹)': '', 'Balance (₹)': '' });
+              }
+              exportToExcel({
+                rows,
+                headers: ['Date', 'Narration', 'Debit Account', 'Debit (₹)', 'Credit Account', 'Credit (₹)', 'Balance (₹)'],
+                keys:    ['Date', 'Narration', 'Debit Account', 'Debit (₹)', 'Credit Account', 'Credit (₹)', 'Balance (₹)'],
+                filename: `DayBook_${startDate}_to_${endDate}`,
+                reportTitle: 'Day Book',
+                dateRange: `${startDate} to ${endDate}`,
+              });
+            }}
+          >
+            <Download className="h-3.5 w-3.5 mr-1" />
+            Excel
           </Button>
         </div>
       </div>
