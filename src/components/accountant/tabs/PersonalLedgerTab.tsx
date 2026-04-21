@@ -39,6 +39,12 @@ interface LedgerEntry {
   loanId: string;
   loanNumber: string;
   emiNumber?: number;
+  // Pre-computed values from journal-entry-based API
+  description?: string;
+  principalPaid?: number;
+  interestPaid?: number;
+  principalDisbursed?: number;
+  totalPayment?: number | null;
   lines: {
     accountCode: string;
     accountName: string;
@@ -146,7 +152,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     setLoanStatements([]);
     setSelectedLoan(null);
     try {
-      const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}`);
+      const companyParam = selectedCompanyIds.length === 1 ? `&companyId=${selectedCompanyIds[0]}` : '';
+      const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}${companyParam}`);
       const data = await res.json();
 
       if (!data.success) {
@@ -164,7 +171,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     }
   };
 
-  // ─── Build loan statements from new real-data API format ──────────────────
+  // ─── Build loan statements from Journal Entries ───────────────────────────
+  // The API now returns pre-computed outstanding / totalPaid from actual
+  // JournalEntry records. Processing Fee is NOT returned (it doesn't touch
+  // Loans Receivable). We just map the data to display rows.
   const buildLoanStatements = (customerSummary: any, entries: LedgerEntry[]): LoanStatement[] => {
     if (!customerSummary) return [];
 
@@ -174,92 +184,108 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     ];
 
     return allLoans.map(loan => {
-      // Filter entries for this loan
-      const loanEntries = entries.filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber);
+      // Filter entries for this loan — entries already come from journal entries
+      const loanEntries = entries
+        .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
       const rows: StatementRow[] = [];
-      let runningBalance = loan.amount;
+      // Start balance = loan amount (from disbursement)
+      let runningBalance = loan.amount || loan.loanAmount || 0;
 
-      // Row 0: Disbursement
-      const disbEntry = loanEntries.find(e => e.referenceType === 'LOAN_DISBURSEMENT');
+      // Row 0: Disbursement row (always first)
+      const disbEntry = loanEntries.find(e => e.referenceType === 'LOAN_DISBURSEMENT' || e.referenceType === 'MIRROR_LOAN_DISBURSEMENT');
       rows.push({
         date: disbEntry?.date || loan.disbursementDate || new Date().toISOString(),
         description: `Loan Disbursed — ${loan.loanNumber}`,
         totalPayment: null,
         interestPaid: null,
         principalPaid: null,
-        remainingBalance: loan.amount,
+        remainingBalance: runningBalance,
         referenceType: 'LOAN_DISBURSEMENT'
       });
 
-      // Sort remaining entries chronologically (skip disbursement)
-      const paymentEntries = loanEntries
-        .filter(e => e.referenceType !== 'LOAN_DISBURSEMENT')
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      // Payment rows — ONLY entries that affect Loans Receivable (already guaranteed by API)
+      const paymentEntries = loanEntries.filter(e =>
+        e.referenceType !== 'LOAN_DISBURSEMENT' &&
+        e.referenceType !== 'MIRROR_LOAN_DISBURSEMENT' &&
+        // NEVER show processing fee in personal ledger — it doesn't touch Loans Receivable
+        e.referenceType !== 'PROCESSING_FEE_COLLECTION' &&
+        e.referenceType !== 'PROCESSING_FEE'
+      );
 
       for (const entry of paymentEntries) {
-        // Sum up from lines
+        // Compute principal from LR account lines (creditAmount reduces the receivable)
         let principalPaid = 0;
         let interestPaid  = 0;
-        let otherCredit   = 0;
 
-        for (const line of entry.lines) {
-          const code = line.accountCode || '';
-          if (['1200', '1201', '1210'].includes(code)) {
-            principalPaid += line.creditAmount;   // Loans Receivable reduced
-          } else if (['4110', '4100', '4001', '4002'].includes(code)) {
-            interestPaid  += line.creditAmount;   // Interest income
-          } else if (['4121'].includes(code)) {
-            otherCredit   += line.creditAmount;   // Processing fee income
+        if (entry.lines && entry.lines.length > 0) {
+          for (const line of entry.lines) {
+            const code = line.accountCode || '';
+            if (['1200', '1201', '1210'].includes(code)) {
+              principalPaid += line.creditAmount; // Loans Receivable reduced
+            } else if (['4110', '4100', '4001', '4002'].includes(code)) {
+              interestPaid  += line.creditAmount; // Interest income
+            }
           }
+        } else if (entry.principalPaid !== undefined) {
+          // Use pre-computed values from journal-entries-based API
+          principalPaid = entry.principalPaid || 0;
+          interestPaid  = entry.interestPaid  || 0;
         }
 
-        const totalPayment = principalPaid + interestPaid + otherCredit;
+        const totalPayment = principalPaid + interestPaid;
         if (totalPayment <= 0) continue;
 
         runningBalance = Math.max(0, runningBalance - principalPaid);
 
         rows.push({
           date: entry.date,
-          description: buildRowDescription(entry),
+          description: (entry as any).description || buildRowDescription(entry),
           totalPayment,
           interestPaid,
           principalPaid,
           remainingBalance: runningBalance,
           referenceType: entry.referenceType,
-          emiNumber: entry.emiNumber
+          emiNumber: entry.emiNumber,
         });
       }
 
-      const totalPaid          = rows.reduce((s, r) => s + (r.totalPayment    || 0), 0);
-      const totalInterestPaid  = rows.reduce((s, r) => s + (r.interestPaid    || 0), 0);
-      const totalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid   || 0), 0);
+      // Use pre-computed API values if the loan summary has them (from journal entries)
+      const apiOutstanding       = loan.outstanding       ?? null;
+      const apiTotalPaid         = loan.totalPaid         ?? null;
+      const apiTotalInterestPaid = loan.totalInterestPaid ?? null;
+      const apiTotalPrincipalPaid= loan.totalPrincipalPaid?? null;
+
+      const rowTotalPaid          = rows.reduce((s, r) => s + (r.totalPayment  || 0), 0);
+      const rowTotalInterestPaid  = rows.reduce((s, r) => s + (r.interestPaid  || 0), 0);
+      const rowTotalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid || 0), 0);
 
       return {
-        loanId:           loan.id,
-        loanNumber:       loan.loanNumber,
-        loanType:         loan.loanType,
-        loanAmount:       loan.amount,
-        interestRate:     loan.interestRate || 0,
-        tenure:           loan.tenure || 0,
-        status:           loan.status,
-        disbursementDate: loan.disbursementDate,
-        isMirror:         loan.isMirror || false,
+        loanId:            loan.id,
+        loanNumber:        loan.loanNumber,
+        loanType:          loan.loanType,
+        loanAmount:        loan.amount || loan.loanAmount || 0,
+        interestRate:      loan.interestRate || 0,
+        tenure:            loan.tenure || 0,
+        status:            loan.status,
+        disbursementDate:  loan.disbursementDate,
+        isMirror:          loan.isMirror || false,
         rows,
-        outstanding:      Math.max(0, loan.amount - totalPrincipalPaid),
-        totalPaid,
-        totalInterestPaid,
-        totalPrincipalPaid
+        // Prefer API-computed values (from journal entries); fall back to row computation
+        outstanding:       apiOutstanding       ?? Math.max(0, (loan.amount || 0) - rowTotalPrincipalPaid),
+        totalPaid:         apiTotalPaid         ?? rowTotalPaid,
+        totalInterestPaid: apiTotalInterestPaid ?? rowTotalInterestPaid,
+        totalPrincipalPaid:apiTotalPrincipalPaid?? rowTotalPrincipalPaid,
       };
     });
   };
 
   const buildRowDescription = (entry: LedgerEntry): string => {
     const type = entry.referenceType;
-    if (type === 'PROCESSING_FEE_COLLECTION')  return 'Processing Fee Collected';
-    if (type === 'PENALTY_COLLECTION')          return 'Late Penalty';
-    if (type === 'INTEREST_ONLY_PAYMENT')       return `EMI #${entry.emiNumber || '?'} — Interest Only`;
-    if (type === 'PARTIAL_EMI_PAYMENT')         return `EMI #${entry.emiNumber || '?'} — Partial Payment`;
+    if (type === 'PENALTY_COLLECTION')    return 'Late Penalty';
+    if (type === 'INTEREST_ONLY_PAYMENT') return `EMI #${entry.emiNumber || '?'} — Interest Only`;
+    if (type === 'PARTIAL_EMI_PAYMENT')   return `EMI #${entry.emiNumber || '?'} — Partial Payment`;
     if (type === 'EMI_PAYMENT' || type === 'MIRROR_EMI_PAYMENT') {
       return entry.emiNumber ? `Monthly EMI #${entry.emiNumber}` : 'EMI Payment';
     }
