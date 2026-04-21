@@ -8,8 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Calculator, Info, Percent } from 'lucide-react';
+import { Calculator, Percent } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import type { Loan, SessionForm, CalculatedEMI } from '../types';
 
@@ -86,15 +85,6 @@ export default function SanctionDialog({
             </div>
           </div>
 
-          <Alert className="bg-blue-50 border-blue-200">
-            <Info className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-700 text-sm">
-              {isInterestOnlyLoan 
-                ? 'This is an INTEREST ONLY loan. Customer pays monthly interest until loan is started.'
-                : 'Processing fee is automatically calculated based on the loan product settings.'
-              }
-            </AlertDescription>
-          </Alert>
 
           {/* INTEREST_ONLY Loan - Show Monthly Interest */}
           {isInterestOnlyLoan && sessionForm.approvedAmount > 0 && sessionForm.interestRate > 0 && (
