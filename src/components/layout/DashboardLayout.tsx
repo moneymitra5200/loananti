@@ -9,6 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import NotificationBell from '@/components/notification/NotificationBell';
+import PushNotificationInit from '@/components/notification/PushNotificationInit';
+import DashboardAlertPopup from '@/components/notification/DashboardAlertPopup';
 import {
   Home, FileText, CheckCircle, Clock, Users, Wallet, Shield, Building2, BarChart3,
   Settings, LogOut, Menu, Search, Edit, Calculator, MapPin, AlertTriangle, PieChart,
@@ -120,6 +122,10 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col">
+      {/* Push notification registration + FCM token save */}
+      <PushNotificationInit />
+      {/* Role-based daily briefing popup */}
+      <DashboardAlertPopup />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <div className="flex items-center justify-between px-4 lg:px-6 py-3">

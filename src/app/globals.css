@@ -82,9 +82,24 @@
 }
 
 html {
-  /* Smooth scaling baseline — 20% reduced for better fit */
-  font-size: clamp(12px, 1.3vw, 16px);
+  /* Mobile-first: 16px base (large enough on phone), scales up on desktop */
+  font-size: clamp(15px, 1.5vw, 17px);
   scroll-behavior: smooth;
+}
+
+/* ── PWA / Phone: boost text 20% so nothing appears tiny ── */
+@media (max-width: 768px) {
+  html { font-size: 16px; }
+
+  :root {
+    --text-xs:   0.8rem;
+    --text-sm:   0.9rem;
+    --text-base: 1rem;
+    --text-lg:   1.15rem;
+    --text-xl:   1.3rem;
+    --text-2xl:  1.6rem;
+    --text-3xl:  2rem;
+  }
 }
 
 body {

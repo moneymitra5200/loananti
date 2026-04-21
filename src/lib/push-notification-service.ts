@@ -30,21 +30,7 @@ export interface PushNotificationResult {
  */
 export async function sendPushNotificationToUser(data: PushNotificationData): Promise<PushNotificationResult> {
   try {
-    // 1. Create in-app notification
-    const notification = await db.notification.create({
-      data: {
-        userId: data.userId,
-        type: 'GENERAL',
-        category: 'SYSTEM',
-        title: data.title,
-        message: data.body,
-        actionUrl: data.actionUrl,
-        data: data.data ? JSON.stringify(data.data) : null,
-        priority: 'NORMAL',
-      },
-    });
-
-    // 2. Get user's FCM token
+    // Get user's FCM token
     const user = await db.user.findUnique({
       where: { id: data.userId },
       select: { fcmToken: true, notificationEnabled: true },
@@ -53,7 +39,7 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
     let pushSuccess = false;
     let pushError: string | undefined;
 
-    // 3. Send push notification if user has FCM token and notifications enabled
+    // Send push notification if user has FCM token and notifications enabled
     if (user?.fcmToken && user.notificationEnabled !== false) {
       const pushResult = await sendPushNotification(user.fcmToken, {
         title: data.title,
@@ -63,13 +49,12 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
       }, {
         ...data.data,
         actionUrl: data.actionUrl || '/',
-        notificationId: notification.id,
       });
 
       pushSuccess = pushResult.success;
       if (!pushResult.success) {
         pushError = pushResult.error;
-        // If token is invalid, clear it
+        // If token is invalid, clear it so we don't keep trying
         if (pushError?.includes('registration-token-not-registered')) {
           await db.user.update({
             where: { id: data.userId },
@@ -81,7 +66,6 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
 
     return {
       success: true,
-      inAppNotificationId: notification.id,
       pushSuccess,
       pushError,
     };
@@ -93,6 +77,7 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
     };
   }
 }
+
 
 /**
  * Send push notification to multiple users by role

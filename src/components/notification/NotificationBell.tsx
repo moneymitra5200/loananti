@@ -86,6 +86,19 @@ export default function NotificationBell() {
     fetchNotifications();
   }, [fetchNotifications]);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => fetchNotifications(true), 30_000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  // Instant refresh when a foreground push arrives
+  useEffect(() => {
+    const handler = () => fetchNotifications(true);
+    window.addEventListener('new-notification', handler);
+    return () => window.removeEventListener('new-notification', handler);
+  }, [fetchNotifications]);
+
   const handleMarkAsRead = async (id: string) => {
     try {
       const response = await fetch('/api/notification', {

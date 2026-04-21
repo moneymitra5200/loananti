@@ -115,14 +115,16 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#10b981" },
-    { media: "(prefers-color-scheme: dark)", color: "#059669" },
+    { media: "(prefers-color-scheme: dark)",  color: "#059669" },
   ],
-  width: "device-width",
+  width:        "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
+  minimumScale: 1,
+  // Allow pinch-zoom on phones — improves accessibility & usability
+  userScalable: true,
+  viewportFit:  "cover",
 };
+
 
 export default function RootLayout({
   children,
