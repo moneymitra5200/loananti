@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Home, FileText, CheckCircle, XCircle, Clock, Wallet, TrendingUp, Percent, Calendar, IndianRupee, PenLine, AlertCircle, CreditCard, User, Briefcase, Building2, ChevronRight, LogOut, Bell, Settings, History, BarChart3, Calculator, Gift, RefreshCw, Download, Share2, ClockIcon, AlertTriangle, Sparkles, ArrowUpRight, PiggyBank, FileDown, RefreshCcw, Loader2, PartyPopper, Ticket, Plus, MessageSquare, Send } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import CustomerMessages from '@/components/messaging/CustomerMessages';
+import PushNotificationInit from '@/components/notification/PushNotificationInit';
 import { formatCurrency, calculateEMI, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { useLocationTracking } from '@/hooks/useLocationTracking';
@@ -1473,6 +1474,8 @@ export default function CustomerDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
+      {/* FCM Push Notification Registration — registers token so server can push to this phone */}
+      <PushNotificationInit />
       {/* Header */}
       <header className="sticky top-0 z-40 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-4 shadow-lg">
         <div className="flex items-center justify-between">

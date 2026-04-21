@@ -23,6 +23,7 @@ import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
+import PushNotificationInit from '@/components/notification/PushNotificationInit';
 
 interface EMISchedule {
   id: string;
@@ -781,6 +782,8 @@ export default function CustomerLoanDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* FCM Push Notification Registration */}
+      <PushNotificationInit />
       {/* Header */}
       <div className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white">
         <div className="max-w-4xl mx-auto px-4 py-6">
