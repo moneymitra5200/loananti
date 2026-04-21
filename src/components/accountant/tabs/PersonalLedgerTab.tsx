@@ -5,15 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
-import { 
+import {
   Search, RefreshCw, User, Phone, IndianRupee,
-  CheckCircle, BookOpen, Receipt, ArrowLeft, Printer,
-  TrendingDown, Clock, AlertTriangle
+  CheckCircle, BookOpen, ArrowLeft, TrendingDown, AlertTriangle, Building2
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from '@/hooks/use-toast';
@@ -34,15 +30,34 @@ interface CustomerBasic {
   totalPaid: number;
 }
 
+interface LedgerEntry {
+  id: string;
+  date: string;
+  referenceType: string;
+  referenceId: string;
+  narration: string;
+  loanId: string;
+  loanNumber: string;
+  emiNumber?: number;
+  lines: {
+    accountCode: string;
+    accountName: string;
+    debitAmount: number;
+    creditAmount: number;
+    narration: string;
+  }[];
+}
+
 interface LoanStatement {
   loanId: string;
   loanNumber: string;
-  loanType: 'ONLINE' | 'OFFLINE';
+  loanType: string;
   loanAmount: number;
   interestRate: number;
   tenure: number;
   status: string;
-  disbursementDate: string;
+  disbursementDate: string | null;
+  isMirror: boolean;
   rows: StatementRow[];
   outstanding: number;
   totalPaid: number;
@@ -53,14 +68,12 @@ interface LoanStatement {
 interface StatementRow {
   date: string;
   description: string;
-  totalPayment: number | null;   // null = initial loan row
+  totalPayment: number | null;
   interestPaid: number | null;
   principalPaid: number | null;
   remainingBalance: number;
   referenceType: string;
   emiNumber?: number;
-  isPenalty?: boolean;
-  penaltyAmount?: number;
 }
 
 function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, formatDate }: PersonalLedgerTabProps) {
@@ -76,22 +89,53 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     fetchCustomers();
   }, [selectedCompanyIds]);
 
+  // ─── Fetch customer list (mirror-aware) ────────────────────────────────────
   const fetchCustomers = async () => {
     setLoading(true);
     try {
-      const companyFilter = selectedCompanyIds.length > 0 ? selectedCompanyIds.join(',') : 'all';
-      const res = await fetch(`/api/accounting/borrower-ledger?companyId=${companyFilter}`);
-      const data = await res.json();
-      if (data.success) {
-        setCustomers(data.borrowers || []);
+      // Use ONE company at a time if selected, otherwise 'all'
+      const companyParam = selectedCompanyIds.length > 0 ? selectedCompanyIds[0] : 'all';
+      // If multiple companies selected and we need to merge, collect from each
+      let allCustomers: CustomerBasic[] = [];
+
+      if (selectedCompanyIds.length === 0) {
+        // Fetch all — no company filter
+        const res = await fetch(`/api/accounting/personal-ledger`);
+        const data = await res.json();
+        if (data.success) allCustomers = data.borrowers || [];
+      } else {
+        // Fetch per company (mirror-aware) and merge
+        const fetches = selectedCompanyIds.map(cid =>
+          fetch(`/api/accounting/personal-ledger?companyId=${cid}`).then(r => r.json())
+        );
+        const results = await Promise.all(fetches);
+        const seen = new Set<string>();
+        for (const data of results) {
+          if (!data.success) continue;
+          for (const b of (data.borrowers || [])) {
+            if (!seen.has(b.id)) { seen.add(b.id); allCustomers.push(b); }
+            else {
+              // Merge totals
+              const ex = allCustomers.find(c => c.id === b.id)!;
+              ex.totalLoans       += b.totalLoans;
+              ex.totalOutstanding += b.totalOutstanding;
+              ex.totalPaid        += b.totalPaid;
+            }
+          }
+        }
       }
+
+      allCustomers.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+      setCustomers(allCustomers);
     } catch (error) {
       console.error('Error fetching customers:', error);
+      toast({ title: 'Error', description: 'Failed to load customers', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
+  // ─── Fetch loan ledger for one customer ────────────────────────────────────
   const fetchLoanStatements = async (customerId: string) => {
     setLoadingLedger(true);
     setLoanStatements([]);
@@ -100,14 +144,14 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}`);
       const data = await res.json();
 
-      if (data.success) {
-        // Transform API response into loan statement format
-        const statements = buildLoanStatements(data);
-        setLoanStatements(statements);
-        if (statements.length === 1) setSelectedLoan(statements[0]); // auto-select if only one loan
-      } else {
+      if (!data.success) {
         toast({ title: 'Error', description: data.error || 'Failed to fetch ledger', variant: 'destructive' });
+        return;
       }
+
+      const statements = buildLoanStatements(data.customerSummary, data.entries || []);
+      setLoanStatements(statements);
+      if (statements.length === 1) setSelectedLoan(statements[0]);
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to fetch personal ledger', variant: 'destructive' });
     } finally {
@@ -115,35 +159,27 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     }
   };
 
-  /**
-   * Convert raw API journal entries into clean loan statement rows
-   * Format: Initial Loan → EMI payments (Principal | Interest | Remaining Balance)
-   */
-  const buildLoanStatements = (data: any): LoanStatement[] => {
-    const customer = data.customerSummary;
-    if (!customer) return [];
+  // ─── Build loan statements from new real-data API format ──────────────────
+  const buildLoanStatements = (customerSummary: any, entries: LedgerEntry[]): LoanStatement[] => {
+    if (!customerSummary) return [];
 
     const allLoans = [
-      ...(customer.onlineLoans || []).map((l: any) => ({ ...l, loanType: 'ONLINE' as const })),
-      ...(customer.offlineLoans || []).map((l: any) => ({ ...l, loanType: 'OFFLINE' as const }))
+      ...(customerSummary.onlineLoans  || []).map((l: any) => ({ ...l, loanType: 'ONLINE'  as const })),
+      ...(customerSummary.offlineLoans || []).map((l: any) => ({ ...l, loanType: 'OFFLINE' as const })),
     ];
 
-    const entries: any[] = data.entries || [];
-
-    return allLoans.map((loan) => {
-      // Get journal entries related to this loan
-      const loanEntries = entries.filter((e: any) =>
-        e.referenceId === loan.id ||
-        (e.narration && e.narration.includes(loan.loanNumber))
-      );
+    return allLoans.map(loan => {
+      // Filter entries for this loan
+      const loanEntries = entries.filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber);
 
       const rows: StatementRow[] = [];
       let runningBalance = loan.amount;
 
-      // Row 1: Initial Loan (Disbursement)
+      // Row 0: Disbursement
+      const disbEntry = loanEntries.find(e => e.referenceType === 'LOAN_DISBURSEMENT');
       rows.push({
-        date: loan.disbursementDate || new Date().toISOString(),
-        description: `Initial Loan - ${loan.loanNumber}`,
+        date: disbEntry?.date || loan.disbursementDate || new Date().toISOString(),
+        description: `Loan Disbursed — ${loan.loanNumber}`,
         totalPayment: null,
         interestPaid: null,
         principalPaid: null,
@@ -151,73 +187,61 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         referenceType: 'LOAN_DISBURSEMENT'
       });
 
-      // Process entries in chronological order
-      const sortedEntries = [...loanEntries].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
+      // Sort remaining entries chronologically (skip disbursement)
+      const paymentEntries = loanEntries
+        .filter(e => e.referenceType !== 'LOAN_DISBURSEMENT')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      for (const entry of sortedEntries) {
-        if (entry.referenceType === 'LOAN_DISBURSEMENT') continue; // skip disbursement — already shown
-
-        // Determine interest paid and principal paid from journal lines
-        let interestPaid = 0;
+      for (const entry of paymentEntries) {
+        // Sum up from lines
         let principalPaid = 0;
-        let penaltyCollected = 0;
+        let interestPaid  = 0;
+        let otherCredit   = 0;
 
-        for (const line of (entry.lines || [])) {
-          const code = line.accountCode;
-          if (['4001', '4002', '4100'].includes(code)) {
-            // Income / Interest accounts — credit = interest earned from customer
-            interestPaid += line.creditAmount;
-          } else if (['5001', '5002', '5100'].includes(code)) {
-            // Penalty income
-            penaltyCollected += line.creditAmount;
-          } else if (['1200', '1201', '1210'].includes(code)) {
-            // Loans Receivable — credit = principal repaid
-            principalPaid += line.creditAmount;
+        for (const line of entry.lines) {
+          const code = line.accountCode || '';
+          if (['1200', '1201', '1210'].includes(code)) {
+            principalPaid += line.creditAmount;   // Loans Receivable reduced
+          } else if (['4110', '4100', '4001', '4002'].includes(code)) {
+            interestPaid  += line.creditAmount;   // Interest income
+          } else if (['4121'].includes(code)) {
+            otherCredit   += line.creditAmount;   // Processing fee income
           }
         }
 
-        const totalPayment = principalPaid + interestPaid + penaltyCollected;
+        const totalPayment = principalPaid + interestPaid + otherCredit;
         if (totalPayment <= 0) continue;
 
         runningBalance = Math.max(0, runningBalance - principalPaid);
 
-        const emiMatch = entry.narration?.match(/EMI #?(\d+)/i);
-        const emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
-
-        const isPenalty = entry.referenceType === 'PENALTY_COLLECTION' || penaltyCollected > 0;
-        const description = buildDescription(entry, emiNumber, isPenalty, penaltyCollected);
-
         rows.push({
           date: entry.date,
-          description,
+          description: buildRowDescription(entry),
           totalPayment,
           interestPaid,
           principalPaid,
           remainingBalance: runningBalance,
           referenceType: entry.referenceType,
-          emiNumber,
-          isPenalty,
-          penaltyAmount: penaltyCollected
+          emiNumber: entry.emiNumber
         });
       }
 
-      const totalPaid = rows.reduce((s, r) => s + (r.totalPayment || 0), 0);
-      const totalInterestPaid = rows.reduce((s, r) => s + (r.interestPaid || 0), 0);
-      const totalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid || 0), 0);
+      const totalPaid          = rows.reduce((s, r) => s + (r.totalPayment    || 0), 0);
+      const totalInterestPaid  = rows.reduce((s, r) => s + (r.interestPaid    || 0), 0);
+      const totalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid   || 0), 0);
 
       return {
-        loanId: loan.id,
-        loanNumber: loan.loanNumber,
-        loanType: loan.loanType,
-        loanAmount: loan.amount,
-        interestRate: loan.interestRate || 0,
-        tenure: loan.tenure || 0,
-        status: loan.status,
+        loanId:           loan.id,
+        loanNumber:       loan.loanNumber,
+        loanType:         loan.loanType,
+        loanAmount:       loan.amount,
+        interestRate:     loan.interestRate || 0,
+        tenure:           loan.tenure || 0,
+        status:           loan.status,
         disbursementDate: loan.disbursementDate,
+        isMirror:         loan.isMirror || false,
         rows,
-        outstanding: Math.max(0, loan.amount - totalPrincipalPaid),
+        outstanding:      Math.max(0, loan.amount - totalPrincipalPaid),
         totalPaid,
         totalInterestPaid,
         totalPrincipalPaid
@@ -225,16 +249,15 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     });
   };
 
-  const buildDescription = (entry: any, emiNumber?: number, isPenalty?: boolean, penaltyAmount?: number): string => {
+  const buildRowDescription = (entry: LedgerEntry): string => {
     const type = entry.referenceType;
-    if (type === 'PROCESSING_FEE_COLLECTION') return 'Processing Fee';
-    if (type === 'PENALTY_COLLECTION') return `Late Penalty — ${penaltyAmount ? `₹${penaltyAmount.toFixed(0)}` : ''}`;
+    if (type === 'PROCESSING_FEE_COLLECTION')  return 'Processing Fee Collected';
+    if (type === 'PENALTY_COLLECTION')          return 'Late Penalty';
+    if (type === 'INTEREST_ONLY_PAYMENT')       return `EMI #${entry.emiNumber || '?'} — Interest Only`;
+    if (type === 'PARTIAL_EMI_PAYMENT')         return `EMI #${entry.emiNumber || '?'} — Partial Payment`;
     if (type === 'EMI_PAYMENT' || type === 'MIRROR_EMI_PAYMENT') {
-      let desc = emiNumber ? `Monthly EMI #${emiNumber}` : 'Monthly EMI';
-      if (penaltyAmount && penaltyAmount > 0) desc += ` + Penalty`;
-      return desc;
+      return entry.emiNumber ? `Monthly EMI #${entry.emiNumber}` : 'EMI Payment';
     }
-    if (type === 'PRINCIPAL_ONLY_PAYMENT') return 'Extra Principal Payment';
     return entry.narration?.replace(/mirror/gi, '').trim() || type?.replace(/_/g, ' ') || 'Payment';
   };
 
@@ -248,27 +271,32 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     c.phone?.includes(searchQuery)
   );
 
-  const totalOutstanding = customers.reduce((sum, c) => sum + c.totalOutstanding, 0);
-  const totalPaid = customers.reduce((sum, c) => sum + c.totalPaid, 0);
+  const totalOutstanding = customers.reduce((s, c) => s + c.totalOutstanding, 0);
+  const totalCollected   = customers.reduce((s, c) => s + c.totalPaid, 0);
 
-  // --- LOAN STATEMENT VIEW (after choosing customer + loan) ---
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEW 3 — Loan Statement Detail
+  // ═══════════════════════════════════════════════════════════════════════════
   if (selectedCustomer && selectedLoan) {
     return (
       <div className="space-y-4">
         {/* Header */}
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => { setSelectedLoan(null); }}>
+          <Button variant="outline" size="sm" onClick={() => setSelectedLoan(null)}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to Loans
           </Button>
           <div>
             <h2 className="text-xl font-bold text-gray-900">
               Loan Statement — {selectedCustomer.name}
             </h2>
-            <p className="text-sm text-gray-500">{selectedLoan.loanNumber} • {selectedLoan.loanType}</p>
+            <p className="text-sm text-gray-500 flex items-center gap-2">
+              {selectedLoan.loanNumber} • {selectedLoan.loanType}
+              {selectedLoan.isMirror && <Badge className="text-xs bg-purple-100 text-purple-700">Mirror Loan</Badge>}
+            </p>
           </div>
         </div>
 
-        {/* Loan Info Cards */}
+        {/* Summary cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Card className="border-0 shadow-sm bg-blue-50">
             <CardContent className="p-4">
@@ -278,7 +306,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           </Card>
           <Card className="border-0 shadow-sm bg-green-50">
             <CardContent className="p-4">
-              <p className="text-xs text-green-600 font-medium">Total Paid</p>
+              <p className="text-xs text-green-600 font-medium">Total Collected</p>
               <p className="text-lg font-bold text-green-800">{formatCurrency(selectedLoan.totalPaid)}</p>
             </CardContent>
           </Card>
@@ -296,14 +324,14 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           </Card>
         </div>
 
-        {/* Statement Table — Exactly like the bank passbook format from user's photo */}
+        {/* Statement Table */}
         <Card className="border shadow-sm overflow-hidden">
           <CardHeader className="bg-gradient-to-r from-slate-800 to-slate-700 text-white py-3">
             <CardTitle className="text-base flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
-              Loan Repayment Statement
+              Loan Repayment Ledger (Khata)
               <Badge className="ml-auto bg-white/20 text-white text-xs">
-                {selectedLoan.rows.length - 1} Payment{selectedLoan.rows.length !== 2 ? 's' : ''}
+                {selectedLoan.rows.length - 1} Transaction{selectedLoan.rows.length !== 2 ? 's' : ''}
               </Badge>
             </CardTitle>
           </CardHeader>
@@ -311,71 +339,59 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50 border-b-2">
-                  <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider">Date</TableHead>
-                  <TableHead className="font-bold text-slate-700 text-xs uppercase tracking-wider">Description</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Total Payment</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Interest Paid</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Principal Paid</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase tracking-wider">Remaining Balance</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Date</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Description</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Total</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Interest</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Principal</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Balance</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {selectedLoan.rows.map((row, idx) => {
-                  const isFirstRow = idx === 0;
-                  const isPenaltyRow = row.isPenalty && row.principalPaid === 0;
+                  const isFirst = idx === 0;
                   return (
                     <motion.tr
                       key={idx}
-                      initial={{ opacity: 0, x: -10 }}
+                      initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: idx * 0.02 }}
                       className={`border-b transition-colors ${
-                        isFirstRow
-                          ? 'bg-blue-50 hover:bg-blue-100 font-semibold'
-                          : isPenaltyRow
-                          ? 'bg-red-50 hover:bg-red-100'
-                          : idx % 2 === 0
-                          ? 'bg-white hover:bg-gray-50'
-                          : 'bg-slate-50/60 hover:bg-slate-100'
+                        isFirst ? 'bg-blue-50 hover:bg-blue-100 font-semibold'
+                        : idx % 2 === 0 ? 'bg-white hover:bg-gray-50'
+                        : 'bg-slate-50/60 hover:bg-slate-100'
                       }`}
                     >
-                      <TableCell className="text-sm py-3">
-                        {formatDate(row.date)}
-                      </TableCell>
+                      <TableCell className="text-sm py-3">{formatDate(row.date)}</TableCell>
                       <TableCell className="py-3">
                         <div className="flex items-center gap-2">
-                          {isFirstRow && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
-                          {!isFirstRow && isPenaltyRow && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
-                          {!isFirstRow && !isPenaltyRow && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
-                          <span className={`text-sm ${isFirstRow ? 'text-blue-800 font-semibold' : isPenaltyRow ? 'text-red-700' : 'text-gray-800'}`}>
+                          {isFirst
+                            ? <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
+                            : <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+                          }
+                          <span className={`text-sm ${isFirst ? 'text-blue-800 font-semibold' : 'text-gray-800'}`}>
                             {row.description}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell className="text-right py-3">
-                        {row.totalPayment !== null ? (
-                          <span className="font-semibold text-emerald-700">{formatCurrency(row.totalPayment)}</span>
-                        ) : (
-                          <span className="text-gray-400 text-sm">—</span>
-                        )}
+                        {row.totalPayment !== null
+                          ? <span className="font-semibold text-emerald-700">{formatCurrency(row.totalPayment)}</span>
+                          : <span className="text-gray-400 text-sm">—</span>}
                       </TableCell>
                       <TableCell className="text-right py-3">
-                        {row.interestPaid !== null && row.interestPaid > 0 ? (
-                          <span className="text-amber-700">{formatCurrency(row.interestPaid)}</span>
-                        ) : row.interestPaid === null ? (
-                          <span className="text-gray-400 text-sm">—</span>
-                        ) : (
-                          <span className="text-gray-400 text-sm">₹0</span>
-                        )}
+                        {row.interestPaid !== null && row.interestPaid > 0
+                          ? <span className="text-amber-700">{formatCurrency(row.interestPaid)}</span>
+                          : row.interestPaid === null
+                            ? <span className="text-gray-400 text-sm">—</span>
+                            : <span className="text-gray-400 text-sm">₹0</span>}
                       </TableCell>
                       <TableCell className="text-right py-3">
-                        {row.principalPaid !== null && row.principalPaid > 0 ? (
-                          <span className="text-blue-700 font-medium">{formatCurrency(row.principalPaid)}</span>
-                        ) : row.principalPaid === null ? (
-                          <span className="text-gray-400 text-sm">—</span>
-                        ) : (
-                          <span className="text-gray-400 text-sm">₹0</span>
-                        )}
+                        {row.principalPaid !== null && row.principalPaid > 0
+                          ? <span className="text-blue-700 font-medium">{formatCurrency(row.principalPaid)}</span>
+                          : row.principalPaid === null
+                            ? <span className="text-gray-400 text-sm">—</span>
+                            : <span className="text-gray-400 text-sm">₹0</span>}
                       </TableCell>
                       <TableCell className="text-right py-3">
                         <span className={`font-bold text-base ${row.remainingBalance <= 0 ? 'text-green-600' : 'text-slate-800'}`}>
@@ -389,7 +405,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             </Table>
           </div>
 
-          {/* Totals Footer */}
+          {/* Footer totals */}
           <div className="bg-slate-800 text-white px-6 py-4">
             <div className="grid grid-cols-3 gap-8 text-sm">
               <div>
@@ -413,7 +429,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     );
   }
 
-  // --- LOAN SELECTION VIEW (after choosing customer, before choosing loan) ---
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEW 2 — Loan Selection (after choosing customer)
+  // ═══════════════════════════════════════════════════════════════════════════
   if (selectedCustomer && !selectedLoan) {
     return (
       <div className="space-y-4">
@@ -445,7 +463,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {loanStatements.map((loan) => (
+            {loanStatements.map(loan => (
               <motion.div
                 key={loan.loanId}
                 initial={{ opacity: 0, y: 10 }}
@@ -459,9 +477,12 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <p className="font-bold text-gray-900">{loan.loanNumber}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">{loan.loanType} Loan • {loan.tenure} months @ {loan.interestRate}%</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {loan.loanType} Loan • {loan.tenure} months @ {loan.interestRate}%
+                          {loan.isMirror && <span className="ml-1 text-purple-600">[Mirror]</span>}
+                        </p>
                       </div>
-                      <Badge variant={loan.status === 'ACTIVE' ? 'default' : 'secondary'} className="text-xs">
+                      <Badge variant={loan.status === 'ACTIVE' || loan.status === 'DISBURSED' ? 'default' : 'secondary'} className="text-xs">
                         {loan.status}
                       </Badge>
                     </div>
@@ -471,19 +492,19 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                         <p className="font-semibold text-blue-700">{formatCurrency(loan.loanAmount)}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-400">Paid</p>
+                        <p className="text-xs text-gray-400">Collected</p>
                         <p className="font-semibold text-green-700">{formatCurrency(loan.totalPaid)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-gray-400">Outstanding</p>
-                        <p className={`font-semibold ${loan.outstanding > 0 ? 'text-red-700' : 'text-green-600'}`}>{formatCurrency(loan.outstanding)}</p>
+                        <p className={`font-semibold ${loan.outstanding > 0 ? 'text-red-700' : 'text-green-600'}`}>
+                          {formatCurrency(loan.outstanding)}
+                        </p>
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
-                      <p className="text-xs text-gray-400">{loan.rows.length - 1} EMI payment{loan.rows.length !== 2 ? 's' : ''} recorded</p>
-                      <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
-                        View Statement →
-                      </span>
+                      <p className="text-xs text-gray-400">{loan.rows.length - 1} transaction{loan.rows.length !== 2 ? 's' : ''} recorded</p>
+                      <span className="text-xs text-emerald-600 font-medium">View Ledger →</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -495,20 +516,21 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     );
   }
 
-  // --- CUSTOMER LIST VIEW ---
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VIEW 1 — Customer List
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-emerald-500" />
             Personal Ledger (Khata)
           </h2>
-          <p className="text-gray-500 mt-1">Customer-wise loan statements — Tap a customer to view their ledger</p>
+          <p className="text-gray-500 mt-1">Customer-wise loan statements — mirror-aware per company</p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchCustomers}>
-          <RefreshCw className="h-4 w-4 mr-2" />
+        <Button variant="outline" size="sm" onClick={fetchCustomers} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
@@ -518,9 +540,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         <Card className="border-0 shadow-sm bg-emerald-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-100 rounded-lg">
-                <User className="h-5 w-5 text-emerald-600" />
-              </div>
+              <div className="p-2 bg-emerald-100 rounded-lg"><User className="h-5 w-5 text-emerald-600" /></div>
               <div>
                 <p className="text-sm text-gray-500">Total Customers</p>
                 <p className="text-2xl font-bold">{customers.length}</p>
@@ -531,9 +551,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         <Card className="border-0 shadow-sm bg-red-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <TrendingDown className="h-5 w-5 text-red-600" />
-              </div>
+              <div className="p-2 bg-red-100 rounded-lg"><TrendingDown className="h-5 w-5 text-red-600" /></div>
               <div>
                 <p className="text-sm text-gray-500">Total Outstanding</p>
                 <p className="text-lg font-bold text-red-700">{formatCurrency(totalOutstanding)}</p>
@@ -544,12 +562,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         <Card className="border-0 shadow-sm bg-green-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-              </div>
+              <div className="p-2 bg-green-100 rounded-lg"><CheckCircle className="h-5 w-5 text-green-600" /></div>
               <div>
                 <p className="text-sm text-gray-500">Total Collected</p>
-                <p className="text-lg font-bold text-green-700">{formatCurrency(totalPaid)}</p>
+                <p className="text-lg font-bold text-green-700">{formatCurrency(totalCollected)}</p>
               </div>
             </div>
           </CardContent>
@@ -564,7 +580,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             <Input
               placeholder="Search by customer name or phone..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={e => setSearchQuery(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -580,6 +596,16 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : filteredCustomers.length === 0 ? (
+            <div className="text-center py-16">
+              <User className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+              <p className="text-gray-500 font-medium">No customers found</p>
+              <p className="text-gray-400 text-sm mt-1">
+                {customers.length === 0
+                  ? 'No active loans found for the selected company'
+                  : 'No matching customers for your search'}
+              </p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -611,14 +637,13 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                           <div>
                             <p className="font-medium">{customer.name}</p>
                             <p className="text-xs text-gray-500 flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {customer.phone || 'No phone'}
+                              <Phone className="h-3 w-3" /> {customer.phone || 'No phone'}
                             </p>
                           </div>
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="outline">{customer.totalLoans} loans</Badge>
+                        <Badge variant="outline">{customer.totalLoans} loan{customer.totalLoans !== 1 ? 's' : ''}</Badge>
                       </TableCell>
                       <TableCell className="text-right font-medium text-red-600">
                         {formatCurrency(customer.totalOutstanding)}

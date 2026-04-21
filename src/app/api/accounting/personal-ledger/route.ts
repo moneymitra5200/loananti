@@ -2,265 +2,381 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
 /**
- * Personal Ledger API
- * 
- * Shows ALL journal entries for a specific customer/loan:
- * - Loan Disbursement
- * - EMI Payments (Principal + Interest)
- * - Penalty Collection
- * - Processing Fees
- * - Any other entries
- * 
- * This is REAL accounting - each customer has their own "Khata"
+ * Personal Ledger (Khata) API — Mirror-Aware
+ *
+ * Mirror logic:
+ *   • If a loan has a MirrorLoanMapping → the MIRROR company "owns" that customer's ledger
+ *   • If no mirror → the ORIGINAL company owns the ledger
+ *
+ * Data sources (real accounting, NOT journal entries):
+ *   1. Loan disbursement row (from LoanApplication / OfflineLoan)
+ *   2. EMI payments: EMISchedule.paidAmount, paidPrincipal, paidInterest, paidDate
+ *   3. JournalEntry for processing fees (lookup by referenceId = loanId, referenceType = PROCESSING_FEE_COLLECTION)
  */
 
-// GET - Fetch Personal Ledger for a customer or loan
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
-    const loanId = searchParams.get('loanId');
-    const companyId = searchParams.get('companyId');
+    const loanId     = searchParams.get('loanId');
+    const companyId  = searchParams.get('companyId');
 
-    console.log(`[Personal Ledger] customerId: ${customerId}, loanId: ${loanId}, companyId: ${companyId}`);
+    // ── LIST customers for a company ─────────────────────────────────────────
+    if (!customerId && !loanId) {
+      return await listCustomersForCompany(companyId);
+    }
 
-    // Get all journal entry lines for this customer/loan
-    const whereClause: any = {};
-    
+    // ── Full ledger for one customer ──────────────────────────────────────────
     if (customerId) {
-      whereClause.customerId = customerId;
+      return await getPersonalLedger(customerId, companyId);
     }
+
+    // ── Single loan ledger ────────────────────────────────────────────────────
     if (loanId) {
-      whereClause.loanId = loanId;
+      return await getSingleLoanLedger(loanId);
     }
 
-    // Fetch journal entry lines with journal entry details
-    const journalLines = await db.journalEntryLine.findMany({
-      where: whereClause,
-      include: {
-        journalEntry: {
-          select: {
-            id: true,
-            entryNumber: true,
-            entryDate: true,
-            referenceType: true,
-            referenceId: true,
-            narration: true,
-            paymentMode: true,
-            isAutoEntry: true,
-            createdById: true
-          }
-        },
-        account: { 
-          select: { 
-            id: true, 
-            accountCode: true, 
-            accountName: true, 
-            accountType: true 
-          } 
-        }
-      },
-      orderBy: {
-        journalEntry: {
-          entryDate: 'asc'
-        }
-      }
-    });
+    return NextResponse.json({ success: false, error: 'Missing parameters' }, { status: 400 });
 
-    // Group by journal entry
-    const entriesMap = new Map<string, any>();
-
-    for (const line of journalLines) {
-      const entryId = line.journalEntryId;
-      
-      if (!entriesMap.has(entryId)) {
-        entriesMap.set(entryId, {
-          id: entryId,
-          entryNumber: line.journalEntry.entryNumber,
-          date: line.journalEntry.entryDate,
-          referenceType: line.journalEntry.referenceType,
-          referenceId: line.journalEntry.referenceId,
-          narration: line.journalEntry.narration,
-          paymentMode: line.journalEntry.paymentMode,
-          createdBy: line.journalEntry.createdById || 'System',
-          isAutoEntry: line.journalEntry.isAutoEntry,
-          lines: []
-        });
-      }
-
-      entriesMap.get(entryId)!.lines.push({
-        accountId: line.accountId,
-        accountCode: line.account?.accountCode,
-        accountName: line.account?.accountName,
-        accountType: line.account?.accountType,
-        debitAmount: line.debitAmount,
-        creditAmount: line.creditAmount,
-        narration: line.narration
-      });
-    }
-
-    const entries = Array.from(entriesMap.values());
-
-    // Calculate running balance for loan receivable
-    let runningBalance = 0;
-    const entriesWithBalance = entries.map(entry => {
-      // Calculate net effect on Loans Receivable (account code 1200, 1201, 1210)
-      let loanReceivableChange = 0;
-      
-      for (const line of entry.lines) {
-        if (['1200', '1201', '1210'].includes(line.accountCode)) {
-          // Loans Receivable is an ASSET - Debit increases, Credit decreases
-          loanReceivableChange += line.debitAmount - line.creditAmount;
-        }
-      }
-      
-      runningBalance += loanReceivableChange;
-      
-      return {
-        ...entry,
-        loanReceivableChange,
-        runningBalance
-      };
-    });
-
-    // Get customer summary
-    let customerSummary: any = null;
-    
-    if (customerId) {
-      const customer = await db.user.findUnique({
-        where: { id: customerId },
-        select: {
-          id: true,
-          name: true,
-          phone: true,
-          email: true,
-          address: true
-        }
-      });
-
-      if (customer) {
-        // Get all loans for this customer
-        const onlineLoans = await db.loanApplication.findMany({
-          where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] } },
-          select: {
-            id: true,
-            applicationNo: true,
-            status: true,
-            disbursedAmount: true,
-            disbursedAt: true,
-            sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true } }
-          }
-        });
-
-        const offlineLoans = await db.offlineLoan.findMany({
-          where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
-          select: {
-            id: true,
-            loanNumber: true,
-            status: true,
-            loanAmount: true,
-            disbursementDate: true,
-            interestRate: true,
-            tenure: true
-          }
-        });
-
-        customerSummary = {
-          ...customer,
-          onlineLoans: onlineLoans.map(l => ({
-            id: l.id,
-            loanNumber: l.applicationNo,
-            type: 'ONLINE',
-            status: l.status,
-            amount: l.sessionForm?.approvedAmount || l.disbursedAmount || 0,
-            disbursementDate: l.disbursedAt,
-            interestRate: l.sessionForm?.interestRate,
-            tenure: l.sessionForm?.tenure
-          })),
-          offlineLoans: offlineLoans.map(l => ({
-            id: l.id,
-            loanNumber: l.loanNumber,
-            type: 'OFFLINE',
-            status: l.status,
-            amount: l.loanAmount,
-            disbursementDate: l.disbursementDate,
-            interestRate: l.interestRate,
-            tenure: l.tenure
-          }))
-        };
-      }
-    }
-
-    // Get loan summary if specific loan requested
-    let loanSummary: any = null;
-    
-    if (loanId) {
-      // Try online loan first
-      const onlineLoan = await db.loanApplication.findUnique({
-        where: { id: loanId },
-        include: {
-          customer: { select: { id: true, name: true, phone: true } },
-          company: { select: { id: true, name: true } },
-          sessionForm: true
-        }
-      });
-
-      if (onlineLoan) {
-        loanSummary = {
-          id: onlineLoan.id,
-          loanNumber: onlineLoan.applicationNo,
-          type: 'ONLINE',
-          status: onlineLoan.status,
-          amount: onlineLoan.sessionForm?.approvedAmount || onlineLoan.requestedAmount,
-          customer: onlineLoan.customer,
-          company: onlineLoan.company
-        };
-      } else {
-        // Try offline loan
-        const offlineLoan = await db.offlineLoan.findUnique({
-          where: { id: loanId },
-          include: {
-            customer: { select: { id: true, name: true, phone: true } },
-            company: { select: { id: true, name: true } }
-          }
-        });
-
-        if (offlineLoan) {
-          loanSummary = {
-            id: offlineLoan.id,
-            loanNumber: offlineLoan.loanNumber,
-            type: 'OFFLINE',
-            status: offlineLoan.status,
-            amount: offlineLoan.loanAmount,
-            customer: offlineLoan.customer,
-            company: offlineLoan.company
-          };
-        }
-      }
-    }
-
-    // Calculate totals
-    const totals = {
-      totalDebits: entries.reduce((sum, e) => sum + e.lines.reduce((s, l) => s + l.debitAmount, 0), 0),
-      totalCredits: entries.reduce((sum, e) => sum + e.lines.reduce((s, l) => s + l.creditAmount, 0), 0),
-      totalEntries: entries.length,
-      currentOutstanding: runningBalance
-    };
-
-    return NextResponse.json({
-      success: true,
-      entries: entriesWithBalance,
-      customerSummary,
-      loanSummary,
-      totals
-    });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Personal Ledger] Error:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to fetch personal ledger',
-      details: (error as Error).message
-    }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Failed to fetch personal ledger', details: error.message }, { status: 500 });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// List customers for a company (mirror-aware)
+// ─────────────────────────────────────────────────────────────────────────────
+async function listCustomersForCompany(companyId: string | null) {
+  const result: any[] = [];
+  const seenCustomers = new Map<string, any>();
+
+  const addOrMerge = (customerId: string, entry: any) => {
+    const existing = seenCustomers.get(customerId);
+    if (existing) {
+      existing.totalLoans       += entry.totalLoans;
+      existing.totalOutstanding += entry.totalOutstanding;
+      existing.totalPaid        += entry.totalPaid;
+    } else {
+      seenCustomers.set(customerId, entry);
+      result.push(entry);
+    }
+  };
+
+  // ── 1. Mirror-mapped loans (this company is the MIRROR company) ─────────────
+  if (companyId) {
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorCompanyId: companyId, isOfflineLoan: false },
+    });
+
+    for (const mapping of mirrorMappings) {
+      const loan = await db.loanApplication.findUnique({
+        where: { id: mapping.originalLoanId },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, email: true } },
+          emiSchedules: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
+        }
+      });
+      if (!loan?.customer) continue;
+
+      const outstanding = loan.emiSchedules.reduce((s, e) =>
+        e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
+      const totalPaid = loan.emiSchedules.reduce((s, e) => s + (e.paidAmount || 0), 0);
+
+      addOrMerge(loan.customer.id, {
+        id: loan.customer.id, name: loan.customer.name || 'Unknown',
+        phone: loan.customer.phone || 'N/A', email: loan.customer.email,
+        totalLoans: 1, totalOutstanding: outstanding, totalPaid
+      });
+    }
+  }
+
+  // ── 2. Non-mirrored ONLINE loans for this company ────────────────────────────
+  const mirroredLoanIds = companyId
+    ? (await db.mirrorLoanMapping.findMany({ where: { mirrorCompanyId: companyId, isOfflineLoan: false }, select: { originalLoanId: true } }))
+        .map(m => m.originalLoanId)
+    : [];
+
+  const onlineWhere: any = {
+    status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] },
+  };
+  if (companyId) onlineWhere.companyId = companyId;
+  if (mirroredLoanIds.length > 0) onlineWhere.id = { notIn: mirroredLoanIds };
+
+  const onlineLoans = await db.loanApplication.findMany({
+    where: onlineWhere,
+    include: {
+      customer: { select: { id: true, name: true, phone: true, email: true } },
+      emiSchedules: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
+    }
+  });
+
+  for (const loan of onlineLoans) {
+    if (!loan.customer) continue;
+    const outstanding = loan.emiSchedules.reduce((s, e) =>
+      e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
+    const totalPaid = loan.emiSchedules.reduce((s, e) => s + (e.paidAmount || 0), 0);
+
+    addOrMerge(loan.customer.id, {
+      id: loan.customer.id, name: loan.customer.name || 'Unknown',
+      phone: loan.customer.phone || 'N/A', email: loan.customer.email,
+      totalLoans: 1, totalOutstanding: outstanding, totalPaid
+    });
+  }
+
+  // ── 3. OFFLINE loans for this company ────────────────────────────────────────
+  const offlineWhere: any = { status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } };
+  if (companyId) offlineWhere.companyId = companyId;
+
+  const offlineLoans = await db.offlineLoan.findMany({
+    where: offlineWhere,
+    include: {
+      customer: { select: { id: true, name: true, phone: true, email: true } },
+      emis: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
+    }
+  });
+
+  for (const loan of offlineLoans) {
+    if (!loan.customer) continue;
+    const outstanding = loan.emis.reduce((s, e) =>
+      e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
+    const totalPaid = loan.emis.reduce((s, e) => s + (e.paidAmount || 0), 0);
+
+    addOrMerge(loan.customer.id, {
+      id: loan.customer.id, name: loan.customer.name || 'Unknown',
+      phone: loan.customer.phone || 'N/A', email: loan.customer.email,
+      totalLoans: 1, totalOutstanding: outstanding, totalPaid
+    });
+  }
+
+  result.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
+  return NextResponse.json({ success: true, borrowers: result });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full personal ledger for a customer
+// ─────────────────────────────────────────────────────────────────────────────
+async function getPersonalLedger(customerId: string, companyId: string | null) {
+  const customer = await db.user.findUnique({
+    where: { id: customerId },
+    select: { id: true, name: true, phone: true, email: true, address: true }
+  });
+
+  const onlineLoans = await db.loanApplication.findMany({
+    where: {
+      customerId,
+      status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] }
+    },
+    include: {
+      company:      { select: { id: true, name: true } },
+      sessionForm:  { select: { approvedAmount: true, interestRate: true, tenure: true, emiAmount: true, processingFee: true } },
+      emiSchedules: { orderBy: { installmentNumber: 'asc' } },
+    }
+  });
+
+  const offlineLoans = await db.offlineLoan.findMany({
+    where: {
+      customerId,
+      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] }
+    },
+    include: {
+      company: { select: { id: true, name: true } },
+      emis:    { orderBy: { dueDate: 'asc' } }
+    }
+  });
+
+  // Build loan summaries
+  const onlineLoansSummary = onlineLoans.map(l => ({
+    id: l.id,
+    loanNumber: l.applicationNo,
+    type: 'ONLINE',
+    status: l.status,
+    amount: l.sessionForm?.approvedAmount || l.requestedAmount || 0,
+    disbursementDate: l.disbursedAt,
+    interestRate: l.sessionForm?.interestRate || 0,
+    tenure: l.sessionForm?.tenure || 0,
+    isMirror: false
+  }));
+
+  const offlineLoansSummary = offlineLoans.map(l => ({
+    id: l.id,
+    loanNumber: l.loanNumber,
+    type: 'OFFLINE',
+    status: l.status,
+    amount: l.loanAmount,
+    disbursementDate: l.disbursementDate,
+    interestRate: l.interestRate || 0,
+    tenure: l.tenure || 0,
+    isMirror: false
+  }));
+
+  // Build real accounting entries per loan
+  const allEntries: any[] = [];
+
+  for (const loan of onlineLoans) {
+    const loanEntries = await buildEntriesForOnlineLoan(loan);
+    allEntries.push(...loanEntries);
+  }
+
+  for (const loan of offlineLoans) {
+    const loanEntries = buildEntriesForOfflineLoan(loan);
+    allEntries.push(...loanEntries);
+  }
+
+  allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  return NextResponse.json({
+    success: true,
+    customerSummary: {
+      ...customer,
+      onlineLoans: onlineLoansSummary,
+      offlineLoans: offlineLoansSummary
+    },
+    entries: allEntries
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Build entries for one online loan from real EMI data
+// ─────────────────────────────────────────────────────────────────────────────
+async function buildEntriesForOnlineLoan(loan: any) {
+  const entries: any[] = [];
+  const loanId     = loan.id;
+  const loanNumber = loan.applicationNo;
+  const loanAmount = loan.sessionForm?.approvedAmount || loan.requestedAmount || 0;
+  const processingFee = loan.sessionForm?.processingFee || 0;
+
+  // 1. Disbursement
+  if (loan.disbursedAt) {
+    entries.push({
+      id: `disb-${loanId}`,
+      date: loan.disbursedAt,
+      referenceType: 'LOAN_DISBURSEMENT',
+      referenceId: loanId, loanId, loanNumber,
+      narration: `Loan Disbursed — ${loanNumber}`,
+      lines: [
+        { accountCode: '1200', accountName: 'Loans Receivable', debitAmount: loanAmount, creditAmount: 0 },
+        { accountCode: '1102', accountName: 'Bank Account',     debitAmount: 0, creditAmount: loanAmount }
+      ]
+    });
+  }
+
+  // 2. Processing Fee (from journal entry date, else disburse date)
+  if (processingFee > 0) {
+    const pfJournal = await db.journalEntry.findFirst({
+      where: { referenceType: 'PROCESSING_FEE_COLLECTION', referenceId: loanId, isReversed: false },
+      select: { entryDate: true }
+    });
+    entries.push({
+      id: `pf-${loanId}`,
+      date: pfJournal?.entryDate || loan.disbursedAt || new Date(),
+      referenceType: 'PROCESSING_FEE_COLLECTION',
+      referenceId: loanId, loanId, loanNumber,
+      narration: `Processing Fee — ${loanNumber}`,
+      lines: [
+        { accountCode: '1102', accountName: 'Bank Account',          debitAmount: processingFee, creditAmount: 0 },
+        { accountCode: '4121', accountName: 'Processing Fee Income', debitAmount: 0, creditAmount: processingFee }
+      ]
+    });
+  }
+
+  // 3. EMI payments from real EMI schedule records
+  for (const emi of (loan.emiSchedules || [])) {
+    if (!emi.paidDate || emi.paidAmount <= 0) continue;
+
+    const paidPrincipal = emi.paidPrincipal || 0;
+    const paidInterest  = emi.paidInterest  || 0;
+    const paidTotal     = emi.paidAmount    || 0;
+
+    entries.push({
+      id: `emi-${emi.id}`,
+      date: emi.paidDate,
+      referenceType: emi.isInterestOnly ? 'INTEREST_ONLY_PAYMENT' : emi.isPartialPayment ? 'PARTIAL_EMI_PAYMENT' : 'EMI_PAYMENT',
+      referenceId: emi.id, loanId, loanNumber,
+      narration: `EMI #${emi.installmentNumber} — ${loanNumber}${emi.isInterestOnly ? ' [Interest Only]' : emi.isPartialPayment ? ' [Partial]' : ''}`,
+      emiNumber: emi.installmentNumber,
+      lines: [
+        { accountCode: '1102', accountName: 'Bank/Cash',        debitAmount: paidTotal,     creditAmount: 0 },
+        ...(paidPrincipal > 0 ? [{ accountCode: '1200', accountName: 'Loans Receivable', debitAmount: 0, creditAmount: paidPrincipal }] : []),
+        ...(paidInterest  > 0 ? [{ accountCode: '4110', accountName: 'Interest Income',  debitAmount: 0, creditAmount: paidInterest  }] : []),
+      ]
+    });
+  }
+
+  return entries;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Build entries for one offline loan from EMI records
+// ─────────────────────────────────────────────────────────────────────────────
+function buildEntriesForOfflineLoan(loan: any) {
+  const entries: any[] = [];
+  const loanId     = loan.id;
+  const loanNumber = loan.loanNumber;
+
+  if (loan.disbursementDate) {
+    entries.push({
+      id: `offline-disb-${loanId}`,
+      date: loan.disbursementDate,
+      referenceType: 'LOAN_DISBURSEMENT',
+      referenceId: loanId, loanId, loanNumber,
+      narration: `Loan Disbursed — ${loanNumber}`,
+      lines: [
+        { accountCode: '1200', accountName: 'Loans Receivable', debitAmount: loan.loanAmount, creditAmount: 0 },
+        { accountCode: '1101', accountName: 'Cash/Bank',        debitAmount: 0, creditAmount: loan.loanAmount }
+      ]
+    });
+  }
+
+  for (const emi of (loan.emis || [])) {
+    if (!emi.paidDate || emi.paidAmount <= 0) continue;
+
+    const paidPrincipal = emi.paidPrincipal || 0;
+    const paidInterest  = emi.paidInterest  || 0;
+    const paidTotal     = emi.paidAmount    || 0;
+
+    entries.push({
+      id: `offline-emi-${emi.id}`,
+      date: emi.paidDate,
+      referenceType: 'EMI_PAYMENT',
+      referenceId: emi.id, loanId, loanNumber,
+      narration: `EMI #${emi.installmentNumber} — ${loanNumber}`,
+      emiNumber: emi.installmentNumber,
+      lines: [
+        { accountCode: '1101', accountName: 'Cash/Bank',        debitAmount: paidTotal,     creditAmount: 0 },
+        ...(paidPrincipal > 0 ? [{ accountCode: '1200', accountName: 'Loans Receivable', debitAmount: 0, creditAmount: paidPrincipal }] : []),
+        ...(paidInterest  > 0 ? [{ accountCode: '4110', accountName: 'Interest Income',  debitAmount: 0, creditAmount: paidInterest  }] : []),
+      ]
+    });
+  }
+
+  return entries;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Single loan ledger
+// ─────────────────────────────────────────────────────────────────────────────
+async function getSingleLoanLedger(loanId: string) {
+  const loan = await db.loanApplication.findUnique({
+    where: { id: loanId },
+    include: {
+      customer:     { select: { id: true, name: true, phone: true } },
+      company:      { select: { id: true, name: true } },
+      sessionForm:  true,
+      emiSchedules: { orderBy: { installmentNumber: 'asc' } },
+    }
+  });
+
+  if (!loan) {
+    return NextResponse.json({ success: false, error: 'Loan not found' }, { status: 404 });
+  }
+
+  const entries = await buildEntriesForOnlineLoan(loan);
+  entries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  return NextResponse.json({
+    success: true,
+    loanSummary: { id: loan.id, loanNumber: loan.applicationNo, customer: loan.customer, company: loan.company },
+    entries
+  });
 }

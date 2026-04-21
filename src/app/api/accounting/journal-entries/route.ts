@@ -57,7 +57,79 @@ export async function GET(request: NextRequest) {
       db.journalEntry.count({ where }),
     ]);
 
-    return NextResponse.json({ entries, total });
+    // ── Enrich narrations with customer name ──────────────────────────────────
+    // For loan-related entries, append "[Customer Name]" to the narration so
+    // accountants can see who the entry belongs to in the Day Book / Journal.
+    const LOAN_REF_TYPES = new Set([
+      'LOAN_DISBURSEMENT', 'EMI_PAYMENT', 'MIRROR_EMI_PAYMENT', 'PARTIAL_EMI_PAYMENT',
+      'INTEREST_ONLY_PAYMENT', 'PROCESSING_FEE_COLLECTION', 'PROCESSING_FEE',
+      'PENALTY_COLLECTION', 'MIRROR_LOAN_DISBURSEMENT', 'LOAN_REPAYMENT',
+    ]);
+
+    // Build a set of unique referenceIds to look up
+    const loanRefIds = [...new Set(
+      entries
+        .filter(e => e.referenceType && LOAN_REF_TYPES.has(e.referenceType) && e.referenceId)
+        .map(e => e.referenceId!)
+    )];
+
+    // Lookup online loans
+    const onlineLoans = loanRefIds.length > 0 ? await db.loanApplication.findMany({
+      where: { id: { in: loanRefIds } },
+      select: { id: true, applicationNo: true, customer: { select: { name: true } } }
+    }) : [];
+
+    // Lookup offline loans (referenceId might be offline loan id)
+    const offlineLoans = loanRefIds.length > 0 ? await db.offlineLoan.findMany({
+      where: { id: { in: loanRefIds } },
+      select: { id: true, loanNumber: true, customer: { select: { name: true } } }
+    }) : [];
+
+    const loanMap = new Map<string, { loanNo: string; customerName: string }>();
+    for (const l of onlineLoans) {
+      loanMap.set(l.id, { loanNo: l.applicationNo, customerName: l.customer?.name || '' });
+    }
+    for (const l of offlineLoans) {
+      loanMap.set(l.id, { loanNo: l.loanNumber, customerName: l.customer?.name || '' });
+    }
+
+    // Also look up by EMI schedule id → loan
+    const emiRefIds = [...new Set(
+      entries
+        .filter(e => e.referenceType && LOAN_REF_TYPES.has(e.referenceType) && e.referenceId && !loanMap.has(e.referenceId!))
+        .map(e => e.referenceId!)
+    )];
+    if (emiRefIds.length > 0) {
+      const emiSchedules = await db.eMISchedule.findMany({
+        where: { id: { in: emiRefIds } },
+        select: {
+          id: true,
+          installmentNumber: true,
+          loanApplication: { select: { applicationNo: true, customer: { select: { name: true } } } }
+        }
+      });
+      for (const e of emiSchedules) {
+        loanMap.set(e.id, {
+          loanNo: e.loanApplication?.applicationNo || '',
+          customerName: e.loanApplication?.customer?.name || ''
+        });
+      }
+    }
+
+    // Enrich entries narration
+    const enrichedEntries = entries.map(entry => {
+      if (!entry.referenceId) return entry;
+      const info = loanMap.get(entry.referenceId);
+      if (!info || !info.customerName) return entry;
+      // Only append if not already included
+      const alreadyHasName = entry.narration?.includes(info.customerName);
+      const narration = alreadyHasName
+        ? entry.narration
+        : `${entry.narration || ''}${info.loanNo && !entry.narration?.includes(info.loanNo) ? ` - ${info.loanNo}` : ''} [${info.customerName}]`.trim();
+      return { ...entry, narration };
+    });
+
+    return NextResponse.json({ entries: enrichedEntries, total });
   } catch (error) {
     console.error('Error fetching journal entries:', error);
     return NextResponse.json({ error: 'Failed to fetch journal entries' }, { status: 500 });
