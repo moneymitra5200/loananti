@@ -84,6 +84,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const [loanStatements, setLoanStatements] = useState<LoanStatement[]>([]);
   const [selectedLoan, setSelectedLoan] = useState<LoanStatement | null>(null);
   const [loadingLedger, setLoadingLedger] = useState(false);
+  // Control account total for Loans Receivable
+  const [totalLoansReceivable, setTotalLoansReceivable] = useState(0);
 
   useEffect(() => {
     fetchCustomers();
@@ -127,6 +129,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
       allCustomers.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
       setCustomers(allCustomers);
+      // Control account total
+      const ctrl = allCustomers.reduce((s, c) => s + c.totalOutstanding, 0);
+      setTotalLoansReceivable(ctrl);
     } catch (error) {
       console.error('Error fetching customers:', error);
       toast({ title: 'Error', description: 'Failed to load customers', variant: 'destructive' });
@@ -536,14 +541,27 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="border-0 shadow-sm bg-emerald-50">
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-emerald-100 rounded-lg"><User className="h-5 w-5 text-emerald-600" /></div>
               <div>
-                <p className="text-sm text-gray-500">Total Customers</p>
+                <p className="text-sm text-gray-500">Total Debtors</p>
                 <p className="text-2xl font-bold">{customers.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        {/* Loans Receivable Control Account — sum of all personal ledger outstanding */}
+        <Card className="border-2 border-blue-400 shadow-md bg-blue-50 col-span-1">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg"><IndianRupee className="h-5 w-5 text-blue-600" /></div>
+              <div>
+                <p className="text-xs text-blue-600 font-semibold uppercase tracking-wide">Loans Receivable A/c</p>
+                <p className="text-lg font-bold text-blue-800">{formatCurrency(totalLoansReceivable)}</p>
+                <p className="text-[10px] text-blue-500 mt-0.5">Control Account (Personal Ledger Sum)</p>
               </div>
             </div>
           </CardContent>

@@ -46,6 +46,26 @@ interface Voucher {
 // ─────────────────────────────────────────────────
 // ACCOUNT HEAD MAPPING  (referenceType → names)
 // ─────────────────────────────────────────────────
+// Extract customer name from narration: matches "[Name]" or "— Name" patterns
+function extractCustomerFromNarration(text: string): string {
+  // Pattern 1: [Customer Name]
+  const bracketMatch = text.match(/\[([^\]]+)\]/);
+  if (bracketMatch) return bracketMatch[1];
+  // Pattern 2: "Dhruvil Chitroda" after a dash or hyphen
+  const dashMatch = text.match(/[-–]\s*([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)/);
+  if (dashMatch) return dashMatch[1];
+  return '';
+}
+
+// Enrich a Loans Receivable account label with customer name (subsidiary ledger)
+function enrichReceivableLabel(accountName: string, customerName: string): string {
+  if (!accountName.toLowerCase().includes('loans receivable')) return accountName;
+  if (customerName && !accountName.includes(customerName)) {
+    return `Loans Receivable — ${customerName}`;
+  }
+  return accountName;
+}
+
 function resolveAccounts(
   entry: DayEntry
 ): { drLines: { account: string; amount: number }[]; crLines: { account: string; amount: number }[] } {
@@ -56,22 +76,38 @@ function resolveAccounts(
     entry.entryType === 'CREDIT' || entry.transactionType === 'CREDIT';
   const ref = (entry.referenceType || '').toUpperCase();
 
-  // ── JOURNAL with lines → use real account names ────────────────────
+  // Extract customer name from narration/description for subsidiary ledger display
+  const customerName = extractCustomerFromNarration(
+    entry.description || ''
+  );
+
+  // ── JOURNAL with lines → use real account names (with customer enrichment) ─
   if (entry.source === 'JOURNAL' && entry.lines && entry.lines.length > 0) {
     const drLines = entry.lines
       .filter(l => l.debitAmount > 0)
-      .map(l => ({ account: l.account?.accountName || 'Account', amount: l.debitAmount }));
+      .map(l => ({
+        account: enrichReceivableLabel(l.account?.accountName || 'Account', customerName),
+        amount: l.debitAmount
+      }));
     const crLines = entry.lines
       .filter(l => l.creditAmount > 0)
-      .map(l => ({ account: l.account?.accountName || 'Account', amount: l.creditAmount }));
+      .map(l => ({
+        account: enrichReceivableLabel(l.account?.accountName || 'Account', customerName),
+        amount: l.creditAmount
+      }));
     return { drLines, crLines };
   }
 
-  // ── CASHBOOK / BANK – map by referenceType ─────────────────────────
+  // ── CASHBOOK / BANK – map by referenceType ──────
+  // Build the receivable label with customer name (subsidiary ledger style)
+  const receivableLabel = customerName
+    ? `Loans Receivable — ${customerName} A/c`
+    : 'Loans Receivable A/c';
+
   // Loan disbursement (money out)
   if (ref.includes('OFFLINE_LOAN') || ref.includes('LOAN_DISBURSEMENT') || ref === 'ONLINE_LOAN') {
     return {
-      drLines: [{ account: 'Loans Receivable A/c', amount: amt }],
+      drLines: [{ account: receivableLabel, amount: amt }],
       crLines: [{ account: cashLabel, amount: amt }],
     };
   }
