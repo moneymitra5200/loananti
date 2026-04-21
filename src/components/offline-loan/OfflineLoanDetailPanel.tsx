@@ -3348,13 +3348,14 @@ export default function OfflineLoanDetailPanel({
                     {selectedEmiForHistory.proofUrl.includes('application/pdf') || selectedEmiForHistory.proofUrl.toLowerCase().endsWith('.pdf') ? (
                       <div className="flex items-center gap-2">
                         <FileText className="h-8 w-8 text-red-500" />
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.open(selectedEmiForHistory.proofUrl, '_blank')}
+                        <a
+                          href={selectedEmiForHistory.proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm text-blue-600 underline hover:text-blue-800"
                         >
-                          View PDF
-                        </Button>
+                          View PDF ↗
+                        </a>
                       </div>
                     ) : (
                       <div className="relative group">
@@ -3362,10 +3363,17 @@ export default function OfflineLoanDetailPanel({
                           src={selectedEmiForHistory.proofUrl}
                           alt="Payment Proof"
                           className="max-h-48 rounded-lg border shadow-sm cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => window.open(selectedEmiForHistory.proofUrl!, '_blank')}
                         />
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                          <span className="text-white text-sm font-medium">Click to view full size</span>
+                        <div className="mt-2">
+                          <a
+                            href={selectedEmiForHistory.proofUrl.startsWith('data:') ? '#' : selectedEmiForHistory.proofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={selectedEmiForHistory.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(selectedEmiForHistory.proofUrl!); } : undefined}
+                            className="text-xs text-blue-500 underline hover:text-blue-700"
+                          >
+                            Open full size ↗
+                          </a>
                         </div>
                       </div>
                     )}

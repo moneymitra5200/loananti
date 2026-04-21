@@ -639,9 +639,9 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                           className="relative cursor-pointer group"
                           onClick={() => setFullscreenPhoto(selectedRequest.proofUrl)}
                         >
-                          <img 
-                            src={selectedRequest.proofUrl} 
-                            alt="Payment proof" 
+                          <img
+                            src={selectedRequest.proofUrl}
+                            alt="Payment proof"
                             className="max-h-60 w-full object-contain rounded-lg border hover:opacity-90 transition-opacity"
                             onError={e => { (e.target as HTMLImageElement).style.display='none'; }}
                           />
@@ -649,11 +649,14 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                             <span className="opacity-0 group-hover:opacity-100 text-white bg-black/50 px-3 py-1 rounded text-sm font-medium transition-all">🔍 Click to enlarge</span>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openDoc(selectedRequest.proofUrl)}
+                        {/* Use <a> not button+onClick — browser popup blocker allows anchor navigation */}
+                        <a
+                          href={selectedRequest.proofUrl.startsWith('data:') ? '#' : selectedRequest.proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={selectedRequest.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(selectedRequest.proofUrl); } : undefined}
                           className="text-xs text-blue-500 underline mt-1 inline-block hover:text-blue-700"
-                        >Open in new tab ↗</button>
+                        >Open in new tab ↗</a>
                       </div>
                     )}
                   </CardContent>

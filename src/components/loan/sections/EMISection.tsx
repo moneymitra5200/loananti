@@ -16,6 +16,7 @@ import EMISettingsButton from '@/components/shared/EMISettingsButton';
 import ReceiptDialog from '@/components/receipt/ReceiptDialog';
 import { toast } from '@/hooks/use-toast';
 import generateAllReceiptsPDF from '@/lib/generate-receipts-pdf';
+import { openDoc } from '@/utils/openDoc';
 
 interface ReceiptData {
   receiptNo: string;
@@ -484,15 +485,22 @@ const EMISection = memo(function EMISection({
                                 {loadingReceipt === emi.id ? 'Loading...' : 'Receipt'}
                               </Button>
                               {emi.proofUrl && (
-                                <Button variant="link" size="sm" className="h-auto p-0 text-xs">
-                                  View Proof
-                                </Button>
+                                <a
+                                  href={emi.proofUrl.startsWith('data:') ? '#' : emi.proofUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={emi.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(emi.proofUrl!); } : undefined}
+                                  className="inline-flex items-center gap-1 h-7 px-2 text-xs border border-purple-300 text-purple-600 hover:bg-purple-50 rounded-md"
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  View Proof ↗
+                                </a>
                               )}
                             </div>
                           )}
-                          {/* Received Button - Only show if no mirror loan exists */}
+                          {/* Received Button + Proof - for non-mirror loans */}
                           {showReceivedButton && (
-                            <div className="flex gap-2 justify-end">
+                            <div className="flex gap-2 justify-end flex-wrap">
                               <Button 
                                 variant="outline" 
                                 size="sm"
@@ -503,6 +511,18 @@ const EMISection = memo(function EMISection({
                                 <Check className="h-3 w-3 mr-1" />
                                 {loadingReceipt === emi.id ? 'Marking...' : 'Received'}
                               </Button>
+                              {emi.proofUrl && (
+                                <a
+                                  href={emi.proofUrl.startsWith('data:') ? '#' : emi.proofUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={emi.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(emi.proofUrl!); } : undefined}
+                                  className="inline-flex items-center gap-1 h-7 px-2 text-xs border border-purple-300 text-purple-600 hover:bg-purple-50 rounded-md"
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  View Proof ↗
+                                </a>
+                              )}
                             </div>
                           )}
                         </div>
