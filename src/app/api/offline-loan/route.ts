@@ -2095,7 +2095,7 @@ export async function PUT(request: NextRequest) {
             }),
             description: `Collected Interest EMI #${currentEMI!.installmentNumber} for loan ${loan.loanNumber}`,
             canUndo: true
-        });
+        }});
       }, { maxWait: 15000, timeout: 30000 });
 
       // ============================================================
