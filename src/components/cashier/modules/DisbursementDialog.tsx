@@ -810,13 +810,7 @@ export default function DisbursementDialog({
                             <p className="text-gray-500 text-sm">Purpose</p>
                             <p className="font-medium">{selectedLoan.purpose || 'N/A'}</p>
                           </div>
-                          {/* Hide processing fee for mirror loans — it belongs to the original loan only */}
-                          {!mirrorLoanInfo?.isMirrorLoan && (
-                            <div>
-                              <p className="text-gray-500 text-sm">Processing Fee</p>
-                              <p className="font-medium">{formatCurrency(selectedLoan.sessionForm?.processingFee || 0)}</p>
-                            </div>
-                          )}
+
                           <div>
                             <p className="text-gray-500 text-sm">Application Date</p>
                             <p className="font-medium">{formatDate(selectedLoan.createdAt)}</p>

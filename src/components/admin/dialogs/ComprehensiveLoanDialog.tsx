@@ -304,17 +304,6 @@ export default function ComprehensiveLoanDialog({
                             </div>
                             <div className="grid grid-cols-2 gap-4 text-sm">
                               <div>
-                                <p className="text-gray-500">Processing Fee</p>
-                                {loanDetails.mirrorMapping ? (
-                                  <div>
-                                    <p className="font-medium text-orange-600">{formatCurrency(loanDetails.mirrorMapping.mirrorProcessingFee || 0)}</p>
-                                    <p className="text-[10px] text-orange-500 mt-0.5">Auto-calc — Booked as income on EMI #1</p>
-                                  </div>
-                                ) : (
-                                  <p className="font-medium">{formatCurrency(loanDetails.loan.sessionForm.processingFee || 0)}</p>
-                                )}
-                              </div>
-                              <div>
                                 <p className="text-gray-500">Total Interest</p>
                                 <p className="font-medium">{formatCurrency(loanDetails.loan.sessionForm.totalInterest || 0)}</p>
                               </div>

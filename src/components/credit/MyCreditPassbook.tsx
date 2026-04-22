@@ -1493,10 +1493,6 @@ export default function MyCreditPassbook() {
                           <p className="text-sm text-gray-500">Total Interest</p>
                           <p className="font-medium">{formatCurrency(selectedLoan.sessionForm.totalInterest)}</p>
                         </div>
-                        <div>
-                          <p className="text-sm text-gray-500">Processing Fee</p>
-                          <p className="font-medium">{formatCurrency(selectedLoan.sessionForm.processingFee)}</p>
-                        </div>
                       </div>
                     </CardContent>
                   </Card>

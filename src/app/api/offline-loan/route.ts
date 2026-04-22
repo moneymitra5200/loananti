@@ -693,6 +693,19 @@ export async function POST(request: NextRequest) {
       emiSchedule = emiCalculation.schedule;
     }
 
+    // ── Validate productId (prevent P2003 FK error if CMSService/product doesn't exist) ──
+    let validatedProductId: string | null = null;
+    if (productId) {
+      const productExists = await db.cMSService.findFirst({
+        where: { id: productId },
+        select: { id: true },
+      });
+      validatedProductId = productExists ? productId : null;
+      if (!productExists) {
+        console.warn(`[Offline Loan] productId '${productId}' not found in CMSService — creating loan without product link.`);
+      }
+    }
+
     // Create loan
     const loan = await db.offlineLoan.create({
       data: {
@@ -721,7 +734,7 @@ export async function POST(request: NextRequest) {
         reference2Relation,
         loanType: loanType || 'PERSONAL',
         interestType: actualInterestType,
-        productId: productId || null,
+        productId: validatedProductId,
         loanAmount,
         interestRate,
         tenure: isInterestOnlyLoan ? 0 : (tenure || 0),

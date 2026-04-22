@@ -1193,10 +1193,7 @@ export default function OfflineLoanDetailPanel({
                               <p className="text-xs text-gray-500">Tenure</p>
                               <p className="font-medium">{loan.tenure} months</p>
                             </div>
-                            <div>
-                              <p className="text-xs text-gray-500">Processing Fee</p>
-                              <p className="font-medium">{formatCurrency(loan.processingFee)}</p>
-                            </div>
+
                             <div>
                               <p className="text-xs text-gray-500">Disbursement Date</p>
                               <p className="font-medium">{formatDate(loan.disbursementDate)}</p>

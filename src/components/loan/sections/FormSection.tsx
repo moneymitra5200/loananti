@@ -146,7 +146,6 @@ export function FormSection({ loanDetails }: FormSectionProps) {
             <Field label="EMI Amount" value={sf.emiAmount} currency />
             <Field label="Total Interest" value={sf.totalInterest} currency />
             <Field label="Total Amount" value={sf.totalAmount} currency />
-            <Field label="Processing Fee" value={sf.processingFee} currency />
             <Field label="Moratorium Period" value={sf.moratoriumPeriod ? `${sf.moratoriumPeriod} months` : undefined} />
             <Field label="Late Payment Penalty" value={sf.latePaymentPenalty} currency />
             <Field label="Bounce Charges" value={sf.bounceCharges} currency />

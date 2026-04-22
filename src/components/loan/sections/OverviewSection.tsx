@@ -115,10 +115,7 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
                 <p className="text-xs text-gray-500">Total Amount</p>
                 <p className="font-semibold">{formatCurrency(loanDetails.sessionForm.totalAmount)}</p>
               </div>
-              <div>
-                <p className="text-xs text-gray-500">Processing Fee</p>
-                <p className="font-semibold">{formatCurrency(loanDetails.sessionForm.processingFee || 0)}</p>
-              </div>
+
               {loanDetails.sessionForm.startDate && (
                 <div>
                   <p className="text-xs text-gray-500">Start Date</p>

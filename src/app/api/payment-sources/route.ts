@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
       select: { 
         id: true, 
         name: true, 
-        code: true, 
-        isMirrorCompany: true 
+        code: true,
       }
     });
 
@@ -118,7 +117,6 @@ export async function GET(request: NextRequest) {
         id: company.id,
         name: company.name,
         code: company.code,
-        isMirrorCompany: company.isMirrorCompany,
       },
       paymentSources,
       summary: {
