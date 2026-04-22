@@ -316,12 +316,14 @@ const EMISection = memo(function EMISection({
                 const penaltyInfo = (isOverdue && !isPaid && loanAmount > 0) 
                   ? calculatePenaltyInfo(emi.dueDate, loanAmount) 
                   : null;
+                const isPrincipalOnly = emi.status === 'PAID' && emi.paidAmount === emi.principalAmount && emi.paidInterest === 0 && emi.interestAmount > 0;
                 const totalWithPenalty = emi.emiAmount + (penaltyInfo?.penaltyAmount || emi.lateFee || 0);
                 
                 return (
                 <motion.div 
                   key={emi.id}
-                  className={`p-4 border rounded-xl ${
+                  className={`p-4 border rounded-xl relative ${
+                    isPrincipalOnly ? 'bg-emerald-50 border-emerald-200' :
                     emi.status === 'PAID' ? 'bg-green-50 border-green-200' :
                     emi.status === 'INTEREST_ONLY_PAID' ? 'bg-blue-50 border-blue-200' :
                     isSelected ? 'bg-emerald-50 border-emerald-300' :
@@ -363,6 +365,7 @@ const EMISection = memo(function EMISection({
                         />
                       )}
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                        isPrincipalOnly ? 'bg-emerald-200' :
                         emi.status === 'PAID' ? 'bg-green-200' :
                         emi.status === 'INTEREST_ONLY_PAID' ? 'bg-blue-200' :
                         isOverdue ? 'bg-red-200' :
@@ -380,7 +383,14 @@ const EMISection = memo(function EMISection({
                         )}
                       </div>
                       <div>
-                        <p className="font-semibold">EMI #{emi.emiNumber}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold">EMI #{emi.emiNumber}</p>
+                          {isPrincipalOnly && (
+                            <Badge className="bg-emerald-100 text-emerald-800 text-[10px] uppercase font-bold py-0.5 pointer-events-none hover:bg-emerald-100 border-emerald-200">
+                              PRINCIPAL ONLY
+                            </Badge>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-500">Due: {formatDate(emi.dueDate)}</p>
                         {emi.lateFee && emi.lateFee > 0 && !penaltyInfo && (
                           <p className="text-xs text-red-600">Late Fee: ₹{formatCurrency(emi.lateFee)}</p>
@@ -415,6 +425,14 @@ const EMISection = memo(function EMISection({
                           <p className="font-bold text-lg text-blue-600">
                             {formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount)}
                             <span className="text-xs font-normal text-gray-400 ml-1">interest</span>
+                          </p>
+                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
+                        </>
+                      ) : isPrincipalOnly ? (
+                        <>
+                          <p className="font-bold text-lg text-emerald-700">
+                            {formatCurrency(emi.principalAmount)}
+                            <span className="text-xs font-normal text-gray-400 ml-1">principal</span>
                           </p>
                           <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
                         </>
