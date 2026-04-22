@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 3. New applications submitted today (PENDING / SA_APPROVED, not yet disbursed)
-    const newApplications = await db.loanApplication.count({
+    const newApplicationsOnline = await db.loanApplication.count({
       where: {
         createdAt: { gte: dayStart, lte: dayEnd },
         status: { in: ['PENDING', 'SA_APPROVED', 'AGENT_APPROVED_STAGE1'] },
@@ -51,21 +51,61 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const newApplicationsOffline = await db.offlineLoan.count({
+      where: {
+        createdAt: { gte: dayStart, lte: dayEnd },
+        status: { in: ['PENDING_APPROVAL'] }, 
+        ...(agentId ? {} : {}) 
+      },
+    });
+
+    const newApplications = newApplicationsOnline + newApplicationsOffline;
+
     // 4. Pending disbursements (FINAL_APPROVED but not yet DISBURSED)
-    const pendingDisbursements = await db.loanApplication.count({
+    const pendingDisbursementsOnline = await db.loanApplication.count({
       where: {
         status: 'FINAL_APPROVED',
         ...loanWhere,
       },
     });
 
+    // For offline loans, pending disbursement state might just be 'PENDING' before 'ACTIVE'
+    // Let's assume PENDING means it needs disbursement or review
+    const pendingDisbursementsOffline = await db.offlineLoan.count({
+        where: {
+          status: 'PENDING_APPROVAL',
+        },
+    });
+
+    const pendingDisbursements = pendingDisbursementsOnline + pendingDisbursementsOffline;
+
+    // 5. Offline Today's EMIs
+    const offlineTodayEMIs = await db.offlineLoanEMI.findMany({
+        where: {
+            dueDate: { gte: dayStart, lte: dayEnd },
+            paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
+            offlineLoan: loanWhere,
+        },
+        select: { totalAmount: true, paidAmount: true },
+    });
+
+    // 6. Offline Overdue EMIs
+    const offlineOverdueEMIs = await db.offlineLoanEMI.findMany({
+        where: {
+            dueDate: { lt: dayStart },
+            paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] },
+            offlineLoan: loanWhere,
+        },
+        select: { totalAmount: true, paidAmount: true },
+    });
+
     return NextResponse.json({
       success: true,
       date: dateStr,
-      todayDueEMIs:         todayEMIs.length,
-      todayDueAmount:       todayEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0),
-      overdueEMIs:          overdueEMIs.length,
-      overdueAmount:        overdueEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0),
+      todayDueEMIs:         todayEMIs.length + offlineTodayEMIs.length,
+      todayDueAmount:       todayEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0) + offlineTodayEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
+      overdueEMIs:          overdueEMIs.length + offlineOverdueEMIs.length,
+      overdueAmount:        overdueEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0) + offlineOverdueEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
       newApplications,
       pendingDisbursements,
     });
