@@ -2303,18 +2303,18 @@ export async function PUT(request: NextRequest) {
       const now = new Date();
 
       // Calculate based on payment type
-      if (paymentType === 'FULL' || paymentType === 'ADVANCE') {
-        if (isAdvancePayment === true || isEmiAdvancePayment) {
-          paidPrincipal = emi.principalAmount;
-          paidInterest = 0;
-          paidAmount = emi.principalAmount;
-          paymentStatus = 'PAID';
-        } else {
-          paidAmount = emi.totalAmount;
-          paidPrincipal = emi.principalAmount;
-          paidInterest = emi.interestAmount;
-          paymentStatus = 'PAID';
-        }
+      if (paymentType === 'FULL') {
+        // FULL always collects principal + interest, regardless of EMI due date
+        paidAmount    = emi.totalAmount;
+        paidPrincipal = emi.principalAmount;
+        paidInterest  = emi.interestAmount;
+        paymentStatus = 'PAID';
+      } else if (paymentType === 'ADVANCE') {
+        // ADVANCE explicitly means: collect principal only (interest not yet due)
+        paidPrincipal = emi.principalAmount;
+        paidInterest  = 0;
+        paidAmount    = emi.principalAmount;
+        paymentStatus = 'PAID';
       } else if (paymentType === 'PARTIAL') {
         // Issue 7 Fix: Interest-first allocation (same as online loans)
         const remainingInterest  = emi.interestAmount  - paidInterest;
