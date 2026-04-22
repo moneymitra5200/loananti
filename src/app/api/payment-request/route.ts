@@ -233,7 +233,8 @@ export async function POST(request: NextRequest) {
       paymentMethod,
       utrNumber,
       proofUrl,
-      proofFileName
+      proofFileName,
+      originalLoanId  // Set when customer is viewing a mirror loan but paying original EMI amounts
     } = body;
 
     // Validate required fields
@@ -441,6 +442,12 @@ export async function PUT(request: NextRequest) {
     if (paymentRequest.status !== 'PENDING') {
       return NextResponse.json({ error: 'Payment request already processed' }, { status: 400 });
     }
+
+    // Determine if this is a mirror-based payment:
+    // Case A: loanApplicationId IS the mirror loan (customer viewed mirror, paid original EMI amounts)
+    //         → find mirror mapping where mirrorLoanId = loanApplicationId
+    // Case B: loanApplicationId IS the original loan
+    //         → find mirror mapping where originalLoanId = loanApplicationId
 
     if (action === 'approve') {
       const emi = paymentRequest.emiSchedule;

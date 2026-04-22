@@ -149,6 +149,9 @@ export default function CustomerLoanDetailPage() {
   // Track EMI IDs that already have a pending payment request (In Processing)
   const [pendingRequestEmiIds, setPendingRequestEmiIds] = useState<Set<string>>(new Set());
   const [bankDetails, setBankDetails] = useState<BankDetails | null>(null);
+  // Mirror loan: if this page is a mirror loan, store the original loan ID so payment
+  // requests can correctly reference both the mirror (for accounting) and original (for EMI schedule)
+  const [originalLoanId, setOriginalLoanId] = useState<string | null>(null);
   // Mirror loan tenure — EMIs beyond this number are "extra EMIs" going to original company
   const [mirrorTenure, setMirrorTenure] = useState<number>(0);
   // Original company's bank details shown on the extra-EMI secondary payment page
@@ -236,6 +239,9 @@ export default function CustomerLoanDetailPage() {
         const mirrorData = await mirrorCheckRes.json();
         if (mirrorData.isMirrorLoan && mirrorData.mirrorMapping?.originalLoanId) {
           emiSourceLoanId = mirrorData.mirrorMapping.originalLoanId;
+          setOriginalLoanId(mirrorData.mirrorMapping.originalLoanId); // store for payment requests
+        } else {
+          setOriginalLoanId(null);
         }
       }
 
@@ -599,8 +605,9 @@ export default function CustomerLoanDetailPage() {
       }
 
       const requestBody = {
-        loanApplicationId: loanId,
-        emiScheduleId: selectedEmi.id,
+        loanApplicationId: loanId,         // Always the loan the customer sees (mirror or original)
+        emiScheduleId: selectedEmi.id,    // EMI from original schedule (displayed amounts)
+        originalLoanId: originalLoanId,   // Non-null if this is a mirror loan (for server routing)
         customerId: user.id,
         paymentType: selectedPaymentType === 'PARTIAL' ? 'PARTIAL_PAYMENT' : selectedPaymentType,
         requestedAmount,
