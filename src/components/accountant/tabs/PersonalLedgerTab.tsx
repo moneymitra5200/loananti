@@ -11,7 +11,8 @@ import {
   Search, RefreshCw, User, Phone, IndianRupee,
   CheckCircle, BookOpen, ArrowLeft, TrendingDown, AlertTriangle, Building2
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+
+
 import { toast } from '@/hooks/use-toast';
 
 interface PersonalLedgerTabProps {
@@ -382,11 +383,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 {selectedLoan.rows.map((row, idx) => {
                   const isFirst = idx === 0;
                   return (
-                    <motion.tr
+                    <tr
                       key={idx}
-                      initial={{ opacity: 0, x: -8 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: idx * 0.02 }}
                       className={`border-b transition-colors ${
                         isFirst ? 'bg-blue-50 hover:bg-blue-100 font-semibold'
                         : idx % 2 === 0 ? 'bg-white hover:bg-gray-50'
@@ -429,7 +427,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                           {formatCurrency(row.remainingBalance)}
                         </span>
                       </TableCell>
-                    </motion.tr>
+                    </tr>
                   );
                 })}
               </TableBody>
@@ -495,12 +493,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {loanStatements.map(loan => (
-              <motion.div
+              <div
                 key={loan.loanId}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                whileHover={{ scale: 1.01 }}
-                className="cursor-pointer"
+                className="cursor-pointer hover:scale-[1.01] transition-transform"
                 onClick={() => setSelectedLoan(loan)}
               >
                 <Card className="border shadow-sm hover:shadow-md hover:border-emerald-300 transition-all">
@@ -539,7 +534,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                     </div>
                   </CardContent>
                 </Card>
-              </motion.div>
+              </div>
             ))}
           </div>
         )}
@@ -665,11 +660,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 </TableHeader>
                 <TableBody>
                   {filteredCustomers.map((customer, index) => (
-                    <motion.tr
+                    <tr
                       key={customer.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.01 }}
                       className="border-b hover:bg-emerald-50 cursor-pointer transition-colors"
                       onClick={() => handleSelectCustomer(customer)}
                     >
@@ -700,9 +692,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                           View Ledger →
                         </Button>
                       </TableCell>
-                    </motion.tr>
-                  ))}
-                </TableBody>
+                    </tr>
+                  ))}                </TableBody>
               </Table>
             </div>
           )}

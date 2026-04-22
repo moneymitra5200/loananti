@@ -99,25 +99,33 @@ async function listCustomersForCompany(companyId: string | null) {
     return listCustomersFallback(companyId);
   }
 
-  // 2. Fetch all JournalEntryLines touching LR accounts
-  const lines = await db.journalEntryLine.findMany({
+  // 2. Two-step: get journal entry IDs for this company first, then find lines
+  // (Prisma 5 does not support nested relation filters reliably in findMany)
+  const journalIds = await db.journalEntry.findMany({
     where: {
-      accountId: { in: lrAccountIds },
-      journalEntry: {
-        isReversed: false,
-        ...(companyId ? { companyId } : {}),
-      },
+      isReversed: false,
+      ...(companyId ? { companyId } : {}),
     },
-    select: {
-      debitAmount:  true,
-      creditAmount: true,
-      loanId:       true,
-      customerId:   true,
-      journalEntry: {
-        select: { companyId: true }
-      }
-    }
+    select: { id: true }
   });
+  const journalIdSet = journalIds.map(j => j.id);
+
+  // 2b. Fetch all JournalEntryLines touching LR accounts within those journals
+  const lines = journalIdSet.length > 0
+    ? await db.journalEntryLine.findMany({
+        where: {
+          accountId: { in: lrAccountIds },
+          journalEntryId: { in: journalIdSet },
+        },
+        select: {
+          debitAmount:    true,
+          creditAmount:   true,
+          loanId:         true,
+          customerId:     true,
+          journalEntryId: true,
+        }
+      })
+    : [];
 
   // If no journal entries found at all, use fallback
   if (lines.length === 0) {
