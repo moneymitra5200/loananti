@@ -2304,11 +2304,20 @@ export async function PUT(request: NextRequest) {
 
       // Calculate based on payment type
       if (paymentType === 'FULL') {
-        // FULL always collects principal + interest, regardless of EMI due date
-        paidAmount    = emi.totalAmount;
-        paidPrincipal = emi.principalAmount;
-        paidInterest  = emi.interestAmount;
-        paymentStatus = 'PAID';
+        // When isAdvancePayment is explicitly TRUE (only sent by multi-EMI "Select All" mode for future EMIs),
+        // collect principal only. For all single EMI payments, isAdvancePayment=false so this never triggers.
+        if (isAdvancePayment === true) {
+          paidPrincipal = emi.principalAmount;
+          paidInterest  = 0;
+          paidAmount    = emi.principalAmount;
+          paymentStatus = 'PAID';
+        } else {
+          // Normal FULL: collect principal + interest
+          paidAmount    = emi.totalAmount;
+          paidPrincipal = emi.principalAmount;
+          paidInterest  = emi.interestAmount;
+          paymentStatus = 'PAID';
+        }
       } else if (paymentType === 'ADVANCE') {
         // ADVANCE explicitly means: collect principal only (interest not yet due)
         paidPrincipal = emi.principalAmount;
