@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { AccountingService } from '@/lib/accounting-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -66,6 +67,11 @@ export async function POST(request: NextRequest) {
     // 15. Cash Books
     const deletedCashBook = await db.cashBook.deleteMany({});
     console.log(`Deleted ${deletedCashBook.count} cash books`);
+
+    // ── CRITICAL: Clear AccountingService static in-memory caches ──────────────
+    // After DB reset, the server process still has stale "already initialized" flags.
+    // Without clearing, next Repay/EMI call skips chart-of-accounts init → "Account not found"
+    AccountingService.clearAllCaches();
 
     console.log('✅ Full accounting data reset completed successfully!');
 

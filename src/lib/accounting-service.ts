@@ -231,6 +231,13 @@ export class AccountingService {
   // ── Runtime cache: skip re-initialisation within the same server process ─
   private static initializedCompanies = new Set<string>();
 
+  /** Called by the reset route to invalidate all in-memory caches after a DB wipe */
+  static clearAllCaches(): void {
+    AccountingService.initializedCompanies.clear();
+    AccountingService.fyCache.clear();
+    console.log('[AccountingService] All static caches cleared after reset');
+  }
+
   async initializeChartOfAccounts(): Promise<void> {
     // Fast-path: already done this process run — skip 40+ DB queries
     if (AccountingService.initializedCompanies.has(this.companyId)) return;
@@ -519,29 +526,46 @@ export class AccountingService {
       await this.syncBankCashBalance(tx, accountCode, this.companyId);
     }
 
-    // 2. PERFORMANCE: Upsert ledger balance (1 query instead of findUnique + update/create)
-    // MySQL doesn't have native upsert on compound keys, so we use try/catch
-    try {
-      await tx.ledgerBalance.update({
-        where: { accountId_financialYearId: { accountId, financialYearId } },
-        data: {
-          totalDebits:   { increment: debitAmount },
-          totalCredits:  { increment: creditAmount },
-          closingBalance: { increment: balanceChange },
-        },
-      });
-    } catch {
-      // Record doesn't exist yet — create it
-      await tx.ledgerBalance.create({
-        data: {
-          accountId,
-          financialYearId,
-          openingBalance: 0,
-          totalDebits: debitAmount,
-          totalCredits: creditAmount,
-          closingBalance: balanceChange,
-        },
-      });
+    // 2. SAFE UPSERT for LedgerBalance on compound key (accountId + financialYearId)
+    // MySQL doesn't support native upsert on compound unique keys via Prisma.
+    // Strategy: updateMany (0 rows = record missing) → create → catch P2002 (race) → increment
+    const updated = await tx.ledgerBalance.updateMany({
+      where: { accountId, financialYearId },
+      data: {
+        totalDebits:    { increment: debitAmount },
+        totalCredits:   { increment: creditAmount },
+        closingBalance: { increment: balanceChange },
+      },
+    });
+
+    if (updated.count === 0) {
+      // No row exists yet — create it (or handle race where another tx creates simultaneously)
+      try {
+        await tx.ledgerBalance.create({
+          data: {
+            accountId,
+            financialYearId,
+            openingBalance: 0,
+            totalDebits:    debitAmount,
+            totalCredits:   creditAmount,
+            closingBalance: balanceChange,
+          },
+        });
+      } catch (createErr: any) {
+        // P2002 = another concurrent request already created the row — increment it instead
+        if (createErr?.code === 'P2002') {
+          await tx.ledgerBalance.updateMany({
+            where: { accountId, financialYearId },
+            data: {
+              totalDebits:    { increment: debitAmount },
+              totalCredits:   { increment: creditAmount },
+              closingBalance: { increment: balanceChange },
+            },
+          });
+        } else {
+          throw createErr; // Unexpected error — rethrow
+        }
+      }
     }
   }
 
