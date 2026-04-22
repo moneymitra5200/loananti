@@ -71,8 +71,8 @@ export default function CloseLoanDialog({
   const [saving,           setSaving]           = useState(false);
   const [data,             setData]             = useState<ForeclosureData | null>(null);
   const [mode,             setMode]             = useState<'PAYMENT' | 'LOSS'>('PAYMENT');
-  const [paymentMode,      setPaymentMode]      = useState('CASH');
   const [creditType,       setCreditType]       = useState<'COMPANY' | 'PERSONAL'>('COMPANY');
+  const [paymentMode,      setPaymentMode]      = useState('CASH');
   const [remarks,          setRemarks]          = useState('');
 
   // ────────────────────────────────────────────────────────────────────────────
@@ -107,6 +107,13 @@ export default function CloseLoanDialog({
       onOpenChange(false);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreditTypeChange = (ct: 'COMPANY' | 'PERSONAL') => {
+    setCreditType(ct);
+    if (ct === 'PERSONAL') {
+      setPaymentMode('CASH');
     }
   };
 
@@ -331,26 +338,6 @@ export default function CloseLoanDialog({
             {mode === 'PAYMENT' && (
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Mode</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PAYMENT_MODES.map(({ value, label, icon: Icon }) => (
-                      <button
-                        key={value}
-                        onClick={() => setPaymentMode(value)}
-                        className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
-                          paymentMode === value
-                            ? 'border-blue-400 bg-blue-50 text-blue-700'
-                            : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Credit Type</p>
                   <div className="grid grid-cols-2 gap-2">
                     {[
@@ -359,7 +346,7 @@ export default function CloseLoanDialog({
                     ].map(({ value, label, icon: Icon }) => (
                       <button
                         key={value}
-                        onClick={() => setCreditType(value as 'COMPANY' | 'PERSONAL')}
+                        onClick={() => handleCreditTypeChange(value as 'COMPANY' | 'PERSONAL')}
                         className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
                           creditType === value
                             ? 'border-purple-400 bg-purple-50 text-purple-700'
@@ -371,6 +358,45 @@ export default function CloseLoanDialog({
                       </button>
                     ))}
                   </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment Mode</p>
+                    {creditType === 'PERSONAL' && (
+                      <p className="text-[10px] text-amber-600 font-semibold bg-amber-100 px-2 py-0.5 rounded">
+                        Personal Credit requires CASH
+                      </p>
+                    )}
+                  </div>
+                  {creditType === 'PERSONAL' ? (
+                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                      <div className="flex items-center gap-2 text-amber-800">
+                        <Banknote className="h-5 w-5" />
+                        <span className="font-semibold">CASH</span>
+                      </div>
+                      <p className="text-xs text-amber-600 mt-1">
+                        Only CASH payments can be recorded under Personal Credit.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {PAYMENT_MODES.map(({ value, label, icon: Icon }) => (
+                        <button
+                          key={value}
+                          onClick={() => setPaymentMode(value)}
+                          className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                            paymentMode === value
+                              ? 'border-blue-400 bg-blue-50 text-blue-700'
+                              : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                          }`}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
