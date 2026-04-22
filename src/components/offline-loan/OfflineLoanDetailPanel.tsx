@@ -2623,7 +2623,7 @@ export default function OfflineLoanDetailPanel({
                 {isMirroredLoan ? (
                   /* Mirror Loan - Show correct company based on EMI number */
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-2">
                       {/* ONLINE Option */}
                       <button
                         type="button"
@@ -2636,13 +2636,11 @@ export default function OfflineLoanDetailPanel({
                       >
                         <div className="flex items-center gap-2 mb-1">
                           <Landmark className={`h-4 w-4 ${paymentMode === 'ONLINE' ? 'text-blue-600' : 'text-gray-400'}`} />
-                          <span className={`font-medium ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
+                          <span className={`font-medium text-xs ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-600'}`}>
                             ONLINE
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          Entry: {mirrorCompanyName || 'Mirror Company'}'s Bank
-                        </p>
+                        <p className="text-xs text-gray-500">Bank</p>
                       </button>
 
                       {/* CASH Option */}
@@ -2657,22 +2655,74 @@ export default function OfflineLoanDetailPanel({
                       >
                         <div className="flex items-center gap-2 mb-1">
                           <Banknote className={`h-4 w-4 ${paymentMode === 'CASH' ? 'text-blue-600' : 'text-gray-400'}`} />
-                          <span className={`font-medium ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
+                          <span className={`font-medium text-xs ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-600'}`}>
                             CASH
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500">
-                          Entry: {mirrorCompanyName || 'Mirror Company'}'s Cashbook
-                        </p>
+                        <p className="text-xs text-gray-500">Cashbook</p>
+                      </button>
+
+                      {/* SPLIT Option */}
+                      <button
+                        type="button"
+                        onClick={() => setPaymentMode('SPLIT')}
+                        className={`p-3 rounded-lg border-2 text-left transition-all ${
+                          paymentMode === 'SPLIT'
+                            ? 'border-purple-500 bg-purple-100'
+                            : 'border-gray-200 bg-white hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Calculator className={`h-4 w-4 ${paymentMode === 'SPLIT' ? 'text-purple-600' : 'text-gray-400'}`} />
+                          <span className={`font-medium text-xs ${paymentMode === 'SPLIT' ? 'text-purple-800' : 'text-gray-600'}`}>
+                            SPLIT
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">Cash + Online</p>
                       </button>
                     </div>
+
+                    {/* Split inputs for mirror loan */}
+                    {paymentMode === 'SPLIT' && (
+                      <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
+                        <p className="text-xs font-medium text-purple-700">Split: Cash → {mirrorCompanyName || 'Mirror'} Cashbook, Online → {mirrorCompanyName || 'Mirror'} Bank</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
+                            <Input type="number" value={splitCashPayment}
+                              onChange={(e) => setSplitCashPayment(e.target.value)}
+                              placeholder="e.g. 500" />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
+                            <Input type="number" value={splitOnlinePayment}
+                              onChange={(e) => setSplitOnlinePayment(e.target.value)}
+                              placeholder="e.g. 700" />
+                          </div>
+                        </div>
+                        {(() => {
+                          const sc = parseFloat(splitCashPayment) || 0;
+                          const so = parseFloat(splitOnlinePayment) || 0;
+                          const st = sc + so;
+                          const mismatch = Math.abs(st - paymentAmount) > 1;
+                          return (
+                            <p className={`text-xs font-medium ${mismatch ? 'text-red-500' : 'text-green-600'}`}>
+                              Total: ₹{st.toLocaleString('en-IN')} {mismatch ? `⚠ Doesn't match ₹${paymentAmount}` : '✓ Matches'}
+                            </p>
+                          );
+                        })()}
+                      </div>
+                    )}
+
                     <div className="p-3 bg-green-100 rounded-lg border border-green-300">
                       <p className="text-xs text-green-700">
                         <strong>Entry will be recorded in:</strong> {mirrorCompanyName || 'Mirror Company'}
-                        {paymentMode === 'ONLINE' ? "'s Bank Account" : "'s Cashbook"}
+                        {paymentMode === 'ONLINE' ? "'s Bank Account" : paymentMode === 'SPLIT' ? "'s Cash + Bank" : "'s Cashbook"}
                       </p>
                       <p className="text-xs text-green-600 mt-1">
-                        +₹{formatCurrency(paymentAmount)} will be added to Company Credit
+                        {paymentMode === 'SPLIT'
+                          ? `+₹${formatCurrency(parseFloat(splitCashPayment) || 0)} credit (cash portion only)`
+                          : `+₹${formatCurrency(paymentAmount)} will be added to Company Credit`}
                       </p>
                     </div>
                   </div>
