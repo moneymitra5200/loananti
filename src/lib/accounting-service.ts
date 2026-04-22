@@ -67,9 +67,6 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
     // Interest Income (4100-4199)
     { code: '4100', name: 'Interest Income', type: 'INCOME', isSystemAccount: true, description: 'Total interest earned on loans' },
     { code: '4110', name: 'Interest on Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest earned on loans - MAIN INCOME' },
-    { code: '4111', name: 'Interest Income - Online Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from online loan applications' },
-    { code: '4112', name: 'Interest Income - Offline Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from offline loans' },
-    { code: '4113', name: 'Interest Income - Mirror Loans', type: 'INCOME', isSystemAccount: true, description: 'Interest from mirror loan system' },
     // Fee Income (4200-4299)
     { code: '4120', name: 'Fee Income', type: 'INCOME', isSystemAccount: true, description: 'Total fees collected' },
     { code: '4121', name: 'Processing Fees', type: 'INCOME', isSystemAccount: true, description: 'Processing fees collected' },
@@ -138,9 +135,6 @@ export const ACCOUNT_CODES = {
   
   // Income
   INTEREST_INCOME: '4110',
-  INTEREST_INCOME_ONLINE: '4111',
-  INTEREST_INCOME_OFFLINE: '4112',
-  INTEREST_INCOME_MIRROR: '4113',
   PROCESSING_FEE_INCOME: '4121',
   LATE_FEE_INCOME: '4122',
 
@@ -608,9 +602,9 @@ export class AccountingService {
       if (!chartAccount) return;
 
       if (accountCode === ACCOUNT_CODES.BANK_ACCOUNT) {
-        // CRITICAL: Use `db` directly (not `tx`) to get LATEST committed balance
-        // `tx` sees snapshot from transaction start, not latest committed data
-        const bankAccounts = await db.bankAccount.findMany({
+        // CRITICAL FIX: Must use `tx` (transaction context) to prevent connection pool deadlocks on serverless
+        // The snapshot isolation is acceptable here; deadlocking is NOT.
+        const bankAccounts = await tx.bankAccount.findMany({
           where: { companyId, isActive: true },
           select: { currentBalance: true, accountName: true },
         });
@@ -628,8 +622,8 @@ export class AccountingService {
 
         console.log(`[Accounting] Synced Bank Account (1102) balance: ₹${totalBankBalance} (from ${bankAccounts.length} bank accounts: ${bankAccounts.map(b => `${b.accountName}: ₹${b.currentBalance}`).join(', ')})`);
       } else if (accountCode === ACCOUNT_CODES.CASH_IN_HAND) {
-        // CRITICAL: Use `db` directly (not `tx`) to get LATEST committed balance
-        const cashBook = await db.cashBook.findUnique({
+        // CRITICAL FIX: Must use `tx` to prevent connection pool deadlocks.
+        const cashBook = await tx.cashBook.findUnique({
           where: { companyId },
           select: { currentBalance: true },
         });
@@ -994,7 +988,7 @@ export class AccountingService {
           narration: `Mirror interest profit received via ${params.paymentMode}`,
         },
         {
-          accountCode: ACCOUNT_CODES.INTEREST_INCOME_MIRROR,
+          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
           debitAmount: 0,
           creditAmount: params.amount,
           loanId: params.loanId,

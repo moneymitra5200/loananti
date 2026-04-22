@@ -192,9 +192,7 @@ export const ACCOUNT_CODES = {
   
   // Income
   INTEREST_INCOME: '4110',
-  INTEREST_INCOME_ONLINE: '4111',
-  INTEREST_INCOME_OFFLINE: '4112',
-  INTEREST_INCOME_MIRROR: '4113',
+
   PROCESSING_FEE_INCOME: '4121',
   LATE_FEE_INCOME: '4122',
   BOUNCE_CHARGES_INCOME: '4123',
@@ -591,9 +589,7 @@ export async function postEMIPaymentEntry(data: {
   
   // 3. Credit: Interest Income
   if (data.interestAmount > 0) {
-    const interestAccountCode = data.isOnlineLoan 
-      ? ACCOUNT_CODES.INTEREST_INCOME_ONLINE 
-      : ACCOUNT_CODES.INTEREST_INCOME_OFFLINE;
+    const interestAccountCode = ACCOUNT_CODES.INTEREST_INCOME;
     
     lines.push({
       accountCode: interestAccountCode,
@@ -671,7 +667,7 @@ export async function createExtraInterestProfitEntry(data: {
       loanId: data.loanId
     },
     {
-      accountCode: ACCOUNT_CODES.INTEREST_INCOME_MIRROR,
+      accountCode: ACCOUNT_CODES.INTEREST_INCOME,
       debitAmount: 0,
       creditAmount: data.amount,
       narration: `Interest profit (difference between original and mirror interest)`
