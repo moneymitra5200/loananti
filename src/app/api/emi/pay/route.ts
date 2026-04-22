@@ -965,7 +965,7 @@ export async function POST(request: NextRequest) {
                 // ATOMICALLY mark as recorded
                 await pfTx.mirrorLoanMapping.update({ where: { id: mirrorMapping.id }, data: { processingFeeRecorded: true } });
               }
-            });
+            }, { maxWait: 15000, timeout: 30000 });
 
             // 2. Double-entry journal in mirror company (FIX-ISSUE-13: correct DR account for payment mode)
             try {

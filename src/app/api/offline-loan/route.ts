@@ -2095,9 +2095,8 @@ export async function PUT(request: NextRequest) {
             }),
             description: `Collected Interest EMI #${currentEMI!.installmentNumber} for loan ${loan.loanNumber}`,
             canUndo: true
-          }
         });
-      });
+      }, { maxWait: 15000, timeout: 30000 });
 
       // ============================================================
       // ACCOUNTING: Record Interest-Only Payment as Interest Income
@@ -2886,7 +2885,7 @@ export async function PUT(request: NextRequest) {
                     });
                   }
                 }
-              });
+              }, { maxWait: 15000, timeout: 30000 });
 
               // ── Journal Entry for Processing Fee in MIRROR company ──────────
               // Dr: Cash/Bank (based on paymentMode) → money received
