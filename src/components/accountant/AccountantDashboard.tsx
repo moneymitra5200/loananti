@@ -34,6 +34,7 @@ import LedgerSection from '@/components/accountant/modules/LedgerSection';
 import PersonalLedgerTab from '@/components/accountant/tabs/PersonalLedgerTab';
 import TradDayBookSection from '@/components/accountant/modules/TradDayBookSection';
 import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
+import JournalEntriesSection from '@/components/accountant/modules/JournalEntriesSection';
 
 // ============================================
 // TYPES
@@ -2543,6 +2544,7 @@ export default function UnifiedAccountantDashboard() {
       ]
     : [
         { id: 'journal-entry',    label: 'Journal Entry',    icon: BookCheck },
+        { id: 'payment-audit',    label: '💳 Payment Audit',  icon: Receipt },
         { id: 'day-book',         label: 'Day Book',         icon: BookOpen },
         { id: 'ledger',           label: 'Ledger',           icon: BookCopy },
         { id: 'personal-ledger',  label: 'Personal Ledger',  icon: User },
@@ -2593,6 +2595,8 @@ export default function UnifiedAccountantDashboard() {
             formatDateShort={formatDateShort}
           />
         );
+      case 'payment-audit':
+        return <JournalEntriesSection selectedCompanyId={selectedCompanyId} />;
       case 'day-book':
         return <TradDayBookSection selectedCompanyId={selectedCompanyId} />;
       case 'ledger':
