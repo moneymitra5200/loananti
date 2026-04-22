@@ -164,15 +164,57 @@ export async function GET(request: NextRequest) {
     }
 
     // ─── OWNER'S CAPITAL ───────────────────────────────────────────────────────
+    // add-equity writes to JournalEntryLine on the Owner's Capital chart-of-account (code 3002).
+    // We read from there so the ledger is always consistent with what was actually posted.
     else if (account === 'CAPITAL') {
-      accountName = "Owner's Capital"; accountCode = '3001'; accountType = 'EQUITY';
-      const equity = await db.equityEntry.findMany({ where: { companyId, createdAt: { gte: periodStart, lte: periodEnd } }, orderBy: { createdAt: 'asc' } });
-      let bal = 0;
-      for (const e of equity) {
-        const isW = e.entryType === 'WITHDRAWAL';
-        const dr = isW ? e.amount : 0; const cr = isW ? 0 : e.amount;
-        bal += cr - dr; totDr += dr; totCr += cr;
-        txns.push({ date: e.entryDate.toISOString(), particulars: e.description || (isW ? 'Capital Withdrawal' : 'Capital Investment'), referenceNo: 'CAPITAL', debit: dr, credit: cr, balance: bal });
+      accountName = "Owner's Capital"; accountCode = '3002'; accountType = 'EQUITY';
+
+      // Find the Owner's Capital chart-of-account for this company (code 3001 or 3002)
+      const capitalAccount = await db.chartOfAccount.findFirst({
+        where: { companyId, accountCode: { in: ['3001', '3002'] } },
+        select: { id: true, accountCode: true }
+      });
+
+      if (capitalAccount) {
+        // Opening balance: sum of credit-normal lines BEFORE period
+        const priorLines = await db.journalEntryLine.findMany({
+          where: {
+            accountId: capitalAccount.id,
+            journalEntry: { companyId, entryDate: { lt: periodStart } }
+          },
+          select: { creditAmount: true, debitAmount: true }
+        });
+        for (const l of priorLines) opening += l.creditAmount - l.debitAmount;
+
+        // Period lines
+        const lines = await db.journalEntryLine.findMany({
+          where: {
+            accountId: capitalAccount.id,
+            journalEntry: { companyId, entryDate: { gte: periodStart, lte: periodEnd } }
+          },
+          include: {
+            journalEntry: {
+              select: { entryDate: true, narration: true, entryNumber: true, referenceType: true }
+            }
+          },
+          orderBy: { journalEntry: { entryDate: 'asc' } }
+        });
+
+        let bal = opening;
+        for (const l of lines) {
+          const dr = l.debitAmount;  // withdrawal
+          const cr = l.creditAmount; // capital added
+          bal += cr - dr;
+          totDr += dr; totCr += cr;
+          txns.push({
+            date: l.journalEntry.entryDate.toISOString(),
+            particulars: l.journalEntry.narration || 'Capital Entry',
+            referenceNo: l.journalEntry.entryNumber,
+            debit: dr,
+            credit: cr,
+            balance: bal
+          });
+        }
       }
     }
 
@@ -184,7 +226,13 @@ export async function GET(request: NextRequest) {
       for (const e of expenses) { bal += e.amount; totDr += e.amount; txns.push({ date: e.paymentDate.toISOString(), particulars: `${e.expenseType.replace(/_/g, ' ')} – ${e.description}`, referenceNo: e.expenseNumber, debit: e.amount, credit: 0, balance: bal }); }
     }
 
-    const closing = opening + txns.reduce((s, t) => s + t.debit - t.credit, 0);
+    // Closing balance: sign convention depends on account normal side
+    // ASSET/EXPENSE → debit-normal: closing = opening + totDr - totCr
+    // EQUITY/LIABILITY/INCOME → credit-normal: closing = opening + totCr - totDr
+    const isCreditNormal = accountType === 'EQUITY' || accountType === 'LIABILITY' || accountType === 'INCOME';
+    const closing = isCreditNormal
+      ? opening + totCr - totDr
+      : opening + totDr - totCr;
 
     return NextResponse.json({
       success: true,
