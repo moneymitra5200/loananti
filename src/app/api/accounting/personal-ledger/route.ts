@@ -135,6 +135,12 @@ async function listCustomersForCompany(companyId: string | null) {
   // 3. Collect unique loan IDs from lines (some lines may only have customerId)
   const loanIdsFromLines = [...new Set(lines.map(l => l.loanId).filter(Boolean) as string[])];
 
+  // If lines exist but have no loanId attached — journal entries were created without loanId
+  // Fall back to EMI-based data which always has loan references
+  if (loanIdsFromLines.length === 0) {
+    return listCustomersFallback(companyId);
+  }
+
   // 4. Get mirror mappings to apply mirror rule
   const mirrorMappings = loanIdsFromLines.length > 0
     ? await db.mirrorLoanMapping.findMany({
