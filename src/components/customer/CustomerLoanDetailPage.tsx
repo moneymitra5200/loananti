@@ -211,11 +211,13 @@ export default function CustomerLoanDetailPage() {
     if (!loanId) return;
     setLoading(true);
     try {
-      const [loanRes, emiRes] = await Promise.all([
+      const [loanRes, mirrorCheckRes] = await Promise.all([
         fetch(`/api/loan/details?loanId=${loanId}`),
-        fetch(`/api/emi?loanId=${loanId}`)
+        fetch(`/api/mirror-loan/check?loanId=${loanId}`)
       ]);
-      
+
+      let emiSourceLoanId = loanId; // Default: fetch EMI for this loan
+
       if (loanRes.ok) {
         const loanData = await loanRes.json();
         const loanObj = loanData.loan || loanData;
@@ -227,7 +229,18 @@ export default function CustomerLoanDetailPage() {
           fetchCompanyBankAccount(companyId, loanId);
         }
       }
-      
+
+      // Mirror rule: If this is a mirror loan, show ORIGINAL loan's EMI schedule
+      // (customer always sees original agreed terms, not mirror company's inflated rate)
+      if (mirrorCheckRes.ok) {
+        const mirrorData = await mirrorCheckRes.json();
+        if (mirrorData.isMirrorLoan && mirrorData.mirrorMapping?.originalLoanId) {
+          emiSourceLoanId = mirrorData.mirrorMapping.originalLoanId;
+        }
+      }
+
+      // Fetch EMI from the correct source (original loan if mirror, self otherwise)
+      const emiRes = await fetch(`/api/emi?loanId=${emiSourceLoanId}`);
       if (emiRes.ok) {
         const emiData = await emiRes.json();
         setEmiSchedules(emiData.schedules || []);
@@ -239,6 +252,7 @@ export default function CustomerLoanDetailPage() {
       setLoading(false);
     }
   }, [loanId]);
+
 
   // Fetch payment settings — loads the company's default bank account (real QR, UPI, account details)
   const fetchPaymentSettings = useCallback(async () => {
