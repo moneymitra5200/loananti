@@ -410,6 +410,14 @@ const EMISection = memo(function EMISection({
                           </p>
                           <p className="text-xs text-green-600">✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.emiAmount)}</p>
                         </>
+                      ) : emi.status === 'INTEREST_ONLY_PAID' ? (
+                        <>
+                          <p className="font-bold text-lg text-blue-600">
+                            {formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount)}
+                            <span className="text-xs font-normal text-gray-400 ml-1">interest</span>
+                          </p>
+                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
+                        </>
                       ) : (
                         <>
                           <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
