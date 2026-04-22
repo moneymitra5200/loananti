@@ -388,6 +388,22 @@ async function processSingleApproval({
       break;
   }
 
+  // ── PRE-INIT ACCOUNTING TO PREVENT P2028 TIMEOUTS ────────────────────────
+  // initializeChartOfAccounts takes 5-10s sometimes. If it runs inside
+  // db.$transaction, Prisma will throw P2028 (timeout). Doing it here
+  // ensures the slow setup is finished before the transaction starts.
+  const targetCompanyId = loan.companyId || companyId;
+  if (nextStatus === 'ACTIVE' && disbursementData?.amount && targetCompanyId) {
+    try {
+      const { AccountingService: PreAccSvc } = await import('@/lib/accounting-service');
+      const preAccSvc = new PreAccSvc(targetCompanyId);
+      await preAccSvc.initializeChartOfAccounts();
+      console.log(`[WORKFLOW] Pre-initialized accounting for company ${targetCompanyId} (outside tx)`);
+    } catch (e) {
+      console.warn(`[WORKFLOW] Accounting pre-init failed (will retry inside tx):`, e);
+    }
+  }
+
   // Single transaction for all critical operations
   await db.$transaction(async (tx) => {
     // Update loan
