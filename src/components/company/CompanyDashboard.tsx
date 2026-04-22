@@ -1177,6 +1177,7 @@ export default function CompanyDashboard() {
                   <OfflineLoanForm 
                     createdById={user?.id || ''} 
                     createdByRole={user?.role || 'COMPANY'} 
+                    companyId={getCompanyId() || ''}
                     onLoanCreated={() => setOfflineLoansRefreshKey(k => k + 1)} 
                   />
                 </CardContent>
@@ -1188,6 +1189,7 @@ export default function CompanyDashboard() {
                 <CardContent>
                   <OfflineLoansList 
                     userRole={user?.role || 'COMPANY'} 
+                    companyId={getCompanyId() || undefined}
                     refreshKey={offlineLoansRefreshKey}
                   />
                 </CardContent>
@@ -1195,6 +1197,7 @@ export default function CompanyDashboard() {
             </div>
           </div>
         );
+
       
       case 'personalCredits':
         return <MyCreditPassbook />;

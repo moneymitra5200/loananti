@@ -1014,7 +1014,15 @@ export default function CashierDashboard() {
           </div>
         );
 
-      // Messages removed – messages come via notifications panel
+      // Messages tab — show DirectMessaging component
+      case 'messages':
+        return (
+          <DirectMessaging
+            userId={user?.id || ''}
+            userName={user?.name || 'Cashier'}
+            userRole={user?.role || 'CASHIER'}
+          />
+        );
 
       case 'profile':
         return <ProfileSection />;

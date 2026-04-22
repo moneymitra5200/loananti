@@ -86,11 +86,12 @@ interface MirrorLoanMapping {
 interface OfflineLoansListProps {
   userId?: string;
   userRole: string;
+  companyId?: string;         // When set, always filter by this company (hides company dropdown)
   onLoanSelect?: (loanId: string) => void;
   refreshKey?: number;
 }
 
-export default function OfflineLoansList({ userId, userRole, onLoanSelect, refreshKey }: OfflineLoansListProps) {
+export default function OfflineLoansList({ userId, userRole, companyId: lockedCompanyId, onLoanSelect, refreshKey }: OfflineLoansListProps) {
   const { settings: sysSettings } = useSystemSettings();
 
   // Determine mirror visibility based on role + system settings
@@ -184,7 +185,9 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
       setLoading(true);
       let url = `/api/offline-loan?page=${page}&limit=10`;
       if (statusFilter !== 'all') url += `&status=${statusFilter}`;
-      if (companyFilter !== 'all') url += `&companyId=${companyFilter}`;
+      // If a companyId is locked (role-scoped), always use it; otherwise use the dropdown filter
+      const effectiveCompanyId = lockedCompanyId || (companyFilter !== 'all' ? companyFilter : undefined);
+      if (effectiveCompanyId) url += `&companyId=${effectiveCompanyId}`;
 
       const res = await fetch(url);
       if (res.ok) {
@@ -489,6 +492,8 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input className="pl-10" placeholder="Search by name, loan#, phone, company..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
+            {/* Only show company filter when not locked to a specific company */}
+            {!lockedCompanyId && (
             <Select value={companyFilter} onValueChange={setCompanyFilter}>
               <SelectTrigger className="w-40"><SelectValue placeholder="All Companies" /></SelectTrigger>
               <SelectContent>
@@ -496,6 +501,7 @@ export default function OfflineLoansList({ userId, userRole, onLoanSelect, refre
                 {companies.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
               </SelectContent>
             </Select>
+            )}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
               <SelectContent>
