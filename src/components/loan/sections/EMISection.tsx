@@ -384,12 +384,19 @@ const EMISection = memo(function EMISection({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-semibold">EMI #{emi.emiNumber}</p>
-                          {isPrincipalOnly && (
-                            <Badge className="bg-emerald-100 text-emerald-800 text-[10px] uppercase font-bold py-0.5 pointer-events-none hover:bg-emerald-100 border-emerald-200">
-                              PRINCIPAL ONLY
-                            </Badge>
-                          )}
+                          <p className="font-semibold flex items-center gap-2">
+                            EMI #{emi.emiNumber}
+                            {emi.status === 'INTEREST_ONLY_PAID' && (
+                              <Badge className="bg-purple-100 text-purple-700 text-[10px] uppercase font-bold py-0.5 border-purple-200">
+                                INTEREST ONLY PAID
+                              </Badge>
+                            )}
+                            {isPrincipalOnly && (
+                              <Badge className="bg-emerald-100 text-emerald-800 text-[10px] uppercase font-bold py-0.5 border-emerald-200">
+                                PRINCIPAL ONLY
+                              </Badge>
+                            )}
+                          </p>
                         </div>
                         <p className="text-sm text-gray-500">Due: {formatDate(emi.dueDate)}</p>
                         {emi.lateFee && emi.lateFee > 0 && !penaltyInfo && (
@@ -420,22 +427,6 @@ const EMISection = memo(function EMISection({
                           </p>
                           <p className="text-xs text-green-600">✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.emiAmount)}</p>
                         </>
-                      ) : emi.status === 'INTEREST_ONLY_PAID' ? (
-                        <>
-                          <p className="font-bold text-lg text-blue-600">
-                            {formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount)}
-                            <span className="text-xs font-normal text-gray-400 ml-1">interest</span>
-                          </p>
-                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
-                        </>
-                      ) : isPrincipalOnly ? (
-                        <>
-                          <p className="font-bold text-lg text-emerald-700">
-                            {formatCurrency(emi.principalAmount)}
-                            <span className="text-xs font-normal text-gray-400 ml-1">principal</span>
-                          </p>
-                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
-                        </>
                       ) : (
                         <>
                           <p className="font-bold text-lg">{formatCurrency(emi.emiAmount)}</p>
@@ -444,6 +435,9 @@ const EMISection = memo(function EMISection({
                               + ₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')} Penalty
                             </p>
                           )}
+                          <p className="text-xs text-gray-500">
+                            P: ₹{formatCurrency(emi.principalAmount)} | I: ₹{formatCurrency(emi.interestAmount)}
+                          </p>
                         </>
                       )}
                       <div className="flex gap-2 mt-2 justify-end flex-wrap">

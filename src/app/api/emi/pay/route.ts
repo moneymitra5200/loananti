@@ -1387,6 +1387,8 @@ export async function POST(request: NextRequest) {
           // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
           const poJournalResult = await poPrincipalJournal({
             companyId:          loanCompanyId,
+            company3Id:         company3Id || undefined,
+            creditType:         effectiveCreditType as 'PERSONAL' | 'COMPANY',
             loanId,
             paymentId:          payment.id,
             principalAmount:    paidPrincipal,

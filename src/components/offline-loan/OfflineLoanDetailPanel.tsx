@@ -1747,6 +1747,11 @@ export default function OfflineLoanDetailPanel({
                                     ? calculatePenaltyInfo(emi.dueDate, loan.loanAmount) 
                                     : null;
 
+                                  const isPrincipalOnly = emi.paymentStatus === 'PAID' && 
+                                    Math.abs((emi.paidAmount || 0) - emi.principalAmount) < 0.01 && 
+                                    (emi.paidInterest || 0) === 0 && 
+                                    emi.interestAmount > 0;
+
                                   return (
                                     <div
                                       key={emi.id}
@@ -1807,9 +1812,15 @@ export default function OfflineLoanDetailPanel({
                                           <div>
                                             <div className="flex items-center gap-2 flex-wrap">
                                               <p className="font-medium">EMI #{emi.installmentNumber}</p>
-                                              <Badge className={getEMIStatusColor(emi.paymentStatus)}>
-                                                {emi.paymentStatus.replace(/_/g, ' ')}
-                                              </Badge>
+                                              {isPrincipalOnly ? (
+                                                <Badge className="bg-green-100 text-green-800 border-green-300 font-bold px-2 py-0.5">
+                                                  PRINCIPAL ONLY
+                                                </Badge>
+                                              ) : (
+                                                <Badge className={getEMIStatusColor(emi.paymentStatus)}>
+                                                  {emi.paymentStatus.replace(/_/g, ' ')}
+                                                </Badge>
+                                              )}
                                               {/* Extra EMI Badge */}
                                               {isExtraEMI && (
                                                 <Badge className="bg-amber-100 text-amber-700 border-amber-300">
@@ -1840,6 +1851,22 @@ export default function OfflineLoanDetailPanel({
                                                 <p className="text-xs text-green-600">
                                                   ✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.totalAmount)}
                                                 </p>
+                                              </>
+                                            ) : emi.paymentStatus === 'INTEREST_ONLY_PAID' ? (
+                                              <>
+                                                <p className="font-bold text-lg text-blue-600">
+                                                  {formatCurrency((emi.paidInterest || 0) > 0 ? (emi.paidInterest || 0) : emi.interestAmount)}
+                                                  <span className="text-xs font-normal text-gray-400 ml-1">interest</span>
+                                                </p>
+                                                <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.totalAmount)}</p>
+                                              </>
+                                            ) : isPrincipalOnly ? (
+                                              <>
+                                                <p className="font-bold text-lg text-green-700">
+                                                  {formatCurrency(emi.principalAmount)}
+                                                  <span className="text-xs font-normal text-gray-400 ml-1">principal</span>
+                                                </p>
+                                                <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.totalAmount)}</p>
                                               </>
                                             ) : (
                                               <>

@@ -789,6 +789,8 @@ export async function recordMirrorInterestIncome(params: {
  */
 export async function recordPrincipalOnlyJournal(params: {
   companyId: string;
+  company3Id?: string;
+  creditType?: 'PERSONAL' | 'COMPANY';
   loanId: string;
   paymentId: string;       // used as referenceId (idempotency key)
   principalAmount: number;
@@ -799,10 +801,14 @@ export async function recordPrincipalOnlyJournal(params: {
   loanNumber: string;
   installmentNumber: number | string;
 }): Promise<{ success: boolean; journalEntryId?: string; error?: string }> {
-  const {
-    companyId, loanId, paymentId, principalAmount, interestWrittenOff,
+  let {
+    companyId, company3Id, creditType, loanId, paymentId, principalAmount, interestWrittenOff,
     paymentDate, createdById, paymentMode, loanNumber, installmentNumber,
   } = params;
+
+  if (creditType === 'PERSONAL' && company3Id) {
+    companyId = company3Id; // Route to Company 3 for personal credit
+  }
 
   if (principalAmount <= 0) {
     return { success: false, error: 'principalAmount must be > 0' };

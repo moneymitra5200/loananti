@@ -3087,6 +3087,8 @@ export async function PUT(request: NextRequest) {
               } else {
                 const journalResult = await recordPrincipalOnlyJournal({
                   companyId:          targetCompanyId,
+                  company3Id:         company3Id || undefined,
+                  creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
                   loanId:             emi.offlineLoanId,
                   paymentId:          updatedEmi.id,
                   principalAmount:    principalToCollect,
