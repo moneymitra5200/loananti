@@ -137,7 +137,18 @@ export async function POST(request: NextRequest) {
     // Get account code for expense type
     const accountCode = EXPENSE_ACCOUNT_CODES[expenseType] || '4800';
 
-    // Create expense with journal entry and bank update
+    // Pre-initialize AccountingService BEFORE the transaction
+    // (initializeChartOfAccounts is slow — many DB reads/writes — and would timeout the 5s tx)
+    let accountingService: AccountingService | null = null;
+    try {
+      accountingService = new AccountingService(effectiveCompanyId);
+      await accountingService.initializeChartOfAccounts();
+    } catch (accInitErr) {
+      console.error('AccountingService init failed (non-critical):', accInitErr);
+      accountingService = null;
+    }
+
+    // Create expense record + bank update atomically (fast operations only)
     const result = await db.$transaction(async (tx) => {
       // 1. Create expense record
       const expense = await tx.expense.create({
@@ -162,7 +173,7 @@ export async function POST(request: NextRequest) {
       let newBankBalance: number | undefined;
       if (bankAccount) {
         newBankBalance = bankAccount.currentBalance - amount;
-        
+
         await tx.bankAccount.update({
           where: { id: bankAccount.id },
           data: { currentBalance: newBankBalance },
@@ -184,13 +195,15 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // 3. Create journal entry
+      return { expense, newBankBalance, bankAccount };
+    }); // no timeout override needed — only fast DB writes are here
+
+    // 3. Create journal entry OUTSIDE the transaction
+    // (AccountingService can take >5s due to chart-of-accounts checks)
+    if (accountingService) {
       try {
-        const accountingService = new AccountingService(effectiveCompanyId);
-        await accountingService.initializeChartOfAccounts();
-        
         await accountingService.recordExpense({
-          expenseId: expense.id,
+          expenseId: result.expense.id,
           expenseType: expenseType || 'MISCELLANEOUS',
           expenseAccountCode: accountCode,
           amount,
@@ -201,15 +214,14 @@ export async function POST(request: NextRequest) {
           bankAccountId: bankAccount?.id,
           isPayable: false,
         });
+        console.log(`[Expense] Journal entry created for ${result.expense.expenseNumber}`);
       } catch (accError) {
-        console.error('Journal entry creation failed:', accError);
-        // Continue - expense is still recorded
+        console.error('Journal entry creation failed (non-critical):', accError);
+        // Non-critical: expense is already recorded, journal can be created manually
       }
+    }
 
-      return { expense, newBankBalance, bankAccount };
-    });
-
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
       expense: result.expense,
       newBankBalance: result.newBankBalance,
