@@ -226,26 +226,23 @@ export async function POST(request: NextRequest) {
 
     console.log(`[EMI Pay] EMI #${emi.installmentNumber} Due: ${emiDueDate.toISOString().split('T')[0]}, Current: ${currentDate.toISOString().split('T')[0]}, Is Advance: ${isEmiAdvancePayment}`);
 
-    if (paymentType === 'FULL_EMI' || paymentType === 'ADVANCE') {
-      // ============ ADVANCE PAYMENT LOGIC ============
-      // If EMI is being paid before its due date month: COLLECT PRINCIPAL ONLY
-      // If EMI is being paid in/past due date month: COLLECT PRINCIPAL + INTEREST
-      if (isAdvancePayment || isEmiAdvancePayment) {
-        // ADVANCE PAYMENT - Principal Only
+    if (paymentType === 'FULL_EMI') {
+      // When isAdvancePayment is explicitly TRUE (only sent by multi-EMI "Select All" for future-month EMIs),
+      // collect principal only. For all single EMI payments, isAdvancePayment=false so this never triggers.
+      if (isAdvancePayment === true) {
+        // ADVANCE (multi-EMI select all) - Principal Only for future-month EMI
         paidPrincipal = remainingPrincipal;
-        paidInterest = 0; // No interest for advance payment
-        paidAmount = remainingPrincipal;
-        newEmiStatus = 'PAID';
-        console.log(`[EMI Pay] ADVANCE payment - Principal only: ₹${paidPrincipal}`);
+        paidInterest  = 0;
+        paidAmount    = remainingPrincipal;
+        newEmiStatus  = 'PAID';
+        console.log(`[EMI Pay] ADVANCE (multi-select) - Principal only: ₹${paidPrincipal}`);
       } else {
-        // REGULAR FULL PAYMENT
+        // REGULAR FULL PAYMENT - always collect Principal + Interest
         paidPrincipal = remainingPrincipal;
         paidInterest  = remainingInterest;
         paidAmount    = remainingAmount;
         newEmiStatus  = 'PAID';
-        // ── Apply staff-edited interest (original loans only) ─────────────
-        // If the cashier has manually overridden the interest amount via the
-        // dialog, honour that value so the correct interest is recorded.
+        // Apply staff-edited interest (original loans only)
         if (editedInterest !== null && !isNaN(editedInterest) && editedInterest >= 0) {
           paidInterest = editedInterest;
           paidAmount   = paidPrincipal + paidInterest;
@@ -253,6 +250,13 @@ export async function POST(request: NextRequest) {
         }
         console.log(`[EMI Pay] FULL payment - Principal: ₹${paidPrincipal}, Interest: ₹${paidInterest}`);
       }
+    } else if (paymentType === 'ADVANCE') {
+      // Explicit ADVANCE type: always principal only
+      paidPrincipal = remainingPrincipal;
+      paidInterest  = 0;
+      paidAmount    = remainingPrincipal;
+      newEmiStatus  = 'PAID';
+      console.log(`[EMI Pay] ADVANCE payment - Principal only: ₹${paidPrincipal}`);
     } else if (paymentType === 'PARTIAL_PAYMENT') {
       // Partial payment - INTEREST FIRST, THEN PRINCIPAL
       console.log(`[EMI Pay] Processing PARTIAL_PAYMENT:`, { partialAmount, nextPaymentDate, remainingAmount, remainingInterest });
