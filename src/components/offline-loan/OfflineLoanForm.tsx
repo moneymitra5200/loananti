@@ -1416,10 +1416,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               {/* Mirror loan is now available for ALL companies - no info message needed */}
             </div>
 
-            {/* ═══ C3 NON-MIRROR: Secondary Payment Page ═══════════════════════════════ */}
-            {/* When Company 3 is selected WITHOUT mirror loan → ask for secondary payment page.
-                Customer pays → entry in cashbook & daybook, money credited to this page's owner. */}
-            {!isInterestOnly && isSelectedCompany3() && !isMirrorLoan && (
+            {/* Secondary Payment Page section removed — not required at loan creation time */}
+            {false && !isInterestOnly && isSelectedCompany3() && !isMirrorLoan && (
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex items-center gap-2">
                   <Landmark className="h-5 w-5 text-violet-600" />
