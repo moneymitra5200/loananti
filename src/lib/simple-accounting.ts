@@ -353,16 +353,16 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     const effectiveMirrorPrincipal = mirrorPrincipal ?? 0;
     const fullMirrorEMITotal = effectiveMirrorPrincipal + mirrorInterest;
 
-    // ALWAYS use the actual amount passed (session delta) as the record amount.
-    // This handles both:
-    //   - PARTIAL: user pays ₹130 of ₹1,200 EMI → record ₹130
-    //   - FULL/remaining: user pays ₹1,070 remaining after ₹130 partial → record ₹1,070 (not ₹1,200)
+    // ALWAYS use the actual mirror EMI amounts (mirrorPrincipal + mirrorInterest = session delta).
+    // Do NOT cap by `amount` — that is the ORIGINAL loan's payment amount, which differs
+    // from the mirror EMI amount when rates differ (e.g. original 24%, mirror 15%).
+    //   FULL:    recordAmount = fullMirrorEMITotal (₹1,026.87), not capped to ₹1,000
+    //   PARTIAL: recordAmount = what was actually paid on mirror, still from session delta
+    let recordAmount    = Math.round(fullMirrorEMITotal * 100) / 100;
     // Interest-first split within the session amount.
-    let recordAmount    = Math.round(Math.min(amount, fullMirrorEMITotal) * 100) / 100;
-    // Apply interest-first to split the session amount into I + P
     let recordInterest  = Math.round(Math.min(recordAmount, mirrorInterest) * 100) / 100;
     let recordPrincipal = Math.round(Math.max(0, recordAmount - recordInterest) * 100) / 100;
-    console.log(`[Accounting] MIRROR EMI ${paymentType} (interest-first): ₹${recordAmount} → I:₹${recordInterest} P:₹${recordPrincipal} (Mirror Total: ₹${fullMirrorEMITotal})`);
+    console.log(`[Accounting] MIRROR EMI ${paymentType} (interest-first): ₹${recordAmount} → I:₹${recordInterest} P:₹${recordPrincipal} (fullMirrorEMITotal: ₹${fullMirrorEMITotal}, originalLoanAmount: ₹${amount})`);
 
     console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
 
