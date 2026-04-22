@@ -193,7 +193,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   // Penalty - calculated automatically, but EDITABLE
   const [editedPenaltyAmount, setEditedPenaltyAmount] = useState<string>(''); // User can edit the penalty
   const [penaltyWaiver, setPenaltyWaiver] = useState(0);
-  const [penaltyPaymentMode, setPenaltyPaymentMode] = useState<'CASH' | 'BANK'>('CASH');
+  // NOTE: penalty always uses the SAME payment mode as the EMI (no separate selector)
 
   // Proof upload
   const [proofFile, setProofFile] = useState<File | null>(null);
@@ -217,7 +217,6 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
       setRemainingPaymentDate('');
       setEditedPenaltyAmount(''); // Reset edited penalty
       setPenaltyWaiver(0);
-      setPenaltyPaymentMode('CASH');
       setProofFile(null);
       setProofPreview(null);
     }
@@ -327,7 +326,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
             emiId: e.id, paymentType: 'FULL', amount: amtToPay,
             isAdvancePayment: advance,
             penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
-            penaltyPaymentMode: netPenalty > 0 ? penaltyPaymentMode : undefined,
+            penaltyPaymentMode: netPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
             ...(isSplitMode && { isSplitPayment: true, splitCashAmount: splitCash / emis.length, splitOnlineAmount: splitOnline / emis.length }),
           };
           const res = await fetch('/api/offline-loan', {
@@ -356,7 +355,8 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         isAdvancePayment: false,
         penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
         penaltyWaiver: penaltyWaiver > 0 ? penaltyWaiver : undefined,
-        penaltyPaymentMode: netPenalty > 0 ? penaltyPaymentMode : undefined,
+        // Penalty same mode as EMI: ONLINE→BANK, CASH/SPLIT→CASH
+        penaltyPaymentMode: netPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
         ...(isSplitMode && { isSplitPayment: true, splitCashAmount: splitCash, splitOnlineAmount: splitOnline }),
       };
 
@@ -774,22 +774,11 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                     )}
                   </span>
                 </div>
-
-                {/* Penalty Payment Mode - only when penalty is active */}
+                {/* Penalty uses same mode as EMI — no separate selector */}
                 {isPenaltyOverdue && netPenalty > 0 && (
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    {(['CASH', 'BANK'] as const).map((mode) => (
-                      <button key={mode} type="button"
-                        onClick={() => setPenaltyPaymentMode(mode)}
-                        className={`p-2 rounded-lg border-2 text-xs text-left transition-all ${
-                          penaltyPaymentMode === mode ? 'border-rose-500 bg-rose-100' : 'border-gray-200 bg-white'}`}>
-                        <div className="flex items-center gap-1">
-                          {mode === 'CASH' ? <Banknote className="h-3 w-3" /> : <Landmark className="h-3 w-3" />}
-                          <span className="font-medium">{mode}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                  <p className="text-xs text-rose-500 mt-2 italic">
+                    Penalty will be collected via <strong>{paymentMode === 'ONLINE' ? 'Bank' : 'Cash'}</strong> (same as EMI payment mode)
+                  </p>
                 )}
               </div>
             </div>
