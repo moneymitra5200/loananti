@@ -106,7 +106,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { loanId, userId, companyId, paymentMode, creditType, remarks, closeType } = body;
+    // lossType: 'PRINCIPAL_AND_INTEREST' (default) | 'PRINCIPAL_ONLY'
+    const { loanId, userId, companyId, paymentMode, creditType, remarks, closeType, lossType } = body;
 
     if (!loanId || !userId) {
       return NextResponse.json({ error: 'Loan ID and User ID required' }, { status: 400 });
@@ -148,24 +149,24 @@ export async function POST(request: NextRequest) {
         });
         if (!mirrorLoan || mirrorLoan.status === 'CLOSED') return;
         const mirrorUnpaid = ((mirrorLoan.emis ?? []) as any[]).filter((e: any) => e.paymentStatus !== 'PAID');
-        await db.$transaction(async (tx) => {
-          for (const emi of mirrorUnpaid) {
-            await (tx.offlineLoanEMI as any).update({
-              where: { id: emi.id },
-              data:  {
-                paymentStatus:   'PAID',
-                paidAmount:      Number(emi.totalAmount ?? 0),
-                paidPrincipal:   Number(emi.principalAmount ?? 0),
-                paidInterest:    Number(emi.interestAmount ?? 0),
-                paidDate:        now,
-                collectedById:   userId,
-                collectedByName: user.name,
-                collectedAt:     now,
-              }
-            });
-          }
-          await db.offlineLoan.update({ where: { id: mirrorMapping.mirrorLoanId! }, data: { status: 'CLOSED' } });
-        });
+
+        // Use batch updates — no interactive transaction needed for simple status updates
+        for (const emi of mirrorUnpaid) {
+          await (db.offlineLoanEMI as any).update({
+            where: { id: emi.id },
+            data:  {
+              paymentStatus:   'PAID',
+              paidAmount:      Number(emi.totalAmount ?? 0),
+              paidPrincipal:   Number(emi.principalAmount ?? 0),
+              paidInterest:    Number(emi.interestAmount ?? 0),
+              paidDate:        now,
+              collectedById:   userId,
+              collectedByName: user.name,
+              collectedAt:     now,
+            }
+          });
+        }
+        await db.offlineLoan.update({ where: { id: mirrorMapping.mirrorLoanId! }, data: { status: 'CLOSED' } });
         console.log(`[Close] ✅ Mirror loan ${mirrorLoan.loanNumber} also closed`);
       } catch (e: any) {
         console.error('[Close] ❌ Mirror loan close failed:', e?.message);
@@ -175,8 +176,10 @@ export async function POST(request: NextRequest) {
 
     // ─── A. WRITE-OFF AS LOSS ────────────────────────────────────────────────
     if (closeType === 'LOSS') {
+      const writeOffInterest = lossType === 'PRINCIPAL_ONLY'; // true = only write off principal
       let totalRemainingPrincipal = 0;
       let totalRemainingInterest  = 0;
+
       for (const emi of unpaidEMIs) {
         const paidP = emi.paidPrincipal != null ? Number(emi.paidPrincipal)
           : Math.max(0, Number(emi.paidAmount ?? 0) - Number(emi.interestAmount ?? 0));
@@ -185,8 +188,14 @@ export async function POST(request: NextRequest) {
         totalRemainingPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
         totalRemainingInterest  += Math.max(0, Number(emi.interestAmount  ?? 0) - paidI);
       }
-      const totalWriteOff = totalRemainingPrincipal + totalRemainingInterest;
 
+      // If PRINCIPAL_ONLY, we only write off principal; interest is waived silently
+      const totalWriteOff = writeOffInterest
+        ? totalRemainingPrincipal
+        : totalRemainingPrincipal + totalRemainingInterest;
+
+      // ── Core DB ops (fast — just status updates + loan close) ──────────────
+      // actionLog is OUTSIDE the transaction to prevent P2028 timeout
       await db.$transaction(async (tx) => {
         for (const emi of unpaidEMIs) {
           await (tx.offlineLoanEMI as any).update({
@@ -204,20 +213,22 @@ export async function POST(request: NextRequest) {
           });
         }
         await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
-        await db.actionLog.create({
-          data: {
-            userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
-            recordId: loanId, recordType: 'OfflineLoan',
-            description: `Loan ${loan.loanNumber} written off as loss. P:₹${totalRemainingPrincipal.toFixed(2)}, I:₹${totalRemainingInterest.toFixed(2)}`,
-            canUndo: false,
-          }
-        });
-      });
+      }, { maxWait: 15000, timeout: 30000 });
+
+      // ── ActionLog OUTSIDE transaction (fire-and-forget to avoid P2028) ─────
+      db.actionLog.create({
+        data: {
+          userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
+          recordId: loanId, recordType: 'OfflineLoan',
+          description: `Loan ${loan.loanNumber} written off as loss (${writeOffInterest ? 'Principal Only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)}, I written off:₹${writeOffInterest ? 0 : totalRemainingInterest.toFixed(2)}`,
+          canUndo: false,
+        }
+      }).catch(e => console.error('[Close/Loss] ActionLog failed (non-critical):', e));
 
       // Close mirror too
       await closeMirrorLoan();
 
-      // Irrecoverable Debt journal entry
+      // ── Accounting: Irrecoverable Debt journal entry ────────────────────────
       if (effectiveCompanyId && totalWriteOff > 0) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
@@ -228,9 +239,9 @@ export async function POST(request: NextRequest) {
             entryDate:     now,
             referenceType: 'PRINCIPAL_ONLY_PAYMENT',
             referenceId:   `${loanId}-LOSS-WRITEOFF`,
-            narration:     `Loan ${loan.loanNumber} written off (${remarks || 'irrecoverable loss'}) P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${totalRemainingInterest.toFixed(2)}`,
+            narration:     `Loan ${loan.loanNumber} written off (${remarks || (writeOffInterest ? 'principal-only irrecoverable loss' : 'irrecoverable loss')}) P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${writeOffInterest ? 0 : totalRemainingInterest.toFixed(2)}`,
             lines: [
-              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, loanId, narration: 'Write-off to Irrecoverable Debt (P+I)' },
+              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, loanId, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
               { accountCode: '1200', debitAmount: 0, creditAmount: totalWriteOff, loanId, narration: `Loan ${loan.loanNumber} removed from Loans Receivable` },
             ],
             createdById: userId,
@@ -246,7 +257,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Loan ${loan.loanNumber} written off as irrecoverable loss (P:₹${totalRemainingPrincipal.toFixed(2)} + I:₹${totalRemainingInterest.toFixed(2)} = ₹${totalWriteOff.toFixed(2)})`,
+        message: `Loan ${loan.loanNumber} written off as irrecoverable loss (${writeOffInterest ? 'Principal Only' : 'P+I'}: ₹${totalWriteOff.toFixed(2)})`,
         accountingOk: accountingWarnings.length === 0,
         accountingWarnings,
       });
@@ -272,6 +283,8 @@ export async function POST(request: NextRequest) {
     }
     const totalForeclosureAmount = totalPrincipal + totalInterest;
 
+    // ── Core DB ops (fast — just status + loan close) ─────────────────────
+    // actionLog is OUTSIDE the transaction to prevent P2028 timeout
     await db.$transaction(async (tx) => {
       for (const emi of unpaidEMIs) {
         const monthHasStarted = new Date(emi.dueDate) <= now;
@@ -297,20 +310,22 @@ export async function POST(request: NextRequest) {
         });
       }
       await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
-      await db.actionLog.create({
-        data: {
-          userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
-          recordId: loanId, recordType: 'OfflineLoan',
-          description: `Loan ${loan.loanNumber} closed. Foreclosure: ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
-          canUndo: false,
-        }
-      });
-    });
+    }, { maxWait: 15000, timeout: 30000 });
+
+    // ── ActionLog OUTSIDE transaction (fire-and-forget to avoid P2028) ─────
+    db.actionLog.create({
+      data: {
+        userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
+        recordId: loanId, recordType: 'OfflineLoan',
+        description: `Loan ${loan.loanNumber} closed. Foreclosure: ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
+        canUndo: false,
+      }
+    }).catch(e => console.error('[Close/Payment] ActionLog failed (non-critical):', e));
 
     // Close mirror too
     await closeMirrorLoan();
 
-    // Cashbook / bank entry
+    // ── Accounting: Cash or Bank entry ────────────────────────────────────────
     if (effectiveCompanyId && totalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
@@ -324,13 +339,54 @@ export async function POST(request: NextRequest) {
         };
         if (isOnlineMode) {
           await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
+          console.log(`[Close/Payment] ✅ Bank entry: ₹${totalForeclosureAmount} CREDIT`);
         } else {
           await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
+          console.log(`[Close/Payment] ✅ Cashbook entry: ₹${totalForeclosureAmount} CREDIT`);
         }
       } catch (e: any) {
-        const msg = `Cashbook entry failed: ${e?.message}`;
+        const msg = `Cashbook/Bank entry failed: ${e?.message}`;
         accountingWarnings.push(msg);
         console.error('[Close/Payment] ❌', msg);
+      }
+    }
+
+    // ── Accounting: Double-entry journal for foreclosure ─────────────────────
+    if (effectiveCompanyId && totalForeclosureAmount > 0) {
+      try {
+        const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+        const accSvc = new AccountingService(effectiveCompanyId);
+        await accSvc.initializeChartOfAccounts();
+        await accSvc.createJournalEntry({
+          entryDate:     now,
+          referenceType: 'EMI_PAYMENT',
+          referenceId:   `${loanId}-FORECLOSURE-JE`,
+          narration:     `Foreclosure - ${loan.loanNumber} — P:₹${totalPrincipal.toFixed(2)} I:₹${totalInterest.toFixed(2)} via ${paymentMode}`,
+          lines: [
+            {
+              accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
+              debitAmount: totalForeclosureAmount, creditAmount: 0, loanId,
+              narration: `Foreclosure collected (${paymentMode})`
+            },
+            {
+              accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+              debitAmount: 0, creditAmount: totalPrincipal, loanId,
+              narration: `Loan principal recovered`
+            },
+            ...(totalInterest > 0 ? [{
+              accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+              debitAmount: 0, creditAmount: totalInterest, loanId,
+              narration: `Interest income on foreclosure`
+            }] : []),
+          ],
+          createdById: userId,
+          isAutoEntry: true,
+        });
+        console.log(`[Close/Payment] ✅ Foreclosure journal entry created`);
+      } catch (e: any) {
+        const msg = `Foreclosure journal failed: ${e?.message}`;
+        accountingWarnings.push(msg);
+        console.error('[Close/Payment] ❌ Journal', msg);
       }
     }
 

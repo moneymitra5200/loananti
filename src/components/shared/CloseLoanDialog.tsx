@@ -74,6 +74,7 @@ export default function CloseLoanDialog({
   const [creditType,       setCreditType]       = useState<'COMPANY' | 'PERSONAL'>('COMPANY');
   const [paymentMode,      setPaymentMode]      = useState('CASH');
   const [remarks,          setRemarks]          = useState('');
+  const [lossType,         setLossType]         = useState<'PRINCIPAL_AND_INTEREST' | 'PRINCIPAL_ONLY'>('PRINCIPAL_AND_INTEREST');
 
   // ────────────────────────────────────────────────────────────────────────────
   // Load foreclosure calculation
@@ -85,6 +86,7 @@ export default function CloseLoanDialog({
     setPaymentMode('CASH');
     setCreditType('COMPANY');
     setRemarks('');
+    setLossType('PRINCIPAL_AND_INTEREST');
     fetchForeclosure();
   }, [open, loanId]);
 
@@ -136,6 +138,9 @@ export default function CloseLoanDialog({
         body.paymentMode = paymentMode;
         body.creditType  = creditType;
       }
+      if (mode === 'LOSS') {
+        body.lossType = lossType;
+      }
 
       const res  = await fetch(endpoint, {
         method: 'POST',
@@ -176,10 +181,12 @@ export default function CloseLoanDialog({
   const foreAmt   = data?.totalForeclosureAmount ?? 0;
   const totalP    = data?.totalPrincipal ?? 0;
   const totalI    = data?.totalInterest  ?? 0;
-  const lossAmt   = (data?.totalPrincipal ?? 0) + (data?.totalInterest ?? 0);
-  // For LOSS, interest written off = total remaining interest on all EMIs
   const interestWriteOff = data?.emiDetails?.reduce((s, e) => s + e.interestToPay, 0) ?? totalI;
   const principalWriteOff = data?.emiDetails?.reduce((s, e) => s + e.principalToPay, 0) ?? totalP;
+  // Loss amount depends on user selection
+  const lossAmt = lossType === 'PRINCIPAL_ONLY'
+    ? principalWriteOff
+    : principalWriteOff + interestWriteOff;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -307,30 +314,67 @@ export default function CloseLoanDialog({
 
             {/* ── LOSS: write-off detail ── */}
             {mode === 'LOSS' && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <TrendingDown className="h-4 w-4 text-red-600" />
-                  <p className="text-sm font-bold text-red-700">Irrecoverable Loss Write-Off</p>
+              <div className="space-y-3">
+                {/* Loss Type selector */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">What to Write Off?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setLossType('PRINCIPAL_AND_INTEREST')}
+                      className={`rounded-xl border-2 p-3 text-left transition-all ${
+                        lossType === 'PRINCIPAL_AND_INTEREST'
+                          ? 'border-red-400 bg-red-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <p className="text-sm font-bold text-gray-800">Principal + Interest</p>
+                      <p className="text-xs text-gray-500">₹{formatCurrency(principalWriteOff)} + ₹{formatCurrency(interestWriteOff)}</p>
+                    </button>
+                    <button
+                      onClick={() => setLossType('PRINCIPAL_ONLY')}
+                      className={`rounded-xl border-2 p-3 text-left transition-all ${
+                        lossType === 'PRINCIPAL_ONLY'
+                          ? 'border-orange-400 bg-orange-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <p className="text-sm font-bold text-gray-800">Principal Only</p>
+                      <p className="text-xs text-gray-500">₹{formatCurrency(principalWriteOff)} (waive interest)</p>
+                    </button>
+                  </div>
                 </div>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Principal write-off:</span>
-                    <span className="font-bold text-red-700">₹{formatCurrency(principalWriteOff)}</span>
+
+                {/* Write-off breakdown */}
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <TrendingDown className="h-4 w-4 text-red-600" />
+                    <p className="text-sm font-bold text-red-700">Irrecoverable Loss Write-Off</p>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Interest write-off:</span>
-                    <span className="font-bold text-red-700">₹{formatCurrency(interestWriteOff)}</span>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Principal write-off:</span>
+                      <span className="font-bold text-red-700">₹{formatCurrency(principalWriteOff)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Interest write-off:</span>
+                      <span className={`font-bold ${lossType === 'PRINCIPAL_ONLY' ? 'text-gray-400 line-through' : 'text-red-700'}`}>
+                        ₹{formatCurrency(interestWriteOff)}
+                        {lossType === 'PRINCIPAL_ONLY' && <span className="ml-1 text-green-600 no-underline" style={{textDecoration:'none'}}> (waived)</span>}
+                      </span>
+                    </div>
+                    <Separator className="my-1" />
+                    <div className="flex justify-between font-bold">
+                      <span className="text-red-700">Total written off:</span>
+                      <span className="text-red-700">₹{formatCurrency(lossAmt)}</span>
+                    </div>
                   </div>
-                  <Separator className="my-1" />
-                  <div className="flex justify-between font-bold">
-                    <span className="text-red-700">Total written off:</span>
-                    <span className="text-red-700">₹{formatCurrency(lossAmt)}</span>
-                  </div>
+                  <p className="text-xs text-red-500 mt-2">
+                    {lossType === 'PRINCIPAL_ONLY'
+                      ? 'Only Principal recorded as Irrecoverable Debt. Interest is waived. No cash collected.'
+                      : 'Entire balance (P + I) recorded as "Irrecoverable Debt" in P&L. No cash collected.'}
+                    {' '}Loan closed immediately.
+                  </p>
                 </div>
-                <p className="text-xs text-red-500 mt-2">
-                  Entire balance (P + I) recorded as "Irrecoverable Debt" in P&amp;L. No cash collected.
-                  Loan closed immediately.
-                </p>
               </div>
             )}
 
@@ -421,7 +465,7 @@ export default function CloseLoanDialog({
               <p className="text-xs text-yellow-800">
                 <strong>Irreversible Action.</strong>{' '}
                 {mode === 'LOSS'
-                  ? `Writing off ₹${formatCurrency(lossAmt)} as total loss. This cannot be undone.`
+                  ? `Writing off ₹${formatCurrency(lossAmt)} as ${lossType === 'PRINCIPAL_ONLY' ? 'principal-only loss (interest waived)' : 'total loss (P+I)'}. This cannot be undone.`
                   : `Foreclosure amount ₹${formatCurrency(foreAmt)}. Loan cannot be reopened once closed.`}
                 {data.mirrorLoan?.isMirrorLoan && ' Mirror loan will also be closed automatically.'}
               </p>
@@ -443,9 +487,9 @@ export default function CloseLoanDialog({
               : 'bg-green-600 hover:bg-green-700 text-white'}`}
           >
             {saving ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Processing…</>
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Processing…</>
             ) : mode === 'LOSS' ? (
-              <><Skull className="h-4 w-4 mr-2" /> Write Off ₹{formatCurrency(lossAmt)}</>
+              <><Skull className="h-4 w-4 mr-2" /> Write Off ₹{formatCurrency(lossAmt)}{lossType === 'PRINCIPAL_ONLY' ? ' (P Only)' : ''}</>
             ) : (
               <><CheckCircle className="h-4 w-4 mr-2" /> Close Loan · ₹{formatCurrency(foreAmt)}</>
             )}
