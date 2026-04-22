@@ -1747,10 +1747,13 @@ export default function OfflineLoanDetailPanel({
                                     ? calculatePenaltyInfo(emi.dueDate, loan.loanAmount) 
                                     : null;
 
-                                  const isPrincipalOnly = emi.paymentStatus === 'PAID' && 
-                                    Math.abs((emi.paidAmount || 0) - emi.principalAmount) < 0.01 && 
-                                    (emi.paidInterest || 0) === 0 && 
-                                    emi.interestAmount > 0;
+                                  // PRINCIPAL ONLY: status=PAID, paid interest is 0, paid amount ≈ principal,
+                                  // AND total paid is strictly less than full EMI (so full EMIs aren't mislabelled)
+                                  const isPrincipalOnly = emi.paymentStatus === 'PAID' &&
+                                    emi.interestAmount > 0 &&
+                                    (emi.paidInterest || 0) < 1 &&
+                                    Math.abs((emi.paidPrincipal || emi.paidAmount || 0) - emi.principalAmount) < 1 &&
+                                    (emi.paidAmount || 0) < (emi.totalAmount - 1);
 
                                   return (
                                     <div
