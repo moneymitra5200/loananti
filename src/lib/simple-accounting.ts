@@ -74,18 +74,20 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
   const cashBookId = await getOrCreateCashBook(companyId);
 
   // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
-  // Prevent duplicate DEBIT entries for the same loan/disbursement referenceId
-  if (referenceId && entryType === 'DEBIT') {
+  // Prevent duplicate entries for the same referenceId.
+  // Blocks BOTH debit AND credit duplicates to ensure entries
+  // only fire once regardless of retries or manual triggers.
+  if (referenceId) {
     const existing = await db.cashBookEntry.findFirst({
       where: {
         cashBookId,
         referenceId,
         referenceType,
-        entryType: 'DEBIT',
+        entryType,
       },
     });
     if (existing) {
-      console.warn(`[CashBook] DUPLICATE DEBIT BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
+      console.warn(`[CashBook] DUPLICATE ${entryType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
       const cashBook = await db.cashBook.findUnique({ where: { id: cashBookId } });
       return { success: true, cashBookId, newBalance: cashBook?.currentBalance || 0 };
     }
@@ -188,14 +190,15 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
   }
 
   // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────
-  // Prevent duplicate DEBIT transactions for the same referenceId
-  if (referenceId && transactionType === 'DEBIT') {
+  // Prevent duplicate bank transactions for the same referenceId.
+  // Blocks BOTH debit AND credit duplicates — status-driven accounting only.
+  if (referenceId) {
     const existing = await db.bankTransaction.findFirst({
-      where: { bankAccountId: targetBankId, referenceId, referenceType, transactionType: 'DEBIT' },
+      where: { bankAccountId: targetBankId, referenceId, referenceType, transactionType },
       select: { id: true, balanceAfter: true },
     });
     if (existing) {
-      console.warn(`[Bank] DUPLICATE DEBIT BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
+      console.warn(`[Bank] DUPLICATE ${transactionType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
       const bank = await db.bankAccount.findUnique({ where: { id: targetBankId }, select: { currentBalance: true } });
       return { success: true, bankAccountId: targetBankId, newBalance: bank?.currentBalance || 0 };
     }

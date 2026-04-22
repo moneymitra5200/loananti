@@ -1264,23 +1264,36 @@ export async function POST(request: NextRequest) {
     // ============================================
     // RECORD ACCOUNTING ENTRIES — unified with offline loan accounting
     // ============================================
-    // Rules (same as offline loan / recordEMIPaymentAccounting):
+    // RULE 1: Accounting is PURELY STATUS-DRIVEN.
+    //   Entries fire ONLY when EMI reaches a terminal paid state:
+    //   'PAID'              → full P+I journal
+    //   'INTEREST_ONLY_PAID'→ interest-only journal
+    //   'PARTIALLY_PAID'    → partial receipt recorded (money was received)
     //
-    // NON-MIRROR:
+    // RULE 2: Each paymentId is an idempotency key.
+    //   Duplicate entries for the same paymentId are silently skipped.
+    //   This means: NO button, NO manual trigger, NO retry can double-book.
+    //
+    // RULE 3: NON-MIRROR:
     //   CASH         → original company Cashbook + Journal (P + I income)
     //   ONLINE/UPI   → original company Bank + Journal
     //   PERSONAL CR  → Company3 Cashbook + Journal
     //   PRINCIPAL_ONLY → cash/bank + Irrecoverable Debt write-off journal
     //
-    // MIRROR (within tenure):
+    // RULE 4: MIRROR (within tenure):
     //   ALL modes → mirror company Cash/Bank + Journal (mirror P + I)
     //   PRINCIPAL_ONLY → mirror company write-off too
     //
-    // EXTRA EMI (beyond mirror tenure):
+    // RULE 5: EXTRA EMI (beyond mirror tenure):
     //   Profit already recorded in the extra-EMI block above — skip here.
     // ============================================
-    // Accounting warnings: non-empty means admin must investigate
     const onlineAccountingWarnings: string[] = [];
+
+    // ── GATE: Only account when EMI has reached a paid state ──────────────
+    const isTerminalPaidState = newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || newEmiStatus === 'PARTIALLY_PAID';
+    if (!isTerminalPaidState) {
+      console.log(`[Accounting] Skipping — EMI #${emi.installmentNumber} status is '${newEmiStatus}', not a paid terminal state.`);
+    } else
     try {
       const mirrorMappingForAccounting = mirrorMapping;
       const isExtraEMI2 = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
