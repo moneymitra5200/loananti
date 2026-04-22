@@ -3002,6 +3002,15 @@ export async function PUT(request: NextRequest) {
         }
         
         if (targetCompanyId) {
+          // Unique payment reference per accounting entry.
+          // PARTIAL payments get a per-session suffix (cumulative paise) so each partial
+          // creates its own journal while still being idempotent for network retries.
+          // FULL/ADVANCE/INTEREST_ONLY use emi.id directly (one entry per EMI).
+          const cumulativePaidPaise = Math.round((Number(updatedEmi.paidAmount) || 0) * 100);
+          const uniquePaymentId = (paymentType === 'PARTIAL')
+            ? `${updatedEmi.id}-P${cumulativePaidPaise}`
+            : updatedEmi.id;
+
           // Apply staff-override split for journal entry (FULL payment only)
           const journalPrincipal = (paymentType === 'FULL' && staffPrincipal !== undefined && staffInterest !== undefined)
             ? Number(staffPrincipal)
@@ -3113,7 +3122,7 @@ export async function PUT(request: NextRequest) {
               company3Id: company3Id || loanCompanyId,
               loanId: emi.offlineLoanId,
               emiId: emi.id,
-              paymentId: updatedEmi.id,
+              paymentId: uniquePaymentId,
               loanNumber: emi.offlineLoan.loanNumber,
               installmentNumber: emi.installmentNumber,
               userId,
@@ -3161,10 +3170,9 @@ export async function PUT(request: NextRequest) {
             console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes (' + accountingResult.journalEntryId + ')' : 'MISSING ❌'}`);
           }
 
-          // ── FALLBACK: If mirror journal wasn't created, do it directly here ──────────────
-          // Only for non-PRINCIPAL_ONLY (which has its own journal path above)
+          // ── FALLBACK: If journal wasn't created, try directly ──────────────────
           if (isMirrorLoan && paymentType !== 'PRINCIPAL_ONLY' && !accountingResult.journalEntryId && mirrorLoanMapping?.mirrorCompanyId) {
-            console.warn('[Accounting] ⚠️ Journal missing after recordEMIPaymentAccounting — attempting inline fallback');
+            console.warn('[Accounting] ⚠️ Journal missing — attempting inline fallback');
             try {
               const { AccountingService: FbAccSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');
               const fbSvc = new FbAccSvc(mirrorLoanMapping.mirrorCompanyId);
@@ -3187,53 +3195,107 @@ export async function PUT(request: NextRequest) {
               const fbJournalId = await fbSvc.createJournalEntry({
                 entryDate: new Date(),
                 referenceType: 'MIRROR_EMI_PAYMENT',
-                referenceId: updatedEmi.id,
+                referenceId: uniquePaymentId,
                 narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} - ₹${effectiveTotal} (P:₹${effectiveP} + I:₹${effectiveI})`,
                 lines: fbLines,
                 createdById: userId || 'SYSTEM',
                 paymentMode: paymentMode || 'CASH',
                 isAutoEntry: true,
               });
-              console.log(`[Accounting] ✅ FALLBACK journal created: ${fbJournalId} for mirror company ${mirrorLoanMapping.mirrorCompanyId}`);
+              accountingResult.journalEntryId = fbJournalId; // mark success
+              console.log(`[Accounting] ✅ FALLBACK journal created: ${fbJournalId}`);
             } catch (fbErr: any) {
-              console.error('[Accounting] ❌ FALLBACK journal also FAILED:', {
-                message: fbErr?.message,
-                code: fbErr?.code,
-                stack: fbErr?.stack?.split('\n').slice(0, 10).join(' | '),
-                mirrorCompanyId: mirrorLoanMapping.mirrorCompanyId,
-                emiId: emi.id,
-                mirrorInterestAmount,
-                mirrorPrincipalAmount,
-              });
+              console.error('[Accounting] ❌ FALLBACK journal FAILED:', fbErr?.message);
             }
+          }
+
+          // ── ATOMICITY CHECK: No journal = EMI must stay UNPAID ─────────────────
+          const journalWasCreated =
+            paymentType === 'PRINCIPAL_ONLY'
+            || !!(accountingResult.journalEntryId);
+
+          if (!journalWasCreated) {
+            console.error('[ATOMICITY] ❌ No journal — rolling back EMI to prevent ghost payment');
+            try {
+              await db.offlineLoanEMI.update({
+                where: { id: emi.id },
+                data: {
+                  paidAmount:       emi.paidAmount       ?? 0,
+                  paidPrincipal:    emi.paidPrincipal    ?? 0,
+                  paidInterest:     emi.paidInterest     ?? 0,
+                  paymentStatus:    (Number(emi.paidAmount ?? 0) > 0) ? 'PARTIALLY_PAID' : 'PENDING',
+                  paidDate:         emi.paidDate         ?? null,
+                  paymentMode:      emi.paymentMode      ?? null,
+                  paymentReference: emi.paymentReference ?? null,
+                  collectedById:    emi.collectedById    ?? null,
+                  collectedByName:  emi.collectedByName  ?? null,
+                  collectedAt:      emi.collectedAt      ?? null,
+                  penaltyAmount:    emi.penaltyAmount    ?? 0,
+                  penaltyPaid:      emi.penaltyPaid      ?? 0,
+                },
+              });
+              console.log(`[ATOMICITY] ✏️ EMI ${emi.id} rolled back to UNPAID`);
+            } catch (rbErr: any) {
+              console.error('[ATOMICITY] ❌ ROLLBACK FAILED:', rbErr?.message);
+            }
+            return NextResponse.json({
+              success: false,
+              error: 'Payment could not be processed: accounting entry failed. No amount deducted. Please try again.',
+              emiId: emi.id,
+            }, { status: 500 });
           }
         } else {
           console.warn('[Accounting] Target company not found - skipping accounting entries');
         }
       } catch (accountingError: any) {
         const errMsg = accountingError?.message || String(accountingError);
-        accountingWarnings.push(`EMI accounting: ${errMsg}`);
-        console.error('[Accounting] ❌ EMI payment accounting FAILED — payment is recorded but accounting entry is MISSING:', {
-          message: errMsg,
-          code: accountingError?.code,
-          emiId: updatedEmi.id,
-          stack: accountingError?.stack?.split('\n').slice(0, 6).join(' | '),
+        console.error('[ATOMICITY] ❌ Accounting FAILED — rolling back EMI to UNPAID:', {
+          message: errMsg, emiId: updatedEmi.id,
         });
-        // Log to ActionLog so admins can find and manually fix this
+
+        // Roll back EMI to pre-payment state ――――――――――――――――――――――――――――――――――
         try {
-          await db.actionLog.create({
+          await db.offlineLoanEMI.update({
+            where: { id: emi.id },
             data: {
-              userId: userId || 'SYSTEM',
-              userRole: user?.role || 'SYSTEM',
-              actionType: 'ACCOUNTING_ERROR',
-              module: 'OFFLINE_LOAN',
-              recordId: updatedEmi.id,
-              recordType: 'OfflineLoanEMI',
-              description: `ACCOUNTING MISSING: EMI ${updatedEmi.id} (${emi.offlineLoan.loanNumber} #${emi.installmentNumber}) paid ₹${actualPaymentAmount} but accounting failed: ${errMsg}`,
-              canUndo: false,
-            }
+              paidAmount:      emi.paidAmount      ?? 0,
+              paidPrincipal:   emi.paidPrincipal   ?? 0,
+              paidInterest:    emi.paidInterest    ?? 0,
+              paymentStatus:   (Number(emi.paidAmount ?? 0) > 0) ? 'PARTIALLY_PAID' : 'PENDING',
+              paidDate:        emi.paidDate        ?? null,
+              paymentMode:     emi.paymentMode     ?? null,
+              paymentReference: emi.paymentReference ?? null,
+              collectedById:   emi.collectedById   ?? null,
+              collectedByName: emi.collectedByName ?? null,
+              collectedAt:     emi.collectedAt     ?? null,
+              penaltyAmount:   emi.penaltyAmount   ?? 0,
+              penaltyPaid:     emi.penaltyPaid     ?? 0,
+            },
           });
-        } catch (_) { /* ActionLog failure is truly non-critical */ }
+          console.log(`[ATOMICITY] ✏️ EMI ${emi.id} rolled back to UNPAID`);
+        } catch (rbErr: any) {
+          console.error('[ATOMICITY] ❌ ROLLBACK FAILED — DB inconsistency! Admin must fix manually.', rbErr?.message);
+          try {
+            await db.actionLog.create({
+              data: {
+                userId: userId || 'SYSTEM',
+                action: 'ACCOUNTING_ROLLBACK_FAILED',
+                module: 'OFFLINE_LOAN',
+                recordId: emi.id,
+                recordType: 'OfflineLoanEMI',
+                description: `CRITICAL: EMI ${emi.id} (${emi.offlineLoan.loanNumber} #${emi.installmentNumber}) marked PAID but journal MISSING. Accounting error: ${errMsg}. Rollback failed: ${rbErr?.message}`,
+                canUndo: false,
+              } as any
+            });
+          } catch (_) { /* non-critical */ }
+        }
+
+        return NextResponse.json({
+          success: false,
+          error: 'Payment failed: accounting entry could not be created. Payment reversed. Please try again.',
+          details: errMsg,
+          emiId: emi.id,
+        }, { status: 500 });
       }
 
       // ── OFFLINE LOAN PENALTY INCOME ──────────────────────────────────────
