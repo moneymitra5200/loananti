@@ -485,16 +485,14 @@ const EMISection = memo(function EMISection({
                                 {loadingReceipt === emi.id ? 'Loading...' : 'Receipt'}
                               </Button>
                               {emi.proofUrl && (
-                                <a
-                                  href={emi.proofUrl.startsWith('data:') ? '#' : emi.proofUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={emi.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(emi.proofUrl!); } : undefined}
+                                <button
+                                  type="button"
+                                  onClick={() => openDoc(emi.proofUrl!)}
                                   className="inline-flex items-center gap-1 h-7 px-2 text-xs border border-purple-300 text-purple-600 hover:bg-purple-50 rounded-md"
                                 >
                                   <FileText className="h-3 w-3" />
                                   View Proof ↗
-                                </a>
+                                </button>
                               )}
                             </div>
                           )}
@@ -512,16 +510,14 @@ const EMISection = memo(function EMISection({
                                 {loadingReceipt === emi.id ? 'Marking...' : 'Received'}
                               </Button>
                               {emi.proofUrl && (
-                                <a
-                                  href={emi.proofUrl.startsWith('data:') ? '#' : emi.proofUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick={emi.proofUrl.startsWith('data:') ? (e) => { e.preventDefault(); openDoc(emi.proofUrl!); } : undefined}
+                                <button
+                                  type="button"
+                                  onClick={() => openDoc(emi.proofUrl!)}
                                   className="inline-flex items-center gap-1 h-7 px-2 text-xs border border-purple-300 text-purple-600 hover:bg-purple-50 rounded-md"
                                 >
                                   <FileText className="h-3 w-3" />
                                   View Proof ↗
-                                </a>
+                                </button>
                               )}
                             </div>
                           )}

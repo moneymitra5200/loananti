@@ -573,10 +573,13 @@ export default function DisbursementDialog({
                                 <span className="text-xs font-medium text-purple-700">{doc.label}</span>
                               </div>
                               {selectedLoan[doc.key] ? (
-                                <a href={selectedLoan[doc.key]} target="_blank" rel="noopener noreferrer" 
-                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => openDoc(selectedLoan[doc.key])}
+                                  className="text-xs text-blue-600 hover:underline flex items-center gap-1 hover:text-blue-800"
+                                >
                                   View Document <ExternalLink className="h-3 w-3" />
-                                </a>
+                                </button>
                               ) : (
                                 <div className="mt-1">
                                   <input 

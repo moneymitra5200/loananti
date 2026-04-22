@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Upload, FileText, X, CheckCircle, Loader2, Shield, Info } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { openDoc } from '@/utils/openDoc';
 
 interface SecureDocumentUploadProps {
   loanApplicationId: string;
@@ -255,14 +256,13 @@ export default function SecureDocumentUpload({
                       )}
                     </div>
                   </div>
-                  <a
-                    href={doc.documentUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => openDoc(doc.documentUrl)}
                     className="text-purple-600 hover:text-purple-700 text-sm"
                   >
                     View
-                  </a>
+                  </button>
                 </div>
               ))}
             </div>

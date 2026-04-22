@@ -370,26 +370,38 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
   });
 
-  // Mirror rule: which online loans are mirrored?
+  // Mirror rule: which online loans are mirrored ORIGINALS?
   const onlineLoanIds = allOnlineLoans.map(l => l.id);
   const mirrorMappings = onlineLoanIds.length > 0
     ? await db.mirrorLoanMapping.findMany({
         where: { originalLoanId: { in: onlineLoanIds }, isOfflineLoan: false },
-        select: { originalLoanId: true, mirrorCompanyId: true }
+        select: { originalLoanId: true, mirrorLoanId: true, mirrorCompanyId: true }
       })
     : [];
   const mirroredIds     = new Set(mirrorMappings.map(m => m.originalLoanId));
   const mirrorCoOfLoan  = new Map(mirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+  // IDs of the mirror-loan records themselves (e.g. C3PL00001)
+  const mirrorLoanIds   = new Set(mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[]);
 
-  // Filter loans by mirror rule
+  // Filter loans by mirror rule + company ownership
+  // Rule: If a loan has a mirror → the MIRROR COMPANY sees the mirror loan.
+  //       The original company does NOT see the original loan (mirror takes precedence).
+  //       If a loan is itself a mirror loan → only shown when viewing from mirror company.
+  //       If a loan has no mirror at all → shown only for its own company.
   const validOnlineLoans = allOnlineLoans.filter(l => {
-    if (!mirroredIds.has(l.id)) {
-      // No mirror: include if company matches (or no company filter)
+    // This loan is an original that has a mirror
+    if (mirroredIds.has(l.id)) {
+      if (!companyId) return false; // no filter → hide originals that have mirrors (mirror takes precedence)
+      // Only shown if we're viewing from the MIRROR company — but the mirror loan record handles that
+      return false; // original is never shown when mirror exists
+    }
+    // This loan is itself a mirror loan record
+    if (mirrorLoanIds.has(l.id)) {
+      // Only show if viewing from this loan's own company
       return !companyId || l.companyId === companyId;
     }
-    // Has mirror: only include if viewing from MIRROR company
-    if (!companyId) return true; // no filter → include all
-    return mirrorCoOfLoan.get(l.id) === companyId;
+    // Regular loan with no mirror: show only if it belongs to the current company
+    return !companyId || l.companyId === companyId;
   });
 
   const validOfflineLoans = allOfflineLoans.filter(l =>
@@ -400,6 +412,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     ...validOnlineLoans.map(l => l.id),
     ...validOfflineLoans.map(l => l.id),
   ];
+
 
   if (validLoanIds.length === 0) {
     return NextResponse.json({

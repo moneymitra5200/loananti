@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Clock, CheckCircle, Receipt, Eye, ImageOff, AlertTriangle } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
+import { openDoc } from '@/utils/openDoc';
 import type { LoanDetails } from './types';
 
 interface HistorySectionProps {
@@ -43,7 +44,7 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
               Payment Proof Document
             </DialogTitle>
           </DialogHeader>
-          {proofDialogUrl && (
+              {proofDialogUrl && (
             <div className="flex flex-col items-center gap-4">
               {/* Try image first; if it fails show a link */}
               <img
@@ -51,7 +52,6 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
                 alt="Payment Proof"
                 className="max-w-full max-h-[60vh] rounded-lg border shadow-md object-contain"
                 onError={(e) => {
-                  // If native image fails, replace with a download link
                   const target = e.currentTarget;
                   target.style.display = 'none';
                   target.nextElementSibling?.classList.remove('hidden');
@@ -60,23 +60,14 @@ const HistorySection = memo(function HistorySection({ loanDetails }: HistorySect
               <div className="hidden flex-col items-center gap-2 text-center">
                 <ImageOff className="h-10 w-10 text-gray-400" />
                 <p className="text-sm text-gray-500">Cannot preview this file type</p>
-                <a
-                  href={proofDialogUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 underline text-sm"
-                >
-                  Open in new tab ↗
-                </a>
               </div>
-              <a
-                href={proofDialogUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-500 underline"
+              <button
+                type="button"
+                onClick={() => openDoc(proofDialogUrl)}
+                className="text-xs text-blue-500 underline hover:text-blue-700"
               >
                 View Full Size ↗
-              </a>
+              </button>
             </div>
           )}
         </DialogContent>

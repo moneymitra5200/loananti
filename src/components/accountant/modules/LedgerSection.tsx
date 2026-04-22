@@ -16,7 +16,6 @@ const ACCOUNTS = [
   { code: 'INTEREST',   label: 'Interest Income',            type: 'INCOME',    desc: 'Interest earned on loans' },
   { code: 'PROCESSING', label: 'Processing Fee Income',      type: 'INCOME',    desc: 'Processing fees collected' },
   { code: 'PENALTY',    label: 'Penalty / Late Fee Income',  type: 'INCOME',    desc: 'Late payment charges collected' },
-  { code: 'MIRROR',     label: 'Mirror Interest Income',     type: 'INCOME',    desc: 'Profit from mirror loan interest' },
   { code: 'BORROWED',   label: 'Borrowed Funds',             type: 'LIABILITY', desc: 'Money borrowed from external sources' },
   { code: 'CAPITAL',    label: "Owner's Capital",            type: 'EQUITY',    desc: 'Capital introduced by owner' },
   { code: 'EXPENSES',   label: 'All Expenses',               type: 'EXPENSE',   desc: 'Expenses paid from business funds' },
@@ -137,68 +136,68 @@ export default function LedgerSection({ selectedCompanyId }: { selectedCompanyId
             </div>
           </div>
 
-          {/* Transaction table */}
-          {ledger.transactions.length === 0 ? (
-            <div className="py-10 text-center text-gray-400 text-sm">No transactions in this period</div>
-          ) : (
-            <ScrollArea className="max-h-[500px]">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-gray-50 border-b">
+          {/* Transaction table — always show, opening balance always visible */}
+          <ScrollArea className="max-h-[500px]">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 w-28">Date</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500">Particulars</th>
+                  <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 w-32">Ref No.</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-blue-700 w-32">Dr (₹)</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-green-700 w-32">Cr (₹)</th>
+                  <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-700 w-36">Balance (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Opening balance row — always shown */}
+                <tr className="bg-blue-50 border-b">
+                  <td className="py-2 px-4 text-xs text-gray-500">{format(new Date(startDate), 'dd MMM yyyy')}</td>
+                  <td className="py-2 px-4 font-medium text-gray-700" colSpan={2}>Opening Balance b/d</td>
+                  <td className="py-2 px-4 text-right font-mono text-blue-700">{ledger.openingBalance > 0 ? fmt(ledger.openingBalance) : '—'}</td>
+                  <td className="py-2 px-4 text-right font-mono text-green-700">{ledger.openingBalance < 0 ? fmt(Math.abs(ledger.openingBalance)) : '—'}</td>
+                  <td className="py-2 px-4 text-right font-mono font-semibold">{fmt(ledger.openingBalance)}</td>
+                </tr>
+                {ledger.transactions.length === 0 ? (
                   <tr>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 w-28">Date</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500">Particulars</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-gray-500 w-32">Ref No.</th>
-                    <th className="text-right py-2.5 px-4 text-xs font-semibold text-blue-700 w-32">Dr (₹)</th>
-                    <th className="text-right py-2.5 px-4 text-xs font-semibold text-green-700 w-32">Cr (₹)</th>
-                    <th className="text-right py-2.5 px-4 text-xs font-semibold text-gray-700 w-36">Balance (₹)</th>
+                    <td colSpan={6} className="py-6 text-center text-gray-400 text-sm italic">No transactions in this period</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {/* Opening balance row */}
-                  <tr className="bg-blue-50 border-b">
-                    <td className="py-2 px-4 text-xs text-gray-500">{format(new Date(startDate), 'dd MMM yyyy')}</td>
-                    <td className="py-2 px-4 font-medium text-gray-700" colSpan={2}>Opening Balance b/d</td>
-                    <td className="py-2 px-4 text-right font-mono text-blue-700">{ledger.openingBalance > 0 ? fmt(ledger.openingBalance) : '—'}</td>
-                    <td className="py-2 px-4 text-right font-mono text-green-700">{ledger.openingBalance < 0 ? fmt(Math.abs(ledger.openingBalance)) : '—'}</td>
-                    <td className="py-2 px-4 text-right font-mono font-semibold">{fmt(ledger.openingBalance)}</td>
-                  </tr>
-                  {ledger.transactions.map((row, i) => (
-                    <tr key={i} className={`border-b border-dashed ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-indigo-50/30 transition-colors`}>
-                      <td className="py-2 px-4 text-xs text-gray-500 whitespace-nowrap">{format(new Date(row.date), 'dd MMM yyyy')}</td>
-                      <td className="py-2 px-4 text-gray-800 max-w-xs truncate">{row.particulars}</td>
-                      <td className="py-2 px-4 text-xs text-gray-400 font-mono truncate">{row.referenceNo}</td>
-                      <td className={`py-2 px-4 text-right font-mono font-medium ${row.debit > 0 ? 'text-blue-700' : 'text-gray-200'}`}>
-                        {row.debit > 0 ? fmt(row.debit) : '—'}
-                      </td>
-                      <td className={`py-2 px-4 text-right font-mono font-medium ${row.credit > 0 ? 'text-green-700' : 'text-gray-200'}`}>
-                        {row.credit > 0 ? fmt(row.credit) : '—'}
-                      </td>
-                      <td className={`py-2 px-4 text-right font-mono font-semibold ${row.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                        {fmt(row.balance)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  {/* Totals */}
-                  <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
-                    <td className="py-2.5 px-4 text-xs uppercase tracking-wide text-gray-600" colSpan={3}>TOTAL</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-blue-800 underline decoration-double">{fmt(ledger.totalDebit)}</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-green-800 underline decoration-double">{fmt(ledger.totalCredit)}</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-gray-800"></td>
-                  </tr>
-                  {/* Closing balance */}
-                  <tr className="bg-emerald-50 border-t font-bold">
-                    <td className="py-2.5 px-4 text-xs text-gray-600" colSpan={4}>Closing Balance c/d</td>
-                    <td className="py-2.5 px-4 text-right font-mono text-emerald-800"></td>
-                    <td className={`py-2.5 px-4 text-right font-mono text-lg font-bold ${ledger.closingBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                      {fmt(ledger.closingBalance)}
+                ) : ledger.transactions.map((row, i) => (
+                  <tr key={i} className={`border-b border-dashed ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} hover:bg-indigo-50/30 transition-colors`}>
+                    <td className="py-2 px-4 text-xs text-gray-500 whitespace-nowrap">{format(new Date(row.date), 'dd MMM yyyy')}</td>
+                    <td className="py-2 px-4 text-gray-800 max-w-xs truncate">{row.particulars}</td>
+                    <td className="py-2 px-4 text-xs text-gray-400 font-mono truncate">{row.referenceNo}</td>
+                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.debit > 0 ? 'text-blue-700' : 'text-gray-200'}`}>
+                      {row.debit > 0 ? fmt(row.debit) : '—'}
+                    </td>
+                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.credit > 0 ? 'text-green-700' : 'text-gray-200'}`}>
+                      {row.credit > 0 ? fmt(row.credit) : '—'}
+                    </td>
+                    <td className={`py-2 px-4 text-right font-mono font-semibold ${row.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                      {fmt(row.balance)}
                     </td>
                   </tr>
-                </tfoot>
-              </table>
-            </ScrollArea>
-          )}
+                ))}
+              </tbody>
+              <tfoot>
+                {/* Totals */}
+                <tr className="bg-gray-100 border-t-2 border-gray-300 font-bold">
+                  <td className="py-2.5 px-4 text-xs uppercase tracking-wide text-gray-600" colSpan={3}>TOTAL</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-blue-800 underline decoration-double">{fmt(ledger.totalDebit)}</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-green-800 underline decoration-double">{fmt(ledger.totalCredit)}</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-gray-800"></td>
+                </tr>
+                {/* Closing balance */}
+                <tr className="bg-emerald-50 border-t font-bold">
+                  <td className="py-2.5 px-4 text-xs text-gray-600" colSpan={4}>Closing Balance c/d</td>
+                  <td className="py-2.5 px-4 text-right font-mono text-emerald-800"></td>
+                  <td className={`py-2.5 px-4 text-right font-mono text-lg font-bold ${ledger.closingBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {fmt(ledger.closingBalance)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </ScrollArea>
         </Card>
       ) : (
         <Card>
