@@ -316,7 +316,10 @@ const EMISection = memo(function EMISection({
                 const penaltyInfo = (isOverdue && !isPaid && loanAmount > 0) 
                   ? calculatePenaltyInfo(emi.dueDate, loanAmount) 
                   : null;
-                const isPrincipalOnly = emi.status === 'PAID' && emi.paidAmount === emi.principalAmount && emi.paidInterest === 0 && emi.interestAmount > 0;
+                const isPrincipalOnly = emi.status === 'PAID'
+                  && Math.abs(Number(emi.paidAmount || 0) - Number(emi.principalAmount || 0)) < 0.01
+                  && Number(emi.paidInterest || 0) === 0
+                  && Number(emi.interestAmount || 0) > 0;
                 const totalWithPenalty = emi.emiAmount + (penaltyInfo?.penaltyAmount || emi.lateFee || 0);
                 
                 return (
@@ -426,6 +429,22 @@ const EMISection = memo(function EMISection({
                             <span className="text-xs font-normal text-gray-400 ml-1">remaining</span>
                           </p>
                           <p className="text-xs text-green-600">✓ Paid: {formatCurrency(emi.paidAmount || 0)} of {formatCurrency(emi.emiAmount)}</p>
+                        </>
+                      ) : emi.status === 'INTEREST_ONLY_PAID' ? (
+                        <>
+                          <p className="font-bold text-lg text-blue-600">
+                            {formatCurrency(Number(emi.paidInterest || 0) > 0 ? emi.paidInterest! : emi.interestAmount)}
+                            <span className="text-xs font-normal text-gray-400 ml-1">interest</span>
+                          </p>
+                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
+                        </>
+                      ) : isPrincipalOnly ? (
+                        <>
+                          <p className="font-bold text-lg text-emerald-700">
+                            {formatCurrency(emi.principalAmount)}
+                            <span className="text-xs font-normal text-gray-400 ml-1">principal</span>
+                          </p>
+                          <p className="text-xs text-gray-400 line-through">EMI: {formatCurrency(emi.emiAmount)}</p>
                         </>
                       ) : (
                         <>

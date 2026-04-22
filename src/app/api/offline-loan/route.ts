@@ -3009,7 +3009,9 @@ export async function PUT(request: NextRequest) {
           const cumulativePaidPaise = Math.round((Number(updatedEmi.paidAmount) || 0) * 100);
           const uniquePaymentId = (paymentType === 'PARTIAL')
             ? `${updatedEmi.id}-P${cumulativePaidPaise}`
-            : updatedEmi.id;
+            : paymentType === 'PRINCIPAL_ONLY'
+              ? `${updatedEmi.id}-PO-${cumulativePaidPaise}`
+              : updatedEmi.id;
 
           // Apply staff-override split for journal entry (FULL payment only)
           const journalPrincipal = (paymentType === 'FULL' && staffPrincipal !== undefined && staffInterest !== undefined)
@@ -3056,7 +3058,7 @@ export async function PUT(request: NextRequest) {
                 const mirrorJournalResult = await recordPrincipalOnlyJournal({
                   companyId:          mirrorLoanMapping.mirrorCompanyId,
                   loanId:             mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId,
-                  paymentId:          updatedEmi.id,
+                  paymentId:          uniquePaymentId,
                   principalAmount:    mirrorPrincipal,
                   interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
                   paymentDate:        new Date(),
@@ -3078,9 +3080,15 @@ export async function PUT(request: NextRequest) {
               // IMPORTANT: Use explicit Number() conversion directly from emi fields.
               // sessionPrincipal (delta) can be 0 if Prisma Decimal fields don't coerce
               // correctly in arithmetic — explicit calculation is more robust.
-              const principalToCollect = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
-              const interestToWriteOff = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
-              console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
+              // Use sessionPrincipal (delta this payment) as primary source.
+              // Fall back to emi.principalAmount if session delta is 0 due to Prisma Decimal coercion.
+              const principalToCollect = sessionPrincipal > 0
+                ? sessionPrincipal
+                : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
+              const interestToWriteOff = sessionInterestWrittenOff > 0
+                ? sessionInterestWrittenOff
+                : Math.max(0, Number(emi.interestAmount ?? 0) - Number(previousState.paidInterest ?? 0));
+              console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (sessionP=${sessionPrincipal}, emi.P=${emi.principalAmount}, prev.paidP=${previousState.paidPrincipal})`);
 
               if (principalToCollect <= 0) {
                 console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
@@ -3090,7 +3098,7 @@ export async function PUT(request: NextRequest) {
                   company3Id:         company3Id || undefined,
                   creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
                   loanId:             emi.offlineLoanId,
-                  paymentId:          updatedEmi.id,
+                  paymentId:          uniquePaymentId,
                   principalAmount:    principalToCollect,
                   interestWrittenOff: interestToWriteOff,
                   paymentDate:        new Date(),
