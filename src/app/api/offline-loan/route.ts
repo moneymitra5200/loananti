@@ -2880,9 +2880,21 @@ export async function PUT(request: NextRequest) {
 
 
       // ─── ACCOUNTING BLOCK (outside DB transaction to avoid blocking payment) ─────
-      // Failures here are LOGGED and returned as warnings — never silently swallowed.
+      // RULE: Accounting is PURELY STATUS-DRIVEN.
+      //   Entries only fire when EMI = PAID | INTEREST_ONLY_PAID | PARTIALLY_PAID
+      //   Same rule as emi/pay/route.ts — both routes are consistent.
+      //   No button, no retry, no manual call can create a duplicate.
       const accountingWarnings: string[] = [];
 
+      // ── STATUS GATE ─────────────────────────────────────────────────────────
+      const isOfflineTerminalPaidState = (
+        paymentStatus === 'PAID' ||
+        paymentStatus === 'PARTIALLY_PAID' ||
+        paymentStatus === 'INTEREST_ONLY_PAID'
+      );
+      if (!isOfflineTerminalPaidState) {
+        console.log(`[Accounting] Skipping offline EMI accounting — status '${paymentStatus}' is not a terminal paid state.`);
+      } else
       try {
         const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
 
