@@ -1752,9 +1752,13 @@ export async function POST(request: NextRequest) {
           : ACCOUNT_CODES.BANK_ACCOUNT;
         
         // ============ UNIFIED ACCOUNTING - LOAN DISBURSEMENT ============
+        // customerId may be undefined for offline loans created without a linked system user —
+        // fall back to loan ID so the journal entry is always created.
+        const effectiveCustomerId = customerId || loan.id;
+        
         await accountingService.recordLoanDisbursement({
           loanId: loan.id,
-          customerId: customerId,
+          customerId: effectiveCustomerId,
           amount: loanAmount,
           disbursementDate: new Date(disbursementDate),
           createdById,
@@ -1763,7 +1767,7 @@ export async function POST(request: NextRequest) {
           reference: `Offline Loan: ${loanNumber}`
         });
         
-        console.log(`[Accounting] Created journal entry for loan disbursement: ${loanNumber}`);
+        console.log(`[Accounting] ✅ Created journal entry for loan disbursement: ${loanNumber}`);
 
         // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
         // FIX-ISSUE-2: Record processing fee at disbursement + mark processingFeeRecorded=true
@@ -1784,7 +1788,7 @@ export async function POST(request: NextRequest) {
             // 2. Double-entry journal for processing fee
             await accountingService.recordProcessingFee({
               loanId: loan.id,
-              customerId: customerId,
+              customerId: effectiveCustomerId,
               amount: processingFee,
               collectionDate: new Date(disbursementDate),
               createdById,
@@ -1800,10 +1804,9 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (accountingError) {
-        console.error('Journal entry creation failed:', accountingError);
+        console.error(`[Accounting] ❌ Journal entry creation FAILED for ${loanNumber}:`, accountingError);
       }
-    }
-
+    } // end of else (non-mirror loan accounting)
 
     // Log action for undo
     await db.actionLog.create({
