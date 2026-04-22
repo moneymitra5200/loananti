@@ -784,20 +784,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── Split Payment: only CASH portion increases credit ─────────────────────
+    // For split: the online portion goes directly to bank (no credit for that part)
+    // For pure CASH: full paidAmount increases credit
+    // For pure ONLINE: paidAmount still increases credit (no change — this is personal page revenue)
+    const splitCreditAmount = isSplitPayment && splitCashAmount
+      ? (parseFloat(String(splitCashAmount)) || 0)
+      : paidAmount;
+
+    const splitDescription = isSplitPayment && splitCashAmount && splitOnlineAmount
+      ? ` [SPLIT: Cash ₹${parseFloat(String(splitCashAmount)).toFixed(2)} (credit) + Online ₹${parseFloat(String(splitOnlineAmount)).toFixed(2)} (bank)]`
+      : '';
+
     if (effectiveCreditType === 'PERSONAL') {
       const user = await db.user.findUnique({
         where: { id: creditUserId },
         select: { personalCredit: true, companyCredit: true, credit: true, name: true }
       });
       
-      const newPersonalCredit = (user?.personalCredit || 0) + paidAmount;
-      const newTotalCredit = (user?.credit || 0) + paidAmount;
+      const newPersonalCredit = (user?.personalCredit || 0) + splitCreditAmount;
+      const newTotalCredit = (user?.credit || 0) + splitCreditAmount;
       
       await db.creditTransaction.create({
         data: { // @ts-ignore
           userId: creditUserId,
           transactionType: 'PERSONAL_COLLECTION',
-          amount: paidAmount,
+          amount: splitCreditAmount,
           paymentMode: (paymentMode || 'CASH') as 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'SYSTEM',
           creditType: 'PERSONAL',
           sourceType: 'EMI_PAYMENT',
@@ -811,7 +823,7 @@ export async function POST(request: NextRequest) {
           loanApplicationNo: emi.loanApplication?.applicationNo,
           emiDueDate: emi.dueDate,
           emiAmount: emi.totalAmount,
-          description: `EMI Payment - ${emi.loanApplication?.applicationNo || loanId}${creditReason ? ` ${creditReason}` : ''}`,
+          description: `EMI Payment - ${emi.loanApplication?.applicationNo || loanId}${creditReason ? ` ${creditReason}` : ''}${splitDescription}`,
           transactionDate: new Date()
         }
       });
@@ -824,20 +836,20 @@ export async function POST(request: NextRequest) {
         }
       });
       
-      console.log(`[Credit] ₹${paidAmount} credited to personal credit of user ${creditUserId} ${creditReason}`);
+      console.log(`[Credit] ₹${splitCreditAmount} credited to personal credit of user ${creditUserId} ${creditReason}${splitDescription}`);
     } else if (effectiveCreditType === 'COMPANY' && companyId) {
       const company = await db.company.findUnique({
         where: { id: companyId },
         select: { companyCredit: true }
       });
       
-      const newCompanyCredit = (company?.companyCredit || 0) + paidAmount;
+      const newCompanyCredit = (company?.companyCredit || 0) + splitCreditAmount;
       
       await db.creditTransaction.create({
         data: { // @ts-ignore
           userId: paidBy,
           transactionType: 'CREDIT_INCREASE',
-          amount: paidAmount,
+          amount: splitCreditAmount,
           paymentMode: (paymentMode || 'CASH') as 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'SYSTEM',
           creditType: 'COMPANY',
           sourceType: 'EMI_PAYMENT',
@@ -851,7 +863,7 @@ export async function POST(request: NextRequest) {
           loanApplicationNo: emi.loanApplication?.applicationNo,
           emiDueDate: emi.dueDate,
           emiAmount: emi.totalAmount,
-          description: `EMI Payment - ${emi.loanApplication?.applicationNo || loanId}`,
+          description: `EMI Payment - ${emi.loanApplication?.applicationNo || loanId}${splitDescription}`,
           transactionDate: new Date()
         }
       });

@@ -472,10 +472,11 @@ async function processSingleApproval({
               select: { currentBalance: true }
             });
             
-            if (bank && bank.currentBalance >= disbursementData.bankAmount) {
+            if (bank) {
+              const newBankBalance = bank.currentBalance - disbursementData.bankAmount;
               await tx.bankAccount.update({
                 where: { id: disbursementData.bankAccountId },
-                data: { currentBalance: { decrement: disbursementData.bankAmount } }
+                data: { currentBalance: newBankBalance }
               });
               
               await tx.bankTransaction.create({
@@ -483,14 +484,14 @@ async function processSingleApproval({
                   bankAccountId: disbursementData.bankAccountId,
                   transactionType: 'DEBIT',
                   amount: disbursementData.bankAmount,
-                  balanceAfter: bank.currentBalance - disbursementData.bankAmount,
+                  balanceAfter: newBankBalance,
                   description: `Loan Disbursement (Bank Portion) - ${loan.applicationNo}`,
                   referenceType: 'LOAN_DISBURSEMENT',
                   referenceId: loanId,
                   createdById: userId || 'SYSTEM'
                 }
               });
-              console.log(`[Disbursement] Bank deduction: ₹${disbursementData.bankAmount}`);
+              console.log(`[Disbursement] Bank deduction: ₹${disbursementData.bankAmount}, New Balance: ₹${newBankBalance}`);
             }
           }
           
@@ -653,16 +654,17 @@ async function processSingleApproval({
         
         console.log(`[Disbursement] Cash Book updated: Balance ${cashBook.currentBalance} → ${newBalance}`);
       } else if (disbursementData?.bankAccountId) {
-        // Other companies: Use BankAccount
+        // Other companies: Use BankAccount — allow overdraft (no balance check)
         const bank = await tx.bankAccount.findUnique({ 
           where: { id: disbursementData.bankAccountId },
           select: { currentBalance: true }
         });
         
-        if (bank && bank.currentBalance >= disbursementData.amount) {
+        if (bank) {
+          const newBalance = bank.currentBalance - disbursementData.amount;
           await tx.bankAccount.update({
             where: { id: disbursementData.bankAccountId },
-            data: { currentBalance: { decrement: disbursementData.amount } }
+            data: { currentBalance: newBalance }
           });
           
           await tx.bankTransaction.create({
@@ -670,13 +672,16 @@ async function processSingleApproval({
               bankAccountId: disbursementData.bankAccountId,
               transactionType: 'DEBIT',
               amount: disbursementData.amount,
-              balanceAfter: bank.currentBalance - disbursementData.amount,
+              balanceAfter: newBalance,
               description: `Loan Disbursement - ${loan.applicationNo}`,
               referenceType: 'LOAN_DISBURSEMENT',
               referenceId: loanId,
               createdById: userId || 'SYSTEM'
             }
           });
+          console.log(`[Disbursement] Bank deduction: ₹${disbursementData.amount}, New Balance: ₹${newBalance}`);
+        } else {
+          console.warn(`[Disbursement] Bank account ${disbursementData.bankAccountId} not found — journal entry will still be created`);
         }
       }
       

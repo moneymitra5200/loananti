@@ -1038,7 +1038,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (mirrorBank) {
-          console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}`);
+          console.log(`[Mirror Loan] Found bank account for mirror company ${mirrorCompanyId}: ${mirrorBank.accountName}`);
+        } else {
+          console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId} — will attempt cash disbursement`);
         }
 
         if (isSplitPayment) {
@@ -2381,8 +2383,22 @@ export async function PUT(request: NextRequest) {
       }
 
       // ONLINE payment: money goes directly to bank — NO credit increase for any role
+      // SPLIT payment: ONLY the CASH portion increases credit (online portion goes to bank directly)
       const isOnlinePayment = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
-      const creditIncreaseAmount = isOnlinePayment ? 0 : actualPaymentAmount;
+      // For split: cashable amount = splitCashAmt; for pure online = 0; for cash = full amount
+      const creditIncreaseAmount = isSplitPayment
+        ? splitCashAmt   // Only cash portion increases credit
+        : isOnlinePayment
+          ? 0            // Pure online: no credit
+          : actualPaymentAmount;  // Pure cash: full amount
+
+      // Build a rich description for history showing split breakdown
+      const creditDescription = isSplitPayment
+        ? `EMI #${emi.installmentNumber} SPLIT collected for ${emi.offlineLoan.loanNumber}: Cash ₹${splitCashAmt} (${creditTypeUsed} credit) + Online ₹${splitOnlineAmt} (Bank)
+          P+I: ₹${sessionPrincipal.toFixed(2)} + ₹${sessionInterest.toFixed(2)}`
+        : isOnlinePayment
+          ? `EMI #${emi.installmentNumber} online payment for ${emi.offlineLoan.loanNumber} (direct to bank — no credit change)`
+          : `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber} (${creditTypeUsed} credit)`;
 
       // ── Capture mirror EMI state BEFORE the transaction ────────────────────
       // After the transaction syncs the mirror EMI, we compute session delta:
@@ -2401,10 +2417,16 @@ export async function PUT(request: NextRequest) {
         console.log(`[Mirror Pre-Sync] EMI #${emi.installmentNumber}: paidI=₹${mirrorEmiPreSyncPaidInterest} paidP=₹${mirrorEmiPreSyncPaidPrincipal}`);
       }
 
-      const newCompanyCr  = creditTypeUsed === 'COMPANY'  && !isOnlinePayment
-        ? (user.companyCredit  || 0) + creditIncreaseAmount : (user.companyCredit  || 0);
-      const newPersonalCr = creditTypeUsed === 'PERSONAL' && !isOnlinePayment
-        ? (user.personalCredit || 0) + creditIncreaseAmount : (user.personalCredit || 0);
+      const newCompanyCr  = creditTypeUsed === 'COMPANY'  && !isOnlinePayment && !isSplitPayment
+        ? (user.companyCredit  || 0) + creditIncreaseAmount
+        : creditTypeUsed === 'COMPANY'  && isSplitPayment
+          ? (user.companyCredit  || 0) + creditIncreaseAmount  // cash portion only
+          : (user.companyCredit  || 0);
+      const newPersonalCr = creditTypeUsed === 'PERSONAL' && !isOnlinePayment && !isSplitPayment
+        ? (user.personalCredit || 0) + creditIncreaseAmount
+        : creditTypeUsed === 'PERSONAL' && isSplitPayment
+          ? (user.personalCredit || 0) + creditIncreaseAmount  // cash portion only
+          : (user.personalCredit || 0);
 
       const creditUpdateData = isOnlinePayment
         ? {} // No credit change — money went to bank directly
@@ -2452,8 +2474,8 @@ export async function PUT(request: NextRequest) {
         await tx.creditTransaction.create({
           data: {
             userId,
-            transactionType: isOnlinePayment ? 'BANK_DIRECT' : 'CREDIT_INCREASE',
-            amount: creditIncreaseAmount, // 0 for online (no credit change)
+            transactionType: isOnlinePayment && !isSplitPayment ? 'BANK_DIRECT' : 'CREDIT_INCREASE',
+            amount: creditIncreaseAmount, // 0 for online; cash portion for split
             paymentMode: paymentMode || 'CASH',
             creditType: creditTypeUsed,
             companyBalanceAfter:  newCompanyCr,
@@ -2461,9 +2483,7 @@ export async function PUT(request: NextRequest) {
             balanceAfter: newCompanyCr + newPersonalCr,
             sourceType: 'EMI_PAYMENT',
             sourceId: emi.id,
-            description: isOnlinePayment
-              ? `EMI #${emi.installmentNumber} online payment for ${emi.offlineLoan.loanNumber} (direct to bank — no credit change)`
-              : `EMI #${emi.installmentNumber} collected for ${emi.offlineLoan.loanNumber} (${creditTypeUsed} credit)`,
+            description: creditDescription,
             loanApplicationNo: emi.offlineLoan.loanNumber,
             emiDueDate: emi.dueDate,
             emiAmount: emi.totalAmount,

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -23,7 +23,7 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap, Edit, BookCheck, User
+  Wrench, Zap, Edit, BookCheck, User, QrCode, Upload, X
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -547,6 +547,7 @@ function BankSection({
   const [editMode, setEditMode] = useState(false);
   const [selectedBankForEdit, setSelectedBankForEdit] = useState<BankAccount | null>(null);
   const [uploadingQr, setUploadingQr] = useState(false);
+  const qrFileInputRef = useRef<HTMLInputElement>(null);
   const [bankForm, setBankForm] = useState({
     bankName: '',
     accountNumber: '',
@@ -1116,6 +1117,80 @@ function BankSection({
                       onChange={(e) => setBankForm({ ...bankForm, openingBalance: parseFloat(e.target.value) || 0 })}
                       placeholder="0"
                     />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Payment Info - UPI & QR Code */}
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-800 mb-1 flex items-center gap-2">
+                  <QrCode className="h-4 w-4" />
+                  Payment Display Settings
+                </h4>
+                <p className="text-sm text-blue-600">These details will be shown to customers when they pay EMI</p>
+              </div>
+
+              {/* UPI ID */}
+              <div>
+                <Label>UPI ID</Label>
+                <Input
+                  value={bankForm.upiId || ''}
+                  onChange={(e) => setBankForm({ ...bankForm, upiId: e.target.value })}
+                  placeholder="company@upi or 9999999999@paytm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Customers will see this UPI ID to make EMI payments</p>
+              </div>
+
+              {/* QR Code Upload */}
+              <div>
+                <Label>QR Code Image</Label>
+                <input
+                  type="file"
+                  ref={qrFileInputRef}
+                  accept="image/*"
+                  onChange={handleQrCodeUpload}
+                  className="hidden"
+                />
+                {bankForm.qrCodeUrl ? (
+                  <div className="relative mt-2 inline-flex flex-col items-center gap-2">
+                    <img
+                      src={bankForm.qrCodeUrl}
+                      alt="Payment QR Code"
+                      className="w-40 h-40 object-contain border-2 border-emerald-200 rounded-xl"
+                    />
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => qrFileInputRef.current?.click()}>
+                        <Upload className="h-3 w-3 mr-1" /> Replace
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => setBankForm({ ...bankForm, qrCodeUrl: '' })}>
+                        <X className="h-3 w-3 mr-1" /> Remove
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => qrFileInputRef.current?.click()}
+                    className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/50 transition-colors"
+                  >
+                    {uploadingQr ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+                        <span className="text-sm text-gray-500">Uploading...</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center">
+                          <QrCode className="h-6 w-6 text-emerald-500" />
+                        </div>
+                        <span className="text-sm font-medium text-gray-700">Click to upload QR Code</span>
+                        <span className="text-xs text-gray-400">PNG, JPG up to 5MB</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
