@@ -3156,7 +3156,7 @@ export async function PUT(request: NextRequest) {
               principalComponent: acctPrincipal,
               interestComponent: acctInterest,
               // FIX: Force CASH mode for split so recordEMIPaymentAccounting routes to Cashbook only.
-              // The bank portion will be added separately.
+              // The bank portion will be added separately (or handled by mirror split logic).
               paymentMode: (isSplitPayment ? 'CASH' : effectivePaymentMode || 'CASH') as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE',
               paymentType: paymentType || 'FULL',
               creditType: creditTypeUsed as 'PERSONAL' | 'COMPANY',
@@ -3173,14 +3173,19 @@ export async function PUT(request: NextRequest) {
               mirrorPrincipal: isMirrorLoan ? mirrorPrincipalAmount : undefined,
               mirrorInterest: isMirrorLoan ? mirrorInterestAmount : undefined,
               mirrorCompanyId: mirrorLoanMapping?.mirrorCompanyId || undefined,
-              isMirrorPayment: isMirrorLoan
+              isMirrorPayment: isMirrorLoan,
+              // Pass split details so mirror loan path can proportion cash/online correctly
+              isSplitPayment: isSplitPayment || false,
+              splitCashAmount: splitCashAmt,
+              splitOnlineAmount: splitOnlineAmt,
             });
             console.log(`[Accounting] EMI Payment recorded — Journal: ${accountingResult.journalEntryId ? 'Yes' : 'MISSING ❌'}`);
 
             // ── SPLIT PAYMENT: add separate ONLINE bank entry for the online portion ──
-            // recordEMIPaymentAccounting above recorded everything as CASH (Cashbook).
-            // Now we additionally credit the online portion to the Bank Account.
-            if (isSplitPayment && splitOnlineAmt > 0) {
+            // For NON-MIRROR loans: recordEMIPaymentAccounting recorded cashbook (CASH mode).
+            // Now we credit the online portion to the Bank Account.
+            // For MIRROR loans: the split is handled internally in recordEMIPaymentAccounting.
+            if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan) {
               try {
                 await recordBankTransaction({
                   companyId: targetCompanyId || loanCompanyId,

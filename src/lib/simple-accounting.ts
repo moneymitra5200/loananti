@@ -285,6 +285,11 @@ export interface EMIPaymentAccountingParams {
   
   // Flag to indicate if this is a mirror loan payment
   isMirrorPayment?: boolean;
+
+  // Split payment support (Cash portion → Cashbook, Online portion → Bank)
+  isSplitPayment?: boolean;
+  splitCashAmount?: number;   // cash portion (goes to Cashbook)
+  splitOnlineAmount?: number; // online portion (goes to Bank)
 }
 
 /**
@@ -364,32 +369,76 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     let recordPrincipal = Math.round(Math.max(0, recordAmount - recordInterest) * 100) / 100;
     console.log(`[Accounting] MIRROR EMI ${paymentType} (interest-first): ₹${recordAmount} → I:₹${recordInterest} P:₹${recordPrincipal} (fullMirrorEMITotal: ₹${fullMirrorEMITotal}, originalLoanAmount: ₹${amount})`);
 
-    console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
+    // ── SPLIT PAYMENT SUPPORT ────────────────────────────────────────────────
+    // For split payments, the proportional mirror amounts are:
+    //   cashPortion   → Mirror Cashbook
+    //   onlinePortion → Mirror Bank Account
+    // We split the mirror recordAmount proportionally to the original split ratio.
+    const isSplit = !!(params as any).isSplitPayment;
+    const rawSplitCash   = (params as any).splitCashAmount   as number | undefined;
+    const rawSplitOnline = (params as any).splitOnlineAmount as number | undefined;
 
-    // ONLINE/BANK_TRANSFER/UPI payments go to Bank Account
-    if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
-      result.bankTransaction = await recordBankTransaction({
-        companyId: mirrorCompanyId,
-        transactionType: 'CREDIT',
-        amount: recordAmount,
-        description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
-        referenceType: 'MIRROR_EMI_PAYMENT',
-        referenceId: paymentId,
-        createdById: userId
-      });
-      console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company BANK ACCOUNT`);
+    if (isSplit && rawSplitCash !== undefined && rawSplitOnline !== undefined) {
+      const splitTotal  = rawSplitCash + rawSplitOnline || 1;
+      const cashRatio   = rawSplitCash   / splitTotal;
+      const onlineRatio = rawSplitOnline / splitTotal;
+      const mirrorCashPortion   = Math.round(recordAmount * cashRatio   * 100) / 100;
+      const mirrorOnlinePortion = Math.round((recordAmount - mirrorCashPortion) * 100) / 100; // remainder avoids rounding drift
+
+      console.log(`[Accounting] MIRROR SPLIT: total ₹${recordAmount} → Cash ₹${mirrorCashPortion} + Online ₹${mirrorOnlinePortion}`);
+
+      // Cash portion → Cashbook
+      if (mirrorCashPortion > 0) {
+        result.cashBookEntry = await recordCashBookEntry({
+          companyId: mirrorCompanyId,
+          entryType: 'CREDIT',
+          amount: mirrorCashPortion,
+          description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} [SPLIT: Cash ₹${mirrorCashPortion} + Online ₹${mirrorOnlinePortion}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          referenceType: 'MIRROR_EMI_PAYMENT',
+          referenceId: paymentId,
+          createdById: userId
+        });
+      }
+      // Online portion → Bank
+      if (mirrorOnlinePortion > 0) {
+        result.bankTransaction = await recordBankTransaction({
+          companyId: mirrorCompanyId,
+          transactionType: 'CREDIT',
+          amount: mirrorOnlinePortion,
+          description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} [SPLIT: Cash ₹${mirrorCashPortion} + Online ₹${mirrorOnlinePortion}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          referenceType: 'MIRROR_EMI_PAYMENT',
+          referenceId: `${paymentId}-SPLIT-ONLINE`,
+          createdById: userId
+        });
+      }
+      console.log(`[Accounting] MIRROR SPLIT ✅: Cash ₹${mirrorCashPortion} → Cashbook, Online ₹${mirrorOnlinePortion} → Bank`);
     } else {
-      // CASH/CHEQUE payments go to Cash Book
-      result.cashBookEntry = await recordCashBookEntry({
-        companyId: mirrorCompanyId,
-        entryType: 'CREDIT',
-        amount: recordAmount,
-        description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
-        referenceType: 'MIRROR_EMI_PAYMENT',
-        referenceId: paymentId,
-        createdById: userId
-      });
-      console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company CASH BOOK`);
+      // Non-split: route entire amount to bank (ONLINE) or cashbook (CASH)
+      console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
+
+      if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
+        result.bankTransaction = await recordBankTransaction({
+          companyId: mirrorCompanyId,
+          transactionType: 'CREDIT',
+          amount: recordAmount,
+          description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          referenceType: 'MIRROR_EMI_PAYMENT',
+          referenceId: paymentId,
+          createdById: userId
+        });
+        console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company BANK ACCOUNT`);
+      } else {
+        result.cashBookEntry = await recordCashBookEntry({
+          companyId: mirrorCompanyId,
+          entryType: 'CREDIT',
+          amount: recordAmount,
+          description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          referenceType: 'MIRROR_EMI_PAYMENT',
+          referenceId: paymentId,
+          createdById: userId
+        });
+        console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company CASH BOOK`);
+      }
     }
     
     // Double-entry journal for Mirror Company:
@@ -892,7 +941,7 @@ export async function recordPrincipalOnlyJournal(params: {
         entryDate:     paymentDate,
         referenceType: 'PRINCIPAL_ONLY_PAYMENT',
         referenceId:   paymentId,
-        narration:     `Principal-Only EMI #${installmentNumber} — ${loanNumber} | P:₹${principalAmount} collected, I:₹${writeOff} written off`,
+        narration:     `Principal-Only EMI #${installmentNumber} — ${loanNumber} | P:₹${principalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} collected, I:₹${writeOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} written off`,
         totalDebit:    principalAmount + writeOff,
         totalCredit:   principalAmount + writeOff,
         isAutoEntry:   true,
