@@ -761,7 +761,50 @@ export async function PUT(request: NextRequest) {
           });
 
           if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
-            console.log(`[PR Accounting] No mirror mapping for loan ${loan.id} — skipping.`);
+            // ── NO MIRROR: Record accounting in the ORIGINAL company ──────
+            console.log(`[PR Accounting] No mirror — recording in original company ${loan.companyId}.`);
+            try {
+              const { AccountingService: AccSvc } = await import('@/lib/accounting-service');
+              const { recordBankTransaction } = await import('@/lib/simple-accounting');
+              const accSvc = new AccSvc(loan.companyId);
+              await accSvc.initializeChartOfAccounts();
+              const payMode = 'UPI';
+              const pType = paymentRequest.paymentType;
+              const totalComp = pType === 'PARTIAL_PAYMENT' ? (paymentRequest.partialAmount || 0)
+                : pType === 'INTEREST_ONLY' ? (emi.interestAmount || 0)
+                : paymentRequest.requestedAmount;
+              const interestComp = pType === 'INTEREST_ONLY' ? (emi.interestAmount || 0)
+                : Math.min(totalComp, emi.interestAmount || 0);
+              const principalComp = Math.max(0, totalComp - interestComp);
+              // 1. Bank passbook entry
+              await recordBankTransaction({
+                companyId: loan.companyId, transactionType: 'CREDIT', amount: totalComp,
+                description: `EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber}`,
+                referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: reviewedById
+              });
+              // 2. Double-entry journal
+              await accSvc.recordEMIPayment({
+                loanId: loan.id, customerId: paymentRequest.customerId, paymentId,
+                totalAmount: totalComp, principalComponent: principalComp, interestComponent: interestComp,
+                paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
+                reference: `PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`
+              });
+              console.log(`[PR Accounting] ✓ Original company journal+bank ₹${totalComp}`);
+              // 3. Processing fee on first EMI
+              const pfAmount = loan.sessionForm?.processingFee || 0;
+              if (emi.installmentNumber === 1 && pfAmount > 0) {
+                const existingPf = await db.journalEntry.findFirst({
+                  where: { companyId: loan.companyId, referenceId: loan.id, referenceType: 'PROCESSING_FEE_COLLECTION', isReversed: false }
+                });
+                if (!existingPf) {
+                  await accSvc.recordProcessingFee({ loanId: loan.id, customerId: paymentRequest.customerId,
+                    amount: pfAmount, collectionDate: new Date(), createdById: reviewedById, paymentMode: payMode });
+                  console.log(`[PR Accounting] ✓ Processing fee ₹${pfAmount} recorded EMI #1`);
+                }
+              }
+            } catch (noMirrorAccErr) {
+              console.error('[PR Accounting] ❌ Original company accounting failed (non-blocking):', noMirrorAccErr);
+            }
           } else {
             const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
             const { AccountingService: AccSvc, ACCOUNT_CODES: AC } = await import('@/lib/accounting-service');
