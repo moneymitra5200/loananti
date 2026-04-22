@@ -432,8 +432,13 @@ export async function GET(request: NextRequest) {
     
     // NO LONGER FILTER BY CREATOR - Show all company loans to everyone
     // Only filter by status and company
-    if (status) {
+    if (status && status !== 'all') {
+      // Explicit status filter requested
       where.status = status;
+    } else if (!status || status === 'all') {
+      // Default: exclude CLOSED loans from active list.
+      // UI must pass status=CLOSED explicitly to see closed loans.
+      where.status = { notIn: ['CLOSED'] };
     }
 
     if (companyId) {
@@ -2048,6 +2053,39 @@ export async function PUT(request: NextRequest) {
             totalInterestPaid: (loan.totalInterestPaid || 0) + interestAmount
           }
         });
+
+        // ── AUTO-CLOSE CHECK ─────────────────────────────────────────────────────
+        // If ALL EMIs (including the one we just paid) are PAID / INTEREST_ONLY_PAID,
+        // close the loan automatically — works whether mirror exists or not.
+        const allLoanEmis = await tx.offlineLoanEMI.findMany({
+          where: { offlineLoanId: loanId },
+          select: { paymentStatus: true }
+        });
+        const allPaidNow = allLoanEmis.every(e =>
+          e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
+        );
+        if (allPaidNow) {
+          await tx.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED', closedAt: now } });
+          console.log(`[Interest-Only Auto-Close] ✅ Loan ${loan.loanNumber} auto-closed — all EMIs paid`);
+          // Also close mirror loan if exists
+          const mirrorMap = await tx.mirrorLoanMapping.findFirst({
+            where: { originalLoanId: loanId },
+            select: { mirrorLoanId: true }
+          });
+          if (mirrorMap?.mirrorLoanId) {
+            const mirrorEmis = await tx.offlineLoanEMI.findMany({
+              where: { offlineLoanId: mirrorMap.mirrorLoanId },
+              select: { paymentStatus: true }
+            });
+            const mirrorAllPaid = mirrorEmis.length === 0 || mirrorEmis.every(e =>
+              e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
+            );
+            if (mirrorAllPaid) {
+              await tx.offlineLoan.update({ where: { id: mirrorMap.mirrorLoanId }, data: { status: 'CLOSED', closedAt: now } });
+              console.log(`[Interest-Only Auto-Close] ✅ Mirror loan also auto-closed`);
+            }
+          }
+        }
 
         // Update user credit
         await tx.user.update({

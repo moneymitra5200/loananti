@@ -184,8 +184,14 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     try {
       setLoading(true);
       let url = `/api/offline-loan?page=${page}&limit=10`;
-      if (statusFilter !== 'all') url += `&status=${statusFilter}`;
-      // If a companyId is locked (role-scoped), always use it; otherwise use the dropdown filter
+      // Pass status to backend; 'all' means show active+other but NOT closed (API excludes CLOSED by default)
+      if (statusFilter === 'CLOSED') {
+        url += `&status=CLOSED`;
+      } else if (statusFilter !== 'all') {
+        url += `&status=${statusFilter}`;
+      }
+      // If statusFilter === 'all' we send nothing → API returns non-CLOSED by default
+      // If companyId is locked (role-scoped), always use it; otherwise use the dropdown filter
       const effectiveCompanyId = lockedCompanyId || (companyFilter !== 'all' ? companyFilter : undefined);
       if (effectiveCompanyId) url += `&companyId=${effectiveCompanyId}`;
 

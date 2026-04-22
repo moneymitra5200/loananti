@@ -232,7 +232,6 @@ export async function POST(request: NextRequest) {
       if (effectiveCompanyId && totalWriteOff > 0) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
-          (AccountingService as any).initializedCompanies?.delete(effectiveCompanyId);
           const accSvc = new AccountingService(effectiveCompanyId);
           await accSvc.initializeChartOfAccounts();
           await accSvc.createJournalEntry({
@@ -241,8 +240,8 @@ export async function POST(request: NextRequest) {
             referenceId:   `${loanId}-LOSS-WRITEOFF`,
             narration:     `Loan ${loan.loanNumber} written off (${remarks || (writeOffInterest ? 'principal-only irrecoverable loss' : 'irrecoverable loss')}) P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${writeOffInterest ? 0 : totalRemainingInterest.toFixed(2)}`,
             lines: [
-              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, loanId, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
-              { accountCode: '1200', debitAmount: 0, creditAmount: totalWriteOff, loanId, narration: `Loan ${loan.loanNumber} removed from Loans Receivable` },
+              { accountCode: '5500', debitAmount: totalWriteOff, creditAmount: 0, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
+              { accountCode: '1200', debitAmount: 0, creditAmount: totalWriteOff, narration: `Loan ${loan.loanNumber} removed from Loans Receivable` },
             ],
             createdById: userId,
             isAutoEntry: true,
@@ -365,17 +364,17 @@ export async function POST(request: NextRequest) {
           lines: [
             {
               accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
-              debitAmount: totalForeclosureAmount, creditAmount: 0, loanId,
+              debitAmount: totalForeclosureAmount, creditAmount: 0,
               narration: `Foreclosure collected (${paymentMode})`
             },
             {
               accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-              debitAmount: 0, creditAmount: totalPrincipal, loanId,
+              debitAmount: 0, creditAmount: totalPrincipal,
               narration: `Loan principal recovered`
             },
             ...(totalInterest > 0 ? [{
               accountCode: ACCOUNT_CODES.INTEREST_INCOME,
-              debitAmount: 0, creditAmount: totalInterest, loanId,
+              debitAmount: 0, creditAmount: totalInterest,
               narration: `Interest income on foreclosure`
             }] : []),
           ],
