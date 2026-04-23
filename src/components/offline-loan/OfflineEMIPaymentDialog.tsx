@@ -325,7 +325,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
             creditType, proofUrl, remarks,
             emiId: e.id, paymentType: 'FULL', amount: amtToPay,
             isAdvancePayment: advance,
-            penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
+            penaltyAmount: penaltyAmount > 0 ? penaltyAmount : undefined,
             penaltyPaymentMode: netPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
             ...(isSplitMode && { isSplitPayment: true, splitCashAmount: splitCash / emis.length, splitOnlineAmount: splitOnline / emis.length }),
           };
@@ -353,7 +353,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         creditType, proofUrl, remarks,
         // Single EMI: Always pay full amount - NO advance logic
         isAdvancePayment: false,
-        penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
+        penaltyAmount: penaltyAmount > 0 ? penaltyAmount : undefined,
         penaltyWaiver: penaltyWaiver > 0 ? penaltyWaiver : undefined,
         // Penalty same mode as EMI: ONLINE→BANK, CASH/SPLIT→CASH
         penaltyPaymentMode: netPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
