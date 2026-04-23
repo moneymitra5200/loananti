@@ -579,6 +579,19 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         // For multi-EMI always pay full remaining; for single EMI use form amount
         const paidAmount = emisToPay.length > 1 ? emiRemaining : emiPaymentForm.amount;
 
+        // ── isAdvancePayment: ONLY for multi-select, ONLY for future-month EMIs ──
+        // An EMI is "advance" when today's month/year < EMI due date's month/year.
+        // Backend collects principal-only for such EMIs (interest not yet due).
+        // Single EMI payments NEVER set this flag.
+        let isAdvanceEMI = false;
+        if (emisToPay.length > 1 && emi.dueDate) {
+          const now = new Date();
+          const due = new Date(emi.dueDate);
+          isAdvanceEMI =
+            now.getFullYear() < due.getFullYear() ||
+            (now.getFullYear() === due.getFullYear() && now.getMonth() < due.getMonth());
+        }
+
         // ── Build FormData for POST /api/emi/pay ──────────────────────────
         // (POST /api/emi/pay uses FormData and handles: auto-closure, mirror sync,
         //  push notifications, paidPrincipal/paidInterest tracking, processing fee)
@@ -604,6 +617,11 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         };
         const mappedPayType = payTypeMap[emiPaymentForm.paymentType] || 'FULL_EMI';
         formData.append('paymentType', emisToPay.length > 1 ? 'FULL_EMI' : mappedPayType);
+
+        // Send advance flag — backend uses it to collect principal-only for future-month EMIs
+        if (isAdvanceEMI) {
+          formData.append('isAdvancePayment', 'true');
+        }
 
         // Partial payment fields
         if (emisToPay.length === 1 && emiPaymentForm.paymentType === 'PARTIAL') {
