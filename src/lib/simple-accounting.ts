@@ -914,7 +914,7 @@ export async function recordPrincipalOnlyJournal(params: {
 
     // ── 3. Unique entry number ─────────────────────────────────────────────────
     const entryCount = await db.journalEntry.count({ where: { companyId } });
-    const entryNumber = `JE-PO-${companyId.slice(-4).toUpperCase()}-${String(entryCount + 1).padStart(6, '0')}`;
+    const entryNumber = `JE${String(entryCount + 1).padStart(6, '0')}`;
 
     // ── 4. Build lines ─────────────────────────────────────────────────────────
     const writeOff = interestWrittenOff > 0 ? interestWrittenOff : 0;
