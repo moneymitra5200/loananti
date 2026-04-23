@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
 
     // ── Build role-specific filters ─────────────────────────────────────────
     const loanWhere: Record<string, unknown> = {};
-    const offlineWhere: Record<string, unknown> = { status: { in: ['ACTIVE', 'INTEREST_ONLY'] } };
+    // isMirrorLoan: false — mirror loans are internal accounting duplicates and must
+    // never inflate dashboard counts across any role.
+    const offlineWhere: Record<string, unknown> = { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false };
 
     if (role === 'COMPANY' && companyId) {
       loanWhere.companyId = companyId;
@@ -72,27 +74,29 @@ export async function GET(request: NextRequest) {
         where: { ...companyFilter, status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1', 'LOAN_FORM_COMPLETED'] } },
       }).catch(() => 0),
 
-      // Closed offline loans
-      db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED' } }).catch(() => 0),
+      // Closed offline loans (exclude mirror loans)
+      db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED', isMirrorLoan: false } }).catch(() => 0),
 
       // Admin-only: companies, agents, staff
       role === 'SUPER_ADMIN' ? db.company.count({ where: { isActive: true } }).catch(() => 0) : Promise.resolve(0),
       role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'AGENT', isActive: true } }).catch(() => 0) : Promise.resolve(0),
       role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'STAFF', isActive: true } }).catch(() => 0) : Promise.resolve(0),
 
-      // EMIs due today (paymentStatus field on OfflineLoanEMI)
+      // EMIs due today (exclude mirror loan EMIs)
       db.offlineLoanEMI.count({
         where: {
           dueDate: { gte: todayStart, lte: todayEnd },
           paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+          offlineLoan: { isMirrorLoan: false },
         },
       }).catch(() => 0),
 
-      // Overdue EMIs (due before today, still PENDING)
+      // Overdue EMIs (due before today, still PENDING, exclude mirror loans)
       db.offlineLoanEMI.count({
         where: {
           dueDate: { lt: todayStart },
           paymentStatus: 'PENDING',
+          offlineLoan: { isMirrorLoan: false },
         },
       }).catch(() => 0),
     ]);

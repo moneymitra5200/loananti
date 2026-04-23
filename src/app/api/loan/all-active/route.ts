@@ -111,10 +111,10 @@ export async function GET(request: NextRequest) {
       };
     }
 
-    // Fetch offline loans
+    // Fetch offline loans — exclude mirror loans (internal accounting duplicates)
     if (filter === 'all' || filter === 'offline') {
       offlineLoans = await db.offlineLoan.findMany({
-        where: { status: { in: activeOfflineStatuses } },
+        where: { status: { in: activeOfflineStatuses }, isMirrorLoan: false },
         orderBy: { createdAt: 'desc' },
         include: offlineInclude,
       });

@@ -202,9 +202,10 @@ export async function GET(request: NextRequest) {
       const dayAfter = new Date(tomorrow);
       dayAfter.setDate(dayAfter.getDate() + 1);
 
-      // Get all pending/overdue EMIs (NO CREATOR FILTERING - show all company loans)
+      // Get all pending/overdue EMIs for original loans only (mirror loans excluded)
       const whereClause: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] }
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        offlineLoan: { isMirrorLoan: false }
       };
 
       const emis = await db.offlineLoanEMI.findMany({
@@ -427,11 +428,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get list of offline loans (ALL COMPANY LOANS - NO CREATOR FILTERING)
-    const where: Record<string, unknown> = {};
+    // Get list of offline loans — exclude mirror loans (internal accounting duplicates).
+    // The ACCOUNTANT role accesses mirror loan data via the accounting APIs, not here.
+    const where: Record<string, unknown> = { isMirrorLoan: false };
     
-    // NO LONGER FILTER BY CREATOR - Show all company loans to everyone
-    // Only filter by status and company
     if (status && status !== 'all') {
       // Explicit status filter requested
       where.status = status;

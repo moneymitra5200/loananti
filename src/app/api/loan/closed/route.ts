@@ -40,9 +40,9 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // ── Offline closed loans ────────────────────────────────────────────────
+    // ── Offline closed loans (exclude mirror loans — they are internal accounting duplicates) ──
     if (filter === 'all' || filter === 'offline') {
-      const offlineWhere: any = { status: 'CLOSED' };
+      const offlineWhere: any = { status: 'CLOSED', isMirrorLoan: false };
       if (companyId)   offlineWhere.companyId   = companyId;
       if (agentId)     offlineWhere.agentId      = agentId;
       if (createdById) offlineWhere.createdById  = createdById;
