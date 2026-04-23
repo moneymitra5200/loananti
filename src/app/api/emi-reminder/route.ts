@@ -90,12 +90,15 @@ export async function GET(request: NextRequest) {
       });
 
       // Get offline loan EMIs with loan amount for penalty calculation
+      // IMPORTANT: isMirrorLoan=true loans are excluded — mirror EMIs are internal accounting
+      // duplicates of the original loan and must never be double-counted in alerts.
       const offlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] }
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        offlineLoan: { isMirrorLoan: false }
       };
 
       if (userRole === 'AGENT') {
-        offlineEmiWhere.offlineLoan = { createdById: userId };
+        offlineEmiWhere.offlineLoan = { isMirrorLoan: false, createdById: userId };
       }
 
       const offlineEmis = await db.offlineLoanEMI.findMany({
@@ -377,14 +380,15 @@ export async function GET(request: NextRequest) {
         orderBy: { dueDate: 'asc' }
       });
 
-      // Get offline EMIs for the selected date
+      // Get offline EMIs for the selected date (exclude mirror loans)
       const offlineEmiWhere: Record<string, unknown> = {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-        dueDate: { gte: selectedDate, lt: nextDay }
+        dueDate: { gte: selectedDate, lt: nextDay },
+        offlineLoan: { isMirrorLoan: false }
       };
 
       if (userRole === 'AGENT') {
-        offlineEmiWhere.offlineLoan = { createdById: userId };
+        offlineEmiWhere.offlineLoan = { isMirrorLoan: false, createdById: userId };
       }
 
       const offlineEmis = await db.offlineLoanEMI.findMany({
@@ -469,7 +473,8 @@ export async function GET(request: NextRequest) {
         db.offlineLoanEMI.findMany({
           where: {
             paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-            dueDate: { lt: dayAfter }
+            dueDate: { lt: dayAfter },
+            offlineLoan: { isMirrorLoan: false }  // exclude mirror loan EMIs
           },
           include: {
             offlineLoan: {
