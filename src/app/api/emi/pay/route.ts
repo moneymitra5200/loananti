@@ -125,7 +125,10 @@ export async function POST(request: NextRequest) {
         where: {
           loanApplicationId: loanId,
           installmentNumber: { lt: emi.installmentNumber },
-          paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
+          // Only truly skipped (PENDING/OVERDUE) earlier EMIs block the next payment.
+          // PAID, INTEREST_ONLY_PAID, PARTIALLY_PAID, WAIVED are all "handled" states.
+          // PRINCIPAL_ONLY payments set status=PAID, already covered.
+          paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID', 'PARTIALLY_PAID', 'WAIVED'] }
         }
       })
     ]);

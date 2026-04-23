@@ -387,11 +387,16 @@ const EMISection = memo(function EMISection({
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <p className="font-semibold flex items-center gap-2">
+                          <p className="font-semibold flex items-center gap-2 flex-wrap">
                             EMI #{emi.emiNumber}
                             {emi.status === 'INTEREST_ONLY_PAID' && (
                               <Badge className="bg-purple-100 text-purple-700 text-[10px] uppercase font-bold py-0.5 border-purple-200">
                                 INTEREST ONLY PAID
+                              </Badge>
+                            )}
+                            {emi.status === 'PARTIALLY_PAID' && (
+                              <Badge className="bg-orange-100 text-orange-700 text-[10px] uppercase font-bold py-0.5 border-orange-200">
+                                PARTIALLY PAID
                               </Badge>
                             )}
                             {isPrincipalOnly && (
