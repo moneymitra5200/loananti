@@ -779,14 +779,18 @@ export async function POST(request: NextRequest) {
       });
       
       console.log(`[Credit] ₹${splitCreditAmount} credited to personal credit of user ${creditUserId} ${creditReason}${splitDescription}`);
-    } else if (effectiveCreditType === 'COMPANY' && companyId) {
-      const company = await db.company.findUnique({
-        where: { id: companyId },
-        select: { companyCredit: true }
+    } else if (effectiveCreditType === 'COMPANY') {
+      // ── COMPANY credit: update the USER's companyCredit field (same as offline route) ──
+      // The credit bar reads from user.personalCredit / user.companyCredit, NOT company.companyCredit.
+      // Previously this was updating company.companyCredit which is never shown in the UI.
+      const userForCredit = await db.user.findUnique({
+        where: { id: paidBy },
+        select: { credit: true, companyCredit: true, personalCredit: true }
       });
-      
-      const newCompanyCredit = (company?.companyCredit || 0) + splitCreditAmount;
-      
+
+      const newUserCompanyCredit = (userForCredit?.companyCredit || 0) + splitCreditAmount;
+      const newUserTotalCredit   = (userForCredit?.credit        || 0) + splitCreditAmount;
+
       await db.creditTransaction.create({
         data: { // @ts-ignore
           userId: paidBy,
@@ -795,9 +799,9 @@ export async function POST(request: NextRequest) {
           paymentMode: (paymentMode || 'CASH') as 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'SYSTEM',
           creditType: 'COMPANY',
           sourceType: 'EMI_PAYMENT',
-          balanceAfter: newCompanyCredit,
-          personalBalanceAfter: 0,
-          companyBalanceAfter: newCompanyCredit,
+          balanceAfter: newUserTotalCredit,
+          personalBalanceAfter: userForCredit?.personalCredit || 0,
+          companyBalanceAfter: newUserCompanyCredit,
           loanApplicationId: loanId,
           emiScheduleId: emiId,
           installmentNumber: emi.installmentNumber,
@@ -809,13 +813,16 @@ export async function POST(request: NextRequest) {
           transactionDate: new Date()
         }
       });
-      
-      await db.company.update({
-        where: { id: companyId },
+
+      await db.user.update({
+        where: { id: paidBy },
         data: {
-          companyCredit: newCompanyCredit
+          companyCredit: newUserCompanyCredit,
+          credit:        newUserTotalCredit,
         }
       });
+
+      console.log(`[Credit] ₹${splitCreditAmount} credited to COMPANY credit of user ${paidBy}. New companyCredit: ₹${newUserCompanyCredit}${splitDescription}`);
     }
 
     // Check if all EMIs are paid
@@ -1347,25 +1354,31 @@ export async function POST(request: NextRequest) {
           // NO entry for original company - mirror loan only affects mirror company
         } else {
           // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
-          const poJournalResult = await poPrincipalJournal({
-            companyId:          loanCompanyId,
-            company3Id:         company3Id || undefined,
-            creditType:         effectiveCreditType as 'PERSONAL' | 'COMPANY',
-            loanId,
-            paymentId:          payment.id,
-            principalAmount:    paidPrincipal,
-            interestWrittenOff: remainingInterest,
-            paymentDate:        new Date(),
-            createdById:        paidBy || 'SYSTEM',
-            paymentMode:        paymentMode as string,
-            loanNumber:         emi.loanApplication?.applicationNo || loanId,
-            installmentNumber:  emi.installmentNumber,
-          });
-          if (!poJournalResult.success) {
-            onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
-            console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+          // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
+          if (paidPrincipal <= 0) {
+            onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal skipped: paidPrincipal=0 (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
+            console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Skipped — paidPrincipal=₹${paidPrincipal}. Check that remainingPrincipal > 0.`);
           } else {
-            console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
+            const poJournalResult = await poPrincipalJournal({
+              companyId:          loanCompanyId,
+              company3Id:         company3Id || undefined,
+              creditType:         effectiveCreditType as 'PERSONAL' | 'COMPANY',
+              loanId,
+              paymentId:          payment.id,
+              principalAmount:    paidPrincipal,
+              interestWrittenOff: remainingInterest,
+              paymentDate:        new Date(),
+              createdById:        paidBy || 'SYSTEM',
+              paymentMode:        paymentMode as string,
+              loanNumber:         emi.loanApplication?.applicationNo || loanId,
+              installmentNumber:  emi.installmentNumber,
+            });
+            if (!poJournalResult.success) {
+              onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
+              console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+            } else {
+              console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
+            }
           }
         }
 
