@@ -2299,7 +2299,7 @@ export async function PUT(request: NextRequest) {
         // Check if this loan has a mirror (original -> mirror)
         db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true },
-          select: { id: true, mirrorLoanId: true, mirrorTenure: true, mirrorCompanyId: true }
+          select: { id: true, mirrorLoanId: true, mirrorTenure: true, mirrorCompanyId: true, mirrorInterestRate: true }
         }),
         // Check if this is a mirror loan (mirror -> original)
         db.mirrorLoanMapping.findFirst({
