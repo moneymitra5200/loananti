@@ -1843,9 +1843,6 @@ export default function OfflineLoanDetailPanel({
                                               )}
                                             </div>
                                             <p className="text-sm text-gray-500">Due: {formatDate(emi.dueDate)}</p>
-                                            {emi.notes && (
-                                              <p className="text-xs text-gray-400 mt-1">{emi.notes}</p>
-                                            )}
                                           </div>
                                         </div>
                                         <div className="flex items-center gap-3">

@@ -539,9 +539,15 @@ export async function POST(request: NextRequest) {
       // Calculate interest for the new EMI (based on original loan rate)
       const originalRate = emi.loanApplication?.sessionForm?.interestRate || 12;
       const originalType = emi.loanApplication?.sessionForm?.interestType || 'FLAT';
-      const newInterestOriginal = originalType === 'FLAT' 
-        ? remainingPrincipal * (originalRate / 100) / 12 
-        : emi.outstandingPrincipal * (originalRate / 100) / 12;
+      
+      let newInterestOriginal = emi.interestAmount;
+      if (originalType === 'REDUCING') {
+        newInterestOriginal = emi.outstandingPrincipal * (originalRate / 100) / 12;
+      } else {
+        // FLAT: Use the current EMI's interest amount as it represents the correct constant
+        // Do NOT use remainingPrincipal (which is just the deferred chunk) to calculate flat interest!
+        newInterestOriginal = emi.interestAmount;
+      }
       
       // Create NEW EMI for original loan at the position right after the interest-paid EMI
       // Due date = Current EMI + 1 month
@@ -584,7 +590,11 @@ export async function POST(request: NextRequest) {
           // Calculate mirror interest based on mirror rate
           const mirrorRate = mirrorMappingIO!.mirrorInterestRate;
           const mirrorMonthlyRate = mirrorRate / 12 / 100;
-          const mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          let mirrorInterest = mirrorEMI.interestAmount; // For flat rates, use constant interest
+          if (originalType === 'REDUCING') {
+            // For reducing, calculate based on outstanding principal
+            mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          }
           const mirrorPrincipal = mirrorEMI.principalAmount;
           
           console.log(`[Interest Only] Mirror EMI #${mirrorEMI.installmentNumber} - Marking as INTEREST_ONLY_PAID, Interest: ₹${mirrorInterest}`);

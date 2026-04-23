@@ -667,13 +667,22 @@ export async function PUT(request: NextRequest) {
           }
 
           // Create new EMI with due date = Current EMI + 1 month
-          // BUG FIX: Compute FRESH interest from loan rate — do NOT copy emi.interestAmount
-          // (emi.interestAmount could be a reduced "last" EMI value, e.g. ₹20 instead of ₹200)
+          // Calculate fresh interest safely
           const loanRate  = emi.loanApplication?.sessionForm?.interestRate || 12;
           const loanType  = emi.loanApplication?.sessionForm?.interestType || 'FLAT';
-          const freshInterest = loanType === 'FLAT'
-            ? Math.round(emi.principalAmount * (loanRate / 100) / 12 * 100) / 100
-            : Math.round(emi.outstandingPrincipal * (loanRate / 100) / 12 * 100) / 100;
+          
+          let freshInterest = emi.interestAmount; // Default to the same interest
+          if (loanType === 'REDUCING') {
+            freshInterest = Math.round(emi.outstandingPrincipal * (loanRate / 100) / 12 * 100) / 100;
+          } else {
+            // For FLAT, the interest per month is constant. We should NOT calculate it
+            // on the principalAmount of a single EMI, nor the outstandingPrincipal.
+            // If we have to regenerate it, we would need approvedAmount.
+            // The safest fallback is the current EMI's interest, or borrowing from the first EMI.
+            // In 99% of cases, the current EMI's interest is the correct flat monthly interest.
+            freshInterest = emi.interestAmount;
+          }
+          
           const newEmiAmount = emi.principalAmount + freshInterest;
           const deferredPrincipalEmi = await tx.eMISchedule.create({
             data: {

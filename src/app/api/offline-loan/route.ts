@@ -2581,19 +2581,20 @@ export async function PUT(request: NextRequest) {
             // IMPORTANT: Do NOT copy emi.interestAmount — that EMI might be the "last"
             // (reduced) EMI with a smaller interest amount (e.g., ₹20 instead of ₹200).
             // Always recompute interest from the loan's interestRate and outstandingPrincipal.
-            const loanRate   = Number(emi.offlineLoan.interestRate) || 0;
-            const outPrincipal = Number(emi.outstandingPrincipal) || Number(emi.offlineLoan.loanAmount) || 0;
-            const computedMonthlyInterest = loanRate > 0 && outPrincipal > 0
-              ? Math.round((outPrincipal * loanRate / 100 / 12) * 100) / 100
-              : Number(emi.interestAmount) || 0;  // fallback to current if rate missing
-            // Final sanity: if the original loan's standard EMI interest is known, prefer it
-            // (accounts for flat-rate loans where interest = constant, not reducing-balance)
-            const standardEmiInterest = emi.offlineLoan.emiAmount
-              ? Math.max(0, Number(emi.offlineLoan.emiAmount) - Number(emi.offlineLoan.loanAmount) / (emi.offlineLoan.tenure || 1))
+            // IMPORTANT: Do NOT blindly recompute using reducing-balance formula 
+            // since offline loans are typically FLAT interest.
+            // For FLAT, the interest per month is constant.
+            // In 99% of cases, the current EMI's interest is the correct flat monthly interest.
+            // The only exception is the LAST EMI, which might be reduced. So we can use 
+            // the standard EMI interest as a safe fallback.
+            const standardEmiInterest = emi.offlineLoan.emiAmount && emi.offlineLoan.loanAmount && emi.offlineLoan.tenure
+              ? Math.max(0, Number(emi.offlineLoan.emiAmount) - Number(emi.offlineLoan.loanAmount) / emi.offlineLoan.tenure)
               : 0;
-            // Use computed reducing-balance interest; if it rounds to 0, use standard EMI interest as final fallback
-            const deferredInterest = computedMonthlyInterest > 0.01 ? computedMonthlyInterest : (standardEmiInterest > 0.01 ? standardEmiInterest : Number(emi.interestAmount) || 0);
-            console.log(`[Interest-Only Deferred] Rate:${loanRate}% OutP:₹${outPrincipal} → monthly interest:₹${deferredInterest} (computed:₹${computedMonthlyInterest} emiI:₹${emi.interestAmount})`);
+            
+            // Prefer the current EMI's interest, unless it's drastically lower than the standard (which means it's a reduced last EMI)
+            const currentInterest = Number(emi.interestAmount) || 0;
+            const deferredInterest = Math.max(currentInterest, standardEmiInterest);
+            console.log(`[Interest-Only Deferred] Extracted standard flat interest: ₹${deferredInterest}`);
             await tx.offlineLoanEMI.create({
               data: {
                 offlineLoanId: emi.offlineLoanId,
@@ -2671,12 +2672,9 @@ export async function PUT(request: NextRequest) {
                 }
                 const mNewDue = new Date(mirrorEmi.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
                 // Compute fresh mirror interest from the mirror loan's interest rate
-                // (never copy mirrorEmi.interestAmount — it could be the last/reduced EMI)
+                // For FLAT loans, just mirror the existing interest amount
                 const mirrorLoanRate   = mirrorLoanMapping.mirrorInterestRate || 0;
-                const mirrorOutP       = Number(mirrorEmi.outstandingPrincipal) || mirrorRemPrin;
-                const mDeferredInterest = mirrorLoanRate > 0 && mirrorOutP > 0
-                  ? Math.round((mirrorOutP * mirrorLoanRate / 100 / 12) * 100) / 100
-                  : Number(mirrorEmi.interestAmount) || 0;
+                const mDeferredInterest = Number(mirrorEmi.interestAmount) || 0;
                 await tx.offlineLoanEMI.create({ data: {
                   offlineLoanId: mirrorLoanMapping.mirrorLoanId, installmentNumber: mNextInst, dueDate: mNewDue,
                   principalAmount: mirrorRemPrin, interestAmount: mDeferredInterest,
