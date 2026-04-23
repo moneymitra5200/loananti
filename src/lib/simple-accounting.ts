@@ -442,13 +442,14 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     }
     
     // Double-entry journal for Mirror Company:
-    //   Dr  Cash/Bank                = actual paid amount (recordAmount)
-    //   Cr  Interest Income          = proportional mirror interest
-    //   Cr  Loans Receivable         = proportional mirror principal
+    //   SPLIT:  Dr Cash in Hand ₹cashPortion + Dr Bank Account ₹onlinePortion
+    //   Single: Dr Cash or Dr Bank (full recordAmount)
+    //   Cr  Interest Income   = proportional mirror interest
+    //   Cr  Loans Receivable  = proportional mirror principal
 
-    // Declared outside try so the catch block can log them for diagnostics
-    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
-      ? ACCOUNT_CODES.BANK_ACCOUNT 
+    // For single-mode, determine debit account from paymentMode
+    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
+      ? ACCOUNT_CODES.BANK_ACCOUNT
       : ACCOUNT_CODES.CASH_IN_HAND;
 
     // ── DIRECT DB JOURNAL — bypasses AccountingService entirely to avoid silent failures ──
@@ -468,20 +469,21 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         result.journalEntryId = existingJE.id;
         console.log(`[Accounting] ✅ MIRROR: Journal already exists (${existingJE.id}) — skipping duplicate`);
       } else {
-        // Fetch account IDs directly from DB (no cache dependency)
-        const accountCodes = [debitAccountCode, '4110', '1200'];
+        // Fetch ALL accounts needed (cash, bank, interest, loans) in one query
+        const accountCodes = [ACCOUNT_CODES.CASH_IN_HAND, ACCOUNT_CODES.BANK_ACCOUNT, '4110', '1200'];
         const accounts = await db.chartOfAccount.findMany({
           where: { companyId: mirrorCompanyId, accountCode: { in: accountCodes } },
           select: { id: true, accountCode: true },
         });
         const accMap = new Map(accounts.map(a => [a.accountCode, a.id]));
 
-        const debitAccId = accMap.get(debitAccountCode);
+        const cashAccId     = accMap.get(ACCOUNT_CODES.CASH_IN_HAND);
+        const bankAccId     = accMap.get(ACCOUNT_CODES.BANK_ACCOUNT);
         const interestAccId = accMap.get('4110');
-        const loanAccId = accMap.get('1200');
+        const loanAccId     = accMap.get('1200');
 
-        if (!debitAccId || !interestAccId) {
-          throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: debit=${debitAccId}, interest=${interestAccId}`);
+        if (!interestAccId) {
+          throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: interest account 4110 not found`);
         }
 
         // Count existing entries for entry number
@@ -499,19 +501,70 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           });
         }
 
-        // Build journal lines using ACTUAL paid amounts (recordAmount/recordPrincipal/recordInterest)
-        const directLines: any[] = [
-          { accountId: debitAccId, debitAmount: recordAmount, creditAmount: 0, loanId: loanId || null, customerId: customerId || null,
+        const partialSuffix = paymentType === 'PARTIAL' ? ' [PARTIAL]' : '';
+
+        // ── BUILD DEBIT LINES ────────────────────────────────────────────────────
+        // SPLIT payments → two debit lines: Dr Cash + Dr Bank
+        // Single-mode   → one debit line: Dr Cash or Dr Bank
+        const directLines: any[] = [];
+
+        if (isSplit && rawSplitCash !== undefined && rawSplitOnline !== undefined) {
+          const splitTotal          = rawSplitCash + rawSplitOnline || 1;
+          const mirrorCashPortion   = Math.round(recordAmount * (rawSplitCash   / splitTotal) * 100) / 100;
+          const mirrorOnlinePortion = Math.round((recordAmount - mirrorCashPortion) * 100) / 100;
+
+          if (mirrorCashPortion > 0 && cashAccId) {
+            directLines.push({
+              accountId: cashAccId,
+              debitAmount: mirrorCashPortion, creditAmount: 0,
+              loanId: loanId || null, customerId: customerId || null,
+              narration: `Cash received - Mirror EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
+            });
+          }
+          if (mirrorOnlinePortion > 0 && bankAccId) {
+            directLines.push({
+              accountId: bankAccId,
+              debitAmount: mirrorOnlinePortion, creditAmount: 0,
+              loanId: loanId || null, customerId: customerId || null,
+              narration: `Bank received - Mirror EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
+            });
+          }
+          console.log(`[Accounting] MIRROR SPLIT Journal debit lines: Dr Cash ₹${mirrorCashPortion} + Dr Bank ₹${mirrorOnlinePortion}`);
+        } else {
+          // Non-split: single debit line
+          const singleDebitAccId = accMap.get(debitAccountCode);
+          if (!singleDebitAccId) {
+            throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: debit account (${debitAccountCode}) not found`);
+          }
+          directLines.push({
+            accountId: singleDebitAccId,
+            debitAmount: recordAmount, creditAmount: 0,
+            loanId: loanId || null, customerId: customerId || null,
             narration: (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
-              ? `Bank received - Mirror EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`
-              : `Cash received - Mirror EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` },
-          { accountId: interestAccId, debitAmount: 0, creditAmount: recordInterest, loanId: loanId || null, customerId: customerId || null,
-            narration: `Mirror interest income - EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` },
-        ];
-        if (recordPrincipal > 0 && loanAccId) {
-          directLines.push({ accountId: loanAccId, debitAmount: 0, creditAmount: recordPrincipal, loanId: loanId || null, customerId: customerId || null,
-            narration: `Mirror principal repayment - EMI #${installmentNumber}${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}` });
+              ? `Bank received - Mirror EMI #${installmentNumber}${partialSuffix}`
+              : `Cash received - Mirror EMI #${installmentNumber}${partialSuffix}`,
+          });
         }
+
+        // ── CREDIT LINES (same for split and single-mode) ────────────────────────
+        directLines.push({
+          accountId: interestAccId,
+          debitAmount: 0, creditAmount: recordInterest,
+          loanId: loanId || null, customerId: customerId || null,
+          narration: `Mirror interest income - EMI #${installmentNumber}${partialSuffix}`,
+        });
+        if (recordPrincipal > 0 && loanAccId) {
+          directLines.push({
+            accountId: loanAccId,
+            debitAmount: 0, creditAmount: recordPrincipal,
+            loanId: loanId || null, customerId: customerId || null,
+            narration: `Mirror principal repayment - EMI #${installmentNumber}${partialSuffix}`,
+          });
+        }
+
+        const modeLabel = isSplit
+          ? `SPLIT: Cash ₹${rawSplitCash} + Online ₹${rawSplitOnline}`
+          : paymentMode;
 
         const je = await db.journalEntry.create({
           data: {
@@ -520,27 +573,38 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             entryDate: now,
             referenceType: 'MIRROR_EMI_PAYMENT',
             referenceId: paymentId,
-            narration: `Mirror Loan EMI #${installmentNumber} - ${loanNumber} - ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) [${paymentMode}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
-            totalDebit: recordAmount,
+            narration: `MIRROR LOAN EMI #${installmentNumber} - ${loanNumber} - ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) [${modeLabel}]${partialSuffix}`,
+            totalDebit:  recordAmount,
             totalCredit: recordInterest + recordPrincipal,
             isAutoEntry: true,
             isApproved: true,
             createdById: userId || 'SYSTEM',
-            paymentMode: paymentMode || 'CASH',
+            paymentMode: isSplit ? 'SPLIT' : (paymentMode || 'CASH'),
             lines: { create: directLines },
           },
         });
 
         result.journalEntryId = je.id;
 
-        // Update account balances with ACTUAL paid amounts
-        await db.chartOfAccount.update({ where: { id: debitAccId }, data: { currentBalance: { increment: recordAmount } } });
-        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
-        if (recordPrincipal > 0 && loanAccId) {
-          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
+        // Update Chart of Account balances
+        if (isSplit && rawSplitCash !== undefined && rawSplitOnline !== undefined) {
+          const splitTotal          = rawSplitCash + rawSplitOnline || 1;
+          const mirrorCashPortion   = Math.round(recordAmount * (rawSplitCash   / splitTotal) * 100) / 100;
+          const mirrorOnlinePortion = Math.round((recordAmount - mirrorCashPortion) * 100) / 100;
+          if (mirrorCashPortion   > 0 && cashAccId)
+            await db.chartOfAccount.update({ where: { id: cashAccId },   data: { currentBalance: { increment: mirrorCashPortion   } } });
+          if (mirrorOnlinePortion > 0 && bankAccId)
+            await db.chartOfAccount.update({ where: { id: bankAccId },   data: { currentBalance: { increment: mirrorOnlinePortion } } });
+        } else {
+          const singleDebitAccId = accMap.get(debitAccountCode);
+          if (singleDebitAccId)
+            await db.chartOfAccount.update({ where: { id: singleDebitAccId }, data: { currentBalance: { increment: recordAmount } } });
         }
+        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
+        if (recordPrincipal > 0 && loanAccId)
+          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
 
-        console.log(`[Accounting] ✅ MIRROR: Journal entry ${je.id} created — Dr ${debitAccountCode} ₹${recordAmount}, Cr 4110 ₹${recordInterest}, Cr 1200 ₹${recordPrincipal}${paymentType === 'PARTIAL' ? ' [PARTIAL PAYMENT]' : ''}`);
+        console.log(`[Accounting] ✅ MIRROR: Journal ${je.id} (${entryNumber}) [${modeLabel}] — Dr ₹${recordAmount} total | Cr Interest ₹${recordInterest} | Cr Principal ₹${recordPrincipal}${partialSuffix}`);
       }
     } catch (journalError: any) {
       console.error('[Accounting] ❌ MIRROR EMI journal FAILED (direct DB write also failed):', {
