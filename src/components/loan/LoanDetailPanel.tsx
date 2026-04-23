@@ -412,6 +412,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
   const openEMIPaymentDialog = (emi: EMISchedule) => {
     setSelectedEMI(emi);
+    setPendingMultiEMIs([]); // MUST CLEAR this, otherwise previous multi-select forces FULL_EMI payment!
     // Calculate remaining amount (total - already paid)
     const remainingAmount = emi.emiAmount - (emi.paidAmount || 0);
     setEmiPaymentForm({
@@ -563,7 +564,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       // ── Determine which EMIs to pay ────────────────────────────────────
       // Multi-EMI: pay each EMI individually at its own full remaining amount.
       // Single-EMI: pay selectedEMI with whatever the form says.
-      const emisToPay = pendingMultiEMIs.length > 1 ? pendingMultiEMIs : [selectedEMI];
+      const emisToPay = pendingMultiEMIs.length > 1
+        ? [...pendingMultiEMIs].sort((a, b) => a.emiNumber - b.emiNumber)  // Always pay in sequence (lowest first)
+        : [selectedEMI];
 
       let lastError: string | null = null;
       let paidCount = 0;
@@ -676,7 +679,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
             }, 600);
           }
         } else {
-          lastError = data.error || `Failed to process EMI #${emi.emiNumber}`;
+          lastError = data.message || data.error || `Failed to process EMI #${emi.emiNumber}`;
           console.error(`[Multi-EMI] Failed for EMI #${emi.emiNumber}:`, lastError);
           // Stop on first failure to preserve sequential payment integrity
           break;
