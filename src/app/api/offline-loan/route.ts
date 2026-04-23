@@ -2577,9 +2577,23 @@ export async function PUT(request: NextRequest) {
             const newEmiDueDate = new Date(emi.dueDate);
             newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
             // Deferred EMI = copy of original EMI for the next month:
-            // - Same principal (deferred) + same interest (for the new month)
-            // Interest was paid for EMI #N this session; EMI #N+1 needs FRESH interest too.
-            const deferredInterest = emi.interestAmount || 0;
+            // - Same principal (deferred) + FRESH interest computed from loan rate
+            // IMPORTANT: Do NOT copy emi.interestAmount — that EMI might be the "last"
+            // (reduced) EMI with a smaller interest amount (e.g., ₹20 instead of ₹200).
+            // Always recompute interest from the loan's interestRate and outstandingPrincipal.
+            const loanRate   = Number(emi.offlineLoan.interestRate) || 0;
+            const outPrincipal = Number(emi.outstandingPrincipal) || Number(emi.offlineLoan.loanAmount) || 0;
+            const computedMonthlyInterest = loanRate > 0 && outPrincipal > 0
+              ? Math.round((outPrincipal * loanRate / 100 / 12) * 100) / 100
+              : Number(emi.interestAmount) || 0;  // fallback to current if rate missing
+            // Final sanity: if the original loan's standard EMI interest is known, prefer it
+            // (accounts for flat-rate loans where interest = constant, not reducing-balance)
+            const standardEmiInterest = emi.offlineLoan.emiAmount
+              ? Math.max(0, Number(emi.offlineLoan.emiAmount) - Number(emi.offlineLoan.loanAmount) / (emi.offlineLoan.tenure || 1))
+              : 0;
+            // Use computed reducing-balance interest; if it rounds to 0, use standard EMI interest as final fallback
+            const deferredInterest = computedMonthlyInterest > 0.01 ? computedMonthlyInterest : (standardEmiInterest > 0.01 ? standardEmiInterest : Number(emi.interestAmount) || 0);
+            console.log(`[Interest-Only Deferred] Rate:${loanRate}% OutP:₹${outPrincipal} → monthly interest:₹${deferredInterest} (computed:₹${computedMonthlyInterest} emiI:₹${emi.interestAmount})`);
             await tx.offlineLoanEMI.create({
               data: {
                 offlineLoanId: emi.offlineLoanId,
@@ -2656,16 +2670,22 @@ export async function PUT(request: NextRequest) {
                   }
                 }
                 const mNewDue = new Date(mirrorEmi.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
-                const mDeferredInterest = mirrorEmi.interestAmount || 0;
+                // Compute fresh mirror interest from the mirror loan's interest rate
+                // (never copy mirrorEmi.interestAmount — it could be the last/reduced EMI)
+                const mirrorLoanRate   = mirrorLoanMapping.mirrorInterestRate || 0;
+                const mirrorOutP       = Number(mirrorEmi.outstandingPrincipal) || mirrorRemPrin;
+                const mDeferredInterest = mirrorLoanRate > 0 && mirrorOutP > 0
+                  ? Math.round((mirrorOutP * mirrorLoanRate / 100 / 12) * 100) / 100
+                  : Number(mirrorEmi.interestAmount) || 0;
                 await tx.offlineLoanEMI.create({ data: {
                   offlineLoanId: mirrorLoanMapping.mirrorLoanId, installmentNumber: mNextInst, dueDate: mNewDue,
                   principalAmount: mirrorRemPrin, interestAmount: mDeferredInterest,
                   totalAmount: mirrorRemPrin + mDeferredInterest,
                   outstandingPrincipal: mirrorEmi.outstandingPrincipal, paymentStatus: 'PENDING',
                   isDeferred: true, deferredFromEMI: mirrorEmi.installmentNumber,
-                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEmi.installmentNumber} — P:₹${mirrorRemPrin.toFixed(2)} + I:₹${mDeferredInterest.toFixed(2)}`
+                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEmi.installmentNumber} — P:₹${mirrorRemPrin.toFixed(2)} + I:₹${mDeferredInterest.toFixed(2)} (rate:${mirrorLoanRate}%)`
                 }});
-                console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan`);
+                console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan: I:₹${mDeferredInterest} at ${mirrorLoanRate}%`);
               }
             } else if (paymentType === 'PRINCIPAL_ONLY') {
               // ── PRINCIPAL_ONLY: Only principal is collected, interest is written off ──
@@ -3144,7 +3164,39 @@ export async function PUT(request: NextRequest) {
                   console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
                 }
               }
-              // NO entry for original company - mirror loan only affects mirror company
+              // ALSO record cash/bank receipt in the ORIGINAL company (C3) books
+              // The C3 company physically collects the cash from the borrower.
+              // Mirror company records the loan asset reduction; C3 records the cash received.
+              const originalPrincipalToCollect = sessionPrincipal > 0
+                ? sessionPrincipal
+                : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
+              if (originalPrincipalToCollect > 0 && loanCompanyId && loanCompanyId !== mirrorLoanMapping?.mirrorCompanyId) {
+                try {
+                  const { recordPrincipalOnlyJournal: origPoJournal } = await import('@/lib/simple-accounting');
+                  const origResult = await origPoJournal({
+                    companyId:          loanCompanyId,
+                    company3Id:         company3Id || undefined,
+                    creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
+                    loanId:             emi.offlineLoanId,
+                    paymentId:          `${uniquePaymentId}-ORIG`,
+                    principalAmount:    originalPrincipalToCollect,
+                    interestWrittenOff: 0,  // interest write-off already done in mirror company
+                    paymentDate:        new Date(),
+                    createdById:        userId,
+                    paymentMode:        effectivePaymentMode || 'CASH',
+                    loanNumber:         emi.offlineLoan.loanNumber,
+                    installmentNumber:  emi.installmentNumber,
+                  });
+                  if (origResult.success) {
+                    console.log(`[Accounting] MIRROR P-ONLY ✅ Original company (${loanCompanyId}) cash receipt: ₹${originalPrincipalToCollect}`);
+                  } else {
+                    accountingWarnings.push(`Original company P-ONLY cash entry: ${origResult.error}`);
+                  }
+                } catch (origErr: any) {
+                  accountingWarnings.push(`Original company P-ONLY cash entry failed: ${origErr?.message}`);
+                  console.error('[Accounting] MIRROR P-ONLY original company entry Failed:', origErr?.message);
+                }
+              }
             } else {
               // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
               // IMPORTANT: Use explicit Number() conversion directly from emi fields.
