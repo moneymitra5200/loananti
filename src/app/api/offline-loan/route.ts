@@ -3164,39 +3164,8 @@ export async function PUT(request: NextRequest) {
                   console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
                 }
               }
-              // ALSO record cash/bank receipt in the ORIGINAL company (C3) books
-              // The C3 company physically collects the cash from the borrower.
-              // Mirror company records the loan asset reduction; C3 records the cash received.
-              const originalPrincipalToCollect = sessionPrincipal > 0
-                ? sessionPrincipal
-                : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
-              if (originalPrincipalToCollect > 0 && loanCompanyId && loanCompanyId !== mirrorLoanMapping?.mirrorCompanyId) {
-                try {
-                  const { recordPrincipalOnlyJournal: origPoJournal } = await import('@/lib/simple-accounting');
-                  const origResult = await origPoJournal({
-                    companyId:          loanCompanyId,
-                    company3Id:         company3Id || undefined,
-                    creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
-                    loanId:             emi.offlineLoanId,
-                    paymentId:          `${uniquePaymentId}-ORIG`,
-                    principalAmount:    originalPrincipalToCollect,
-                    interestWrittenOff: 0,  // interest write-off already done in mirror company
-                    paymentDate:        new Date(),
-                    createdById:        userId,
-                    paymentMode:        effectivePaymentMode || 'CASH',
-                    loanNumber:         emi.offlineLoan.loanNumber,
-                    installmentNumber:  emi.installmentNumber,
-                  });
-                  if (origResult.success) {
-                    console.log(`[Accounting] MIRROR P-ONLY ✅ Original company (${loanCompanyId}) cash receipt: ₹${originalPrincipalToCollect}`);
-                  } else {
-                    accountingWarnings.push(`Original company P-ONLY cash entry: ${origResult.error}`);
-                  }
-                } catch (origErr: any) {
-                  accountingWarnings.push(`Original company P-ONLY cash entry failed: ${origErr?.message}`);
-                  console.error('[Accounting] MIRROR P-ONLY original company entry Failed:', origErr?.message);
-                }
-              }
+              // For mirror loans: PRINCIPAL_ONLY journal is in mirror company only.
+              // The mirror company books the loan asset reduction + irrecoverable debt write-off.
             } else {
               // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
               // IMPORTANT: Use explicit Number() conversion directly from emi fields.
