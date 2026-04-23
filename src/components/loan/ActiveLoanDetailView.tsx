@@ -330,31 +330,28 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
 
     setPaying(true);
     try {
-      // For mirror loans, pass the mirror company ID for accounting
-      const mirrorCompanyId = hasMirrorLoan ? mirrorCompany?.id : null;
+      // ── Route through POST /api/emi/pay (FormData) — same route as LoanDetailPanel ──
+      // The old PUT /api/emi has no PRINCIPAL_ONLY journal, no mirror sync → causes silent failures.
+      const formData = new FormData();
+      formData.append('emiId', selectedEMI.id);
+      formData.append('loanId', loanDetails.id);
+      formData.append('amount', String(selectedEMI.emiAmount + (selectedEMI.lateFee || 0)));
+      formData.append('paymentMode', paymentMode);
+      formData.append('paymentType', 'FULL_EMI');
+      formData.append('paidBy', userId);
+      formData.append('remarks', paymentRemarks || '');
+      formData.append('creditType', creditType);
+      formData.append('isAdvancePayment', 'false');
 
-      const response = await fetch('/api/emi', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emiId: selectedEMI.id,
-          loanId: loanDetails.id,
-          paidAmount: selectedEMI.emiAmount + (selectedEMI.lateFee || 0),
-          paymentMode,
-          paymentRef,
-          remarks: paymentRemarks,
-          userId,
-          creditType,
-          syncMirror: true,
-          mirrorCompanyId, // Pass mirror company ID for accounting entry
-        }),
+      const response = await fetch('/api/emi/pay', {
+        method: 'POST',
+        body: formData,
       });
 
       const data = await response.json();
       if (response.ok && data.success) {
         toast.success(`EMI #${selectedEMI.emiNumber} paid successfully`);
         setShowPaymentDialog(false);
-        // Use minimal refresh for fast update
         fetchLoanDetails(true);
         onRefresh();
       } else {
@@ -367,6 +364,7 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
       setPaying(false);
     }
   };
+
 
   // Handle extra EMI payment with secondary page
   const handleExtraEMIPayment = async () => {

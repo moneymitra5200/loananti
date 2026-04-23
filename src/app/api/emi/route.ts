@@ -385,7 +385,7 @@ export async function PUT(request: NextRequest) {
             include: { 
               company: true,
               customer: { select: { id: true, name: true, phone: true } },
-              sessionForm: { select: { emiAmount: true, interestRate: true, processingFee: true } }
+              sessionForm: { select: { emiAmount: true, interestRate: true, interestType: true, processingFee: true } }
             } 
           } 
         }
@@ -667,8 +667,14 @@ export async function PUT(request: NextRequest) {
           }
 
           // Create new EMI with due date = Current EMI + 1 month
-          // This EMI contains the deferred principal from the interest-only payment
-          const newEmiAmount = emi.principalAmount + emi.interestAmount; // Full EMI amount
+          // BUG FIX: Compute FRESH interest from loan rate — do NOT copy emi.interestAmount
+          // (emi.interestAmount could be a reduced "last" EMI value, e.g. ₹20 instead of ₹200)
+          const loanRate  = emi.loanApplication?.sessionForm?.interestRate || 12;
+          const loanType  = emi.loanApplication?.sessionForm?.interestType || 'FLAT';
+          const freshInterest = loanType === 'FLAT'
+            ? Math.round(emi.principalAmount * (loanRate / 100) / 12 * 100) / 100
+            : Math.round(emi.outstandingPrincipal * (loanRate / 100) / 12 * 100) / 100;
+          const newEmiAmount = emi.principalAmount + freshInterest;
           const deferredPrincipalEmi = await tx.eMISchedule.create({
             data: {
               loanApplicationId: loanId,
@@ -676,16 +682,17 @@ export async function PUT(request: NextRequest) {
               dueDate: newEmiDueDate,
               originalDueDate: newEmiDueDate,
               principalAmount: emi.principalAmount,
-              interestAmount: emi.interestAmount,
+              interestAmount: freshInterest,
               totalAmount: newEmiAmount,
               outstandingPrincipal: emi.principalAmount,
-              outstandingInterest: emi.interestAmount,
+              outstandingInterest: freshInterest,
               paymentStatus: 'PENDING',
-              notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]} (EMI #${emi.installmentNumber} due + 1 month). Due date pattern: Day ${dueDateDay}`
+              notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]}. P:₹${emi.principalAmount} I:₹${freshInterest} (fresh from ${loanRate}%/${loanType}). Day ${dueDateDay}`
             }
           });
 
-          console.log(`[INTEREST_ONLY] Created new EMI #${deferredPrincipalEmi.installmentNumber} with Due: ${newEmiDueDate.toISOString().split('T')[0]}, Principal ₹${emi.principalAmount} + Interest ₹${emi.interestAmount} = Total ₹${newEmiAmount}`);
+          console.log(`[INTEREST_ONLY] Created new EMI #${deferredPrincipalEmi.installmentNumber} with Due: ${newEmiDueDate.toISOString().split('T')[0]}, Principal ₹${emi.principalAmount} + FreshInterest ₹${freshInterest} = Total ₹${newEmiAmount}`);
+
 
           // HANDLE MIRROR LOAN SYNC
           const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
