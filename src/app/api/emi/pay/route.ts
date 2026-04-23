@@ -1145,10 +1145,62 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── PRINCIPAL_ONLY → Mirror EMI sync ─────────────────────────────────────────
+    // For PRINCIPAL_ONLY: mark mirror EMI as PAID (principal collected, interest written off).
+    // This must run BEFORE the accounting block so mirrorEmiForAcc has correct data.
+    // Mirrors offline route lines 2684-2715 exactly.
+    if (mirrorMapping?.mirrorLoanId && paymentType === 'PRINCIPAL_ONLY') {
+      try {
+        const mirrorEMIForPO = await db.eMISchedule.findFirst({
+          where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+        });
+        if (mirrorEMIForPO) {
+          const mirrorP = Math.max(0, Number(mirrorEMIForPO.principalAmount || 0) - Number(mirrorEMIForPO.paidPrincipal || 0));
+          const mirrorI = Math.max(0, Number(mirrorEMIForPO.interestAmount  || 0) - Number(mirrorEMIForPO.paidInterest  || 0));
+          await db.$transaction([
+            db.eMISchedule.update({
+              where: { id: mirrorEMIForPO.id },
+              data: {
+                paymentStatus: 'PAID',
+                paidAmount:    mirrorEMIForPO.totalAmount,
+                paidPrincipal: mirrorP,
+                paidInterest:  0,   // NOT collected — written off in mirror company journal
+                paidDate:      new Date(),
+                paymentMode:   paymentMode,
+                notes: `[MIRROR SYNC] Principal-Only: P:₹${mirrorP} collected, I:₹${mirrorI} written off`,
+              }
+            }),
+            db.payment.create({
+              data: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                emiScheduleId:     mirrorEMIForPO.id,
+                customerId:        emi.loanApplication?.customerId || '',
+                amount:            mirrorP,
+                principalComponent: mirrorP,
+                interestComponent:  0,
+                paymentMode:       paymentMode,
+                status:            'COMPLETED',
+                receiptNumber:     `RCP-MIRROR-PO-${Date.now()}`,
+                paidById:          paidBy,
+                remarks: `[MIRROR P-ONLY SYNC] P:₹${mirrorP} collected, I:₹${mirrorI} written off. From ${emi.loanApplication?.applicationNo}`,
+                paymentType: 'PRINCIPAL_ONLY'
+              }
+            })
+          ]);
+          console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:₹${mirrorP} collected, I:₹${mirrorI} written off. Mirror EMI → PAID.`);
+        } else {
+          console.warn(`[Mirror PO Sync] No mirror EMI at #${emi.installmentNumber}`);
+        }
+      } catch (poSyncErr: any) {
+        console.error('[Mirror PO Sync] ❌ Failed (non-critical):', poSyncErr?.message);
+      }
+    }
+
     // Pre-sync capture variables — written by INTEREST_ONLY and PARTIAL blocks,
     // read by the accounting block to compute session delta for mirror journal entries.
     let mirrorEmiPreSyncPaidInterest  = 0;
     let mirrorEmiPreSyncPaidPrincipal = 0;
+
 
     // ── INTEREST_ONLY → Mirror EMI sync (matching offline route lines 2632-2669) ──────────
     // For INTEREST_ONLY: mark mirror EMI as INTEREST_ONLY_PAID and create deferred principal EMI.
