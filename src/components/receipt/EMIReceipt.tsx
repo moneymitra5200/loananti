@@ -69,9 +69,9 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>((props, ref) => {
   };
 
   const row = (label: string, value: string, bold = false, color?: string) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5mm', alignItems: 'center' }}>
-      <span style={{ fontWeight: bold ? 'bold' : 'normal', color: color || '#222', fontSize: '9pt' }}>{label}</span>
-      <span style={{ fontWeight: bold ? 'bold' : 'normal', color: color || '#222', fontSize: '9pt', textAlign: 'right' }}>{value}</span>
+    <div style={{ display: 'flex', marginBottom: '1.5mm', alignItems: 'baseline' }}>
+      <span style={{ fontWeight: bold ? 'bold' : 'normal', color: color || '#222', fontSize: '9pt', width: '58%', flexShrink: 0 }}>{label}</span>
+      <span style={{ fontWeight: bold ? 'bold' : 'normal', color: color || '#222', fontSize: '9pt', textAlign: 'left', flex: 1 }}>{value}</span>
     </div>
   );
 
@@ -160,18 +160,13 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>((props, ref) => {
         {/* ── Payment Mode & Balance ── */}
         <div style={{ marginBottom: '2mm' }}>
           {row('Payment Mode:', paymentMode)}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5mm' }}>
-            <span style={{ fontSize: '9pt' }}><strong>Balance Due:</strong></span>
-            <span style={{ fontSize: '9pt', fontWeight: 'bold', color: balanceDue > 0 ? '#dc2626' : '#16a34a' }}>{fmt(balanceDue)}</span>
+          <div style={{ display: 'flex', marginBottom: '1.5mm' }}>
+            <span style={{ fontSize: '9pt', width: '58%', flexShrink: 0 }}><strong>Balance Due:</strong></span>
+            <span style={{ fontSize: '9pt', fontWeight: 'bold', color: balanceDue > 0 ? '#dc2626' : '#16a34a', flex: 1 }}>{fmt(balanceDue)}</span>
           </div>
         </div>
 
-        {/* ── Interest Only Note ── */}
-        {isInterestOnly && (
-          <div style={{ marginBottom: '2mm', padding: '1.5mm', backgroundColor: '#dbeafe', border: '1px solid #3b82f6', fontSize: '8pt' }}>
-            <strong>Note:</strong> This is an Interest Only payment. Principal amount is deferred to a new EMI.
-          </div>
-        )}
+        {/* Interest Only Note removed per user request */}
 
         <div style={{ borderTop: '1px solid #aaa', marginBottom: '3mm' }} />
 
