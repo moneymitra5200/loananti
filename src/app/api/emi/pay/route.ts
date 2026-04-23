@@ -67,7 +67,8 @@ export async function POST(request: NextRequest) {
 
 
     if (!emiId || !loanId || !paidBy) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      console.error(`[EMI Pay] ❌ 400 Missing fields — emiId:${!!emiId} loanId:${!!loanId} paidBy:"${paidBy}" (length:${paidBy?.length ?? 'null'})`);
+      return NextResponse.json({ error: 'Missing required fields', missing: { emiId: !emiId, loanId: !loanId, paidBy: !paidBy } }, { status: 400 });
     }
 
     // Get EMI details with payment settings

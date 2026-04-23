@@ -601,7 +601,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         formData.append('amount', String(paidAmount));
         formData.append('paymentMode', emiPaymentForm.paymentMode || 'CASH');
         formData.append('remarks', emiPaymentForm.remarks || `EMI #${emi.emiNumber} payment`);
-        formData.append('paidBy', user?.id || '');
+        formData.append('paidBy', currentUserId);
         formData.append('creditType', actualCreditType);
         formData.append('companyId', loanDetails.company?.id || '');
 
