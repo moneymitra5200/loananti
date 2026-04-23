@@ -1296,11 +1296,23 @@ export async function POST(request: NextRequest) {
             mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
             console.log(`[Accounting] ONLINE MIRROR PARTIAL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
+          } else if (paymentType === 'INTEREST_ONLY') {
+            // ── INTEREST_ONLY: principal is DEFERRED — only interest moved this session ──
+            // Use SESSION DELTA (same as offline route line 3056-3060):
+            //   postPaidInterest - preSyncPaidInterest = interest paid THIS session
+            //   postPaidPrincipal - preSyncPaidPrincipal = 0 (principal not collected)
+            // This matches offline exactly and prevents recording ₹full EMI as Dr Cash.
+            const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
+            const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
+            mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+            mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+            console.log(`[Accounting] ONLINE MIRROR INTEREST_ONLY session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else {
-            // FULL / INTEREST_ONLY: use STORED pre-computed P+I from mirror EMI record
+            // FULL / ADVANCE: mirror EMI is fully updated by the transaction above.
+            // Use stored interestAmount/principalAmount — these ARE the full session amounts for FULL payments.
             mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
-            console.log(`[Accounting] ONLINE MIRROR EMI stored amounts: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting}`);
+            console.log(`[Accounting] ONLINE MIRROR FULL stored amounts: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting}`);
           }
         }
       }
