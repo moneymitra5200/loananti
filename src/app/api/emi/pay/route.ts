@@ -1145,13 +1145,89 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Pre-sync capture variables — written by INTEREST_ONLY and PARTIAL blocks,
+    // read by the accounting block to compute session delta for mirror journal entries.
+    let mirrorEmiPreSyncPaidInterest  = 0;
+    let mirrorEmiPreSyncPaidPrincipal = 0;
+
+    // ── INTEREST_ONLY → Mirror EMI sync (matching offline route lines 2632-2669) ──────────
+    // For INTEREST_ONLY: mark mirror EMI as INTEREST_ONLY_PAID and create deferred principal EMI.
+    // Pre-sync values are captured here (all zeros since mirror wasn't touched yet).
+    // The session-delta in the accounting block reads post-sync minus these pre-sync values.
+    if (mirrorMapping?.mirrorLoanId && paymentType === 'INTEREST_ONLY') {
+      try {
+        const mirrorEMIForIO = await db.eMISchedule.findFirst({
+          where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+        });
+        if (mirrorEMIForIO && (mirrorEMIForIO.paymentStatus === 'PENDING' || mirrorEMIForIO.paymentStatus === 'PARTIALLY_PAID')) {
+          // Capture PRE-SYNC (for session-delta in accounting block)
+          mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIForIO.paidInterest  || 0);
+          mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIForIO.paidPrincipal || 0);
+
+          const mirrorRemInt  = Math.max(0, Number(mirrorEMIForIO.interestAmount  || 0) - mirrorEmiPreSyncPaidInterest);
+          const mirrorRemPrin = Math.max(0, Number(mirrorEMIForIO.principalAmount || 0) - mirrorEmiPreSyncPaidPrincipal);
+
+          // Mark mirror EMI as INTEREST_ONLY_PAID
+          await db.eMISchedule.update({
+            where: { id: mirrorEMIForIO.id },
+            data: {
+              paymentStatus: 'INTEREST_ONLY_PAID',
+              paidAmount:    (Number(mirrorEMIForIO.paidAmount   || 0)) + mirrorRemInt,
+              paidInterest:  mirrorEmiPreSyncPaidInterest + mirrorRemInt,
+              paidPrincipal: mirrorEmiPreSyncPaidPrincipal,   // principal unchanged
+              paidDate:      new Date(),
+              paymentMode,
+              notes: `[MIRROR SYNC] Interest-Only: I:₹${mirrorRemInt} collected, principal deferred`
+            }
+          });
+
+          // Create deferred principal EMI on mirror loan (same as offline lines 2647-2668)
+          if (mirrorRemPrin > 0.01) {
+            const mNextInst = mirrorEMIForIO.installmentNumber + 1;
+            const mExisting = await db.eMISchedule.findFirst({
+              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: mNextInst }
+            });
+            if (mExisting) {
+              // Shift subsequent mirror EMIs +1 (highest first to avoid unique clash)
+              const mSubs = await db.eMISchedule.findMany({
+                where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: { gte: mNextInst } },
+                orderBy: { installmentNumber: 'desc' }
+              });
+              for (const ms of mSubs) {
+                const mDue = new Date(ms.dueDate); mDue.setMonth(mDue.getMonth() + 1);
+                await db.eMISchedule.update({ where: { id: ms.id }, data: { installmentNumber: ms.installmentNumber + 1, dueDate: mDue } });
+              }
+            }
+            const mNewDue = new Date(mirrorEMIForIO.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
+            await db.eMISchedule.create({
+              data: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                installmentNumber: mNextInst,
+                dueDate: mNewDue,
+                originalDueDate: mNewDue,
+                principalAmount: mirrorRemPrin,
+                interestAmount: Number(mirrorEMIForIO.interestAmount || 0),
+                outstandingInterest: Number(mirrorEMIForIO.interestAmount || 0),
+                totalAmount: mirrorRemPrin + Number(mirrorEMIForIO.interestAmount || 0),
+                outstandingPrincipal: Number(mirrorEMIForIO.outstandingPrincipal || 0),
+                paymentStatus: 'PENDING',
+                notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEMIForIO.installmentNumber} — P:₹${mirrorRemPrin.toFixed(2)} + I:₹${(mirrorEMIForIO.interestAmount||0).toFixed(2)}`
+              }
+            });
+            console.log(`[Mirror IO Deferred] Created deferred mirror EMI #${mNextInst}: P:₹${mirrorRemPrin} + I:₹${mirrorEMIForIO.interestAmount}`);
+          }
+          console.log(`[Mirror IO Sync] EMI #${emi.installmentNumber}: pre=I:₹${mirrorEmiPreSyncPaidInterest} → collected I:₹${mirrorRemInt}, principal deferred`);
+        }
+      } catch (ioMirrorErr) {
+        console.error('[Mirror IO Sync] Failed (non-critical):', ioMirrorErr);
+      }
+    }
+
     // ── PARTIAL PAYMENT → Mirror EMI sync ──────────────────────────────────
     // Session-delta pattern (same as offline route):
     //   1. Capture PRE-sync paidInterest/paidPrincipal on mirror EMI
     //   2. Update mirror EMI (proportional sync)
     //   3. Accounting block computes POST-PRE delta → records only THIS session's amount
-    let mirrorEmiPreSyncPaidInterest  = 0;
-    let mirrorEmiPreSyncPaidPrincipal = 0;
     if (mirrorMapping?.mirrorLoanId && paymentType === 'PARTIAL_PAYMENT' && partialAmount && partialAmount > 0) {
       try {
         const mirrorEMIPartial = await db.eMISchedule.findFirst({
@@ -1431,9 +1507,14 @@ export async function POST(request: NextRequest) {
           mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
           mirrorPrincipal: isMirrorPayment ? (mirrorPrincipalForAccounting ?? 0) : undefined,
           mirrorInterest: isMirrorPayment ? (mirrorInterestForAccounting ?? 0) : undefined,
-
           mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
           isMirrorPayment,
+          // ── SPLIT PAYMENT: pass split details so mirror loan proportioning fires inside recordEMIPaymentAccounting
+          // (matching offline route lines 3216-3218). Without these, full mirror amount goes to cashbook
+          // and the external bank entry below would ALSO fire = double-counting for mirror splits.
+          isSplitPayment: isSplitPayment || false,
+          splitCashAmount: splitCashAmount || 0,
+          splitOnlineAmount: splitOnlineAmount || 0,
         });
 
         console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? '✅ ' + accountingResult.journalEntryId : '❌ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
@@ -1466,18 +1547,16 @@ export async function POST(request: NextRequest) {
         }
 
         // ── SPLIT PAYMENT: add separate ONLINE bank entry for the online portion ──
-        // recordEMIPaymentAccounting above recorded the cash portion → Cashbook.
-        // Now we additionally credit the online portion → Bank Account.
-        // This mirrors the exact same logic in the offline-loan route.
-        // NOTE: This must be outside the fallback block — fires on every split payment,
-        // not only when the primary journal fails.
-        if (isSplitPayment && splitOnlineAmount > 0) {
+        // For NON-MIRROR loans: recordEMIPaymentAccounting recorded CASH portion → Cashbook.
+        //   Now we credit the online portion to the Bank Account.
+        // For MIRROR loans: the split proportioning is handled INTERNALLY by recordEMIPaymentAccounting
+        //   (lines 381-414 in simple-accounting.ts) using the isSplitPayment params we now pass.
+        //   Do NOT add extra bank entry here for mirror loans — it would double-count the online portion.
+        // This matches offline route line 3226: if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan)
+        if (isSplitPayment && splitOnlineAmount > 0 && !isMirrorPayment) {
           try {
-            const splitTargetCompany = isMirrorPayment
-              ? mirrorMappingForAccounting!.mirrorCompanyId
-              : loanCompanyId;
             await recordBankTransaction({
-              companyId: splitTargetCompany,
+              companyId: loanCompanyId,
               transactionType: 'CREDIT',
               amount: splitOnlineAmount,
               description: `SPLIT (Online portion) - ${emi.loanApplication?.applicationNo} EMI #${emi.installmentNumber}`,
@@ -1485,7 +1564,7 @@ export async function POST(request: NextRequest) {
               referenceId: `${payment.id}-SPLIT-ONLINE`,
               createdById: paidBy,
             });
-            console.log(`[Accounting] SPLIT: ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${splitTargetCompany})`);
+            console.log(`[Accounting] SPLIT (non-mirror): ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${loanCompanyId})`);
           } catch (splitErr) {
             console.error('[Accounting] SPLIT bank entry failed (non-critical):', splitErr);
           }
