@@ -716,11 +716,14 @@ export default function OfflineLoanDetailPanel({
       const splitOnline = parseFloat(splitOnlinePayment) || 0;
 
       // Calculate penalty if EMI is overdue
+      // grossPenalty = full penalty before any waiver (send to backend as penaltyAmount)
+      // netPenalty = grossPenalty - waiver (used for UI display only)
+      let grossPenalty = 0;
       let netPenalty = 0;
       if (selectedEmi && loan && isEMIOverdue(selectedEmi)) {
         const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
-        const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
-        netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
+        grossPenalty = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
+        netPenalty = Math.max(0, grossPenalty - penaltyWaiver);
       }
 
       const requestBody: Record<string, unknown> = {
@@ -733,11 +736,12 @@ export default function OfflineLoanDetailPanel({
         creditType,
         proofUrl,
         remarks: paymentRemarks,
-        // Penalty data
-        penaltyAmount: netPenalty > 0 ? netPenalty : undefined,
+        // FIX: Send GROSS penalty (before waiver) — backend computes netPenalty = penaltyAmount - penaltyWaiver
+        // Previously was sending netPenalty here causing double-deduction of the waiver
+        penaltyAmount: grossPenalty > 0 ? grossPenalty : undefined,
         penaltyWaiver: penaltyWaiver > 0 ? penaltyWaiver : undefined,
         // Penalty uses same channel as EMI — no separate selector
-        penaltyPaymentMode: netPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
+        penaltyPaymentMode: grossPenalty > 0 ? (paymentMode === 'ONLINE' ? 'BANK' : 'CASH') : undefined,
         ...(isSplitMode && splitCash > 0 && splitOnline > 0 && {
           isSplitPayment: true,
           splitCashAmount: splitCash,

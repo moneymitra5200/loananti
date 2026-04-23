@@ -2236,6 +2236,7 @@ export async function PUT(request: NextRequest) {
       const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
       const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
       const penaltyPaymentMode = rawPenaltyMode || 'CASH';
+      console.log(`[PAY-EMI] ⚡ PENALTY DEBUG → rawPenaltyAmount=${rawPenaltyAmount} | rawPenaltyWaiver=${rawPenaltyWaiver} | rawPenaltyMode=${rawPenaltyMode} | penaltyAmount=${penaltyAmount} | penaltyWaiver=${penaltyWaiver} | netPenalty=${netPenalty} | paymentMode=${paymentMode}`);
       const splitCashAmt  = isSplitPayment ? (parseFloat(rawSplitCash)   || 0) : 0;
       const splitOnlineAmt = isSplitPayment ? (parseFloat(rawSplitOnline) || 0) : 0;
       // For split payments: effective paymentMode is CASH for accounting (we'll handle ONLINE part separately below)
@@ -3384,10 +3385,13 @@ export async function PUT(request: NextRequest) {
 
       // ── OFFLINE LOAN PENALTY INCOME ──────────────────────────────────────
       // Record net penalty (charged minus waived) as Penalty Income in the company's books
+      console.log(`[PAY-EMI] ⚡ PENALTY BLOCK CHECK → netPenalty=${netPenalty} | penaltyAmount=${penaltyAmount} | penaltyWaiver=${penaltyWaiver} | paymentMode=${paymentMode}`);
       if (netPenalty > 0) {
         const penaltyCompanyId = mirrorLoanMapping?.mirrorCompanyId || emi.offlineLoan.companyId;
+        console.log(`[Penalty] Attempting ₹${netPenalty} penalty for company ${penaltyCompanyId}`);
         try {
           const isOnlinePenalty = penaltyPaymentMode === 'BANK' || ['ONLINE','UPI','BANK_TRANSFER'].includes((paymentMode||'').toUpperCase());
+          console.log(`[Penalty] Mode: ${penaltyPaymentMode}, isOnline: ${isOnlinePenalty}`);
           if (isOnlinePenalty) {
             await recordBankTransaction({
               companyId: penaltyCompanyId || '',
@@ -3429,7 +3433,13 @@ export async function PUT(request: NextRequest) {
         } catch (penErr: any) {
           const penMsg = `Penalty accounting: ${penErr?.message || penErr}`;
           accountingWarnings.push(penMsg);
-          console.error('[Penalty] ❌ Offline loan penalty accounting FAILED:', penErr);
+          console.error('[Penalty] ❌ Offline loan penalty accounting FAILED:', penErr?.message || penErr);
+          console.error('[Penalty] ❌ FULL ERROR:', JSON.stringify({
+            message: penErr?.message,
+            code: penErr?.code,
+            meta: penErr?.meta,
+            stack: penErr?.stack?.split('\n').slice(0, 8).join(' | ')
+          }));
         }
       }
 
