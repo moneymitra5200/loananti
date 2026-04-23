@@ -1138,7 +1138,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Issue 5 Fix: PARTIAL PAYMENT → Mirror EMI sync ───────────────────────
+    // ── PARTIAL PAYMENT → Mirror EMI sync ──────────────────────────────────
+    // Session-delta pattern (same as offline route):
+    //   1. Capture PRE-sync paidInterest/paidPrincipal on mirror EMI
+    //   2. Update mirror EMI (proportional sync)
+    //   3. Accounting block computes POST-PRE delta → records only THIS session's amount
+    let mirrorEmiPreSyncPaidInterest  = 0;
+    let mirrorEmiPreSyncPaidPrincipal = 0;
     if (mirrorMapping?.mirrorLoanId && paymentType === 'PARTIAL_PAYMENT' && partialAmount && partialAmount > 0) {
       try {
         const mirrorEMIPartial = await db.eMISchedule.findFirst({
@@ -1148,15 +1154,18 @@ export async function POST(request: NextRequest) {
           }
         });
         if (mirrorEMIPartial && mirrorEMIPartial.paymentStatus !== 'PAID') {
-          // Calculate mirror partial amounts — interest-first using REMAINING unpaid interest
-          const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
-          const mirrorInterestFull = Math.round(mirrorEMIPartial.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-          // REMAINING interest = total interest - already paid interest (from previous partial payments)
-          const mirrorAlreadyPaidInterest = Number(mirrorEMIPartial.paidInterest || 0);
+          // ── Capture PRE-SYNC values (same as offline mirrorEmiPreSyncPaidInterest) ──
+          mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIPartial.paidInterest  || 0);
+          mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIPartial.paidPrincipal || 0);
+
+          // Mirror interest-first from remaining unpaid mirror interest
+          const mirrorAlreadyPaidInterest = mirrorEmiPreSyncPaidInterest;
+          const mirrorInterestFull = Math.round(
+            mirrorEMIPartial.outstandingPrincipal * (mirrorMapping.mirrorInterestRate / 12 / 100) * 100
+          ) / 100;
           const mirrorRemainingInterest = Math.max(0, mirrorInterestFull - mirrorAlreadyPaidInterest);
           const ratio = partialAmount / emi.totalAmount;
           const mirrorPartialAmt = Math.round(mirrorEMIPartial.totalAmount * ratio * 100) / 100;
-          // Interest-first from REMAINING unpaid mirror interest (not full):
           const mirrorPaidInterest  = Math.min(mirrorPartialAmt, mirrorRemainingInterest);
           const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorPaidInterest);
           const mirrorIsFullyPaid   = (mirrorEMIPartial.paidAmount || 0) + mirrorPartialAmt >= mirrorEMIPartial.totalAmount - 1;
@@ -1175,11 +1184,7 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          // ── NOTE: Mirror accounting for PARTIAL_PAYMENT is handled by the ──────────────
-          // unified recordEMIPaymentAccounting block at the bottom of this handler.
-          // We do NOT create cashbook/bank/journal entries here to avoid double-entries.
-          // The accounting block fires with isMirrorPayment=true and paymentType='PARTIAL'.
-          console.log(`[Partial Mirror Sync] EMI #${emi.installmentNumber} → Mirror ₹${mirrorPartialAmt} (${Math.round(ratio * 100)}%) status synced. Accounting handled by unified block below.`);
+          console.log(`[Partial Mirror Sync] EMI #${emi.installmentNumber} pre=I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} | delta=I:₹${mirrorPaidInterest} P:₹${mirrorPaidPrincipal}. Accounting uses session delta.`);
         }
       } catch (partMirrorErr) {
         console.error('[Partial Mirror Sync] Failed (non-critical):', partMirrorErr);
@@ -1267,26 +1272,28 @@ export async function POST(request: NextRequest) {
           where: { loanApplicationId: mirrorMappingForAccounting.mirrorLoanId, installmentNumber: emi.installmentNumber }
         });
         if (mirrorEmiForAcc) {
-          // ── FIX: Always use STORED amounts from mirror EMI (not recalculated from rate) ──
-          // Recalculating from rate gives wrong interest (e.g. low mirror rate → ₹2.5 instead of ₹26.87).
-          // The EMI schedule stores the correct pre-computed P+I breakdown.
           if (paymentType === 'PRINCIPAL_ONLY') {
             // PRINCIPAL_ONLY: principal is collected, interest is written off
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
             mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
             console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: P:₹${mirrorPrincipalForAccounting} (collect), I:₹${mirrorInterestForAccounting} (write off)`);
+          } else if (paymentType === 'PARTIAL_PAYMENT') {
+            // ── SESSION DELTA (matches offline route exactly) ──────────────────
+            // mirrorEmiPreSyncPaidInterest/Principal were captured BEFORE the partial sync above.
+            // Post-sync values are now in the DB. Subtract to get only THIS session's amounts.
+            // This correctly handles multi-partial scenarios:
+            //   Payment 1 (₹300 of ₹500): pre=I:0 P:0, post=I:84 P:6   → delta I:84 P:6
+            //   Payment 2 (₹200 of ₹500): pre=I:84 P:6, post=I:84 P:206 → delta I:0 P:200
+            const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
+            const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
+            mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+            mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+            console.log(`[Accounting] ONLINE MIRROR PARTIAL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else {
-            // FULL / PARTIAL / INTEREST_ONLY: use stored P+I from the mirror EMI record
+            // FULL / INTEREST_ONLY: use STORED pre-computed P+I from mirror EMI record
             mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
-            // For partial payment: scale proportionally to session amount
-            if (isPartialPayment && mirrorEmiForAcc.totalAmount > 0 && emi.totalAmount > 0) {
-              const ratio = Math.min(paidAmount / emi.totalAmount, 1);
-              const scaledTotal   = Math.round(mirrorEmiForAcc.totalAmount * ratio * 100) / 100;
-              mirrorInterestForAccounting  = Math.round(Math.min(mirrorInterestForAccounting, scaledTotal)  * 100) / 100;
-              mirrorPrincipalForAccounting = Math.round(Math.max(0, scaledTotal - mirrorInterestForAccounting) * 100) / 100;
-            }
-            console.log(`[Accounting] ONLINE MIRROR EMI: Using STORED amounts — I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (was recalculated, now fixed)`);
+            console.log(`[Accounting] ONLINE MIRROR EMI stored amounts: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting}`);
           }
         }
       }
