@@ -832,6 +832,32 @@ export async function POST(request: NextRequest) {
         where: { id: loanId },
         data: { status: 'CLOSED' }
       });
+      console.log(`[Auto-Close] ✅ Original loan ${loanId} auto-closed — all EMIs paid`);
+
+      // ── Also auto-close the mirror loan (matches offline-loan route behavior) ──
+      if (mirrorMapping?.mirrorLoanId) {
+        try {
+          const mirrorEMIsForClose = await db.eMISchedule.findMany({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId },
+            select: { paymentStatus: true }
+          });
+          const mirrorAllPaid = mirrorEMIsForClose.length === 0 ||
+            mirrorEMIsForClose.every(e =>
+              e.paymentStatus === 'PAID' ||
+              e.paymentStatus === 'INTEREST_ONLY_PAID' ||
+              e.paymentStatus === 'WAIVED'
+            );
+          if (mirrorAllPaid) {
+            await db.loanApplication.update({
+              where: { id: mirrorMapping.mirrorLoanId },
+              data: { status: 'CLOSED' }
+            });
+            console.log(`[Auto-Close] ✅ Mirror loan ${mirrorMapping.mirrorLoanId} also auto-closed alongside original`);
+          }
+        } catch (mirrorCloseErr) {
+          console.error('[Auto-Close] Mirror loan close failed (non-critical):', mirrorCloseErr);
+        }
+      }
     }
 
     // ============================================
@@ -1070,36 +1096,38 @@ export async function POST(request: NextRequest) {
             // the SINGLE authoritative cashbook entry + journal entry using these correct amounts.
             // Creating one here would result in a DUPLICATE entry.
 
-            // Mark mirror EMI as paid (status only — no cashbook yet)
-            await db.eMISchedule.update({
-              where: { id: mirrorEMI.id },
-              data: {
-                paymentStatus: 'PAID',
-                paidAmount:    mirrorEMIFullAmount,
-                paidPrincipal: mirrorPrincipal,
-                paidInterest:  mirrorInterest,
-                paidDate: new Date(),
-                paymentMode: paymentMode,
-                notes: `Synced from original loan EMI payment`
-              }
-            });
-            
-            await db.payment.create({
-              data: {
-                loanApplicationId: mirrorMapping.mirrorLoanId,
-                emiScheduleId:     mirrorEMI.id,
-                customerId:        emi.loanApplication?.customerId || '',
-                amount:            mirrorEMIFullAmount,
-                principalComponent: mirrorPrincipal,
-                interestComponent:  mirrorInterest,
-                paymentMode: paymentMode,
-                status: 'COMPLETED',
-                receiptNumber: `RCP-MIRROR-${Date.now()}`,
-                paidById: paidBy,
-                remarks: `Auto-synced from original loan ${emi.loanApplication?.applicationNo}`,
-                paymentType: 'FULL_EMI'
-              }
-            });
+            // ── ATOMIC: Mark mirror EMI as paid + create mirror payment record ──
+            // Both ops succeed or both roll back — matches offline route atomicity.
+            await db.$transaction([
+              db.eMISchedule.update({
+                where: { id: mirrorEMI.id },
+                data: {
+                  paymentStatus: 'PAID',
+                  paidAmount:    mirrorEMIFullAmount,
+                  paidPrincipal: mirrorPrincipal,
+                  paidInterest:  mirrorInterest,
+                  paidDate: new Date(),
+                  paymentMode: paymentMode,
+                  notes: `Synced from original loan EMI payment`
+                }
+              }),
+              db.payment.create({
+                data: {
+                  loanApplicationId: mirrorMapping.mirrorLoanId,
+                  emiScheduleId:     mirrorEMI.id,
+                  customerId:        emi.loanApplication?.customerId || '',
+                  amount:            mirrorEMIFullAmount,
+                  principalComponent: mirrorPrincipal,
+                  interestComponent:  mirrorInterest,
+                  paymentMode: paymentMode,
+                  status: 'COMPLETED',
+                  receiptNumber: `RCP-MIRROR-${Date.now()}`,
+                  paidById: paidBy,
+                  remarks: `Auto-synced from original loan ${emi.loanApplication?.applicationNo}`,
+                  paymentType: 'FULL_EMI'
+                }
+              })
+            ]);
             
             console.log(`[Mirror Loan] Synced EMI #${installmentNumber} → mirror. P:₹${mirrorPrincipal} I:₹${mirrorInterest} Total:₹${mirrorEMIFullAmount}. Cashbook will be created in accounting block.`);
           }
