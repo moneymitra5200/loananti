@@ -1,0 +1,1 @@
+import { PrismaClient } from "@prisma/client"; const db = new PrismaClient(); async function run() { const req = await db.paymentRequest.findFirst({ orderBy: { createdAt: "desc" } }); console.log(req?.proofUrl?.substring(0, 50)); console.log("Length:", req?.proofUrl?.length); } run().finally(() => db.$disconnect());
