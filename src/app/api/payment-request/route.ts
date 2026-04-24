@@ -765,12 +765,19 @@ export async function PUT(request: NextRequest) {
           const payMode = 'UPI';
 
           // ── Fetch the Payment record just created inside the transaction ───
+          // CRITICAL: read principalComponent + interestComponent from the Payment
+          // record we just saved — they correctly reflect remainingInterest for partial
+          // payments (interest-first logic, never double-charged).
           const recentPayment = await db.payment.findFirst({
             where: { emiScheduleId: emi.id, status: 'COMPLETED' },
             orderBy: { createdAt: 'desc' },
-            select: { id: true }
+            select: { id: true, principalComponent: true, interestComponent: true, amount: true }
           });
-          const paymentId = recentPayment?.id || `PR-${paymentRequest.id}`;
+          const paymentId         = recentPayment?.id || `PR-${paymentRequest.id}`;
+          // Use actual saved components — these are ALWAYS correct even for 2nd partial
+          const savedTotalComp    = recentPayment?.amount             ?? paymentRequest.requestedAmount;
+          const savedInterestComp = recentPayment?.interestComponent  ?? 0;
+          const savedPrincipalComp= recentPayment?.principalComponent ?? 0;
 
           // ── Check mirror mapping (as original) ──────────────────────────
           const mirrorMapping = await db.mirrorLoanMapping.findFirst({
@@ -804,11 +811,24 @@ export async function PUT(request: NextRequest) {
                 const mP = mirrorOwnEmi?.principalAmount ?? emi.principalAmount;
                 const mI = mirrorOwnEmi?.interestAmount  ?? emi.interestAmount;
                 const mT = mirrorOwnEmi?.totalAmount     ?? (mP + mI);
-                const mTotal = pType === 'PARTIAL_PAYMENT'
-                  ? Math.round(mT * ((paymentRequest.partialAmount || 0) / (emi.totalAmount || 1)) * 100) / 100
-                  : pType === 'INTEREST_ONLY' ? mI : mT;
-                const mInterest  = pType === 'INTEREST_ONLY' ? mI : Math.min(mTotal, mI);
-                const mPrincipal = Math.max(0, mTotal - mInterest);
+                // For PARTIAL_PAYMENT: use the saved payment components (interest-first, no double)
+                // For other types: compute from mirror EMI amounts as before
+                let mTotal: number;
+                let mInterest: number;
+                let mPrincipal: number;
+                if (pType === 'PARTIAL_PAYMENT') {
+                  mTotal    = savedTotalComp;
+                  mInterest = savedInterestComp;
+                  mPrincipal= savedPrincipalComp;
+                } else if (pType === 'INTEREST_ONLY') {
+                  mTotal    = mI;
+                  mInterest = mI;
+                  mPrincipal= 0;
+                } else {
+                  mTotal    = mT;
+                  mInterest = Math.min(mT, mI);
+                  mPrincipal= Math.max(0, mT - mInterest);
+                }
 
                 await recordBankTransaction({
                   companyId: loan.companyId, transactionType: 'CREDIT', amount: mTotal,
@@ -859,12 +879,10 @@ export async function PUT(request: NextRequest) {
                 console.log(`[PR Accounting] CASE C: No mirror → original company ${loan.companyId}`);
                 const accSvc = new AccSvc(loan.companyId);
                 await accSvc.initializeChartOfAccounts();
-                const totalComp = pType === 'PARTIAL_PAYMENT' ? (paymentRequest.partialAmount || 0)
-                  : pType === 'INTEREST_ONLY' ? (emi.interestAmount || 0)
-                  : paymentRequest.requestedAmount;
-                const interestComp = pType === 'INTEREST_ONLY' ? (emi.interestAmount || 0)
-                  : Math.min(totalComp, emi.interestAmount || 0);
-                const principalComp = Math.max(0, totalComp - interestComp);
+                // Use actual payment record components (correct for partial, no double-interest)
+                const totalComp    = savedTotalComp;
+                const interestComp = savedInterestComp;
+                const principalComp= savedPrincipalComp;
                 await recordBankTransaction({
                   companyId: loan.companyId, transactionType: 'CREDIT', amount: totalComp,
                   description: `EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber}`,
@@ -876,7 +894,7 @@ export async function PUT(request: NextRequest) {
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
                   reference: `PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`
                 });
-                console.log(`[PR Accounting] ✓ CASE C: original company ₹${totalComp}`);
+                console.log(`[PR Accounting] ✓ CASE C: original company ₹${totalComp} (P:₹${principalComp} I:₹${interestComp})`);
                 const pfAmount = loan.sessionForm?.processingFee || 0;
                 if (emi.installmentNumber === 1 && pfAmount > 0) {
                   const existingPf = await db.journalEntry.findFirst({
