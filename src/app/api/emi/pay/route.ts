@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
@@ -1394,6 +1394,7 @@ export async function POST(request: NextRequest) {
     //   Profit already recorded in the extra-EMI block above — skip here.
     // ============================================
     const onlineAccountingWarnings: string[] = [];
+    let onlineJournalCreated = false; // tracks if journal was created (for atomicity check)
 
     // ── GATE: Only account when EMI has reached a paid state ──────────────
     const isTerminalPaidState = newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || newEmiStatus === 'PARTIALLY_PAID';
@@ -1456,6 +1457,52 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // ── PROCESSING FEE — non-mirror, EMI #1 only ──────────────────────────
+      if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
+        try {
+          const loanData = await db.loanApplication.findUnique({
+            where: { id: loanId }, select: { processingFee: true, applicationNo: true }
+          });
+          const procFee = loanData?.processingFee || 0;
+          if (procFee > 0) {
+            const [existingPFCb, existingPFBank] = await Promise.all([
+              db.cashBookEntry.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } }),
+              db.bankTransaction.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } })
+            ]);
+            if (!existingPFCb && !existingPFBank) {
+              const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
+              if (isPfOnline) {
+                await recordBankTransaction({ companyId: loanCompanyId, transactionType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
+              } else {
+                await recordCashBookEntry({ companyId: loanCompanyId, entryType: 'CREDIT', amount: procFee,
+                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
+              }
+              const pfAccSvc = new AccountingService(loanCompanyId);
+              await pfAccSvc.initializeChartOfAccounts();
+              await pfAccSvc.createJournalEntry({
+                entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION', referenceId: `${loanId}-PF-JE`,
+                narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
+                createdById: paidBy || 'SYSTEM', isAutoEntry: true,
+                lines: [
+                  { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
+                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
+                ],
+              });
+              console.log(`[Processing Fee] ₹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);
+            } else {
+              console.log(`[Processing Fee] Already recorded — skipping (idempotency)`);
+            }
+          }
+        } catch (pfErr: any) {
+          const pfErrMsg = `Processing fee: ${pfErr?.message || pfErr}`;
+          onlineAccountingWarnings.push(pfErrMsg);
+          console.error('[Processing Fee] ❌ Failed:', pfErr);
+        }
+      }
+
       if (isExtraEMI2) {
         // Extra EMI profit already recorded in the extra-EMI block above — skip
         console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
@@ -1499,6 +1546,7 @@ export async function POST(request: NextRequest) {
               onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
               console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
             } else {
+              onlineJournalCreated = true; // ✅ journal created successfully
               console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
             }
           }
@@ -1528,6 +1576,7 @@ export async function POST(request: NextRequest) {
               onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
               console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
             } else {
+              onlineJournalCreated = true; // ✅ journal created successfully
               console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
             }
           }
@@ -1581,6 +1630,7 @@ export async function POST(request: NextRequest) {
         });
 
         console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? '✅ ' + accountingResult.journalEntryId : '❌ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
+        if (accountingResult.journalEntryId) onlineJournalCreated = true; // ✅ journal created
 
         // ── FALLBACK journal if missing (same as offline route) ──────────────
         if (isMirrorPayment && !accountingResult.journalEntryId && mirrorMappingForAccounting?.mirrorCompanyId) {
@@ -1634,52 +1684,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // ── PROCESSING FEE — non-mirror, EMI #1 only ──────────────────────────
-      if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
-        try {
-          const loanData = await db.loanApplication.findUnique({
-            where: { id: loanId }, select: { processingFee: true, applicationNo: true }
-          });
-          const procFee = loanData?.processingFee || 0;
-          if (procFee > 0) {
-            const [existingPFCb, existingPFBank] = await Promise.all([
-              db.cashBookEntry.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } }),
-              db.bankTransaction.findFirst({ where: { referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF` } })
-            ]);
-            if (!existingPFCb && !existingPFBank) {
-              const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((paymentMode||'').toUpperCase());
-              if (isPfOnline) {
-                await recordBankTransaction({ companyId: loanCompanyId, transactionType: 'CREDIT', amount: procFee,
-                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
-              } else {
-                await recordCashBookEntry({ companyId: loanCompanyId, entryType: 'CREDIT', amount: procFee,
-                  description: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                  referenceType: 'PROCESSING_FEE', referenceId: `${loanId}-PF`, createdById: paidBy });
-              }
-              const pfAccSvc = new AccountingService(loanCompanyId);
-              await pfAccSvc.initializeChartOfAccounts();
-              await pfAccSvc.createJournalEntry({
-                entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION', referenceId: `${loanId}-PF-JE`,
-                narration: `Processing Fee - ${loanData?.applicationNo || loanId}`,
-                createdById: paidBy || 'SYSTEM', isAutoEntry: true,
-                lines: [
-                  { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
-                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
-                ],
-              });
-              console.log(`[Processing Fee] ₹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);
-            } else {
-              console.log(`[Processing Fee] Already recorded — skipping (idempotency)`);
-            }
-          }
-        } catch (pfErr: any) {
-          const pfErrMsg = `Processing fee: ${pfErr?.message || pfErr}`;
-          onlineAccountingWarnings.push(pfErrMsg);
-          console.error('[Processing Fee] ❌ Failed:', pfErr);
-        }
-      }
-
       // ── PENALTY INCOME ────────────────────────────────────────────────────
       if (netPenalty > 0) {
         try {
@@ -1718,7 +1722,7 @@ export async function POST(request: NextRequest) {
     } catch (accError: any) {
       const onlineErrMsg = accError?.message || String(accError);
       onlineAccountingWarnings.push(`EMI accounting: ${onlineErrMsg}`);
-      console.error('[Accounting] ❌ EMI journal FAILED — P&L will NOT show income!', {
+      console.error('[ATOMICITY]  Accounting threw exception  rolling back payment', {
         message: onlineErrMsg,
         stack: accError?.stack?.split('\n').slice(0, 6).join(' | '),
         loanId, emiId,
@@ -1732,17 +1736,70 @@ export async function POST(request: NextRequest) {
             module: 'ONLINE_LOAN',
             recordId: payment.id,
             recordType: 'EMIPayment',
-            description: `ACCOUNTING MISSING: Payment ${payment.id} (EMI #${emi.installmentNumber}) paid ₹${paidAmount} but accounting failed: ${onlineErrMsg}`,
+            description: `ACCOUNTING FAILED: Payment ${payment.id} (EMI #${emi.installmentNumber}) paid Rs.${paidAmount} but threw: ${onlineErrMsg}`,
             canUndo: false,
           }
         });
-      } catch (_) { /* ActionLog failure is truly non-critical */ }
+      } catch (_) { /* non-critical */ }
+      try {
+        await db.eMISchedule.update({
+          where: { id: emi.id },
+          data: {
+            paymentStatus:    emi.paymentStatus,
+            paidAmount:       emi.paidAmount      ?? 0,
+            paidPrincipal:    emi.paidPrincipal   ?? 0,
+            paidInterest:     emi.paidInterest    ?? 0,
+            isPartialPayment: emi.isPartialPayment ?? false,
+            isInterestOnly:   emi.isInterestOnly  ?? false,
+            nextPaymentDate:  emi.nextPaymentDate  ?? null,
+            paidDate:         emi.paidDate         ?? null,
+          },
+        });
+        console.log(`[ATOMICITY] EMI ${emi.id} rolled back to '${emi.paymentStatus}'`);
+      } catch (rbErr: any) {
+        console.error('[ATOMICITY] EMI ROLLBACK FAILED:', rbErr?.message);
+      }
+      try {
+        await db.payment.delete({ where: { id: payment.id } });
+        console.log(`[ATOMICITY] Payment ${payment.id} deleted`);
+      } catch (_) {}
+      return NextResponse.json({
+        success: false,
+        error: 'Payment failed: accounting entry could not be created. Payment reversed. Please try again.',
+        details: onlineErrMsg,
+        emiId: emi.id,
+      }, { status: 500 });
     }
 
+    //  ATOMICITY CHECK: No journal = EMI must stay UNPAID 
+    const journalWasCreated = !isTerminalPaidState || isExtraEMI || onlineJournalCreated;
+    if (!journalWasCreated) {
+      console.error(`[ATOMICITY] No journal for EMI #${emi.installmentNumber}  rolling back`);
+      try {
+        await db.eMISchedule.update({
+          where: { id: emi.id },
+          data: {
+            paymentStatus:    emi.paymentStatus,
+            paidAmount:       emi.paidAmount      ?? 0,
+            paidPrincipal:    emi.paidPrincipal   ?? 0,
+            paidInterest:     emi.paidInterest    ?? 0,
+            isPartialPayment: emi.isPartialPayment ?? false,
+            isInterestOnly:   emi.isInterestOnly  ?? false,
+            nextPaymentDate:  emi.nextPaymentDate  ?? null,
+            paidDate:         emi.paidDate         ?? null,
+          },
+        });
+      } catch (rbErr: any) { console.error('[ATOMICITY] ROLLBACK FAILED:', rbErr?.message); }
+      try { await db.payment.delete({ where: { id: payment.id } }); } catch (_) {}
+      return NextResponse.json({
+        success: false,
+        error: 'Payment could not be processed: accounting entry failed. No amount deducted. Please try again.',
+        emiId: emi.id,
+      }, { status: 500 });
+    }
 
-
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: getPaymentSuccessMessage(paymentType, paidAmount, remainingPrincipal),
       accountingOk: onlineAccountingWarnings.length === 0,
       accountingWarnings: onlineAccountingWarnings,
@@ -1772,13 +1829,13 @@ export async function POST(request: NextRequest) {
 function getPaymentSuccessMessage(paymentType: string, paidAmount: number, deferredPrincipal: number): string {
   switch (paymentType) {
     case 'PARTIAL_PAYMENT':
-      return `Partial payment of ₹${paidAmount.toFixed(2)} received. Remaining balance rescheduled.`;
+      return `Partial payment of Rs.${paidAmount.toFixed(2)} received. Remaining balance rescheduled.`;
     case 'INTEREST_ONLY':
-      return `Interest payment of ₹${paidAmount.toFixed(2)} received. NEW EMI created for principal ₹${deferredPrincipal.toFixed(2)} at next position. Both original and mirror loans updated.`;
+      return `Interest payment of Rs.${paidAmount.toFixed(2)} received. NEW EMI created for principal Rs.${deferredPrincipal.toFixed(2)} at next position. Both original and mirror loans updated.`;
     case 'PRINCIPAL_ONLY':
-      return `Principal ₹${paidAmount.toFixed(2)} collected. Unpaid interest written off as Irrecoverable Debt.`;
+      return `Principal Rs.${paidAmount.toFixed(2)} collected. Unpaid interest written off as Irrecoverable Debt.`;
     case 'ADVANCE':
-      return `Advance principal payment ₹${paidAmount.toFixed(2)} received. Interest will be collected next month.`;
+      return `Advance principal payment Rs.${paidAmount.toFixed(2)} received. Interest will be collected next month.`;
     default:
       return 'EMI paid successfully.';
   }
