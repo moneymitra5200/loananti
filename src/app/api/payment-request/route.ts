@@ -802,7 +802,7 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      // ── Customer approval notification (in-app + push) ──────────────
+      // ── Compute notification values FIRST (used in credit block below) ──
       const paidAmtForNotif = paymentRequest.paymentType === 'PARTIAL_PAYMENT'
         ? (paymentRequest.partialAmount || 0)
         : paymentRequest.paymentType === 'INTEREST_ONLY'
@@ -816,13 +816,71 @@ export async function PUT(request: NextRequest) {
       const typeLabel = typeLabels[paymentRequest.paymentType] || 'Payment';
       const appNo = paymentRequest.loanApplication?.applicationNo || '';
 
+      // ── Detect extra EMI (EMI# > mirrorTenure) ─────────────────────────
+      let isExtraEmi = false;
+      try {
+        const mirrorForExtra = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: paymentRequest.loanApplicationId },
+          select: { mirrorTenure: true }
+        });
+        if (mirrorForExtra && emi && emi.installmentNumber > mirrorForExtra.mirrorTenure) {
+          isExtraEmi = true;
+        }
+      } catch (_) { /* non-critical */ }
+
+      // ── Credit increment for cashier who approved ────────────────────
+      // Customer pays via UPI/bank directly → reviewer gets PERSONAL credit
+      try {
+        const reviewerUser = await db.user.findUnique({
+          where: { id: reviewedById },
+          select: { personalCredit: true, companyCredit: true, credit: true }
+        });
+        if (reviewerUser) {
+          const newPersonal = (reviewerUser.personalCredit || 0) + paidAmtForNotif;
+          const newTotal    = (reviewerUser.credit         || 0) + paidAmtForNotif;
+          await db.user.update({
+            where: { id: reviewedById },
+            data: { personalCredit: newPersonal, credit: newTotal }
+          });
+          await db.creditTransaction.create({ data: {
+            // @ts-ignore
+            userId:               reviewedById,
+            transactionType:      'PERSONAL_COLLECTION',
+            amount:               paidAmtForNotif,
+            paymentMode:          'UPI',
+            creditType:           'PERSONAL',
+            sourceType:           'EMI_PAYMENT',
+            balanceAfter:         newTotal,
+            personalBalanceAfter: newPersonal,
+            companyBalanceAfter:  reviewerUser.companyCredit || 0,
+            loanApplicationId:    paymentRequest.loanApplicationId,
+            emiScheduleId:        emi?.id,
+            installmentNumber:    emi?.installmentNumber,
+            description:          `PR#${paymentRequest.requestNumber} approved — ${isExtraEmi ? '⭐ Extra EMI' : typeLabel} ₹${paidAmtForNotif.toFixed(2)} for ${appNo}`,
+            transactionDate:      new Date()
+          }});
+          console.log(`[PR Credit] +₹${paidAmtForNotif} personal credit → reviewer ${reviewedById}`);
+        }
+      } catch (creditErr) {
+        console.error('[PR Credit] Credit increment failed (non-critical):', creditErr);
+      }
+
+      // ── Customer approval notification (in-app + push) ──────────────
+
+      const notifTitle = isExtraEmi
+        ? `⭐ Extra EMI Approved ✅`
+        : `${typeLabel} Approved ✅`;
+      const notifMessage = isExtraEmi
+        ? `Your Extra EMI payment of ₹${paidAmtForNotif.toFixed(2)} for loan ${appNo} (EMI #${emi?.installmentNumber}) has been approved. This is a bonus EMI payment. 🎉`
+        : `Your payment of ₹${paidAmtForNotif.toFixed(2)} for loan ${appNo} (EMI #${emi?.installmentNumber}) has been approved by cashier.`;
+
       // 1. In-app DB notification
       await db.notification.create({
         data: {
           userId: paymentRequest.customerId,
           type: 'PAYMENT_CONFIRMATION',
-          title: `${typeLabel} Approved ✅`,
-          message: `Your payment of ₹${paidAmtForNotif.toFixed(2)} for loan ${appNo} (EMI #${emi?.installmentNumber}) has been approved by cashier.`
+          title: notifTitle,
+          message: notifMessage
         }
       }).catch(e => console.error('[PR Notification] In-app notify failed:', e));
 

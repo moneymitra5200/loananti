@@ -1087,8 +1087,7 @@ export default function CustomerLoanDetailPage() {
             <CardDescription>Click on pending EMI to make payment (must pay in order)</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[400px]">
-              <div className="divide-y">
+            <div className="divide-y max-h-[600px] overflow-y-auto">
                 {emiSchedules.sort((a, b) => a.installmentNumber - b.installmentNumber).map((emi, index) => {
                   // INTEREST_ONLY_PAID is considered as paid - interest is paid and new EMI created for principal
                   const isPaid = emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID';
@@ -1155,6 +1154,14 @@ export default function CustomerLoanDetailPage() {
                               {emi.isInterestOnly && (
                                 <Badge className="bg-purple-500 text-white text-xs">Interest Only</Badge>
                               )}
+                              {/* Deferred Principal badge — shown on the new EMI created after interest-only */}
+                              {emi.principalDeferred && !emi.isInterestOnly && (
+                                <Badge className="bg-violet-600 text-white text-xs">📋 Deferred Principal</Badge>
+                              )}
+                              {/* Extra EMI badge — EMI number beyond mirrorTenure */}
+                              {mirrorTenure > 0 && emi.installmentNumber > mirrorTenure && (
+                                <Badge className="bg-yellow-500 text-white text-xs font-bold">⭐ Extra EMI</Badge>
+                              )}
                             </div>
                             <p className="text-sm text-gray-500">
                               Due: {formatDate(emi.dueDate)}
@@ -1204,6 +1211,23 @@ export default function CustomerLoanDetailPage() {
                               <p className="text-xs text-red-500 mt-1">{reason}</p>
                             )}
                           </div>
+                          {/* Extra EMI secondary payment page notice */}
+                          {mirrorTenure > 0 && emi.installmentNumber > mirrorTenure && !isPaid && (
+                            <div className="mt-2 p-2 bg-yellow-50 rounded-md border border-yellow-300">
+                              <p className="text-xs font-semibold text-yellow-800">⭐ Extra EMI — Pay via separate link</p>
+                              {extraEmiPaymentPage ? (
+                                <p className="text-xs text-yellow-700 mt-0.5">UPI: {extraEmiPaymentPage.upiId || 'See payment page'}</p>
+                              ) : (
+                                <p className="text-xs text-yellow-700 mt-0.5">Contact cashier for extra EMI payment details.</p>
+                              )}
+                            </div>
+                          )}
+                          {/* Deferred principal notice */}
+                          {emi.principalDeferred && !emi.isInterestOnly && !isPaid && (
+                            <div className="mt-2 p-2 bg-violet-50 rounded-md border border-violet-200">
+                              <p className="text-xs text-violet-700">📋 This EMI includes P+I deferred from an interest-only payment.</p>
+                            </div>
+                          )}
                         </div>
                         
                         <div className="text-right">
@@ -1245,8 +1269,7 @@ export default function CustomerLoanDetailPage() {
                     </motion.div>
                   );
                 })}
-              </div>
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
       </div>
