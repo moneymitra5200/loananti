@@ -335,7 +335,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     mirrorPrincipal,
     mirrorInterest,
     mirrorCompanyId,
-    isMirrorPayment = false
+    isMirrorPayment = false,
+    isSplitPayment,
+    splitCashAmount: splitCash,
+    splitOnlineAmount: splitOnline,
   } = params;
 
   const result: {
@@ -374,9 +377,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     //   cashPortion   → Mirror Cashbook
     //   onlinePortion → Mirror Bank Account
     // We split the mirror recordAmount proportionally to the original split ratio.
-    const isSplit = !!(params as any).isSplitPayment;
-    const rawSplitCash   = (params as any).splitCashAmount   as number | undefined;
-    const rawSplitOnline = (params as any).splitOnlineAmount as number | undefined;
+    const isSplit = !!isSplitPayment;
+    const rawSplitCash   = splitCash;
+    const rawSplitOnline = splitOnline;
 
     if (isSplit && rawSplitCash !== undefined && rawSplitOnline !== undefined) {
       const splitTotal  = rawSplitCash + rawSplitOnline || 1;
@@ -682,14 +685,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   }
 
   // ============================================
-  // COMPANY CREDIT - ONLINE goes to BANK, CASH goes to CASH BOOK
+  // COMPANY CREDIT - ONLINE → BANK, CASH → CASHBOOK
+  // Note: for SPLIT payments, the calling route already handled:
+  //   - amount = splitCashAmount (cash portion only) → routes to Cashbook below
+  //   - a separate recordBankTransaction for splitOnlineAmount
+  // So here 'amount' is already the cash-only portion for splits.
+  // We only need to fix the JOURNAL to show Dr Cash + Dr Bank instead of Dr Cash(full).
   // ============================================
-  // ONLINE/BANK_TRANSFER/UPI payments go to Bank Account
-  // CASH payments go to Cash Book
-  // Extra EMI and secondary payments are PURE PROFIT for Company 3
-  // ============================================
-  
-  // ONLINE/BANK_TRANSFER payments go to Bank Account
+  const isSplitMode = !!(isSplitPayment && splitCash && splitCash > 0 && splitOnline && splitOnline > 0);
+  const splitCashAmt   = isSplitMode ? (splitCash   ?? 0) : 0;
+  const splitOnlineAmt = isSplitMode ? (splitOnline ?? 0) : 0;
+
+  // Record cashbook/bank (same pattern as offline route — called with cash-only amount)
   if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
     result.bankTransaction = await recordBankTransaction({
       companyId: targetCompanyId,
@@ -702,69 +709,82 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     });
     console.log(`[Accounting] Company Credit EMI recorded in BANK ACCOUNT: ₹${amount}`);
   } else {
-    // CASH payments go to Cash Book
+    // CASH or SPLIT (cash portion only — caller routes online portion to bank separately)
     result.cashBookEntry = await recordCashBookEntry({
       companyId: targetCompanyId,
       entryType: 'CREDIT',
       amount,
-      description: `${description} [Company Credit - ${paymentMode}]`,
+      description: `${description} [Company Credit - ${paymentMode}${isSplitMode ? ` SPLIT Cash ₹${splitCashAmt}` : ''}]`,
       referenceType: 'EMI_PAYMENT',
       referenceId: paymentId,
       createdById: userId
     });
     console.log(`[Accounting] Company Credit EMI recorded in CASH BOOK: ₹${amount}`);
   }
-  
-  // Create journal entry (always balanced)
+
+  // ── JOURNAL ENTRY ────────────────────────────────────────────────────
+  // CASH:   Dr Cash ₹amount        | Cr Loans + Cr Interest
+  // ONLINE: Dr Bank ₹amount        | Cr Loans + Cr Interest
+  // SPLIT:  Dr Cash ₹splitCash + Dr Bank ₹splitOnline | Cr Loans + Cr Interest
+  //         (total debits = splitCash + splitOnline = full EMI amount)
   try {
     const accountingService = new AccountingService(targetCompanyId);
     await accountingService.initializeChartOfAccounts();
-    
-    // Use Bank Account code for ONLINE payments, Cash for CASH payments
-    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') 
-      ? ACCOUNT_CODES.BANK_ACCOUNT 
-      : ACCOUNT_CODES.CASH_IN_HAND;
 
-    // Build balanced credit lines
+    // Build credit lines (same for all modes)
     const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
+    const totalForCredit = isSplitMode ? (splitCashAmt + splitOnlineAmt) : amount;
     if (principalComponent > 0) {
       companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
     }
-    const companyInterestAdj = Math.max(0, interestComponent + Math.round((amount - principalComponent - interestComponent) * 100) / 100);
+    const companyInterestAdj = Math.max(0, interestComponent + Math.round((totalForCredit - principalComponent - interestComponent) * 100) / 100);
     if (companyInterestAdj > 0) {
       companyCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: 'Interest income' });
     }
     if (companyCreditLines.length === 0) {
-      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: amount, loanId, customerId, narration: 'EMI repayment' });
+      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalForCredit, loanId, customerId, narration: 'EMI repayment' });
     }
-    // Final balance check
     const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
-    const companyDiff = Math.round((amount - companyCreditSum) * 100) / 100;
+    const companyDiff = Math.round((totalForCredit - companyCreditSum) * 100) / 100;
     if (Math.abs(companyDiff) > 0.001) companyCreditLines[companyCreditLines.length - 1].creditAmount += companyDiff;
-    
+
+    // Build debit lines based on mode
+    let debitLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[];
+    let modeLabel: string;
+
+    if (isSplitMode) {
+      // SPLIT: Dr Cash (cash portion) + Dr Bank (online portion)
+      modeLabel = `SPLIT: Cash ₹${splitCashAmt} + Online ₹${splitOnlineAmt}`;
+      debitLines = [];
+      if (splitCashAmt > 0)
+        debitLines.push({ accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: splitCashAmt, creditAmount: 0, loanId, customerId, narration: `Cash received [SPLIT ₹${splitCashAmt}]` });
+      if (splitOnlineAmt > 0)
+        debitLines.push({ accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: splitOnlineAmt, creditAmount: 0, loanId, customerId, narration: `Bank received [SPLIT ₹${splitOnlineAmt}]` });
+    } else {
+      const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
+        ? ACCOUNT_CODES.BANK_ACCOUNT
+        : ACCOUNT_CODES.CASH_IN_HAND;
+      modeLabel = paymentMode;
+      debitLines = [{
+        accountCode: debitAccountCode,
+        debitAmount: amount, creditAmount: 0, loanId, customerId,
+        narration: (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') ? 'Bank received for EMI' : 'Cash received for EMI',
+      }];
+    }
+
     result.journalEntryId = await accountingService.createJournalEntry({
       entryDate: new Date(),
       referenceType: 'EMI_PAYMENT',
       referenceId: paymentId,
-      narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${paymentMode})`,
-      lines: [
-        {
-          accountCode: debitAccountCode,
-          debitAmount: amount,
-          creditAmount: 0,
-          loanId,
-          customerId,
-          narration: paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI'
-            ? 'Bank received for EMI'
-            : 'Cash received for EMI'
-        },
-        ...companyCreditLines,
-      ],
+      narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${modeLabel})`,
+      lines: [...debitLines, ...companyCreditLines],
       createdById: userId,
-      paymentMode
+      paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
     });
+
+    console.log(`[Accounting] ✅ Journal (${modeLabel}): Dr ₹${totalForCredit} | Cr Loans ₹${principalComponent} | Cr Interest ₹${companyInterestAdj}`);
   } catch (journalError) {
-    console.error('Failed to create journal entry for company credit EMI:', journalError);
+    console.error('[Accounting] ❌ Failed to create journal entry for company credit EMI:', journalError);
   }
 
   return result;
