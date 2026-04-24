@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
+import NotificationService from '@/lib/notification-service';
 
 // Expense type → account code mapping (must match DEFAULT_CHART_OF_ACCOUNTS in accounting-service.ts)
 const EXPENSE_ACCOUNT_CODES: Record<string, string> = {
@@ -194,6 +195,20 @@ export async function POST(request: NextRequest) {
           remarks: remarks || null,
         },
       });
+      
+      // Notify Super Admins
+      NotificationService.getUserIdsByRole('SUPER_ADMIN').then(adminIds => {
+        if (adminIds.length > 0) {
+          NotificationService.createNotificationsForUsers(adminIds, {
+            type: 'SYSTEM_ANNOUNCEMENT',
+            category: 'SYSTEM',
+            title: 'New Expense Request',
+            message: `A new expense request for ₹${amount.toLocaleString()} has been submitted.`,
+            actionUrl: '/super-admin/expense'
+          });
+        }
+      }).catch(err => console.error('[ExpenseRequest] Failed to notify admins:', err));
+
       return NextResponse.json({ success: true, expense, message: 'Expense request submitted for Super Admin approval' });
     }
 
@@ -295,6 +310,19 @@ export async function PUT(request: NextRequest) {
           remarks: rejectionReason || 'Rejected by admin',
         },
       });
+
+      // Notify the requester
+      if (expense.payeeId) {
+        NotificationService.createNotification({
+          userId: expense.payeeId,
+          type: 'SYSTEM_ANNOUNCEMENT',
+          category: 'SYSTEM',
+          title: 'Expense Request Rejected',
+          message: `Your expense request for ₹${(expense.amount || 0).toLocaleString()} was rejected: ${rejectionReason || 'No reason provided'}`,
+          actionUrl: '/cashier/expense'
+        }).catch(err => console.error('[ExpenseRequest] Failed to notify requester:', err));
+      }
+
       return NextResponse.json({ success: true, message: 'Expense request rejected' });
     }
 
@@ -335,6 +363,18 @@ export async function PUT(request: NextRequest) {
 
       // Journal entry (non-blocking)
       await createJournalEntry(expense.companyId, expense, adminId, bankAccount?.id, paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH');
+
+      // Notify the requester
+      if (expense.payeeId && expense.payeeId !== adminId) {
+        NotificationService.createNotification({
+          userId: expense.payeeId,
+          type: 'SYSTEM_ANNOUNCEMENT',
+          category: 'SYSTEM',
+          title: 'Expense Request Approved',
+          message: `Your expense request for ₹${(expense.amount || 0).toLocaleString()} has been approved and posted to accounting.`,
+          actionUrl: '/cashier/expense'
+        }).catch(err => console.error('[ExpenseRequest] Failed to notify requester:', err));
+      }
 
       return NextResponse.json({
         success: true,
