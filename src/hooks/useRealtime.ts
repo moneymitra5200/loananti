@@ -57,6 +57,9 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onCreditUpdated,
   });
 
+  // Track last refresh time to throttle visibility-change refreshes
+  const lastRefreshRef = useRef<number>(Date.now());
+
   // Always keep callbacks ref up-to-date (avoids stale closures)
   useEffect(() => {
     callbacksRef.current = {
@@ -152,14 +155,20 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   }, [userId, pollInterval]);
 
   // ─── Visibility change restart ───────────────────────────────────────────────
-  // When user returns to a hidden tab, do an immediate refresh
+  // Only refresh when tab becomes visible AND enough time has passed since last refresh.
+  // Previously fired on EVERY tab-focus, causing constant re-fetches.
   useEffect(() => {
     if (!userId) return;
 
+    const VISIBILITY_REFRESH_THROTTLE_MS = 30_000; // 30 seconds minimum between refreshes
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        // Refresh immediately when tab becomes active again
-        callbacksRef.current.onDashboardRefresh?.();
+        const now = Date.now();
+        if (now - lastRefreshRef.current >= VISIBILITY_REFRESH_THROTTLE_MS) {
+          lastRefreshRef.current = now;
+          callbacksRef.current.onDashboardRefresh?.();
+        }
       }
     };
 

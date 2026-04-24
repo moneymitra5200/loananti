@@ -122,6 +122,9 @@ export async function GET(request: NextRequest) {
 
     // Get all mirror loan mappings to identify mirror loans
     let mirrorLoanMappings: any[] = [];
+    // Lookup maps for mirror loan details (populated after mirrorLoanMappings is fetched)
+    let onlineMirrorLoanMap = new Map<string, any>();
+    let offlineMirrorLoanMap = new Map<string, any>();
     const allLoanIds = [
       ...onlineLoans.map(l => l.id),
       ...offlineLoans.map(l => l.id)
@@ -143,10 +146,57 @@ export async function GET(request: NextRequest) {
           originalCompanyId: true,
           mirrorTenure: true,
           originalTenure: true,
+          mirrorInterestRate: true,
+          originalInterestRate: true,
+          extraEMICount: true,
+          mirrorEMIsPaid: true,
+          extraEMIsPaid: true,
+          originalEMIAmount: true,
           displayColor: true,
-          isOfflineLoan: true
+          isOfflineLoan: true,
+          mirrorCompany: { select: { id: true, name: true, code: true } },
+          originalCompany: { select: { id: true, name: true, code: true } }
         }
       });
+
+      // For online loans: fetch mirror loan details separately (FK-less cross-table design)
+      const onlineMirrorLoanIds = mirrorLoanMappings
+        .filter(m => !m.isOfflineLoan && m.mirrorLoanId)
+        .map(m => m.mirrorLoanId as string);
+      
+      let onlineMirrorLoanDetails: any[] = [];
+      if (onlineMirrorLoanIds.length > 0) {
+        onlineMirrorLoanDetails = await db.loanApplication.findMany({
+          where: { id: { in: onlineMirrorLoanIds } },
+          select: {
+            id: true, applicationNo: true, status: true, requestedAmount: true,
+            disbursedAt: true, createdAt: true,
+            company: { select: { id: true, name: true, code: true } },
+            customer: { select: { id: true, name: true, phone: true, email: true } },
+            sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, emiAmount: true } }
+          }
+        });
+      }
+      onlineMirrorLoanMap = new Map(onlineMirrorLoanDetails.map(l => [l.id, l]));
+
+      // For offline loans: fetch offline mirror loan details separately
+      const offlineMirrorLoanIds = mirrorLoanMappings
+        .filter(m => m.isOfflineLoan && m.mirrorLoanId)
+        .map(m => m.mirrorLoanId as string);
+      
+      let offlineMirrorLoanDetails: any[] = [];
+      if (offlineMirrorLoanIds.length > 0) {
+        offlineMirrorLoanDetails = await db.offlineLoan.findMany({
+          where: { id: { in: offlineMirrorLoanIds } },
+          select: {
+            id: true, loanNumber: true, status: true, loanAmount: true,
+            interestRate: true, tenure: true, emiAmount: true,
+            displayColor: true, isMirrorLoan: true, customerName: true,
+            company: { select: { id: true, name: true, code: true } }
+          }
+        });
+      }
+      offlineMirrorLoanMap = new Map(offlineMirrorLoanDetails.map(l => [l.id, l]));
     }
 
     // Create lookup maps
@@ -192,7 +242,18 @@ export async function GET(request: NextRequest) {
           mirrorLoanId: mirrorMapping.mirrorLoanId,
           mirrorTenure: mirrorMapping.mirrorTenure,
           originalTenure: mirrorMapping.originalTenure,
-          displayColor: mirrorMapping.displayColor
+          mirrorInterestRate: mirrorMapping.mirrorInterestRate,
+          originalInterestRate: mirrorMapping.originalInterestRate,
+          extraEMICount: mirrorMapping.extraEMICount,
+          mirrorEMIsPaid: mirrorMapping.mirrorEMIsPaid,
+          extraEMIsPaid: mirrorMapping.extraEMIsPaid,
+          originalEMIAmount: mirrorMapping.originalEMIAmount,
+          displayColor: mirrorMapping.displayColor,
+          isOfflineLoan: mirrorMapping.isOfflineLoan,
+          mirrorCompany: mirrorMapping.mirrorCompany,
+          originalCompany: mirrorMapping.originalCompany,
+          // Embed full mirror loan object for ParallelLoanView
+          mirrorLoan: mirrorMapping.mirrorLoanId ? (onlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId) || null) : null,
         } : null,
         requestedAmount: loan.requestedAmount,
         approvedAmount: loan.sessionForm?.approvedAmount || loan.requestedAmount,
@@ -252,8 +313,18 @@ export async function GET(request: NextRequest) {
           mirrorLoanId: mirrorMapping.mirrorLoanId,
           mirrorTenure: mirrorMapping.mirrorTenure,
           originalTenure: mirrorMapping.originalTenure,
+          mirrorInterestRate: mirrorMapping.mirrorInterestRate,
+          originalInterestRate: mirrorMapping.originalInterestRate,
+          extraEMICount: mirrorMapping.extraEMICount,
+          mirrorEMIsPaid: mirrorMapping.mirrorEMIsPaid,
+          extraEMIsPaid: mirrorMapping.extraEMIsPaid,
+          originalEMIAmount: mirrorMapping.originalEMIAmount,
           displayColor: mirrorMapping.displayColor,
-          isOfflineLoan: mirrorMapping.isOfflineLoan
+          isOfflineLoan: mirrorMapping.isOfflineLoan,
+          mirrorCompany: mirrorMapping.mirrorCompany,
+          originalCompany: mirrorMapping.originalCompany,
+          // Embed the offline mirror loan detail for ParallelLoanView
+          offlineMirrorLoan: mirrorMapping.mirrorLoanId ? (offlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId) || null) : null,
         } : null,
         requestedAmount: loan.loanAmount,
         approvedAmount: loan.loanAmount,

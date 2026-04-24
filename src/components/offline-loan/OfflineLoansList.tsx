@@ -127,12 +127,17 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const [undoableActions, setUndoableActions] = useState<any[]>([]);
   const [redoableActions, setRedoableActions] = useState<any[]>([]);
 
+  // Fetch mirror mappings and companies ONCE on mount — they don't change with filters
+  useEffect(() => {
+    fetchCompanies();
+    fetchMirrorMappings();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch loans + actionable items when filters/page/refreshKey change
   useEffect(() => {
     fetchLoans();
-    fetchCompanies();
     fetchActionableItems();
-    fetchMirrorMappings();
-  }, [userId, userRole, page, statusFilter, companyFilter, refreshKey]);
+  }, [userId, userRole, page, statusFilter, companyFilter, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchMirrorMappings = async () => {
     try {
