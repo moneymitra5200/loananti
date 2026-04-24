@@ -543,11 +543,23 @@ export default function PaymentDialog({
                       <TabsContent value="UPI" className="mt-4 space-y-4">
                         <Card>
                           <CardContent className="p-6 text-center">
+                            {/* Amount to pay */}
+                            <div className="mb-4 bg-emerald-50 rounded-xl p-3">
+                              <p className="text-xs text-gray-500 mb-1">Amount to Pay</p>
+                              <p className="text-3xl font-bold text-emerald-700">
+                                {formatCurrency(
+                                  selectedOption === 'FULL' ? remainingEMIAmount :
+                                  selectedOption === 'PARTIAL' ? partialAmount :
+                                  emi.interestAmount
+                                )}
+                              </p>
+                            </div>
+                            {/* Large QR code */}
                             {companyQrCodeUrl ? (
-                              <img src={companyQrCodeUrl} alt="QR Code" className="w-48 h-48 mx-auto border rounded-lg" />
+                              <img src={companyQrCodeUrl} alt="QR Code" className="w-72 h-72 mx-auto border-2 border-emerald-200 rounded-2xl shadow-md" />
                             ) : (
-                              <div className="w-48 h-48 mx-auto border-2 border-dashed rounded-lg flex items-center justify-center bg-gray-50">
-                                <QrCode className="h-20 w-20 text-gray-300" />
+                              <div className="w-72 h-72 mx-auto border-2 border-dashed rounded-2xl flex items-center justify-center bg-gray-50">
+                                <QrCode className="h-32 w-32 text-gray-300" />
                               </div>
                             )}
                             <p className="mt-4 text-sm text-gray-600">Scan QR code to pay</p>

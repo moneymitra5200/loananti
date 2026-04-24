@@ -973,7 +973,7 @@ export default function CustomerDashboard() {
             {formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}
           </p>
           {loan.sessionForm && (
-            <p className="text-xs text-gray-500">{loan.sessionForm.tenure} months @ {loan.sessionForm.interestRate}%</p>
+            <p className="text-xs text-gray-500">{loan.sessionForm.tenure} months</p>
           )}
         </div>
       </div>

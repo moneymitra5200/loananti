@@ -1311,8 +1311,62 @@ export async function PUT(request: NextRequest) {
           }
         }
       } catch (accErr) {
-        // Accounting failure must NOT block the approval response
-        console.error('[PR Accounting] ❌ Mirror accounting failed (non-blocking):', accErr);
+        // ══════════════════════════════════════════════════════════════════
+        // ACCOUNTING FAILURE → REVERT APPROVAL
+        // If accounting entries could not be written, roll back the approval
+        // so the cashier can retry. A partial ledger is worse than no entry.
+        // ══════════════════════════════════════════════════════════════════
+        console.error('[PR Accounting] ❌ Accounting failed — reverting approval:', accErr);
+        try {
+          // 1. Revert PaymentRequest → PENDING
+          await db.paymentRequest.update({
+            where: { id: paymentRequestId },
+            data: {
+              status:       'PENDING',
+              reviewedById: null,
+              reviewedAt:   null,
+              reviewRemarks: `[AUTO-REVERTED] Accounting failed: ${(accErr as Error)?.message?.slice(0, 200)}`
+            }
+          });
+
+          // 2. Revert EMI back to its pre-approval status
+          //    Determine correct status from paidAmount after reverting this payment
+          const paymentRecord = await db.payment.findFirst({
+            where: { emiScheduleId: emi.id, status: 'COMPLETED' },
+            orderBy: { createdAt: 'desc' }
+          });
+          const revertedPaidAmount = Math.max(0, (emi.paidAmount || 0) - (paymentRecord?.amount || 0));
+          const revertedStatus = revertedPaidAmount <= 0
+            ? 'PENDING'
+            : revertedPaidAmount >= (emi.totalAmount || 0) - 1
+              ? 'PAID'
+              : 'PARTIALLY_PAID';
+
+          await db.eMISchedule.update({
+            where: { id: emi.id },
+            data: {
+              paymentStatus: revertedStatus,
+              paidAmount:    revertedPaidAmount,
+              paidPrincipal: Math.max(0, (emi.paidPrincipal || 0) - (paymentRecord?.principalComponent || 0)),
+              paidInterest:  Math.max(0, (emi.paidInterest  || 0) - (paymentRecord?.interestComponent  || 0)),
+              paidDate:      revertedPaidAmount > 0 ? emi.paidDate : null,
+            }
+          });
+
+          // 3. Delete the Payment record created inside the transaction
+          if (paymentRecord) {
+            await db.payment.delete({ where: { id: paymentRecord.id } });
+          }
+
+          console.error('[PR Accounting] ↩ Approval reverted — PaymentRequest back to PENDING, EMI reset to', revertedStatus);
+        } catch (revertErr) {
+          console.error('[PR Accounting] ❌❌ REVERT ALSO FAILED — manual intervention required:', revertErr);
+        }
+
+        return NextResponse.json({
+          error: 'Accounting entries could not be written. Approval has been reverted to PENDING. Please retry.',
+          details: (accErr as Error)?.message
+        }, { status: 500 });
       }
 
 
