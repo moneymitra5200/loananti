@@ -1017,33 +1017,41 @@ export async function PUT(request: NextRequest) {
               }
             });
 
-            // ── Calculate mirror amounts (from mirror rate, NOT original) ─
-            const mirrorMonthlyRate = (mirrorMapping.mirrorInterestRate || 0) / 12 / 100;
-            const mirrorInterest = mirrorEmi
-              ? Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100
-              : 0;
-            const mirrorPrincipal = mirrorEmi
-              ? Math.min((mirrorEmi.totalAmount || 0) - mirrorInterest, mirrorEmi.outstandingPrincipal || 0)
-              : 0;
-            const mirrorTotal = mirrorEmi ? (mirrorEmi.totalAmount || 0) : 0;
+            // ── Mirror amounts: READ from stored mirror EMI schedule — NEVER recalculate ─
+            // Using outstandingPrincipal × mirrorMonthlyRate gives wrong values for reducing
+            // loans (outstandingPrincipal decreases over time). The stored interestAmount /
+            // principalAmount / totalAmount are what the mirror customer actually owes.
+            const mirrorInterest  = Number(mirrorEmi?.interestAmount  || 0);
+            const mirrorPrincipal = Number(mirrorEmi?.principalAmount || 0);
+            const mirrorTotal     = Number(mirrorEmi?.totalAmount     || 0);
+            // Remaining mirror amounts (after any previous partial payments on mirror EMI)
+            const mirrorRemainingInterest  = Math.max(0, mirrorInterest  - (mirrorEmi?.paidInterest  || 0));
+            const mirrorRemainingPrincipal = Math.max(0, mirrorPrincipal - (mirrorEmi?.paidPrincipal || 0));
+            const mirrorRemainingTotal     = Math.round((mirrorRemainingInterest + mirrorRemainingPrincipal) * 100) / 100;
 
             // ==================================================================
             // FULL_EMI
             // ==================================================================
             if (pType === 'FULL_EMI' && mirrorEmi) {
-              // 1. Bank transaction in mirror company (customer pays online → BANK)
+              // For FULL_EMI we settle whatever is REMAINING on the mirror EMI
+              // (may be less than mirrorTotal if mirror had a previous partial payment)
+              const settleMirrorAmt       = mirrorRemainingTotal;
+              const settleMirrorInterest  = mirrorRemainingInterest;
+              const settleMirrorPrincipal = mirrorRemainingPrincipal;
+
+              // 1. Bank transaction in mirror company
               await recordBankTransaction({
                 companyId:       mirrorCompanyId,
                 transactionType: 'CREDIT',
-                amount:          mirrorTotal,
-                description:     `MIRROR EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber} (P:₹${mirrorPrincipal} + I:₹${mirrorInterest})`,
+                amount:          settleMirrorAmt,
+                description:     `MIRROR EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber} (P:₹${settleMirrorPrincipal} + I:₹${settleMirrorInterest})`,
                 referenceType:   'MIRROR_EMI_PAYMENT',
                 referenceId:     paymentId,
                 createdById:     reviewedById
               });
-              console.log(`[PR Accounting] ✓ Bank CREDIT ₹${mirrorTotal} in mirror company`);
+              console.log(`[PR Accounting] ✓ Bank CREDIT ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company`);
 
-              // 2. Mark mirror EMI as PAID
+              // 2. Mark mirror EMI as fully PAID
               await db.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
@@ -1063,15 +1071,15 @@ export async function PUT(request: NextRequest) {
                 data: { mirrorEMIsPaid: { increment: 1 } }
               });
 
-              // 4. Mirror Payment record (audit trail)
+              // 4. Mirror Payment record (audit trail — only for what's paid NOW)
               await db.payment.create({
                 data: {
                   loanApplicationId:  mirrorMapping.mirrorLoanId,
                   emiScheduleId:      mirrorEmi.id,
                   customerId:         paymentRequest.customerId,
-                  amount:             mirrorTotal,
-                  principalComponent: mirrorPrincipal,
-                  interestComponent:  mirrorInterest,
+                  amount:             settleMirrorAmt,
+                  principalComponent: settleMirrorPrincipal,
+                  interestComponent:  settleMirrorInterest,
                   paymentMode:        payMode,
                   status:             'COMPLETED',
                   receiptNumber:      `RCP-MIRROR-${Date.now()}`,
@@ -1081,21 +1089,20 @@ export async function PUT(request: NextRequest) {
                 }
               });
 
-              // 5. Double-entry journal
-              //    DR Bank 1102 | CR Loans Receivable 1200 | CR Interest Income 4110
+              // 5. Double-entry journal: DR Bank | CR Loans Receivable | CR Interest Income
               await accSvc.recordEMIPayment({
                 loanId:             mirrorMapping.mirrorLoanId,
                 customerId:         paymentRequest.customerId,
                 paymentId,
-                totalAmount:        mirrorTotal,
-                principalComponent: mirrorPrincipal,
-                interestComponent:  mirrorInterest,
+                totalAmount:        settleMirrorAmt,
+                principalComponent: settleMirrorPrincipal,
+                interestComponent:  settleMirrorInterest,
                 paymentDate:        new Date(),
                 paymentMode:        payMode,
                 createdById:        reviewedById,
                 reference:          `PR#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`
               });
-              console.log(`[PR Accounting] ✓ Journal DR Bank ₹${mirrorTotal} in mirror company ${mirrorCompanyId}`);
+              console.log(`[PR Accounting] ✓ Journal DR Bank ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company ${mirrorCompanyId}`);
 
               // 6. Mirror loan closure check
               const allMirrorEmis = await db.eMISchedule.findMany({
