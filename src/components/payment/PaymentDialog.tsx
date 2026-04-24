@@ -241,10 +241,10 @@ export default function PaymentDialog({
         loanApplicationId: loanId,
         emiScheduleId: emi.id,
         customerId,
-        paymentType: selectedOption === 'FULL' ? 'FULL_EMI' : selectedOption,
-        requestedAmount: selectedOption === 'PARTIAL' ? partialAmount : 
-                        selectedOption === 'INTEREST_ONLY' ? emi.interestAmount : 
-                        emi.totalAmount,
+        paymentType: selectedOption === 'FULL' ? 'FULL_EMI' : selectedOption === 'PARTIAL' ? 'PARTIAL_PAYMENT' : 'INTEREST_ONLY',
+        requestedAmount: selectedOption === 'FULL' ? remainingEMIAmount :
+                        selectedOption === 'PARTIAL' ? partialAmount :
+                        emi.interestAmount,
         paymentMethod,
         utrNumber,
         proofUrl,
@@ -567,39 +567,45 @@ export default function PaymentDialog({
                         <Card>
                           <CardContent className="p-6">
                             <h4 className="font-medium mb-4">Bank Account Details</h4>
-                            <div className="space-y-3">
-                              <div className="flex justify-between items-center py-2 border-b">
-                                <span className="text-gray-600">Account Name</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">Money Mitra Finance</span>
-                                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard('Money Mitra Finance')}>
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
+                            {bankDetails ? (
+                              <div className="space-y-3">
+                                {bankDetails.accountHolderName && (
+                                  <div className="flex justify-between items-center py-2 border-b">
+                                    <span className="text-gray-600">Account Name</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium">{bankDetails.accountHolderName}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.accountHolderName)}><Copy className="h-3 w-3" /></Button>
+                                    </div>
+                                  </div>
+                                )}
+                                {bankDetails.accountNumber && (
+                                  <div className="flex justify-between items-center py-2 border-b">
+                                    <span className="text-gray-600">Account Number</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium font-mono">{bankDetails.accountNumber}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.accountNumber)}><Copy className="h-3 w-3" /></Button>
+                                    </div>
+                                  </div>
+                                )}
+                                {bankDetails.ifscCode && (
+                                  <div className="flex justify-between items-center py-2 border-b">
+                                    <span className="text-gray-600">IFSC Code</span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-medium font-mono">{bankDetails.ifscCode}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.ifscCode)}><Copy className="h-3 w-3" /></Button>
+                                    </div>
+                                  </div>
+                                )}
+                                {bankDetails.bankName && (
+                                  <div className="flex justify-between items-center py-2">
+                                    <span className="text-gray-600">Bank Name</span>
+                                    <span className="font-medium">{bankDetails.bankName}</span>
+                                  </div>
+                                )}
                               </div>
-                              <div className="flex justify-between items-center py-2 border-b">
-                                <span className="text-gray-600">Account Number</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">1234567890123</span>
-                                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard('1234567890123')}>
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="flex justify-between items-center py-2 border-b">
-                                <span className="text-gray-600">IFSC Code</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-medium">SBIN0001234</span>
-                                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard('SBIN0001234')}>
-                                    <Copy className="h-3 w-3" />
-                                  </Button>
-                                </div>
-                              </div>
-                              <div className="flex justify-between items-center py-2">
-                                <span className="text-gray-600">Bank Name</span>
-                                <span className="font-medium">State Bank of India</span>
-                              </div>
-                            </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 text-center py-4">Bank details not available. Please contact your lender.</p>
+                            )}
                           </CardContent>
                         </Card>
                       </TabsContent>
