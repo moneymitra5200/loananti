@@ -536,19 +536,19 @@ export async function POST(request: NextRequest) {
         console.log(`[Interest Only] Shifted EMI #${subsequentEmi.installmentNumber} → #${subsequentEmi.installmentNumber + 1}, Due: ${subsequentEmi.dueDate.toISOString().split('T')[0]} → ${shiftedDueDate.toISOString().split('T')[0]}`);
       }
       
-      // Calculate interest for the new EMI (based on original loan rate)
-      const originalRate = emi.loanApplication?.sessionForm?.interestRate || 12;
-      const originalType = emi.loanApplication?.sessionForm?.interestType || 'FLAT';
-      
-      let newInterestOriginal = emi.interestAmount;
-      if (originalType === 'REDUCING') {
-        newInterestOriginal = emi.outstandingPrincipal * (originalRate / 100) / 12;
-      } else {
-        // FLAT: Use the current EMI's interest amount as it represents the correct constant
-        // Do NOT use remainingPrincipal (which is just the deferred chunk) to calculate flat interest!
-        newInterestOriginal = emi.interestAmount;
-      }
-      
+      // Interest for the new deferred EMI = SAME as the original EMI's interest.
+      // This matches the offline route (line 2596) and ensures the new EMI looks identical
+      // to the original EMI the customer didn't fully pay.
+      // For REDUCING: do NOT recalculate from outstandingPrincipal*rate — that gives a
+      //   LOWER value as the outstanding principal decreases over time, causing the bug
+      //   where new EMI #4 shows ₹97.96 instead of ₹111.56 (EMI #3's interest).
+      // For FLAT: constant throughout loan — emi.interestAmount is always correct.
+      // Both cases: use emi.interestAmount directly.
+      const newInterestOriginal = Number(emi.interestAmount || 0);
+      // Principal: use the FULL principalAmount of the EMI (not remainingPrincipal which could
+      // be 0 if somehow patially paid — INTEREST_ONLY should always carry full principal)
+      const deferredPrincipal = Number(emi.principalAmount || 0);
+      console.log(`[Interest Only] Deferred EMI will carry P:₹${deferredPrincipal} + I:₹${newInterestOriginal} (same as original EMI #${emi.installmentNumber})`);
       // Create NEW EMI for original loan at the position right after the interest-paid EMI
       // Due date = Current EMI + 1 month
       const newEMIOriginal = await db.eMISchedule.create({
@@ -557,13 +557,13 @@ export async function POST(request: NextRequest) {
           installmentNumber: emi.installmentNumber + 1, // Position after interest-paid EMI (now free)
           dueDate: newEmiDueDate,
           originalDueDate: newEmiDueDate,
-          principalAmount: remainingPrincipal,
+          principalAmount: deferredPrincipal,
           interestAmount: Math.round(newInterestOriginal * 100) / 100,
-          totalAmount: remainingPrincipal + Math.round(newInterestOriginal * 100) / 100,
+          totalAmount: Math.round((deferredPrincipal + newInterestOriginal) * 100) / 100,
           outstandingPrincipal: emi.outstandingPrincipal,
           outstandingInterest: 0,
           paymentStatus: 'PENDING',
-          notes: `NEW EMI created from Interest-Only payment on EMI #${emi.installmentNumber}. Due: ${newEmiDueDate.toISOString().split('T')[0]} (EMI #${emi.installmentNumber} due + 1 month). Principal: ₹${remainingPrincipal}, Interest: ₹${Math.round(newInterestOriginal * 100) / 100}`,
+          notes: `Deferred from Interest-Only on EMI #${emi.installmentNumber}. P:₹${deferredPrincipal} + I:₹${Math.round(newInterestOriginal * 100) / 100}. Due: ${newEmiDueDate.toISOString().split('T')[0]}`,
           isInterestOnly: false,
           principalDeferred: true,
           originalEMIId: emi.id,
@@ -571,9 +571,25 @@ export async function POST(request: NextRequest) {
         }
       });
       
-      console.log(`[Interest Only] Created NEW EMI #${newEMIOriginal.installmentNumber} for Original Loan with Due: ${newEmiDueDate.toISOString().split('T')[0]}. Total EMIs now: ${newTotalEMIs}`);
-      console.log(`[Interest Only] Original EMI #${emi.installmentNumber} status: INTEREST_ONLY_PAID`);
-      
+      console.log(`[Interest Only] ✅ Created NEW EMI #${newEMIOriginal.installmentNumber}: P:₹${deferredPrincipal} + I:₹${Math.round(newInterestOriginal * 100) / 100} = ₹${Math.round((deferredPrincipal + newInterestOriginal) * 100) / 100}. Total EMIs: ${newTotalEMIs}`);
+      console.log(`[Interest Only] Original EMI #${emi.installmentNumber} → INTEREST_ONLY_PAID`);
+
+      // ── Increment mirrorTenure so mirror loan boundary stays correct after EMI insertion ──
+      // Matches offline route lines 2620-2625 exactly.
+      // When a new EMI is inserted at position N+1, all subsequent EMIs shift forward by 1.
+      // If mirrorTenure was 10, old #10 becomes #11 and would be tagged as Extra EMI (wrong).
+      if (mirrorMapping) {
+        try {
+          await db.mirrorLoanMapping.update({
+            where: { id: mirrorMapping.id },
+            data: { mirrorTenure: mirrorMapping.mirrorTenure + 1 }
+          });
+          console.log(`[Interest Only] mirrorTenure incremented to ${mirrorMapping.mirrorTenure + 1} to keep boundary correct`);
+        } catch (mtErr) {
+          console.error('[Interest Only] Failed to increment mirrorTenure (non-critical):', mtErr);
+        }
+      }
+
       // ============ MIRROR LOAN: Same process ============
       if (mirrorMappingIO?.mirrorLoanId) {
         console.log(`[Interest Only] Processing Mirror Loan: ${mirrorMappingIO!.mirrorLoanId}`);
@@ -587,15 +603,11 @@ export async function POST(request: NextRequest) {
         });
         
         if (mirrorEMI) {
-          // Calculate mirror interest based on mirror rate
-          const mirrorRate = mirrorMappingIO!.mirrorInterestRate;
-          const mirrorMonthlyRate = mirrorRate / 12 / 100;
-          let mirrorInterest = mirrorEMI.interestAmount; // For flat rates, use constant interest
-          if (originalType === 'REDUCING') {
-            // For reducing, calculate based on outstanding principal
-            mirrorInterest = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
-          }
-          const mirrorPrincipal = mirrorEMI.principalAmount;
+          // Mirror interest for deferred EMI = SAME as mirror EMI's stored interestAmount.
+          // Do NOT recalculate from rate — same fix as original loan above.
+          // mirrorEMI.interestAmount is the scheduled mirror interest (at mirror rate).
+          const mirrorInterest = Number(mirrorEMI.interestAmount || 0);
+          const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
           
           console.log(`[Interest Only] Mirror EMI #${mirrorEMI.installmentNumber} - Marking as INTEREST_ONLY_PAID, Interest: ₹${mirrorInterest}`);
           
@@ -671,8 +683,8 @@ export async function POST(request: NextRequest) {
             console.log(`[Interest Only] Mirror: Shifted EMI #${subsequentMirrorEmi.installmentNumber} → #${subsequentMirrorEmi.installmentNumber + 1}, Due: ${subsequentMirrorEmi.dueDate.toISOString().split('T')[0]} → ${shiftedDueDate.toISOString().split('T')[0]}`);
           }
           
-          // Calculate new interest for mirror NEW EMI
-          const newInterestMirror = Math.round(mirrorEMI.outstandingPrincipal * mirrorMonthlyRate * 100) / 100;
+          // Mirror new EMI carries the same interest as the original mirror EMI (mirrorInterest set above)
+          const newInterestMirror = Math.round(mirrorInterest * 100) / 100;
           
           // Create NEW EMI for mirror loan with due date = Mirror EMI + 1 month
           const newEMIMirror = await db.eMISchedule.create({
@@ -683,11 +695,11 @@ export async function POST(request: NextRequest) {
               originalDueDate: newMirrorEmiDueDate,
               principalAmount: mirrorPrincipal,
               interestAmount: newInterestMirror,
-              totalAmount: mirrorPrincipal + newInterestMirror,
+              totalAmount: Math.round((mirrorPrincipal + newInterestMirror) * 100) / 100,
               outstandingPrincipal: mirrorEMI.outstandingPrincipal,
               outstandingInterest: 0,
               paymentStatus: 'PENDING',
-              notes: `NEW EMI created from Interest-Only payment sync. Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]} (EMI #${mirrorEMI.installmentNumber} due + 1 month). Principal: ₹${mirrorPrincipal}, Interest: ₹${newInterestMirror}`,
+              notes: `Deferred from Interest-Only sync. P:₹${mirrorPrincipal} + I:₹${newInterestMirror}. Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]}`,
               isInterestOnly: false,
               principalDeferred: true,
               originalEMIId: mirrorEMI.id,
@@ -695,7 +707,7 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          console.log(`[Interest Only] Created NEW EMI #${newEMIMirror.installmentNumber} for Mirror Loan with Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]}`);
+          console.log(`[Interest Only] ✅ Mirror NEW EMI #${newEMIMirror.installmentNumber}: P:₹${mirrorPrincipal} + I:₹${newInterestMirror} = ₹${Math.round((mirrorPrincipal + newInterestMirror) * 100) / 100}`);
           
           // ── NOTE: Mirror accounting for INTEREST_ONLY is handled by the ──────────────
           // unified recordEMIPaymentAccounting block at the bottom of this handler.
