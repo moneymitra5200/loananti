@@ -21,14 +21,14 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Home, FileText, CheckCircle, XCircle, Clock, Wallet, TrendingUp, Percent, Calendar, IndianRupee, PenLine, AlertCircle, CreditCard, User, Briefcase, Building2, ChevronRight, LogOut, Bell, Settings, History, BarChart3, Calculator, Gift, RefreshCw, Download, Share2, ClockIcon, AlertTriangle, Sparkles, ArrowUpRight, PiggyBank, FileDown, RefreshCcw, Loader2, PartyPopper, Ticket, Plus, MessageSquare, Send } from 'lucide-react';
+import { Home, FileText, CheckCircle, XCircle, Clock, Wallet, TrendingUp, Percent, Calendar, IndianRupee, PenLine, AlertCircle, CreditCard, User, Briefcase, Building2, ChevronRight, LogOut, Bell, Settings, History, BarChart3, Calculator, Gift, RefreshCw, Download, Share2, ClockIcon, AlertTriangle, Sparkles, ArrowUpRight, PiggyBank, FileDown, RefreshCcw, Loader2, PartyPopper, Ticket, Plus, MessageSquare, Send, Bot, X, Camera, Phone, Mail, MapPin, Edit3 } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import CustomerMessages from '@/components/messaging/CustomerMessages';
 import PushNotificationInit from '@/components/notification/PushNotificationInit';
 import { formatCurrency, calculateEMI, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { useLocationTracking } from '@/hooks/useLocationTracking';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 
 interface Loan {
   id: string; applicationNo: string; status: string; requestedAmount: number; loanType: string;
@@ -156,7 +156,7 @@ export default function CustomerDashboard() {
         fetch(`/api/notification?userId=${user.id}&limit=5`),
         fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`),
         fetch(`/api/loan-features?action=referrals&customerId=${user.id}`),
-        fetch(`/api/tickets?customerId=${user.id}`),
+        fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`),
       ]);
 
       // Process all responses in parallel
@@ -209,7 +209,8 @@ export default function CustomerDashboard() {
       }
 
     if (ticketsData.success) {
-        setTickets(ticketsData.tickets || []);
+        const rawTickets = ticketsData.data || ticketsData.tickets || [];
+        setTickets(rawTickets);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -377,9 +378,9 @@ export default function CustomerDashboard() {
     if (!user) return;
     setTicketsLoading(true);
     try {
-      const response = await fetch(`/api/tickets?customerId=${user.id}`);
+      const response = await fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`);
       const data = await response.json();
-      if (data.success) setTickets(data.tickets || []);
+      if (data.success) setTickets(data.data || data.tickets || []);
     } catch {}
     finally { setTicketsLoading(false); }
   }, [user]);
@@ -933,6 +934,70 @@ export default function CustomerDashboard() {
   const nextEMI = emiSchedules.find(e => e.paymentStatus === 'PENDING');
   const overdueEMIs = emiSchedules.filter(e => e.paymentStatus === 'OVERDUE');
 
+  // Floating AI Chat State
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessages, setAiMessages] = useState<{role: 'user'|'bot', text: string}[]>([
+    { role: 'bot', text: '👋 Hi! I am your MoneyMitra AI assistant. Ask me anything about your loans, EMIs, or account.' }
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const aiBotPos = useRef({ x: 0, y: 0 });
+  const aiChatEndRef = useRef<HTMLDivElement>(null);
+  const dragControls = useDragControls();
+
+  const sendAiMessage = async () => {
+    const msg = aiInput.trim();
+    if (!msg || aiLoading) return;
+    setAiInput('');
+    setAiMessages(prev => [...prev, { role: 'user', text: msg }]);
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, userId: user?.id })
+      });
+      const data = await res.json();
+      setAiMessages(prev => [...prev, { role: 'bot', text: data.reply || data.message || "I'm not sure about that. Please contact support." }]);
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'bot', text: 'Sorry, I had trouble connecting. Please try again.' }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showAiChat) aiChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiMessages, showAiChat]);
+
+  // Profile state — photo upload + personal info
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '', email: '', address: '' });
+  const profileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (user) {
+      setProfileForm({
+        name: user.name || '',
+        phone: (user as any).phone || '',
+        email: user.email || '',
+        address: (user as any).address || '',
+      });
+    }
+  }, [user]);
+
+  const handleProfilePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => setProfilePhotoUrl(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  // Latest loan form data for auto-fill
+  const latestLoan = loans[0] || null;
+
   // Bottom Navigation
   const navItems = [
     { id: 'home',     label: 'Home',     icon: Home },
@@ -1272,17 +1337,12 @@ export default function CustomerDashboard() {
                 </CardContent>
               </Card>
             ) : (
-              <Tabs defaultValue="all">
-                <TabsList className="grid grid-cols-4 mb-4">
-                  <TabsTrigger value="all">All</TabsTrigger>
+              <Tabs defaultValue="active">
+                <TabsList className="grid grid-cols-3 mb-4">
                   <TabsTrigger value="active">Active</TabsTrigger>
                   <TabsTrigger value="progress">In Progress</TabsTrigger>
                   <TabsTrigger value="rejected">Rejected</TabsTrigger>
                 </TabsList>
-                
-                <TabsContent value="all" className="space-y-3">
-                  {loans.map((loan) => renderLoanCard(loan))}
-                </TabsContent>
                 
                 <TabsContent value="active" className="space-y-3">
                   {activeLoans.length === 0 ? (
@@ -1356,19 +1416,158 @@ export default function CustomerDashboard() {
         );
 
       case 'profile':
-
         return (
-          <div className="space-y-4">
-            <Card className="border-0 shadow-sm">
-              <CardContent className="p-6 text-center">
-                <div className="w-20 h-20 bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl font-bold text-white">{user?.name?.charAt(0) || 'U'}</span>
+          <div className="space-y-4 pb-4">
+            {/* Profile Photo & Header */}
+            <Card className="border-0 shadow-sm overflow-hidden">
+              <div className="h-24 bg-gradient-to-r from-emerald-500 to-teal-600" />
+              <CardContent className="px-6 pb-6 relative">
+                <div className="flex items-end justify-between -mt-12 mb-4">
+                  <div className="relative">
+                    <div
+                      className="w-24 h-24 rounded-full border-4 border-white shadow-md overflow-hidden bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center cursor-pointer"
+                      onClick={() => profileInputRef.current?.click()}
+                    >
+                      {profilePhotoUrl
+                        ? <img src={profilePhotoUrl} alt="Profile" className="w-full h-full object-cover" />
+                        : <span className="text-3xl font-bold text-white">{user?.name?.charAt(0) || 'U'}</span>
+                      }
+                    </div>
+                    <button
+                      className="absolute bottom-0 right-0 w-8 h-8 bg-emerald-500 hover:bg-emerald-600 rounded-full flex items-center justify-center shadow-md transition-colors"
+                      onClick={() => profileInputRef.current?.click()}
+                    >
+                      <Camera className="h-4 w-4 text-white" />
+                    </button>
+                    <input
+                      ref={profileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleProfilePhotoChange}
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={editingProfile ? 'default' : 'outline'}
+                    className={editingProfile ? 'bg-emerald-500 hover:bg-emerald-600' : ''}
+                    onClick={() => setEditingProfile(!editingProfile)}
+                  >
+                    <Edit3 className="h-4 w-4 mr-1" />
+                    {editingProfile ? 'Save' : 'Edit'}
+                  </Button>
                 </div>
-                <h2 className="text-xl font-bold">{user?.name}</h2>
-                <p className="text-gray-500">{user?.email}</p>
-                <p className="text-sm text-gray-400">{user?.phone}</p>
+                <h2 className="text-xl font-bold text-gray-900">{user?.name}</h2>
+                <p className="text-sm text-gray-500">{user?.email}</p>
               </CardContent>
             </Card>
+
+            {/* Basic Information */}
+            <Card className="border-0 shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <User className="h-4 w-4 text-emerald-600" />
+                  Basic Information
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <Phone className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    {editingProfile ? (
+                      <Input
+                        className="h-8 py-0"
+                        value={profileForm.phone}
+                        onChange={e => setProfileForm(p => ({...p, phone: e.target.value}))}
+                        placeholder="Phone number"
+                      />
+                    ) : (
+                      <div>
+                        <p className="text-xs text-gray-500">Phone</p>
+                        <p className="font-medium text-sm">{profileForm.phone || (user as any)?.phone || 'Not provided'}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <Mail className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    {editingProfile ? (
+                      <Input
+                        className="h-8 py-0"
+                        value={profileForm.email}
+                        onChange={e => setProfileForm(p => ({...p, email: e.target.value}))}
+                        placeholder="Email address"
+                      />
+                    ) : (
+                      <div>
+                        <p className="text-xs text-gray-500">Email</p>
+                        <p className="font-medium text-sm">{profileForm.email || user?.email || 'Not provided'}</p>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <MapPin className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    {editingProfile ? (
+                      <Input
+                        className="h-8 py-0"
+                        value={profileForm.address}
+                        onChange={e => setProfileForm(p => ({...p, address: e.target.value}))}
+                        placeholder="Address"
+                      />
+                    ) : (
+                      <div>
+                        <p className="text-xs text-gray-500">Address</p>
+                        <p className="font-medium text-sm">{profileForm.address || (user as any)?.address || 'Not provided'}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Loan Info (auto-fetched from latest loan) */}
+            {latestLoan && (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-emerald-600" />
+                    Loan Information
+                    <Badge className="bg-emerald-100 text-emerald-700 text-xs">Auto-filled</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs text-gray-500">Application No</p>
+                      <p className="font-semibold text-sm">{latestLoan.applicationNo}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs text-gray-500">Loan Type</p>
+                      <p className="font-semibold text-sm">{latestLoan.loanType}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs text-gray-500">Amount</p>
+                      <p className="font-semibold text-sm">{formatCurrency(latestLoan.sessionForm?.approvedAmount || latestLoan.requestedAmount)}</p>
+                    </div>
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs text-gray-500">Status</p>
+                      {getStatusBadge(latestLoan.status)}
+                    </div>
+                    {latestLoan.sessionForm && (
+                      <>
+                        <div className="p-3 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500">EMI Amount</p>
+                          <p className="font-semibold text-sm text-emerald-700">{formatCurrency(latestLoan.sessionForm.emiAmount)}/mo</p>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded-lg">
+                          <p className="text-xs text-gray-500">Tenure</p>
+                          <p className="font-semibold text-sm">{latestLoan.sessionForm.tenure} months</p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Tickets Section */}
             <Card className="border-0 shadow-sm">
@@ -1398,13 +1597,16 @@ export default function CustomerDashboard() {
                     <Ticket className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                     <p className="text-gray-500">No tickets yet</p>
                     <p className="text-sm text-gray-400">Need help? Create a support ticket</p>
+                    <Button size="sm" className="mt-3 bg-emerald-500 hover:bg-emerald-600" onClick={() => setShowTicketDialog(true)}>
+                      <Plus className="h-4 w-4 mr-1" /> Create Ticket
+                    </Button>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {tickets.slice(0, 3).map((ticket) => (
+                    {tickets.slice(0, 3).map((ticket: any) => (
                       <div 
                         key={ticket.id} 
-                        className="p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-all"
+                        className="p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-all border border-gray-100"
                         onClick={() => {
                           setSelectedTicket(ticket);
                           setShowTicketDetailDialog(true);
@@ -1422,7 +1624,7 @@ export default function CustomerDashboard() {
                               ticket.status === 'RESOLVED' ? 'bg-green-100 text-green-700' :
                               'bg-gray-100 text-gray-700'
                             }>
-                              {ticket.status.replace('_', ' ')}
+                              {ticket.status?.replace('_', ' ')}
                             </Badge>
                           </div>
                         </div>
@@ -1433,7 +1635,7 @@ export default function CustomerDashboard() {
                         variant="outline" 
                         size="sm" 
                         className="w-full mt-2"
-                        onClick={() => setActiveTab('tickets')}
+                        onClick={fetchTickets}
                       >
                         View All Tickets ({tickets.length})
                       </Button>
@@ -1449,11 +1651,13 @@ export default function CustomerDashboard() {
                   <div className="flex items-center gap-3">
                     <Bell className="h-5 w-5 text-gray-400" />
                     <span>Notifications</span>
+                    {notifications.filter(n => !n.isRead).length > 0 && (
+                      <Badge className="bg-red-500 text-white">{notifications.filter(n => !n.isRead).length}</Badge>
+                    )}
                   </div>
                   <ChevronRight className="h-5 w-5 text-gray-400" />
                 </button>
                 <Separator />
-
                 <button className="w-full p-4 flex items-center justify-between hover:bg-gray-50 text-red-600" onClick={signOut}>
                   <div className="flex items-center gap-3">
                     <LogOut className="h-5 w-5" />
@@ -1488,14 +1692,17 @@ export default function CustomerDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {notifications.filter(n => !n.isRead).length > 0 && (
-              <div className="relative">
-                <Bell className="h-6 w-6" />
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center">
+            <button
+              onClick={() => setActiveTab('notifications')}
+              className="relative p-2 hover:bg-white/20 rounded-full transition-colors"
+            >
+              <Bell className="h-6 w-6" />
+              {notifications.filter(n => !n.isRead).length > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-xs flex items-center justify-center font-bold">
                   {notifications.filter(n => !n.isRead).length}
                 </span>
-              </div>
-            )}
+              )}
+            </button>
           </div>
         </div>
       </header>
@@ -1521,6 +1728,107 @@ export default function CustomerDashboard() {
           })}
         </div>
       </nav>
+
+      {/* ── Floating AI Chatbot ── */}
+      <motion.div
+        drag
+        dragMomentum={false}
+        dragConstraints={{ left: -300, right: 20, top: -600, bottom: -80 }}
+        className="fixed bottom-24 right-4 z-[100]"
+        style={{ touchAction: 'none' }}
+      >
+        {showAiChat ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            className="w-[320px] max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
+            style={{ height: 'min(480px, 70vh)' }}
+          >
+            {/* Chat Header */}
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 flex items-center gap-3">
+              <div className="w-9 h-9 bg-white/20 rounded-full flex items-center justify-center">
+                <Bot className="h-5 w-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-white text-sm">MoneyMitra AI</p>
+                <p className="text-emerald-100 text-xs">Always here to help ✨</p>
+              </div>
+              <button
+                onClick={() => setShowAiChat(false)}
+                className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="h-4 w-4 text-white" />
+              </button>
+            </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50">
+              {aiMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'bot' && (
+                    <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center mr-2 flex-shrink-0 mt-1">
+                      <Bot className="h-4 w-4 text-emerald-600" />
+                    </div>
+                  )}
+                  <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm ${
+                    msg.role === 'user'
+                      ? 'bg-emerald-500 text-white rounded-tr-sm'
+                      : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm shadow-sm'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div className="flex justify-start">
+                  <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center mr-2 flex-shrink-0">
+                    <Bot className="h-4 w-4 text-emerald-600" />
+                  </div>
+                  <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm px-3 py-2 shadow-sm">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce" />
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce delay-100" />
+                      <div className="w-2 h-2 bg-emerald-400 rounded-full animate-bounce delay-200" />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={aiChatEndRef} />
+            </div>
+            {/* Input */}
+            <div className="border-t border-gray-100 p-3 bg-white">
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 border border-gray-200 rounded-full px-4 py-2 text-sm outline-none focus:border-emerald-400 bg-gray-50"
+                  placeholder="Ask me anything..."
+                  value={aiInput}
+                  onChange={e => setAiInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && sendAiMessage()}
+                  disabled={aiLoading}
+                />
+                <button
+                  onClick={sendAiMessage}
+                  disabled={!aiInput.trim() || aiLoading}
+                  className="w-9 h-9 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <Send className="h-4 w-4 text-white" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        ) : (
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowAiChat(true)}
+            className="w-14 h-14 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-full shadow-2xl flex items-center justify-center relative"
+          >
+            <Bot className="h-7 w-7 text-white" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full animate-ping" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-400 rounded-full" />
+          </motion.button>
+        )}
+      </motion.div>
 
       {/* Loan Apply Dialog */}
       <Dialog open={showLoanApply} onOpenChange={setShowLoanApply}>
