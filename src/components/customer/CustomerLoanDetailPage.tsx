@@ -573,14 +573,15 @@ export default function CustomerLoanDetailPage() {
       }
 
       // Calculate amounts based on payment type
-      let requestedAmount = selectedEmi.totalAmount;
+      const remainingEMIAmount = selectedEmi.totalAmount - (selectedEmi.paidAmount || 0);
+      let requestedAmount = remainingEMIAmount;
       let partialAmt: number | null = null;
       let remainingAmt: number | null = null;
       let newDue: Date | null = null;
 
       if (selectedPaymentType === 'PARTIAL') {
         partialAmt = parseFloat(partialAmount);
-        remainingAmt = selectedEmi.totalAmount - partialAmt;
+        remainingAmt = remainingEMIAmount - partialAmt;
         newDue = new Date(nextPaymentDate + 'T00:00:00');
         requestedAmount = partialAmt;
       } else if (selectedPaymentType === 'INTEREST_ONLY') {
@@ -1398,14 +1399,23 @@ export default function CustomerLoanDetailPage() {
                 <CardContent className="p-4">
                   {selectedPaymentType === 'FULL_EMI' && (
                     <div className="text-center">
-                      <p className="text-sm text-gray-500">Total Amount</p>
-                      <p className="text-3xl font-bold text-emerald-600">
-                        {selectedEmi && formatCurrency(selectedEmi.totalAmount)}
+                      <p className="text-sm text-gray-500">
+                        {selectedEmi && selectedEmi.paidAmount > 0 ? 'Remaining Amount' : 'Total Amount'}
                       </p>
-                      <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
-                        <span>Principal: {selectedEmi && formatCurrency(selectedEmi.principalAmount)}</span>
-                        <span>Interest: {selectedEmi && formatCurrency(selectedEmi.interestAmount)}</span>
-                      </div>
+                      <p className="text-3xl font-bold text-emerald-600">
+                        {selectedEmi && formatCurrency(selectedEmi.totalAmount - (selectedEmi.paidAmount || 0))}
+                      </p>
+                      {selectedEmi && selectedEmi.paidAmount > 0 ? (
+                        <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
+                          <span>Total EMI: {formatCurrency(selectedEmi.totalAmount)}</span>
+                          <span>Already Paid: {formatCurrency(selectedEmi.paidAmount)}</span>
+                        </div>
+                      ) : (
+                        <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
+                          <span>Principal: {selectedEmi && formatCurrency(selectedEmi.principalAmount)}</span>
+                          <span>Interest: {selectedEmi && formatCurrency(selectedEmi.interestAmount)}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                   
@@ -1416,6 +1426,12 @@ export default function CustomerLoanDetailPage() {
                           <span className="text-gray-600">Total EMI:</span>
                           <span className="font-medium">{selectedEmi && formatCurrency(selectedEmi.totalAmount)}</span>
                         </div>
+                        {selectedEmi && selectedEmi.paidAmount > 0 && (
+                          <div className="flex justify-between text-sm mt-1">
+                            <span className="text-gray-600">Already Paid:</span>
+                            <span className="font-medium text-emerald-600">{formatCurrency(selectedEmi.paidAmount)}</span>
+                          </div>
+                        )}
                       </div>
                       
                       <div className="space-y-2">
@@ -1433,7 +1449,7 @@ export default function CustomerLoanDetailPage() {
                         </div>
                         {partialAmount && selectedEmi && (
                           <p className="text-xs text-gray-500">
-                            Remaining: {formatCurrency(selectedEmi.totalAmount - parseFloat(partialAmount || '0'))}
+                            Remaining: {formatCurrency((selectedEmi.totalAmount - (selectedEmi.paidAmount || 0)) - parseFloat(partialAmount || '0'))}
                           </p>
                         )}
                       </div>
