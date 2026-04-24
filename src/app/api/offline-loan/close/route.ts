@@ -132,7 +132,12 @@ export async function POST(request: NextRequest) {
       where: { originalLoanId: loanId }
     });
 
-    const effectiveCompanyId = companyId || loan.companyId || '';
+    let effectiveCompanyId = companyId || loan.companyId || '';
+    // If still empty, resolve to first available company (OfflineLoan.companyId is nullable)
+    if (!effectiveCompanyId) {
+      const firstCompany = await db.company.findFirst({ select: { id: true } });
+      if (firstCompany) effectiveCompanyId = firstCompany.id;
+    }
     const emis               = (loan.emis ?? []) as any[];
     // INTEREST_ONLY_PAID: interest collected, principal deferred to a new EMI — skip.
     const isCloseable         = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
@@ -166,7 +171,7 @@ export async function POST(request: NextRequest) {
             }
           });
         }
-        await db.offlineLoan.update({ where: { id: mirrorMapping.mirrorLoanId! }, data: { status: 'CLOSED' } });
+        await db.offlineLoan.update({ where: { id: mirrorMapping.mirrorLoanId! }, data: { status: 'CLOSED', closedAt: now } });
         console.log(`[Close] ✅ Mirror loan ${mirrorLoan.loanNumber} also closed`);
       } catch (e: any) {
         console.error('[Close] ❌ Mirror loan close failed:', e?.message);
@@ -212,7 +217,7 @@ export async function POST(request: NextRequest) {
             }
           });
         }
-        await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
+        await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED', closedAt: now } });
       }, { maxWait: 15000, timeout: 30000 });
 
       // ── ActionLog OUTSIDE transaction (fire-and-forget to avoid P2028) ─────
@@ -354,7 +359,7 @@ export async function POST(request: NextRequest) {
           }
         });
       }
-      await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
+      await db.offlineLoan.update({ where: { id: loanId }, data: { status: 'CLOSED', closedAt: now } });
     }, { maxWait: 15000, timeout: 30000 });
 
     // ── ActionLog OUTSIDE transaction (fire-and-forget to avoid P2028) ─────

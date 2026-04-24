@@ -874,8 +874,12 @@ export default function CashierDashboard() {
       case 'activeLoans':
         // Filter out mirror loans from the parallel view (they appear on the right side)
         const parallelLoans = (activeLoans as any[]).filter(loan => {
+          // Primary: use isMirrorLoan flag if available
+          if (loan.isMirrorLoan === true) return false;
+          // Fallback: check mapping — exclude if this loan is recorded as the mirrorLoanId
           const mapping = mirrorMappings[loan.id];
-          return !(mapping?.mirrorLoanId === loan.id); // exclude loans that ARE the mirror side
+          if (mapping && mapping.mirrorLoanId === loan.id) return false;
+          return true;
         });
         return (
           <div className="space-y-6">

@@ -52,6 +52,7 @@ export async function GET(request: NextRequest) {
       totalCustomers,
       pendingLoans,
       closedOfflineLoans,
+      closedOnlineLoans,
       totalCompanies,
       totalAgents,
       totalStaff,
@@ -76,6 +77,9 @@ export async function GET(request: NextRequest) {
 
       // Closed offline loans (exclude mirror loans)
       db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED', isMirrorLoan: false } }).catch(() => 0),
+
+      // Closed online loans
+      db.loanApplication.count({ where: { ...companyFilter, status: 'CLOSED' } }).catch(() => 0),
 
       // Admin-only: companies, agents, staff
       role === 'SUPER_ADMIN' ? db.company.count({ where: { isActive: true } }).catch(() => 0) : Promise.resolve(0),
@@ -107,7 +111,9 @@ export async function GET(request: NextRequest) {
       offlineLoanCount,
       totalCustomers,
       pendingLoans,
-      closedLoans: closedOfflineLoans,
+      closedLoans: closedOfflineLoans + closedOnlineLoans, // both online + offline closed
+      closedOfflineLoans,
+      closedOnlineLoans,
       totalCompanies,
       totalAgents,
       totalStaff,
