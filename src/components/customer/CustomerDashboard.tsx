@@ -1445,7 +1445,7 @@ export default function CustomerDashboard() {
             
             <Card className="border-0 shadow-sm">
               <CardContent className="p-0">
-                <button className="w-full p-4 flex items-center justify-between hover:bg-gray-50" onClick={() => toast({ title: 'Coming Soon', description: 'This feature will be available soon' })}>
+                <button className="w-full p-4 flex items-center justify-between hover:bg-gray-50" onClick={() => setActiveTab('notifications')}>
                   <div className="flex items-center gap-3">
                     <Bell className="h-5 w-5 text-gray-400" />
                     <span>Notifications</span>
@@ -1747,7 +1747,7 @@ export default function CustomerDashboard() {
                                 <p className="font-semibold">{formatCurrency(emi.totalAmount)}</p>
                                 {emi.penaltyAmount > 0 && <p className="text-xs text-red-600">+{formatCurrency(emi.penaltyAmount)} penalty</p>}
                               </div>
-                              {emi.paymentStatus === 'PENDING' && <Button size="sm" onClick={() => { setSelectedEmi(emi); setShowPaymentDialog(true); }}>Pay</Button>}
+                              {emi.paymentStatus === 'PENDING' && <Button size="sm" onClick={() => { setSelectedEmi(emi); setShowLoanDetails(false); setTimeout(() => setShowPaymentDialog(true), 150); }}>Pay</Button>}
                               {emi.paymentStatus !== 'PENDING' && getEMIStatusBadge(emi.paymentStatus)}
                             </div>
                           </div>
@@ -1799,13 +1799,9 @@ export default function CustomerDashboard() {
                       <p className="text-gray-500">Tenure</p>
                       <p className="font-semibold">{selectedLoan.sessionForm.tenure} months</p>
                     </div>
-                    <div>
+                    <div className="col-span-2">
                       <p className="text-gray-500">EMI Amount</p>
-                      <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.emiAmount)}/mo</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Total Payable</p>
-                      <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.totalAmount)}</p>
+                      <p className="font-semibold">{formatCurrency(selectedLoan.sessionForm.emiAmount)}/month</p>
                     </div>
                   </div>
                 </CardContent>

@@ -127,15 +127,16 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const [undoableActions, setUndoableActions] = useState<any[]>([]);
   const [redoableActions, setRedoableActions] = useState<any[]>([]);
 
-  // Fetch mirror mappings and companies ONCE on mount — they don't change with filters
+  // Fetch companies once on mount
   useEffect(() => {
     fetchCompanies();
-    fetchMirrorMappings();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch loans + actionable items when filters/page/refreshKey change
+  // Fetch loans + mirror mappings when filters/page/refreshKey change
+  // Mirror mappings must re-fetch with refreshKey so new loans with mirrors appear instantly
   useEffect(() => {
     fetchLoans();
+    fetchMirrorMappings(); // re-fetch mirrors whenever loans refresh
     fetchActionableItems();
   }, [userId, userRole, page, statusFilter, companyFilter, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
