@@ -494,11 +494,18 @@ export async function PUT(request: NextRequest) {
 
         // Handle different payment types
         if (paymentRequest.paymentType === 'FULL_EMI') {
+          // When a partially-paid EMI is settled, only the remaining amounts are being paid now.
+          // emi.paidInterest / emi.paidPrincipal track what was already collected in partial(s).
+          const alreadyPaidInterest  = emi.paidInterest  || 0;
+          const alreadyPaidPrincipal = emi.paidPrincipal || 0;
+          const remainingInterest    = Math.max(0, emi.interestAmount  - alreadyPaidInterest);
+          const remainingPrincipal   = Math.max(0, emi.principalAmount - alreadyPaidPrincipal);
+
           // Mark EMI as fully paid
           await tx.eMISchedule.update({
             where: { id: emi.id },
             data: {
-              paidAmount: paymentRequest.requestedAmount,
+              paidAmount: emi.totalAmount,
               paidPrincipal: emi.principalAmount,
               paidInterest: emi.interestAmount,
               paymentStatus: 'PAID',
@@ -509,7 +516,7 @@ export async function PUT(request: NextRequest) {
             }
           });
 
-          // Create payment record
+          // Create payment record — only for what's actually being paid now, not the full EMI again
           await tx.payment.create({
             data: {
               loanApplicationId: paymentRequest.loanApplicationId,
@@ -517,8 +524,8 @@ export async function PUT(request: NextRequest) {
               customerId: paymentRequest.customerId,
               paymentType: 'FULL_EMI',
               amount: paymentRequest.requestedAmount,
-              principalComponent: emi.principalAmount,
-              interestComponent: emi.interestAmount,
+              principalComponent: remainingPrincipal,
+              interestComponent: remainingInterest,
               utrNumber: paymentRequest.utrNumber,
               paymentMode: paymentRequest.paymentMethod,
               status: 'COMPLETED',
@@ -536,16 +543,19 @@ export async function PUT(request: NextRequest) {
           const maxPartialPayments = 2;
 
           // Calculate principal and interest for partial payment — INTEREST FIRST
-          // Business rule: interest is collected before principal on any partial payment
-          const totalInterest = emi.interestAmount;
+          // Business rule: interest is collected before principal on any partial payment.
+          // IMPORTANT: subtract already-paid interest (from a previous partial) so interest
+          // is NEVER charged more than once across multiple partial payments on the same EMI.
+          const interestAlreadyPaid = emi.paidInterest || 0;
+          const remainingInterest   = Math.max(0, emi.interestAmount - interestAlreadyPaid);
           let paidPrincipal: number;
           let paidInterest: number;
-          if (partialAmount <= totalInterest) {
+          if (partialAmount <= remainingInterest) {
             paidInterest  = partialAmount;
             paidPrincipal = 0;
           } else {
-            paidInterest  = totalInterest;
-            paidPrincipal = Math.round((partialAmount - totalInterest) * 100) / 100;
+            paidInterest  = remainingInterest;
+            paidPrincipal = Math.round((partialAmount - remainingInterest) * 100) / 100;
           }
 
           // Update EMI with partial payment info

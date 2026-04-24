@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 import { getCompany3Id, recordEMIPaymentAccounting, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +17,7 @@ export async function POST(request: NextRequest) {
     const paidBy = formData.get('paidBy') as string;
     const creditType = formData.get('creditType') as 'PERSONAL' | 'COMPANY';
     const companyId = formData.get('companyId') as string;
-    const proofFile = formData.get('proof') as File | null;
+    const proofBase64 = formData.get('proofBase64') as string | null;
     const isAdvancePayment = formData.get('isAdvancePayment') === 'true'; // Advance payment flag
     
     const paymentType = (formData.get('paymentType') as string) || 'FULL_EMI';
@@ -168,37 +167,11 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Handle proof upload - make it resilient
+    // Handle proof upload — accept pre-compressed base64 from client
     let proofUrl = '';
-    if (proofFile && proofFile.size > 0) {
-      try {
-        const bytes = await proofFile.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        
-        const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'proofs');
-        
-        // Try to create directory
-        try {
-          await mkdir(uploadsDir, { recursive: true });
-        } catch (e) {
-          console.log('[EMI Pay] Mkdir result:', e);
-        }
-        
-        const fileName = `proof-${emiId}-${Date.now()}.${proofFile.name.split('.').pop()}`;
-        const filePath = path.join(uploadsDir, fileName);
-        
-        try {
-          await writeFile(filePath, buffer);
-          proofUrl = `/uploads/proofs/${fileName}`;
-          console.log('[EMI Pay] Proof uploaded:', proofUrl);
-        } catch (writeErr) {
-          console.error('[EMI Pay] Failed to write proof file:', writeErr);
-          // Continue without proof
-        }
-      } catch (uploadErr) {
-        console.error('[EMI Pay] Proof upload error:', uploadErr);
-        // Continue without proof
-      }
+    if (proofBase64) {
+      proofUrl = proofBase64;
+      console.log('[EMI Pay] Proof attached as base64 string.');
     }
 
     // Calculate payment amounts based on payment type

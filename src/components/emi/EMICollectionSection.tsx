@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { compressImage } from '@/utils/imageCompression';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -84,7 +85,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const [selectedType, setSelectedType] = useState<'online' | 'offline'>('offline');
   const [paymentMode, setPaymentMode] = useState('CASH');
   const [creditType, setCreditType] = useState<'COMPANY' | 'PERSONAL'>('COMPANY');
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofBase64, setProofBase64] = useState<string | null>(null);
   const [chequeNumber, setChequeNumber] = useState('');
   const [utrNumber, setUtrNumber] = useState('');
   const [remarks, setRemarks] = useState('');
@@ -134,7 +135,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     const handlePaymentSuccess = () => {
       // Reset form
       setPaymentDialogOpen(false);
-      setProofFile(null);
+      setProofBase64(null);
       setChequeNumber('');
       setUtrNumber('');
       setRemarks('');
@@ -158,9 +159,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       });
     };
 
-    // Validate proof requirement
     const requiresProof = paymentMode !== 'CASH' || creditType === 'PERSONAL';
-    if (requiresProof && !proofFile) {
+    if (requiresProof && !proofBase64) {
       toast({
         title: 'Proof Required',
         description: `Please upload proof for ${paymentMode !== 'CASH' ? paymentMode.toLowerCase() : 'personal'} transactions`,
@@ -192,22 +192,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     try {
       setPaying(true);
 
-      // Upload proof if provided
-      let proofDocumentPath = null;
-      if (proofFile) {
-        const formData = new FormData();
-        formData.append('file', proofFile);
-        formData.append('documentType', 'emi-proof');
-
-        const uploadRes = await fetch('/api/upload/document', {
-          method: 'POST',
-          body: formData
-        });
-        const uploadData = await uploadRes.json();
-        if (uploadRes.ok && uploadData.url) {
-          proofDocumentPath = uploadData.url;
-        }
-      }
+      // Use pre-compressed base64 proof directly (no upload API call needed)
+      const proofDocumentPath = proofBase64 || null;
 
       // NOTE: Credit is handled internally by /api/emi/pay (online) and
       // PUT /api/offline-loan (offline). Do NOT call /api/credit separately
@@ -291,8 +277,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         }
 
 
-        if (proofFile) {
-          formData.append('proof', proofFile);
+        if (proofBase64) {
+          formData.append('proofBase64', proofBase64);
         }
         if (chequeNumber) {
           formData.append('paymentReference', chequeNumber);
@@ -842,8 +828,14 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*,.pdf"
-                      onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                      accept="image/*"
+                      onChange={async (e) => {
+                         const file = e.target.files?.[0];
+                         if (file) {
+                           try { const compressed = await compressImage(file, 800); setProofBase64(compressed); }
+                           catch (err) { console.error('Compress err', err); }
+                         }
+                       }}
                       className="hidden"
                       id="proof-upload"
                     />
@@ -851,14 +843,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                       htmlFor="proof-upload"
                       className="flex items-center justify-center w-full h-24 border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
                     >
-                      {proofFile ? (
+                      {proofBase64 ? (
                         <div className="flex items-center gap-2">
-                          {proofFile.type.startsWith('image/') ? (
-                            <ImageIcon className="h-5 w-5 text-blue-500" />
-                          ) : (
-                            <FileCheck className="h-5 w-5 text-emerald-500" />
-                          )}
-                          <span className="text-sm font-medium">{proofFile.name}</span>
+                          <FileCheck className="h-5 w-5 text-emerald-500" />
+                          <span className="text-sm font-medium">Proof attached ✓</span>
                           <Button
                             type="button"
                             variant="ghost"
@@ -866,7 +854,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                             className="ml-2"
                             onClick={(e) => {
                               e.preventDefault();
-                              setProofFile(null);
+                              setProofBase64(null);
                             }}
                           >
                             <X className="h-4 w-4" />
@@ -876,7 +864,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                         <div className="text-center">
                           <Upload className="h-6 w-6 mx-auto text-gray-400 mb-1" />
                           <span className="text-sm text-gray-500">Click to upload proof</span>
-                          <p className="text-xs text-gray-400">Image or PDF</p>
+                          <p className="text-xs text-gray-400">Image only</p>
                         </div>
                       )}
                     </label>
@@ -920,7 +908,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   className="flex-1"
                   onClick={() => {
                     setPaymentDialogOpen(false);
-                    setProofFile(null);
+                    setProofBase64(null);
                     setChequeNumber('');
                     setUtrNumber('');
                     setRemarks('');
