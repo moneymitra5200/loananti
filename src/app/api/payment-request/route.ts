@@ -900,26 +900,37 @@ export async function PUT(request: NextRequest) {
                 const mirrorOwnEmi = await db.eMISchedule.findFirst({
                   where: { loanApplicationId: loan.id, installmentNumber: emi.installmentNumber }
                 });
-                const mP = mirrorOwnEmi?.principalAmount ?? emi.principalAmount;
-                const mI = mirrorOwnEmi?.interestAmount  ?? emi.interestAmount;
-                const mT = mirrorOwnEmi?.totalAmount     ?? (mP + mI);
-                // For PARTIAL_PAYMENT: use the saved payment components (interest-first, no double)
-                // For other types: compute from mirror EMI amounts as before
+                const mP = Number(mirrorOwnEmi?.principalAmount ?? emi.principalAmount);
+                const mI = Number(mirrorOwnEmi?.interestAmount  ?? emi.interestAmount);
+                const mT = Number(mirrorOwnEmi?.totalAmount     ?? (mP + mI));
+
+                // ALL payment types use MIRROR EMI stored amounts — never original loan data
                 let mTotal: number;
                 let mInterest: number;
                 let mPrincipal: number;
+
                 if (pType === 'PARTIAL_PAYMENT') {
-                  mTotal    = savedTotalComp;
-                  mInterest = savedInterestComp;
-                  mPrincipal= savedPrincipalComp;
+                  // Interest-first on MIRROR EMI, subtract already-paid mirror interest (no double)
+                  const partialAmt = paymentRequest.partialAmount || 0;
+                  const mirrorInterestAlreadyPaid = Number(mirrorOwnEmi?.paidInterest || 0);
+                  const mirrorRemainingInterest   = Math.max(0, mI - mirrorInterestAlreadyPaid);
+                  if (partialAmt <= mirrorRemainingInterest) {
+                    mInterest  = partialAmt;
+                    mPrincipal = 0;
+                  } else {
+                    mInterest  = mirrorRemainingInterest;
+                    mPrincipal = Math.round((partialAmt - mirrorRemainingInterest) * 100) / 100;
+                  }
+                  mTotal = partialAmt;
                 } else if (pType === 'INTEREST_ONLY') {
                   mTotal    = mI;
                   mInterest = mI;
                   mPrincipal= 0;
                 } else {
-                  mTotal    = mT;
-                  mInterest = Math.min(mT, mI);
-                  mPrincipal= Math.max(0, mT - mInterest);
+                  // FULL_EMI — settle remaining mirror balance (in case of prior partial on mirror)
+                  mInterest  = Math.max(0, mI - Number(mirrorOwnEmi?.paidInterest  || 0));
+                  mPrincipal = Math.max(0, mP - Number(mirrorOwnEmi?.paidPrincipal || 0));
+                  mTotal     = Math.round((mInterest + mPrincipal) * 100) / 100;
                 }
 
                 await recordBankTransaction({
