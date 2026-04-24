@@ -1492,8 +1492,6 @@ export function ActiveLoansSection({
                   <SelectContent>
                     <SelectItem value="CASH">Cash</SelectItem>
                     <SelectItem value="ONLINE">Online</SelectItem>
-                    <SelectItem value="CHEQUE">Cheque</SelectItem>
-                    <SelectItem value="UPI">UPI</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -58,10 +58,8 @@ interface ForeclosureData {
 }
 
 const PAYMENT_MODES = [
-  { value: 'CASH',          label: 'Cash',          icon: Banknote },
-  { value: 'BANK_TRANSFER', label: 'Bank Transfer',  icon: Building },
-  { value: 'UPI',           label: 'UPI',            icon: CreditCard },
-  { value: 'CHEQUE',        label: 'Cheque',         icon: CreditCard },
+  { value: 'CASH',   label: 'Cash',   icon: Banknote  },
+  { value: 'ONLINE', label: 'Online', icon: Building  },
 ];
 
 export default function CloseLoanDialog({
@@ -137,9 +135,17 @@ export default function CloseLoanDialog({
       if (mode === 'PAYMENT') {
         body.paymentMode = paymentMode;
         body.creditType  = creditType;
+        // If loan has a mirror, route the accounting to the mirror company
+        if (data?.mirrorLoan?.isMirrorLoan && data.mirrorLoan.mirrorCompany?.id) {
+          body.mirrorCompanyId = data.mirrorLoan.mirrorCompany.id;
+        }
       }
       if (mode === 'LOSS') {
         body.lossType = lossType;
+        // If loan has a mirror, route loss accounting to mirror company
+        if (data?.mirrorLoan?.isMirrorLoan && data.mirrorLoan.mirrorCompany?.id) {
+          body.mirrorCompanyId = data.mirrorLoan.mirrorCompany.id;
+        }
       }
 
       const res  = await fetch(endpoint, {
