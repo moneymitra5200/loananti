@@ -876,7 +876,9 @@ export async function PUT(request: NextRequest) {
             where: { originalLoanId: loan.id }
           });
 
-          if (!mirrorMapping || !mirrorMapping.mirrorLoanId) {
+          console.log(`[PR Accounting] loanId=${loan.id} mirrorMapping=${mirrorMapping?.id ?? 'null'} mirrorLoanId=${mirrorMapping?.mirrorLoanId ?? 'null'} isOffline=${mirrorMapping?.isOfflineLoan}`);
+
+          if (!mirrorMapping) {
             // Loan is NOT the original in any mirror relationship.
             // Sub-cases:
             //   A) loan.id IS a mirror loan → account in mirror company using mirror EMI P+I
@@ -1028,7 +1030,7 @@ export async function PUT(request: NextRequest) {
             // ── Get mirror EMI ───────────────────────────────────────────
             const mirrorEmi = await db.eMISchedule.findFirst({
               where: {
-                loanApplicationId: mirrorMapping.mirrorLoanId,
+                loanApplicationId: mirrorMapping.mirrorLoanId || undefined,
                 installmentNumber: emi.installmentNumber
               }
             });
@@ -1088,26 +1090,28 @@ export async function PUT(request: NextRequest) {
               });
 
               // 4. Mirror Payment record (audit trail — only for what's paid NOW)
-              await db.payment.create({
-                data: {
-                  loanApplicationId:  mirrorMapping.mirrorLoanId,
-                  emiScheduleId:      mirrorEmi.id,
-                  customerId:         paymentRequest.customerId,
-                  amount:             settleMirrorAmt,
-                  principalComponent: settleMirrorPrincipal,
-                  interestComponent:  settleMirrorInterest,
-                  paymentMode:        payMode,
-                  status:             'COMPLETED',
-                  receiptNumber:      `RCP-MIRROR-${Date.now()}`,
-                  paidById:           reviewedById,
-                  remarks:            `Auto-synced via PR ${paymentRequest.requestNumber}`,
-                  paymentType:        'FULL_EMI'
-                }
-              });
+              if (mirrorMapping.mirrorLoanId) {
+                await db.payment.create({
+                  data: {
+                    loanApplicationId:  mirrorMapping.mirrorLoanId,
+                    emiScheduleId:      mirrorEmi.id,
+                    customerId:         paymentRequest.customerId,
+                    amount:             settleMirrorAmt,
+                    principalComponent: settleMirrorPrincipal,
+                    interestComponent:  settleMirrorInterest,
+                    paymentMode:        payMode,
+                    status:             'COMPLETED',
+                    receiptNumber:      `RCP-MIRROR-${Date.now()}`,
+                    paidById:           reviewedById,
+                    remarks:            `Auto-synced via PR ${paymentRequest.requestNumber}`,
+                    paymentType:        'FULL_EMI'
+                  }
+                });
+              }
 
               // 5. Double-entry journal: DR Bank | CR Loans Receivable | CR Interest Income
               await accSvc.recordEMIPayment({
-                loanId:             mirrorMapping.mirrorLoanId,
+                loanId:             mirrorMapping.mirrorLoanId || loan.id,
                 customerId:         paymentRequest.customerId,
                 paymentId,
                 totalAmount:        settleMirrorAmt,
@@ -1120,16 +1124,18 @@ export async function PUT(request: NextRequest) {
               });
               console.log(`[PR Accounting] ✓ Journal DR Bank ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company ${mirrorCompanyId}`);
 
-              // 6. Mirror loan closure check
-              const allMirrorEmis = await db.eMISchedule.findMany({
-                where: { loanApplicationId: mirrorMapping.mirrorLoanId }
-              });
-              if (allMirrorEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')) {
-                await db.loanApplication.update({
-                  where: { id: mirrorMapping.mirrorLoanId },
-                  data: { status: 'CLOSED' }
+              // 6. Mirror loan closure check (only for online mirror loans)
+              if (mirrorMapping.mirrorLoanId) {
+                const allMirrorEmis = await db.eMISchedule.findMany({
+                  where: { loanApplicationId: mirrorMapping.mirrorLoanId }
                 });
-                console.log(`[PR Accounting] Mirror loan ${mirrorMapping.mirrorLoanId} CLOSED`);
+                if (allMirrorEmis.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')) {
+                  await db.loanApplication.update({
+                    where: { id: mirrorMapping.mirrorLoanId },
+                    data: { status: 'CLOSED' }
+                  });
+                  console.log(`[PR Accounting] Mirror loan ${mirrorMapping.mirrorLoanId} CLOSED`);
+                }
               }
 
               // =================================================================
@@ -1256,7 +1262,7 @@ export async function PUT(request: NextRequest) {
 
               // 3. Journal with mirror amounts (interest-first, no double)
               await accSvc.recordEMIPayment({
-                loanId:             mirrorMapping.mirrorLoanId,
+                loanId:             mirrorMapping.mirrorLoanId || loan.id,
                 customerId:         paymentRequest.customerId,
                 paymentId:          `${paymentId}-PARTIAL`,
                 totalAmount:        mirrorPartialAmt,
@@ -1295,7 +1301,7 @@ export async function PUT(request: NextRequest) {
 
               // 2. Journal: DR Bank | CR Interest Income (principal=0, interest-only)
               await accSvc.recordEMIPayment({
-                loanId:             mirrorMapping.mirrorLoanId,
+                loanId:             mirrorMapping.mirrorLoanId || loan.id,
                 customerId:         paymentRequest.customerId,
                 paymentId:          `${paymentId}-IO`,
                 totalAmount:        ioMirrorInterest,
