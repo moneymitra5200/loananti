@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
@@ -1304,16 +1304,25 @@ export async function POST(request: NextRequest) {
           mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIPartial.paidInterest  || 0);
           mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIPartial.paidPrincipal || 0);
 
-          // Mirror interest-first from remaining unpaid mirror interest
-          const mirrorAlreadyPaidInterest = mirrorEmiPreSyncPaidInterest;
-          const mirrorInterestFull = Math.round(
-            mirrorEMIPartial.outstandingPrincipal * (mirrorMapping.mirrorInterestRate / 12 / 100) * 100
-          ) / 100;
-          const mirrorRemainingInterest = Math.max(0, mirrorInterestFull - mirrorAlreadyPaidInterest);
-          const ratio = partialAmount / emi.totalAmount;
-          const mirrorPartialAmt = Math.round(mirrorEMIPartial.totalAmount * ratio * 100) / 100;
-          const mirrorPaidInterest  = Math.min(mirrorPartialAmt, mirrorRemainingInterest);
-          const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorPaidInterest);
+          // Mirror interest-first using STORED interestAmount (not recalculated from rate).
+          // This matches offline route exactly — prevents double-interest on 2nd/3rd partials.
+          // Bug before: recalculating from outstandingPrincipal*rate always returned FULL interest,
+          // so payment 2 saw mirrorRemainingInterest = 125 (not 0) even after payment 1 paid it all.
+          const mirrorAlreadyPaidInterest  = mirrorEmiPreSyncPaidInterest;
+          const mirrorAlreadyPaidPrincipal = mirrorEmiPreSyncPaidPrincipal;
+          // Use STORED interestAmount from EMI schedule (same value used in offline route)
+          const mirrorInterestScheduled    = Math.max(0, Number(mirrorEMIPartial.interestAmount  || 0));
+          const mirrorPrincipalScheduled   = Math.max(0, Number(mirrorEMIPartial.principalAmount || 0));
+          const mirrorRemainingInterest    = Math.max(0, mirrorInterestScheduled  - mirrorAlreadyPaidInterest);
+          const mirrorRemainingPrincipal   = Math.max(0, mirrorPrincipalScheduled - mirrorAlreadyPaidPrincipal);
+          // Ratio: use remainingAmount so each successive partial proportions only the remainder
+          const remainingAmtForRatio = Math.max(1, emi.totalAmount - (emi.paidAmount || 0));
+          const ratio = Math.min(1, partialAmount / remainingAmtForRatio);
+          const mirrorRemainingTotal  = Math.max(0, Number(mirrorEMIPartial.totalAmount || 0) - (mirrorEMIPartial.paidAmount || 0));
+          const mirrorPartialAmt      = Math.round(Math.min(mirrorRemainingTotal, mirrorRemainingTotal * ratio) * 100) / 100;
+          // Interest-first: exhaust remaining interest before touching principal
+          const mirrorPaidInterest    = Math.min(mirrorPartialAmt, mirrorRemainingInterest);
+          const mirrorPaidPrincipal   = Math.max(0, mirrorPartialAmt - mirrorPaidInterest);
           const mirrorIsFullyPaid   = (mirrorEMIPartial.paidAmount || 0) + mirrorPartialAmt >= mirrorEMIPartial.totalAmount - 1;
 
           await db.eMISchedule.update({
