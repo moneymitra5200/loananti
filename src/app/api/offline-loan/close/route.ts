@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import NotificationService from '@/lib/notification-service';
 
 // GET - Calculate foreclosure data for an offline loan
 export async function GET(request: NextRequest) {
@@ -305,6 +306,21 @@ export async function POST(request: NextRequest) {
         }
       }
 
+
+
+      // ========== NOTIFICATION: Send Loss Write-Off info to customer if linked ==========
+      if (loan.customerId) {
+        NotificationService.createNotification({
+          userId: loan.customerId,
+          type: 'LOAN_STATUS_UPDATE',
+          category: 'LOAN',
+          title: 'Loan Written Off',
+          message: `Your loan ${loan.loanNumber} has been written off and closed.`,
+          priority: 'NORMAL',
+          actionUrl: '/customer'
+        }).catch(err => console.error('[Close/Loss] Failed to send push notification:', err));
+      }
+
       return NextResponse.json({
         success: true,
         message: `Loan ${loan.loanNumber} written off as irrecoverable loss (${writeOffInterest ? 'Principal Only' : 'P+I'}: ₹${totalWriteOff.toFixed(2)})`,
@@ -481,7 +497,22 @@ export async function POST(request: NextRequest) {
         const msg = `Mirror foreclosure accounting failed: ${e?.message}`;
         accountingWarnings.push(msg);
         console.error('[Close/Payment Mirror] ❌', msg);
-      }
+  
+    }
+
+    }
+
+    // ========== NOTIFICATION: Send Foreclosure confirmation to customer if linked ==========
+    if (loan.customerId) {
+      NotificationService.createNotification({
+        userId: loan.customerId,
+        type: 'PAYMENT_RECEIVED',
+        category: 'PAYMENT',
+        priority: 'HIGH',
+        title: 'Loan Foreclosed & Closed',
+        message: `Your loan ${loan.loanNumber} has been fully closed via foreclosure payment of ₹${totalForeclosureAmount.toLocaleString()}.`,
+        actionUrl: '/customer'
+      }).catch(err => console.error('[Close/Payment] Failed to send push notification:', err));
     }
 
     return NextResponse.json({

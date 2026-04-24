@@ -4,6 +4,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { getCompany3Id, recordEMIPaymentAccounting, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
+import NotificationService from '@/lib/notification-service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -1817,6 +1818,19 @@ export async function POST(request: NextRequest) {
         error: 'Payment could not be processed: accounting entry failed. No amount deducted. Please try again.',
         emiId: emi.id,
       }, { status: 500 });
+    }
+
+    // ========== NOTIFICATION: Send payment confirmation to customer ==========
+    if (emi.loanApplication?.customerId) {
+      // Fire and forget mechanism for sending notifications
+      NotificationService.sendPaymentConfirmationNotification(emi.loanApplication.customerId, {
+        amount: paidAmount,
+        paymentId: payment.id,
+        loanId: loanId,
+        applicationNo: emi.loanApplication.applicationNo || loanId
+      }).catch(err => {
+        console.error('[EMI Pay] Failed to send push notification:', err);
+      });
     }
 
     return NextResponse.json({
