@@ -1188,17 +1188,29 @@ export async function PUT(request: NextRequest) {
               const partialAmt          = paymentRequest.partialAmount || 0;
               const ratio               = partialAmt / (emi.totalAmount || 1);
               const mirrorPartialAmt    = Math.round((mirrorEmi.totalAmount || 0) * ratio * 100) / 100;
-              const mirrorInterestFull  = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
-              const mirrorPaidInterest  = Math.min(mirrorPartialAmt, mirrorInterestFull);
-              const mirrorPaidPrincipal = Math.max(0, mirrorPartialAmt - mirrorInterestFull);
-              const mirrorIsFullyPaid   = mirrorPartialAmt >= (mirrorEmi.totalAmount || 0) - 1;
+
+              // Interest-first logic on MIRROR EMI — same as original loan:
+              // Use mirrorEmi.interestAmount (stored, never recalculate from rate)
+              // Subtract mirrorEmi.paidInterest to avoid double-charging across partials
+              const mirrorInterestAlreadyPaid = mirrorEmi.paidInterest || 0;
+              const mirrorRemainingInterest   = Math.max(0, (mirrorEmi.interestAmount || 0) - mirrorInterestAlreadyPaid);
+              let mirrorPaidInterest:  number;
+              let mirrorPaidPrincipal: number;
+              if (mirrorPartialAmt <= mirrorRemainingInterest) {
+                mirrorPaidInterest  = mirrorPartialAmt;
+                mirrorPaidPrincipal = 0;
+              } else {
+                mirrorPaidInterest  = mirrorRemainingInterest;
+                mirrorPaidPrincipal = Math.round((mirrorPartialAmt - mirrorRemainingInterest) * 100) / 100;
+              }
+              const mirrorIsFullyPaid = mirrorPartialAmt >= (mirrorEmi.totalAmount || 0) - (mirrorEmi.paidAmount || 0) - 1;
 
               // 1. Bank transaction (customer always pays online)
               await recordBankTransaction({
                 companyId:       mirrorCompanyId,
                 transactionType: 'CREDIT',
                 amount:          mirrorPartialAmt,
-                description:     `MIRROR PARTIAL EMI (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} ${Math.round(ratio * 100)}%`,
+                description:     `MIRROR PARTIAL EMI (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} ${Math.round(ratio * 100)}% P:₹${mirrorPaidPrincipal} I:₹${mirrorPaidInterest}`,
                 referenceType:   'MIRROR_EMI_PAYMENT',
                 referenceId:     `${paymentId}-PARTIAL`,
                 createdById:     reviewedById
@@ -1215,11 +1227,11 @@ export async function PUT(request: NextRequest) {
                   paidDate:         new Date(),
                   paymentMode:      payMode,
                   isPartialPayment: !mirrorIsFullyPaid,
-                  notes: `[MIRROR SYNC Partial] PR#${paymentRequest.requestNumber} (${Math.round(ratio * 100)}%)`
+                  notes: `[MIRROR SYNC Partial] PR#${paymentRequest.requestNumber} (${Math.round(ratio * 100)}%) P:₹${mirrorPaidPrincipal} I:₹${mirrorPaidInterest}`
                 }
               });
 
-              // 3. Journal with mirror amounts
+              // 3. Journal with mirror amounts (interest-first, no double)
               await accSvc.recordEMIPayment({
                 loanId:             mirrorMapping.mirrorLoanId,
                 customerId:         paymentRequest.customerId,
@@ -1232,41 +1244,33 @@ export async function PUT(request: NextRequest) {
                 createdById:        reviewedById,
                 reference:          `PR#${paymentRequest.requestNumber} → Mirror Partial ${Math.round(ratio * 100)}%`
               });
-              console.log(`[PR Accounting] ✓ PARTIAL Bank+Journal ₹${mirrorPartialAmt} in mirror company`);
+              console.log(`[PR Accounting] ✓ PARTIAL Mirror Bank+Journal ₹${mirrorPartialAmt} (P:₹${mirrorPaidPrincipal} I:₹${mirrorPaidInterest}) in mirror company`);
             }
 
             // ==================================================================
             // INTEREST_ONLY
             // ==================================================================
             else if (pType === 'INTEREST_ONLY' && mirrorEmi) {
-              const ioMirrorInterest = Math.round((mirrorEmi.outstandingPrincipal || 0) * mirrorMonthlyRate * 100) / 100;
+              // Use mirrorEmi.interestAmount directly — NEVER recalculate from rate.
+              // Same reason as original loan: recalculating gives wrong value for
+              // reducing-balance loans as outstandingPrincipal changes over time.
+              const ioMirrorInterest = Number(mirrorEmi.interestAmount || 0);
 
-              // 1. Bank transaction
+              // 1. Bank transaction in mirror company
               await recordBankTransaction({
                 companyId:       mirrorCompanyId,
                 transactionType: 'CREDIT',
                 amount:          ioMirrorInterest,
-                description:     `MIRROR INTEREST-ONLY (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
+                description:     `MIRROR INTEREST-ONLY (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} I:₹${ioMirrorInterest}`,
                 referenceType:   'MIRROR_INTEREST_INCOME',
                 referenceId:     `${paymentId}-IO`,
                 createdById:     reviewedById
               });
 
-              // 2. Update mirror EMI
-              await db.eMISchedule.update({
-                where: { id: mirrorEmi.id },
-                data: {
-                  paymentStatus: 'INTEREST_ONLY_PAID',
-                  paidAmount:    ioMirrorInterest,
-                  paidPrincipal: 0,
-                  paidInterest:  ioMirrorInterest,
-                  paidDate:      new Date(),
-                  paymentMode:   payMode,
-                  notes:         `[MIRROR SYNC IO] PR#${paymentRequest.requestNumber}`
-                }
-              });
+              // NOTE: Mirror EMI status update (INTEREST_ONLY_PAID) is already handled
+              // by the post-transaction INTEREST_ONLY block above — do NOT update again here.
 
-              // 3. Journal
+              // 2. Journal: DR Bank | CR Interest Income (principal=0, interest-only)
               await accSvc.recordEMIPayment({
                 loanId:             mirrorMapping.mirrorLoanId,
                 customerId:         paymentRequest.customerId,
@@ -1277,9 +1281,9 @@ export async function PUT(request: NextRequest) {
                 paymentDate:        new Date(),
                 paymentMode:        payMode,
                 createdById:        reviewedById,
-                reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only`
+                reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`
               });
-              console.log(`[PR Accounting] ✓ INTEREST_ONLY Bank+Journal ₹${ioMirrorInterest} in mirror company`);
+              console.log(`[PR Accounting] ✓ INTEREST_ONLY Mirror Bank+Journal ₹${ioMirrorInterest} in mirror company ${mirrorCompanyId}`);
             }
           }
         }
