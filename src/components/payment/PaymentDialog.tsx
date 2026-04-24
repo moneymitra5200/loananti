@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import { compressImage } from '@/utils/imageCompression';
 
 interface EMISchedule {
   id: string;
@@ -111,19 +112,25 @@ export default function PaymentDialog({
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
-        toast({ title: 'File too large', description: 'Maximum file size is 5MB', variant: 'destructive' });
+      if (!file.type.startsWith('image/')) {
+        toast({ title: 'Invalid format', description: 'Only image files are allowed', variant: 'destructive' });
         return;
       }
       setProofFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProofPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedBase64 = await compressImage(file, 800, 0.7);
+        setProofPreview(compressedBase64);
+      } catch (err) {
+        // Fallback
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setProofPreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -220,18 +227,14 @@ export default function PaymentDialog({
 
     setSubmitting(true);
     try {
-      // First upload the proof file
-      const formData = new FormData();
-      formData.append('file', proofFile);
-      formData.append('documentType', 'payment-proof');
-      
-      const uploadResponse = await fetch('/api/upload/document', {
-        method: 'POST',
-        body: formData
-      });
-      
-      const uploadData = await uploadResponse.json();
-      const proofUrl = uploadResponse.ok && uploadData.url ? uploadData.url : '';
+      let proofUrl = '';
+      if (proofPreview) {
+        proofUrl = proofPreview;
+      } else {
+        toast({ title: 'Error', description: 'Please wait for proof to process', variant: 'destructive' });
+        setSubmitting(false);
+        return;
+      }
 
       // Create payment request
       const requestBody: any = {

@@ -23,6 +23,7 @@ import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
+import { compressImage } from '@/utils/imageCompression';
 import PushNotificationInit from '@/components/notification/PushNotificationInit';
 
 interface EMISchedule {
@@ -559,31 +560,13 @@ export default function CustomerLoanDetailPage() {
 
     setPaymentLoading(true);
     try {
-      // Upload proof first if there's a file
+      // Use compressed preview directly - bypasses 5MB upload limit and API body limits
       let proofUrl: string | null = null;
       
-      if (proofFile) {
-        console.log('Proof file exists, uploading...');
-        try {
-          proofUrl = await handleProofUpload(proofFile);
-          if (!proofUrl) {
-            console.log('Proof upload returned null');
-            setPaymentLoading(false);
-            return;
-          }
-          console.log('Proof uploaded successfully, URL:', proofUrl);
-        } catch (uploadError) {
-          console.error('Proof upload error:', uploadError);
-          setPaymentLoading(false);
-          toast({ title: 'Error', description: 'Failed to upload proof. Please try again.', variant: 'destructive' });
-          return;
-        }
-      } else if (proofPreview) {
-        // If no file but preview exists, something went wrong
-        console.log('No proof file but preview exists - this should not happen');
+      if (proofPreview) {
         proofUrl = proofPreview;
       } else {
-        console.log('No proof file or preview');
+        console.log('No proof preview generated');
         setPaymentLoading(false);
         toast({ title: 'Error', description: 'Please upload payment proof', variant: 'destructive' });
         return;
@@ -686,15 +669,23 @@ export default function CustomerLoanDetailPage() {
   };
 
   // Handle file selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast({ title: 'Invalid file', description: 'Only image files are supported for proof.', variant: 'destructive' });
+        return;
+      }
       setProofFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setProofPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedDataUrl = await compressImage(file, 800, 0.7);
+        setProofPreview(compressedDataUrl);
+      } catch (err) {
+        // Fallback
+        const reader = new FileReader();
+        reader.onloadend = () => setProofPreview(reader.result as string);
+        reader.readAsDataURL(file);
+      }
     }
   };
 

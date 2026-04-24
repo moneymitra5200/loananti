@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
 
 // POST - Collect monthly interest payment for INTEREST_ONLY loans
 export async function POST(request: NextRequest) {
@@ -13,7 +11,7 @@ export async function POST(request: NextRequest) {
     const paymentMode = formData.get('paymentMode') as string;
     const collectedBy = formData.get('collectedBy') as string;
     const remarks = formData.get('remarks') as string || '';
-    const proofFile = formData.get('proof') as File | null;
+    const proofBase64 = formData.get('proofBase64') as string | null;
     
     console.log(`[Interest Payment] ========== INTEREST COLLECTION REQUEST ==========`);
     console.log(`[Interest Payment] Loan ID: ${loanId}`);
@@ -75,34 +73,11 @@ export async function POST(request: NextRequest) {
     console.log(`[Interest Payment] Interest Rate: ${interestRate}%`);
     console.log(`[Interest Payment] Expected Monthly Interest: ${expectedMonthlyInterest}`);
     
-    // Handle proof upload if provided
+    // Handle proof upload (now sent as a compressed base64 string directly from client)
     let proofUrl = '';
-    if (proofFile && proofFile.size > 0) {
-      try {
-        const bytes = await proofFile.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        
-        const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'proofs');
-        
-        try {
-          await mkdir(uploadsDir, { recursive: true });
-        } catch (e) {
-          console.log('[Interest Payment] Mkdir result:', e);
-        }
-        
-        const fileName = `interest-proof-${loanId}-${Date.now()}.${proofFile.name.split('.').pop()}`;
-        const filePath = path.join(uploadsDir, fileName);
-        
-        try {
-          await writeFile(filePath, buffer);
-          proofUrl = `/uploads/proofs/${fileName}`;
-          console.log('[Interest Payment] Proof uploaded:', proofUrl);
-        } catch (writeErr) {
-          console.error('[Interest Payment] Failed to write proof file:', writeErr);
-        }
-      } catch (uploadErr) {
-        console.error('[Interest Payment] Proof upload error:', uploadErr);
-      }
+    if (proofBase64) {
+      proofUrl = proofBase64;
+      console.log('[Interest Payment] Proof attached as base64 string.');
     }
     
     // Generate receipt number

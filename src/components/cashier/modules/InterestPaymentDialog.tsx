@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import { compressImage } from '@/utils/imageCompression';
 
 interface InterestPaymentDialogProps {
   open: boolean;
@@ -86,20 +87,22 @@ export default function InterestPaymentDialog({
     }
   };
   
-  const handleProofUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        toast({ title: 'Invalid file', description: 'Only image files are supported.', variant: 'destructive' });
+        return;
+      }
       setProofFile(file);
-      
-      // Create preview for images
-      if (file.type.startsWith('image/')) {
+      try {
+        const compressedBase64 = await compressImage(file, 800, 0.7);
+        setProofPreview(compressedBase64);
+      } catch (err) {
+        // Fallback
         const reader = new FileReader();
-        reader.onload = (e) => {
-          setProofPreview(e.target?.result as string);
-        };
+        reader.onload = (e) => setProofPreview(e.target?.result as string);
         reader.readAsDataURL(file);
-      } else {
-        setProofPreview(null);
       }
     }
   };
@@ -138,8 +141,8 @@ export default function InterestPaymentDialog({
       formData.append('paymentMode', paymentMode);
       formData.append('collectedBy', userId);
       formData.append('remarks', remarks);
-      if (proofFile) {
-        formData.append('proof', proofFile);
+      if (proofPreview) {
+        formData.append('proofBase64', proofPreview);
       }
       
       const response = await fetch('/api/loan/interest-payment', {
