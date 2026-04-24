@@ -159,7 +159,7 @@ model Company {
   ownerAadhaar                 String? // Owner Aadhaar (encrypted)
   ownerPan                     String? // Owner PAN
   // Logo
-  logoUrl                      String? // Company logo URL (uploaded file)
+  logoUrl              String? @db.LongText // Company logo URL (uploaded file)
   isActive                     Boolean                 @default(true)
   maxLoanAmount                Float                   @default(10000000)
   minLoanAmount                Float                   @default(10000)
@@ -497,7 +497,7 @@ model GoldLoanDetail {
   valuationAmount   Float // Total valuation amount
   loanAmount        Float // Approved loan amount
   ownerName         String? // Name of gold owner
-  goldItemPhoto     String? // Photo URL of gold item
+  goldItemPhoto        String? @db.LongText // Photo URL of gold item
   karat             Int? // Gold purity (22K, 24K, etc.)
   numberOfItems     Int? // Number of gold items
   itemDescription   String? // Description of gold items
@@ -526,8 +526,8 @@ model VehicleLoanDetail {
   valuationAmount   Float // Vehicle valuation amount
   loanAmount        Float // Approved loan amount
   ownerName         String? // Name of vehicle owner
-  rcBookPhoto       String? // RC Book photo URL
-  vehiclePhoto      String? // Vehicle photo URL
+  rcBookPhoto          String? @db.LongText // RC Book photo URL
+  vehiclePhoto         String? @db.LongText // Vehicle photo URL
   chassisNumber     String? // Chassis number
   engineNumber      String? // Engine number
   fuelType          String? // Petrol, Diesel, Electric, etc.
@@ -564,7 +564,7 @@ model EMISchedule {
   paymentMode          String?
   paymentReference     String?
   utrNumber            String?
-  proofUrl             String? // Payment proof document URL
+  proofUrl             String? @db.LongText // Payment proof document URL
   notes                String? // Payment notes
   isPartialPayment     Boolean            @default(false)
   nextPaymentDate      DateTime?
@@ -632,7 +632,7 @@ model Payment {
   reconciled         Boolean         @default(false)
   reconciledAt       DateTime?
   reconciliationRef  String?
-  proofUrl           String? // Payment proof document
+  proofUrl             String? @db.LongText // Payment proof document
   remarks            String?
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
@@ -1950,7 +1950,7 @@ model CreditTransaction {
   remarks       String?
 
   // Proof Document (required for CHEQUE, ONLINE, and PERSONAL transactions)
-  proofDocument   String? // File path to uploaded proof
+  proofDocument        String? @db.LongText // File path to uploaded proof
   proofType       String? // Type of proof (image, pdf, etc.)
   proofUploadedAt DateTime?
   proofVerified   Boolean   @default(false)
@@ -2559,7 +2559,7 @@ model PaymentRequest {
   // Payment Method Details
   paymentMethod String? // UPI, BANK_TRANSFER, CASH
   utrNumber     String?
-  proofUrl      String? // Screenshot proof
+  proofUrl             String? @db.LongText // Screenshot proof
   proofFileName String?
 
   // QR/UPI Payment Details
