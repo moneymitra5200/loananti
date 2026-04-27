@@ -209,7 +209,82 @@ export async function POST(request: NextRequest) {
       results.paymentOptionSettings = 0;
     }
 
+    // 19. Delete Borrowed Money ← THE KEY MISSING PIECE
+    try {
+      const borrowedMoney = await db.borrowedMoney.deleteMany({});
+      results.borrowedMoney = borrowedMoney.count;
+      console.log(`[Reset Accountant] Deleted ${borrowedMoney.count} borrowed money entries`);
+    } catch (e) {
+      console.log('[Reset Accountant] borrowedMoney not found or already empty');
+      results.borrowedMoney = 0;
+    }
+
+    // 20. Delete Invest Money
+    try {
+      const investMoney = await db.investMoney.deleteMany({});
+      results.investMoney = investMoney.count;
+      console.log(`[Reset Accountant] Deleted ${investMoney.count} invest money entries`);
+    } catch (e) {
+      console.log('[Reset Accountant] investMoney not found or already empty');
+      results.investMoney = 0;
+    }
+
+    // 21. Delete Equity Entries
+    try {
+      const equityEntries = await db.equityEntry.deleteMany({});
+      results.equityEntries = equityEntries.count;
+      console.log(`[Reset Accountant] Deleted ${equityEntries.count} equity entries`);
+    } catch (e) {
+      console.log('[Reset Accountant] equityEntry not found or already empty');
+      results.equityEntries = 0;
+    }
+
+    // 22. Delete Account Heads
+    try {
+      const accountHeads = await db.accountHead.deleteMany({});
+      results.accountHeads = accountHeads.count;
+      console.log(`[Reset Accountant] Deleted ${accountHeads.count} account heads`);
+    } catch (e) {
+      console.log('[Reset Accountant] accountHead not found or already empty');
+      results.accountHeads = 0;
+    }
+
+    // 23. Delete Cash Book Entries (before Cash Book)
+    try {
+      const cashBooks = await db.cashBook.findMany({ select: { id: true } });
+      const ids = cashBooks.map(c => c.id);
+      const cashBookEntries = ids.length > 0
+        ? await db.cashBookEntry.deleteMany({ where: { cashBookId: { in: ids } } })
+        : { count: 0 };
+      results.cashBookEntries = cashBookEntries.count;
+      console.log(`[Reset Accountant] Deleted ${cashBookEntries.count} cash book entries`);
+    } catch (e) {
+      console.log('[Reset Accountant] cashBookEntry not found or already empty');
+      results.cashBookEntries = 0;
+    }
+
+    // 24. Delete Cash Books
+    try {
+      const cashBooks = await db.cashBook.deleteMany({});
+      results.cashBooks = cashBooks.count;
+      console.log(`[Reset Accountant] Deleted ${cashBooks.count} cash books`);
+    } catch (e) {
+      console.log('[Reset Accountant] cashBook not found or already empty');
+      results.cashBooks = 0;
+    }
+
+    // 25. Delete Daybook Entries
+    try {
+      const daybookEntries = await db.daybookEntry.deleteMany({});
+      results.daybookEntries = daybookEntries.count;
+      console.log(`[Reset Accountant] Deleted ${daybookEntries.count} daybook entries`);
+    } catch (e) {
+      console.log('[Reset Accountant] daybookEntry not found or already empty');
+      results.daybookEntries = 0;
+    }
+
     console.log('[Reset Accountant] Reset completed successfully!');
+
 
     return NextResponse.json({
       success: true,

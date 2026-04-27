@@ -98,8 +98,44 @@ export async function POST(request: NextRequest) {
     const financialYears = await db.financialYear.deleteMany({});
     console.log(`Deleted ${financialYears.count} financial years`);
 
-    // 18. Delete audit logs (except user management)
+    // 18. Delete Borrowed Money ← CRITICAL FIX: was missing, causing persistence
+    try {
+      const borrowedMoney = await db.borrowedMoney.deleteMany({});
+      console.log(`Deleted ${borrowedMoney.count} borrowed money entries`);
+    } catch (e) { console.log('borrowedMoney already empty'); }
+
+    // 19. Delete Invest Money
+    try {
+      const investMoney = await db.investMoney.deleteMany({});
+      console.log(`Deleted ${investMoney.count} invest money entries`);
+    } catch (e) { console.log('investMoney already empty'); }
+
+    // 20. Delete Equity Entries
+    try {
+      await db.equityEntry.deleteMany({});
+    } catch (e) { /* ignore */ }
+
+    // 21. Delete Account Heads
+    try {
+      await db.accountHead.deleteMany({});
+    } catch (e) { /* ignore */ }
+
+    // 22. Delete Cash Book Entries + Cash Books
+    try {
+      const cashBooks = await db.cashBook.findMany({ select: { id: true } });
+      const ids = cashBooks.map(c => c.id);
+      if (ids.length > 0) await db.cashBookEntry.deleteMany({ where: { cashBookId: { in: ids } } });
+      await db.cashBook.deleteMany({});
+    } catch (e) { /* ignore */ }
+
+    // 23. Delete Daybook Entries
+    try {
+      await db.daybookEntry.deleteMany({});
+    } catch (e) { /* ignore */ }
+
+    // 24. Delete audit logs (except user management)
     const auditLogs = await db.auditLog.deleteMany({});
+
     console.log(`Deleted ${auditLogs.count} audit logs`);
 
     // 19. Delete notifications

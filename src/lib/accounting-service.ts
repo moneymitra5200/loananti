@@ -232,6 +232,13 @@ export class AccountingService {
     console.log('[AccountingService] All static caches cleared after reset');
   }
 
+  /** Called by per-company reset to invalidate only that company's cached state */
+  static clearCompanyCache(companyId: string): void {
+    AccountingService.initializedCompanies.delete(companyId);
+    AccountingService.fyCache.delete(companyId);
+    console.log(`[AccountingService] Cache cleared for company [${companyId}]`);
+  }
+
   async initializeChartOfAccounts(): Promise<void> {
     // Fast-path: already done this process run — skip 40+ DB queries
     if (AccountingService.initializedCompanies.has(this.companyId)) return;
