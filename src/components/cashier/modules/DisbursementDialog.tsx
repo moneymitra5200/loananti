@@ -1245,8 +1245,8 @@ export default function DisbursementDialog({
                   </div>
                 </div>
 
-                {/* Extra EMI Payment Page Selection - COMPULSORY for Mirror Loans */}
-                {mirrorLoanInfo?.isMirrorLoan && (
+                {/* Extra EMI Payment Page Selection - only when extra EMIs exist */}
+                {mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && (
                   <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 rounded-lg">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="p-2 bg-purple-100 rounded-lg">
@@ -1391,13 +1391,13 @@ export default function DisbursementDialog({
 
         <SheetFooter className="p-5 border-t flex-shrink-0 flex-col gap-2">
           {/* Show missing requirements warning */}
-          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)) && (
+          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)) && (
             <div className="w-full p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600" />
               <span className="text-sm text-red-700">
                 {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source. " : ""}
                 {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed. " : ""}
-                {mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
+                {mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
               </span>
             </div>
           )}
@@ -1416,7 +1416,7 @@ export default function DisbursementDialog({
             <Button 
               className="bg-green-500 hover:bg-green-600" 
               onClick={onDisburse}
-              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
+              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)}
             >
               {saving ? (
                 <>
