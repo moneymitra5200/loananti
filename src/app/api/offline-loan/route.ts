@@ -1713,12 +1713,15 @@ export async function POST(request: NextRequest) {
 
     // ============================================
     // CREATE ACCOUNTING ENTRIES FOR ORIGINAL LOAN DISBURSEMENT
-    // This ALWAYS runs — for both regular AND mirror loans.
-    // For mirror loans: the MIRROR COMPANY journal is already created above.
-    // But the ORIGINAL COMPANY journal (Loans Receivable DR / Bank or Cash CR)
-    // must ALSO be recorded here for the original company's books.
+    // IMPORTANT: For mirror loans, we SKIP the original company journal entry.
+    // The mirror company's journal entry is already created in the mirror loan
+    // creation section above, so no double-entry is needed here.
     // ============================================
-    {
+
+    // SKIP journal entry for mirror loans — already handled in mirror creation section
+    if (isMirrorLoan && mirrorCompanyId) {
+      console.log(`[Accounting] SKIPPED original company journal for mirror loan — mirror company journal already recorded`);
+    } else {
       // Regular loan - create accounting entries
       const effectiveDisbursementMode = disbursementMode || 'CASH';
       
