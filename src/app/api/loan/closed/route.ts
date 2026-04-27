@@ -147,7 +147,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ── Format online loans ─────────────────────────────────────────────────
     const formattedOnlineLoans = onlineLoans.map((loan: any) => {
       const totalEMIs = loan.emiSchedules?.length || 0;
       const paidEMIs  = loan.emiSchedules?.filter((e: any) => e.paymentStatus === 'PAID').length || 0;
@@ -179,7 +178,47 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // ── Combine all for stats ──────────────────────────────────────────────
+    // ── Group online loans as mirror pairs ─────────────────────────────────
+    const onlineLoanIds = onlineLoans.map((l: any) => l.id);
+    const onlineMirrorMappings = onlineLoanIds.length > 0
+      ? await db.mirrorLoanMapping.findMany({
+          where: {
+            isOfflineLoan: false,
+            OR: [
+              { originalLoanId: { in: onlineLoanIds } },
+              { mirrorLoanId:   { in: onlineLoanIds } },
+            ]
+          },
+          include: { mirrorCompany: { select: { id: true, name: true, code: true } } }
+        })
+      : [];
+
+    const pairedOnlineIds = new Set<string>();
+    const onlinePairs: any[] = [];
+    const standaloneOnlineLoans: any[] = [];
+
+    for (const mapping of onlineMirrorMappings) {
+      const originalFmt = formattedOnlineLoans.find((l: any) => l.id === mapping.originalLoanId);
+      const mirrorFmt   = formattedOnlineLoans.find((l: any) => l.id === mapping.mirrorLoanId);
+      if (originalFmt && !pairedOnlineIds.has(originalFmt.id)) {
+        pairedOnlineIds.add(originalFmt.id);
+        if (mirrorFmt) pairedOnlineIds.add(mirrorFmt.id);
+        onlinePairs.push({
+          pairId: `online-${mapping.id}`,
+          isPair: true,
+          loanType: 'ONLINE',
+          mirrorInterestRate: mapping.mirrorInterestRate,
+          mirrorCompany: mapping.mirrorCompany,
+          original: { ...originalFmt, mirrorRole: 'ORIGINAL' },
+          mirror:   mirrorFmt ? { ...mirrorFmt, mirrorRole: 'MIRROR' } : null,
+          closedAt: originalFmt.closedAt,
+        });
+      }
+    }
+    for (const loan of formattedOnlineLoans) {
+      if (!pairedOnlineIds.has(loan.id)) standaloneOnlineLoans.push(loan);
+    }
+
     const allOfflineFormatted = [
       ...mirrorPairs.map(p => p.original),
       ...standaloneOffline
@@ -188,26 +227,25 @@ export async function GET(request: NextRequest) {
     const stats = {
       totalOnline:  formattedOnlineLoans.length,
       totalOffline: allOfflineFormatted.length,
-      totalPairs:   mirrorPairs.length,
+      totalPairs:   mirrorPairs.length + onlinePairs.length,
       totalLoans:   formattedOnlineLoans.length + allOfflineFormatted.length,
-      totalOnlineAmount:  formattedOnlineLoans.reduce((s, l) => s + l.approvedAmount, 0),
-      totalOfflineAmount: allOfflineFormatted.reduce((s, l) => s + l.approvedAmount, 0),
-      totalAmount:        [...formattedOnlineLoans, ...allOfflineFormatted].reduce((s, l) => s + l.approvedAmount, 0),
-      totalInterestCollected: [...formattedOnlineLoans, ...allOfflineFormatted].reduce((s, l) => s + (l.totalInterest || 0), 0)
+      totalOnlineAmount:  formattedOnlineLoans.reduce((s: number, l: any) => s + l.approvedAmount, 0),
+      totalOfflineAmount: allOfflineFormatted.reduce((s: number, l: any) => s + l.approvedAmount, 0),
+      totalAmount:        [...formattedOnlineLoans, ...allOfflineFormatted].reduce((s: number, l: any) => s + l.approvedAmount, 0),
+      totalInterestCollected: [...formattedOnlineLoans, ...allOfflineFormatted].reduce((s: number, l: any) => s + (l.totalInterest || 0), 0)
     };
 
     return NextResponse.json({
-      // Legacy flat list (for backward compat)
       loans: [
         ...formattedOnlineLoans,
         ...standaloneOffline,
         ...mirrorPairs.map(p => p.original)
-      ].sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()),
-      // Grouped for parallel view
+      ].sort((a: any, b: any) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime()),
       mirrorPairs,
+      onlinePairs,
       standaloneOffline,
-      onlineLoans: formattedOnlineLoans,
-      mirrorEnabled, // let UI decide parallel vs list view
+      onlineLoans: standaloneOnlineLoans,
+      mirrorEnabled,
       stats
     });
 

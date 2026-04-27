@@ -407,12 +407,15 @@ export async function POST(request: NextRequest) {
     // Close mirror too
     await closeMirrorLoan();
 
-    // ── Accounting: Cash/Bank entry — ORIGINAL COMPANY ───────────────────────
-    if (effectiveCompanyId && totalForeclosureAmount > 0) {
+    // ── Accounting: Foreclosure entries → MIRROR company if present, else ORIGINAL ──
+    // Business rule: close loan accounting goes to mirror company, not original.
+    const primaryAcctCompanyId = mirrorMapping?.mirrorCompanyId || effectiveCompanyId;
+
+    if (primaryAcctCompanyId && totalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
         const entryArgs = {
-          companyId:     effectiveCompanyId,
+          companyId:     primaryAcctCompanyId,
           amount:        totalForeclosureAmount,
           description:   `Foreclosure - ${loan.applicationNo} (P:₹${totalPrincipal.toFixed(2)} + I:₹${totalInterest.toFixed(2)})`,
           referenceType: 'EMI_PAYMENT' as const,
@@ -421,10 +424,10 @@ export async function POST(request: NextRequest) {
         };
         if (isOnlineMode) {
           await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
-          console.log(`[Close/Payment] ✅ Bank entry: ₹${totalForeclosureAmount}`);
+          console.log(`[Close/Payment] ✅ Bank entry: ₹${totalForeclosureAmount} → co. ${primaryAcctCompanyId}`);
         } else {
           await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
-          console.log(`[Close/Payment] ✅ Cashbook entry: ₹${totalForeclosureAmount}`);
+          console.log(`[Close/Payment] ✅ Cashbook entry: ₹${totalForeclosureAmount} → co. ${primaryAcctCompanyId}`);
         }
       } catch (e: any) {
         const msg = `Cashbook/Bank entry failed: ${e?.message}`;
@@ -433,17 +436,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Accounting: Double-entry journal — ORIGINAL COMPANY ──────────────────
-    if (effectiveCompanyId && totalForeclosureAmount > 0) {
+    if (primaryAcctCompanyId && totalForeclosureAmount > 0) {
       try {
         const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
-        const accSvc = new AccountingService(effectiveCompanyId);
+        const accSvc = new AccountingService(primaryAcctCompanyId);
         await accSvc.initializeChartOfAccounts();
         await accSvc.createJournalEntry({
           entryDate:     now,
           referenceType: 'EMI_PAYMENT',
           referenceId:   `${loanId}-FORECLOSURE-JE`,
-          narration:     `Foreclosure - ${loan.applicationNo} — P:₹${totalPrincipal.toFixed(2)} I:₹${totalInterest.toFixed(2)} via ${paymentMode}`,
+          narration:     `${mirrorMapping ? '[MIRROR CO] ' : ''}Foreclosure - ${loan.applicationNo} — P:₹${totalPrincipal.toFixed(2)} I:₹${totalInterest.toFixed(2)} via ${paymentMode}`,
           lines: [
             { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
             { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` },
@@ -452,7 +454,7 @@ export async function POST(request: NextRequest) {
           createdById: userId,
           isAutoEntry: true,
         });
-        console.log(`[Close/Payment] ✅ Foreclosure journal (original co.) created`);
+        console.log(`[Close/Payment] ✅ Foreclosure journal created → co. ${primaryAcctCompanyId}`);
       } catch (e: any) {
         const msg = `Foreclosure journal failed: ${e?.message}`;
         accountingWarnings.push(msg);
@@ -460,59 +462,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Accounting: Cash/Bank + Journal — MIRROR COMPANY ─────────────────────
-    if (mirrorMapping?.mirrorLoanId && mirrorMapping?.mirrorCompanyId) {
-      try {
-        const mirrorLoan = await db.loanApplication.findUnique({
-          where: { id: mirrorMapping.mirrorLoanId }, include: { emiSchedules: true }
-        });
-        if (mirrorLoan) {
-          const mirrorUnpaid = mirrorLoan.emiSchedules.filter(isCloseable);
-          let mirrorP = 0, mirrorI = 0;
-          for (const e of mirrorUnpaid) {
-            const monthHasStarted = new Date(e.dueDate) <= now;
-            mirrorP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
-            if (monthHasStarted) mirrorI += Math.max(0, Number(e.interestAmount ?? 0) - Number(e.paidInterest ?? 0));
-          }
-          const mirrorTotal = mirrorP + mirrorI;
-          if (mirrorTotal > 0) {
-            const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
-            const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-            const mirrorAccSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
-            await mirrorAccSvc.initializeChartOfAccounts();
-            // Cash/bank in mirror company
-            if (isOnlineMode) {
-              await recordBankTransaction({ companyId: mirrorMapping.mirrorCompanyId, transactionType: 'CREDIT', amount: mirrorTotal,
-                description: `[MIRROR] Foreclosure - ${mirrorLoan.applicationNo} P:₹${mirrorP.toFixed(2)} I:₹${mirrorI.toFixed(2)}`,
-                referenceType: 'EMI_PAYMENT', referenceId: `${mirrorMapping.mirrorLoanId}-FORECLOSURE`, createdById: userId });
-            } else {
-              await recordCashBookEntry({ companyId: mirrorMapping.mirrorCompanyId, entryType: 'CREDIT', amount: mirrorTotal,
-                description: `[MIRROR] Foreclosure - ${mirrorLoan.applicationNo} P:₹${mirrorP.toFixed(2)} I:₹${mirrorI.toFixed(2)}`,
-                referenceType: 'EMI_PAYMENT', referenceId: `${mirrorMapping.mirrorLoanId}-FORECLOSURE`, createdById: userId });
-            }
-            // Double-entry journal in mirror company
-            await mirrorAccSvc.createJournalEntry({
-              entryDate:     now,
-              referenceType: 'EMI_PAYMENT',
-              referenceId:   `${mirrorMapping.mirrorLoanId}-FORECLOSURE-JE`,
-              narration:     `[MIRROR] Foreclosure - ${mirrorLoan.applicationNo} P:₹${mirrorP.toFixed(2)} I:₹${mirrorI.toFixed(2)} via ${paymentMode}`,
-              lines: [
-                { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: mirrorTotal, creditAmount: 0, narration: `[MIRROR] Foreclosure collected (${paymentMode})` },
-                { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: mirrorP, narration: `[MIRROR] Principal recovered` },
-                ...(mirrorI > 0 ? [{ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: mirrorI, narration: `[MIRROR] Interest income on foreclosure` }] : []),
-              ],
-              createdById: userId,
-              isAutoEntry: true,
-            });
-            console.log(`[Close/Payment] ✅ Mirror foreclosure journal: ₹${mirrorTotal} in co. ${mirrorMapping.mirrorCompanyId}`);
-          }
-        }
-      } catch (e: any) {
-        const msg = `Mirror foreclosure accounting failed: ${e?.message}`;
-        accountingWarnings.push(msg);
-        console.error('[Close/Payment Mirror] ❌', msg);
-      }
-    }
 
     return NextResponse.json({
       success: true,

@@ -341,6 +341,7 @@ export default function ClosedLoansTab({
 }: Props) {
   const [loading, setLoading]                   = useState(true);
   const [mirrorPairs, setMirrorPairs]           = useState<MirrorPair[]>([]);
+  const [onlinePairs, setOnlinePairs]           = useState<MirrorPair[]>([]);
   const [standaloneOffline, setStandaloneOffline] = useState<ClosedLoan[]>([]);
   const [onlineLoans, setOnlineLoans]           = useState<ClosedLoan[]>([]);
   const [stats, setStats] = useState({ totalOnline: 0, totalOffline: 0, totalPairs: 0, totalLoans: 0, totalAmount: 0, totalInterestCollected: 0, totalOnlineAmount: 0, totalOfflineAmount: 0 });
@@ -366,6 +367,7 @@ export default function ClosedLoansTab({
       const res  = await fetch(`/api/loan/closed?${params}`);
       const data = await res.json();
       setMirrorPairs(data.mirrorPairs || []);
+      setOnlinePairs(data.onlinePairs || []);
       setStandaloneOffline(data.standaloneOffline || []);
       setOnlineLoans(data.onlineLoans || []);
       setMirrorEnabledFromAPI(data.mirrorEnabled !== false);
@@ -619,9 +621,10 @@ export default function ClosedLoansTab({
   const showOnline    = filter === 'all' || filter === 'online';
   const showStandalone = filter === 'all' || filter === 'offline';
 
-  const filteredPairs     = mirrorPairs.filter(p => matchesSearch(p.original) || (p.mirror && matchesSearch(p.mirror)));
-  const filteredStandalone = standaloneOffline.filter(matchesSearch);
-  const filteredOnline    = onlineLoans.filter(matchesSearch);
+  const filteredOnlinePairs    = onlinePairs.filter(p => matchesSearch(p.original) || (p.mirror && matchesSearch(p.mirror)));
+  const filteredPairs          = mirrorPairs.filter(p => matchesSearch(p.original) || (p.mirror && matchesSearch(p.mirror)));
+  const filteredStandalone     = standaloneOffline.filter(matchesSearch);
+  const filteredOnline         = onlineLoans.filter(matchesSearch);
 
   return (
     <div className="space-y-6">
@@ -736,7 +739,22 @@ export default function ClosedLoansTab({
           ) : showParallel ? (
             /* PARALLEL VIEW */
             <div className="space-y-4">
-              {showPairs && filteredPairs.map((pair, i) => <MirrorPairRow key={pair.pairId} pair={pair} index={i} />)}
+              {/* Online Loan Pairs */}
+              {(filter === 'all' || filter === 'online') && filteredOnlinePairs.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-blue-600 flex items-center gap-2">
+                    <ArrowLeftRight className="h-4 w-4" /> Online Loan Pairs
+                  </p>
+                  {filteredOnlinePairs.map((pair, i) => <MirrorPairRow key={pair.pairId} pair={pair} index={i} />)}
+                </div>
+              )}
+              {/* Offline Loan Pairs */}
+              {showPairs && filteredPairs.length > 0 && (
+                <div className="space-y-3">
+                  {filteredOnlinePairs.length > 0 && <p className="text-sm font-semibold text-purple-600 flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Offline Loan Pairs</p>}
+                  {filteredPairs.map((pair, i) => <MirrorPairRow key={pair.pairId} pair={pair} index={i} />)}
+                </div>
+              )}
               {showStandalone && filteredStandalone.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-sm font-semibold text-gray-500 pt-2">Offline Loans (No Pair)</p>
@@ -745,7 +763,7 @@ export default function ClosedLoansTab({
               )}
               {showOnline && filteredOnline.length > 0 && (
                 <div className="space-y-3">
-                  <p className="text-sm font-semibold text-gray-500 pt-2">Online Loans</p>
+                  <p className="text-sm font-semibold text-gray-500 pt-2">Online Loans (No Pair)</p>
                   {filteredOnline.map((loan, i) => <LoanRow key={loan.id} loan={loan} index={i} />)}
                 </div>
               )}
