@@ -1764,6 +1764,7 @@ export async function POST(request: NextRequest) {
         await accountingService.recordLoanDisbursement({
           loanId: loan.id,
           customerId: effectiveCustomerId,
+          customerName: customerName,
           amount: loanAmount,
           disbursementDate: new Date(disbursementDate),
           createdById,

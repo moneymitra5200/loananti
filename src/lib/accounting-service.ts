@@ -661,13 +661,14 @@ export class AccountingService {
 
   /**
    * LOAN DISBURSEMENT
-   * Debit: Loans Receivable (Asset) — loan goes out
+   * Debit: Loans Receivable – [Customer Name] (Asset) — loan goes out
    * Credit: Bank Account (1102) for online/bank transfers
    * Credit: Cash in Hand (1101) for cash disbursements
    */
   async recordLoanDisbursement(params: {
     loanId: string;
     customerId: string;
+    customerName?: string;  // Used to tag the Loans Receivable line for subsidiary ledger
     amount: number;
     disbursementDate: Date;
     createdById: string;
@@ -683,11 +684,16 @@ export class AccountingService {
       ? ACCOUNT_CODES.BANK_ACCOUNT
       : ACCOUNT_CODES.CASH_IN_HAND;
 
+    // Build subsidiary ledger line narration with customer name
+    const receivableNarration = params.customerName
+      ? `Loan principal disbursed [Customer: ${params.customerName}]`
+      : 'Loan principal disbursed';
+
     return this.createJournalEntry({
       entryDate: params.disbursementDate,
       referenceType: 'LOAN_DISBURSEMENT',
       referenceId: params.loanId,
-      narration: `Loan disbursement - Principal: ₹${params.amount.toLocaleString()} (${params.paymentMode})`,
+      narration: `Loan disbursement - ${params.customerName || 'Customer'}: ₹${params.amount.toLocaleString()} (${params.paymentMode})`,
       lines: [
         {
           accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
@@ -695,7 +701,7 @@ export class AccountingService {
           creditAmount: 0,
           loanId: params.loanId,
           customerId: params.customerId,
-          narration: 'Loan principal disbursed',
+          narration: receivableNarration,
         },
         {
           accountCode: creditAccountCode,
@@ -713,6 +719,7 @@ export class AccountingService {
       isAutoEntry: true,
     });
   }
+
 
   /**
    * EMI PAYMENT
@@ -733,6 +740,7 @@ export class AccountingService {
   async recordEMIPayment(params: {
     loanId: string;
     customerId: string;
+    customerName?: string;  // For subsidiary ledger: tags Loans Receivable line with customer name
     paymentId: string;
     totalAmount: number;
     principalComponent: number;
@@ -778,7 +786,9 @@ export class AccountingService {
         creditAmount: params.principalComponent,
         loanId: params.loanId,
         customerId: params.customerId,
-        narration: 'Principal repayment',
+        narration: params.customerName
+          ? `Principal repayment [Customer: ${params.customerName}]`
+          : 'Principal repayment',
       });
     }
     if (adjustedInterest > 0) {

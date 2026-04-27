@@ -33,6 +33,31 @@ interface JournalLine {
   };
 }
 
+// Extract "[Customer: RAJ]" from a line narration → returns customer name or empty string
+function extractCustomerFromLineNarration(narration?: string): string {
+  if (!narration) return '';
+  const match = narration.match(/\[Customer:\s*([^\]]+)\]/);
+  return match ? match[1].trim() : '';
+}
+
+// Build enriched account display name — for Loans Receivable show "Loans Receivable – RAJ"
+const LOANS_RECEIVABLE_CODES = new Set(['1200', '1201', '1210']);
+function getDisplayAccountName(line: JournalLine): { name: string; sub: string } {
+  const base = line.account?.accountName || 'Unknown Account';
+  if (LOANS_RECEIVABLE_CODES.has(line.account?.accountCode || '')) {
+    const customer = extractCustomerFromLineNarration(line.narration);
+    if (customer) {
+      return {
+        name: `${base} – ${customer}`,
+        sub: line.debitAmount > 0 ? `Loan given to ${customer}` : `Repayment from ${customer}`,
+      };
+    }
+  }
+  // For non-Loans Receivable lines, show raw narration as sub-text (if any)
+  const cleanNarration = line.narration?.replace(/\[Customer:[^\]]*\]/g, '').trim() || '';
+  return { name: base, sub: cleanNarration };
+}
+
 interface JournalEntry {
   id: string;
   entryNumber: string;
@@ -356,37 +381,40 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
                             <div className="col-span-2 text-right">Dr (Debit)</div>
                             <div className="col-span-2 text-right">Cr (Credit)</div>
                           </div>
-                          {entry.lines.map((line, i) => (
-                            <div
-                              key={i}
-                              className={`grid grid-cols-12 items-center px-3 py-2 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} text-sm`}
-                            >
-                              <div className="col-span-1">
-                                <span className="font-mono text-xs text-gray-500">{line.account?.accountCode || '—'}</span>
+                          {entry.lines.map((line, i) => {
+                            const { name: displayName, sub: displaySub } = getDisplayAccountName(line);
+                            return (
+                              <div
+                                key={i}
+                                className={`grid grid-cols-12 items-center px-3 py-2 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'} text-sm`}
+                              >
+                                <div className="col-span-1">
+                                  <span className="font-mono text-xs text-gray-500">{line.account?.accountCode || '—'}</span>
+                                </div>
+                                <div className="col-span-5">
+                                  <p className={`font-medium ${getAccountTypeColor(line.account?.accountType)}`}>
+                                    {displayName}
+                                  </p>
+                                  {displaySub && <p className="text-xs text-gray-400 mt-0.5">{displaySub}</p>}
+                                </div>
+                                <div className="col-span-2">
+                                  <span className="text-xs text-gray-400 uppercase">{line.account?.accountType || '—'}</span>
+                                </div>
+                                <div className="col-span-2 text-right">
+                                  {line.debitAmount > 0
+                                    ? <span className="font-semibold text-blue-700">{fmt(line.debitAmount)}</span>
+                                    : <span className="text-gray-300">—</span>
+                                  }
+                                </div>
+                                <div className="col-span-2 text-right">
+                                  {line.creditAmount > 0
+                                    ? <span className="font-semibold text-emerald-700">{fmt(line.creditAmount)}</span>
+                                    : <span className="text-gray-300">—</span>
+                                  }
+                                </div>
                               </div>
-                              <div className="col-span-5">
-                                <p className={`font-medium ${getAccountTypeColor(line.account?.accountType)}`}>
-                                  {line.account?.accountName || 'Unknown Account'}
-                                </p>
-                                {line.narration && <p className="text-xs text-gray-400">{line.narration}</p>}
-                              </div>
-                              <div className="col-span-2">
-                                <span className="text-xs text-gray-400 uppercase">{line.account?.accountType || '—'}</span>
-                              </div>
-                              <div className="col-span-2 text-right">
-                                {line.debitAmount > 0
-                                  ? <span className="font-semibold text-blue-700">{fmt(line.debitAmount)}</span>
-                                  : <span className="text-gray-300">—</span>
-                                }
-                              </div>
-                              <div className="col-span-2 text-right">
-                                {line.creditAmount > 0
-                                  ? <span className="font-semibold text-emerald-700">{fmt(line.creditAmount)}</span>
-                                  : <span className="text-gray-300">—</span>
-                                }
-                              </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {/* Totals row */}
                           <div className="grid grid-cols-12 items-center px-3 py-2 bg-gray-100 border-t border-gray-200 text-sm font-bold">
                             <div className="col-span-8 text-gray-700">Total</div>

@@ -79,10 +79,10 @@ export async function GET(request: NextRequest) {
       select: { id: true, applicationNo: true, customer: { select: { name: true } } }
     }) : [];
 
-    // Lookup offline loans (referenceId might be offline loan id)
+    // Lookup offline loans — offline loans store customerName directly (no relation)
     const offlineLoans = loanRefIds.length > 0 ? await db.offlineLoan.findMany({
       where: { id: { in: loanRefIds } },
-      select: { id: true, loanNumber: true, customer: { select: { name: true } } }
+      select: { id: true, loanNumber: true, customerName: true }
     }) : [];
 
     const loanMap = new Map<string, { loanNo: string; customerName: string }>();
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
       loanMap.set(l.id, { loanNo: l.applicationNo, customerName: l.customer?.name || '' });
     }
     for (const l of offlineLoans) {
-      loanMap.set(l.id, { loanNo: l.loanNumber, customerName: l.customer?.name || '' });
+      loanMap.set(l.id, { loanNo: l.loanNumber, customerName: l.customerName || '' });
     }
 
     // Also look up by EMI schedule id → loan
@@ -116,17 +116,35 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Enrich entries narration
+    // Enrich entries: add customer name to narration AND to Loans Receivable line narrations
+    // This powers the "Account Name — RAJ" display in the journal entry detail view.
+    const LOANS_RECEIVABLE_CODES = new Set(['1200', '1201', '1210']);
+
     const enrichedEntries = entries.map(entry => {
       if (!entry.referenceId) return entry;
       const info = loanMap.get(entry.referenceId);
       if (!info || !info.customerName) return entry;
-      // Only append if not already included
+
+      // 1. Enrich entry-level narration
       const alreadyHasName = entry.narration?.includes(info.customerName);
       const narration = alreadyHasName
         ? entry.narration
         : `${entry.narration || ''}${info.loanNo && !entry.narration?.includes(info.loanNo) ? ` - ${info.loanNo}` : ''} [${info.customerName}]`.trim();
-      return { ...entry, narration };
+
+      // 2. Enrich Loans Receivable line narrations with customer name
+      // The UI uses line.narration to show sub-text under the account name.
+      // We inject "[Customer: RAJ]" so the frontend can show "Loans Receivable – RAJ"
+      const enrichedLines = entry.lines.map(line => {
+        if (!LOANS_RECEIVABLE_CODES.has(line.account?.accountCode || '')) return line;
+        // Don't double-add
+        if (line.narration?.includes(info.customerName)) return line;
+        return {
+          ...line,
+          narration: `${line.narration ? line.narration + ' ' : ''}[Customer: ${info.customerName}]`,
+        };
+      });
+
+      return { ...entry, narration, lines: enrichedLines };
     });
 
     return NextResponse.json({ entries: enrichedEntries, total });
