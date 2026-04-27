@@ -298,7 +298,10 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, action, adminId, rejectionReason } = body;
+    const { id, action, adminId, rejectionReason, adminPaymentSource, adminBankAccountId, adminCompanyId } = body;
+    // adminPaymentSource: 'BANK'|'CASH' — admin's deduction source decision
+    // adminBankAccountId: specific bank account chosen by admin
+    // adminCompanyId: which company's books to post the expense to (overrides cashier's company)
 
     if (!id || !action || !adminId) {
       return NextResponse.json({ error: 'id, action and adminId are required' }, { status: 400 });
@@ -338,20 +341,24 @@ export async function PUT(request: NextRequest) {
     }
 
     if (action === 'APPROVE') {
-      const paymentSource = expense.payeeName || 'CASH';
-      const storedBankAccountId = expense.paymentReference;
+      // Admin's choices take full priority over whatever the cashier stored
+      const paymentSource = (adminPaymentSource as 'BANK' | 'CASH') || expense.payeeName || 'CASH';
+      const storedBankAccountId = adminBankAccountId || expense.paymentReference;
 
-      // Resolve effective company ID (expense.companyId may be set)
-      let effectiveCompanyId = expense.companyId || '';
+      // effectiveCompanyId: admin's selection > expense's stored companyId > first company fallback
+      let effectiveCompanyId: string = adminCompanyId || expense.companyId || '';
       if (!effectiveCompanyId) {
         const first = await db.company.findFirst({ select: { id: true } });
         if (first) effectiveCompanyId = first.id;
       }
+      console.log(`[ExpenseRequest APPROVE] using companyId=${effectiveCompanyId} paymentSource=${paymentSource}`);
 
       let bankAccount: any = null;
       if (paymentSource === 'BANK') {
         if (storedBankAccountId) {
           bankAccount = await db.bankAccount.findUnique({ where: { id: storedBankAccountId } });
+          // Verify the bank account belongs to effectiveCompanyId (security check)
+          if (bankAccount && bankAccount.companyId !== effectiveCompanyId) bankAccount = null;
         }
         if (!bankAccount && effectiveCompanyId) {
           bankAccount = await db.bankAccount.findFirst({
@@ -361,7 +368,12 @@ export async function PUT(request: NextRequest) {
         if (!bankAccount && effectiveCompanyId) {
           bankAccount = await db.bankAccount.findFirst({ where: { companyId: effectiveCompanyId, isActive: true } });
         }
+        if (!bankAccount) {
+          return NextResponse.json({ error: 'No bank account found for the selected company. Use Cash instead.' }, { status: 400 });
+        }
       }
+
+      const effectiveExpense = { ...expense, companyId: effectiveCompanyId };
 
       const result = await db.$transaction(async (tx) => {
         await tx.expense.update({
@@ -371,17 +383,20 @@ export async function PUT(request: NextRequest) {
             isApproved: true,
             approvedById: adminId,
             approvedAt: new Date(),
+            companyId: effectiveCompanyId,  // persist admin's company choice
+            payeeName: paymentSource,        // persist admin's payment source choice
+            paymentReference: bankAccount?.id || null,
           },
         });
 
-        const balances = await postToAccounting(tx, expense.id, { ...expense, companyId: effectiveCompanyId }, adminId, bankAccount, paymentSource);
+        const balances = await postToAccounting(tx, expense.id, effectiveExpense, adminId, bankAccount, paymentSource);
         return { ...balances, bankAccount };
       });
 
-      // Journal entry — awaited so entry is guaranteed before response
+      // Journal entry — awaited, uses admin's chosen company
       await createJournalEntry(
         effectiveCompanyId,
-        { ...expense, companyId: effectiveCompanyId },
+        effectiveExpense,
         adminId,
         bankAccount?.id,
         paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH'
@@ -405,6 +420,7 @@ export async function PUT(request: NextRequest) {
         newBankBalance: result.newBankBalance,
         newCashBalance: result.newCashBalance,
         bankName: result.bankAccount?.bankName,
+        companyId: effectiveCompanyId,
       });
     }
 

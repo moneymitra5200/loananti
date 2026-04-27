@@ -162,25 +162,28 @@ export default function ExpenseRequestPanel({ role, userId, companyId, triggerLa
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Deduct From *</label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button type="button" onClick={() => setForm(f => ({ ...f, paymentSource: 'CASH' }))}
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${form.paymentSource === 'CASH' ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-                      <Banknote className="h-6 w-6" />
-                      <span className="text-xs font-semibold">Cash Book</span>
-                      {cashBalance !== null && <span className="text-[10px] opacity-70">₹{cashBalance.toLocaleString('en-IN')}</span>}
-                    </button>
-                    <button type="button" onClick={() => setForm(f => ({ ...f, paymentSource: 'BANK' }))}
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${form.paymentSource === 'BANK' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
-                      <Building2 className="h-6 w-6" />
-                      <span className="text-xs font-semibold">Bank Account</span>
-                      {selectedBank && <span className="text-[10px] opacity-70">₹{selectedBank.currentBalance.toLocaleString('en-IN')}</span>}
-                    </button>
+                {/* Deduct From — only shown to Admin/Accountant, not Cashier */}
+                {!isCashier && (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2 block">Deduct From *</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button type="button" onClick={() => setForm(f => ({ ...f, paymentSource: 'CASH' }))}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${form.paymentSource === 'CASH' ? 'border-rose-400 bg-rose-50 text-rose-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                        <Banknote className="h-6 w-6" />
+                        <span className="text-xs font-semibold">Cash Book</span>
+                        {cashBalance !== null && <span className="text-[10px] opacity-70">₹{cashBalance.toLocaleString('en-IN')}</span>}
+                      </button>
+                      <button type="button" onClick={() => setForm(f => ({ ...f, paymentSource: 'BANK' }))}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${form.paymentSource === 'BANK' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                        <Building2 className="h-6 w-6" />
+                        <span className="text-xs font-semibold">Bank Account</span>
+                        {selectedBank && <span className="text-[10px] opacity-70">₹{selectedBank.currentBalance.toLocaleString('en-IN')}</span>}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
-                {form.paymentSource === 'BANK' && bankAccounts.length > 0 && (
+                {!isCashier && form.paymentSource === 'BANK' && bankAccounts.length > 0 && (
                   <div>
                     <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1 block">Bank Account</label>
                     <select value={form.bankAccountId} onChange={e => setForm(f => ({ ...f, bankAccountId: e.target.value }))}
@@ -191,7 +194,7 @@ export default function ExpenseRequestPanel({ role, userId, companyId, triggerLa
                     </select>
                   </div>
                 )}
-                {form.paymentSource === 'BANK' && bankAccounts.length === 0 && (
+                {!isCashier && form.paymentSource === 'BANK' && bankAccounts.length === 0 && (
                   <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">⚠ No bank accounts found. Cash will be used.</p>
                 )}
 

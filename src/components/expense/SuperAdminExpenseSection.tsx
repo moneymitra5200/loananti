@@ -132,43 +132,56 @@ function ExpenseDetailDialog({ expense, onClose }: { expense: ExpenseRecord; onC
   );
 }
 
-/* ─── Approve dialog with balances ─── */
+/* ─── Approve dialog ─── */
 function ApproveDialog({
-  expense, onConfirm, onClose, loading
+  expense, companies, onConfirm, onClose, loading
 }: {
-  expense: ExpenseRecord; onConfirm: () => void; onClose: () => void; loading: boolean;
+  expense: ExpenseRecord;
+  companies: Company[];
+  onConfirm: (paymentSource: 'BANK' | 'CASH', bankAccountId?: string, companyId?: string) => void;
+  onClose: () => void;
+  loading: boolean;
 }) {
-  const [bankBalance, setBankBalance] = useState<number | null>(null);
-  const [cashBalance, setCashBalance] = useState<number | null>(null);
-  const [bankName, setBankName] = useState<string>('');
+  // Company: default to expense's own company, admin can override
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(expense.companyId || companies[0]?.id || '');
+  const [bankAccounts, setBankAccounts]   = useState<any[]>([]);
+  const [bankBalance, setBankBalance]     = useState<number | null>(null);
+  const [cashBalance, setCashBalance]     = useState<number | null>(null);
+  const [paymentSource, setPaymentSource] = useState<'BANK' | 'CASH'>('CASH');
+  const [bankAccountId, setBankAccountId] = useState<string>('');
 
+  // Reload balances whenever admin changes company
   useEffect(() => {
+    if (!selectedCompanyId) return;
     const load = async () => {
+      setBankBalance(null); setCashBalance(null); setBankAccounts([]);
       try {
-        if (expense.companyId) {
-          const cRes = await fetch(`/api/cashbook?companyId=${expense.companyId}`);
-          if (cRes.ok) {
-            const cd = await cRes.json();
-            if (cd.success && cd.cashBook) setCashBalance(cd.cashBook.currentBalance);
-          }
-          const bRes = await fetch(`/api/accounting/bank-accounts?companyId=${expense.companyId}`);
-          if (bRes.ok) {
-            const bd = await bRes.json();
-            const accs = bd.bankAccounts || [];
-            const def = expense.paymentReference
-              ? accs.find((a: any) => a.id === expense.paymentReference)
-              : (accs.find((a: any) => a.isDefault) || accs[0]);
-            if (def) { setBankBalance(def.currentBalance); setBankName(def.bankName); }
-          }
+        const [cRes, bRes] = await Promise.all([
+          fetch(`/api/cashbook?companyId=${selectedCompanyId}`),
+          fetch(`/api/accounting/bank-accounts?companyId=${selectedCompanyId}`),
+        ]);
+        if (cRes.ok) {
+          const cd = await cRes.json();
+          if (cd.success && cd.cashBook) setCashBalance(cd.cashBook.currentBalance);
+        }
+        if (bRes.ok) {
+          const bd = await bRes.json();
+          const accs = bd.bankAccounts || [];
+          setBankAccounts(accs);
+          const def = accs.find((a: any) => a.isDefault) || accs[0];
+          if (def) { setBankBalance(def.currentBalance); setBankAccountId(def.id); }
+          else { setBankAccountId(''); }
         }
       } catch {}
     };
     load();
-  }, [expense.companyId, expense.paymentReference]);
+  }, [selectedCompanyId]);
 
-  const isBank = expense.payeeName === 'BANK';
-  const afterBalance = isBank && bankBalance !== null ? bankBalance - expense.amount
-    : !isBank && cashBalance !== null ? cashBalance - expense.amount : null;
+  const selectedBankAcc = bankAccounts.find(a => a.id === bankAccountId);
+  const effectiveBankBalance = selectedBankAcc?.currentBalance ?? bankBalance;
+  const isBank = paymentSource === 'BANK';
+  const currentBalance = isBank ? effectiveBankBalance : cashBalance;
+  const afterBalance   = currentBalance !== null ? currentBalance - expense.amount : null;
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4"
@@ -185,32 +198,75 @@ function ApproveDialog({
             <span className="text-gray-600 text-sm">Amount to Deduct</span>
             <span className="text-2xl font-bold text-red-600">{formatINR(expense.amount)}</span>
           </div>
+
           <div className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
-            <strong>{expense.requester?.name || 'Cashier'}</strong> requested this via{' '}
-            <strong>{isBank ? (bankName || 'Bank') : 'Cash'}</strong>
+            Requested by <strong>{expense.requester?.name || 'Cashier'}</strong>
           </div>
 
-          {/* Balance preview */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className={`rounded-xl p-3 border ${isBank ? 'border-blue-300 bg-blue-50' : 'border-gray-100 bg-gray-50'}`}>
-              <div className="flex items-center gap-1.5 mb-1">
-                <Building2 className={`h-3.5 w-3.5 ${isBank ? 'text-blue-600' : 'text-gray-400'}`} />
-                <p className="text-xs font-semibold text-gray-500">Bank Balance</p>
-              </div>
-              <p className="text-sm font-bold text-gray-800">{bankBalance !== null ? formatINR(bankBalance) : '—'}</p>
-              {isBank && afterBalance !== null && (
-                <p className="text-xs text-red-500 mt-0.5">→ {formatINR(afterBalance)} after</p>
-              )}
+          {/* Admin picks which company */}
+          {companies.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Post to Company</p>
+              <select
+                value={selectedCompanyId}
+                onChange={e => setSelectedCompanyId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-400 focus:outline-none bg-gray-50"
+              >
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                ))}
+              </select>
             </div>
-            <div className={`rounded-xl p-3 border ${!isBank ? 'border-amber-300 bg-amber-50' : 'border-gray-100 bg-gray-50'}`}>
-              <div className="flex items-center gap-1.5 mb-1">
-                <Banknote className={`h-3.5 w-3.5 ${!isBank ? 'text-amber-600' : 'text-gray-400'}`} />
-                <p className="text-xs font-semibold text-gray-500">Cash Balance</p>
-              </div>
-              <p className="text-sm font-bold text-gray-800">{cashBalance !== null ? formatINR(cashBalance) : '—'}</p>
-              {!isBank && afterBalance !== null && (
-                <p className="text-xs text-red-500 mt-0.5">→ {formatINR(afterBalance)} after</p>
-              )}
+          )}
+
+          {/* Admin chooses where to deduct */}
+          <div>
+            <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Deduct From (Admin Decision)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setPaymentSource('CASH')}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
+                  paymentSource === 'CASH' ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                }`}>
+                <Banknote className="h-6 w-6" />
+                <span className="text-xs font-semibold">Cash Book</span>
+                {cashBalance !== null && <span className="text-[10px] opacity-70">{formatINR(cashBalance)}</span>}
+              </button>
+              <button type="button" onClick={() => setPaymentSource('BANK')}
+                className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
+                  paymentSource === 'BANK' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                }`}>
+                <Building2 className="h-6 w-6" />
+                <span className="text-xs font-semibold">Bank</span>
+                {effectiveBankBalance !== null && <span className="text-[10px] opacity-70">{formatINR(effectiveBankBalance)}</span>}
+              </button>
+            </div>
+          </div>
+
+          {/* Bank account picker */}
+          {paymentSource === 'BANK' && bankAccounts.length > 1 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1">Select Bank Account</p>
+              <select value={bankAccountId} onChange={e => setBankAccountId(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none bg-gray-50">
+                {bankAccounts.map((a: any) => (
+                  <option key={a.id} value={a.id}>{a.bankName} ···{a.accountNumber?.slice(-4)} ({formatINR(a.currentBalance)})</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {paymentSource === 'BANK' && bankAccounts.length === 0 && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">⚠ No bank accounts configured. Use Cash.</p>
+          )}
+
+          {/* Balance after deduction */}
+          <div className={`rounded-xl p-3 border ${
+            afterBalance !== null && afterBalance < 0 ? 'border-red-300 bg-red-50' : 'border-gray-100 bg-gray-50'
+          }`}>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Balance after deduction</span>
+              <span className={`font-bold ${ afterBalance !== null && afterBalance < 0 ? 'text-red-600' : 'text-gray-800' }`}>
+                {afterBalance !== null ? formatINR(afterBalance) : '—'}
+              </span>
             </div>
           </div>
 
@@ -225,7 +281,9 @@ function ApproveDialog({
             <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50">
               Cancel
             </button>
-            <button onClick={onConfirm} disabled={loading}
+            <button
+              onClick={() => onConfirm(paymentSource, paymentSource === 'BANK' ? bankAccountId : undefined, selectedCompanyId)}
+              disabled={loading || (paymentSource === 'BANK' && bankAccounts.length === 0)}
               className="flex-1 px-4 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
               Confirm Approve
@@ -295,20 +353,24 @@ export default function SuperAdminExpenseSection({ adminId, companyId: propCompa
   // Approve with balance confirmation dialog
   const openApprove = (req: ExpenseRecord) => setApprovingExpense(req);
 
-  const confirmApprove = async () => {
+  const confirmApprove = async (paymentSource: 'BANK' | 'CASH', bankAccountId?: string, companyId?: string) => {
     if (!approvingExpense) return;
     setActionLoading(approvingExpense.id + 'APPROVE');
     try {
       const res = await fetch('/api/expense-request', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: approvingExpense.id, action: 'APPROVE', adminId }),
+        body: JSON.stringify({
+          id: approvingExpense.id,
+          action: 'APPROVE',
+          adminId,
+          adminPaymentSource: paymentSource,
+          adminBankAccountId: bankAccountId,
+          adminCompanyId: companyId,           // which company's books to post to
+        }),
       });
       const data = await res.json();
-      if (data.success) {
-        refresh();
-        setApprovingExpense(null);
-      }
+      if (data.success) { refresh(); setApprovingExpense(null); }
     } catch {}
     finally { setActionLoading(null); }
   };
@@ -563,6 +625,7 @@ export default function SuperAdminExpenseSection({ adminId, companyId: propCompa
       {approvingExpense && (
         <ApproveDialog
           expense={approvingExpense}
+          companies={companies}
           onConfirm={confirmApprove}
           onClose={() => setApprovingExpense(null)}
           loading={actionLoading === approvingExpense.id + 'APPROVE'}
