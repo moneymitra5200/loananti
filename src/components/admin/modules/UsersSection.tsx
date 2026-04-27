@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -61,21 +61,25 @@ function EditUserDialog({
   user: UserItem | null;
   open: boolean;
   onClose: () => void;
-  onSave: (data: { name: string; phone: string; password: string }) => void;
+  onSave: (data: { name: string; email: string; phone: string; password: string }) => void;
 }) {
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
-  // Update form when user changes
-  useState(() => {
-    if (user) {
+  // Populate form whenever user changes
+  useEffect(() => {
+    if (user && open) {
       setName(user.name || '');
+      setEmail(user.email || '');
       setPhone(user.phone || '');
       setPassword('');
+      setCurrentPassword('');
       setShowPassword(false);
       // Fetch current password for display
       fetch(`/api/user/${user.id}?includePassword=true`)
@@ -83,25 +87,31 @@ function EditUserDialog({
         .then(d => { if (d.user?.plainPassword) setCurrentPassword(d.user.plainPassword); })
         .catch(() => {});
     }
-  });
+  }, [user, open]);
 
   const handleSave = async () => {
     if (!name.trim()) {
       toast({ title: 'Error', description: 'Name is required', variant: 'destructive' });
       return;
     }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({ title: 'Error', description: 'Enter a valid email', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     try {
+      const body: any = { name, phone, password: password || undefined };
+      if (email && email !== user?.email) body.email = email;
       const response = await fetch(`/api/user/${user?.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, phone, password: password || undefined })
+        body: JSON.stringify(body)
       });
       const data = await response.json();
       if (response.ok && data.success) {
         toast({ title: 'Success', description: 'User updated successfully' });
         onClose();
-        onSave({ name, phone, password });
+        onSave({ name, email, phone, password });
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to update', variant: 'destructive' });
       }
@@ -132,20 +142,32 @@ function EditUserDialog({
             <Label>Name *</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter name" />
           </div>
-          
+
+          <div className="space-y-2">
+            <Label>Email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter email"
+              className={isSuperAdmin ? 'border-purple-300 bg-purple-50' : ''}
+            />
+            {isSuperAdmin && <p className="text-xs text-purple-600">⚠️ This is the Super Admin's email — change with care</p>}
+          </div>
+
           <div className="space-y-2">
             <Label>Phone</Label>
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Enter phone" />
           </div>
-          
+
           <div className="space-y-2">
             <Label>New Password</Label>
             <div className="relative">
-              <Input 
-                type={showPassword ? 'text' : 'password'} 
-                value={password} 
-                onChange={(e) => setPassword(e.target.value)} 
-                placeholder="Leave blank to keep current" 
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank to keep current"
                 className="pr-10"
               />
               <button
@@ -171,9 +193,8 @@ function EditUserDialog({
               </div>
             )}
           </div>
-          
+
           <div className="bg-gray-50 p-3 rounded-lg text-sm">
-            <p className="text-gray-600"><strong>Email:</strong> {user.email}</p>
             <p className="text-gray-600"><strong>Role:</strong> {user.role}</p>
           </div>
         </div>
@@ -208,8 +229,8 @@ function UsersSection({
   const [editDialogUser, setEditDialogUser] = useState<UserItem | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   
-  // Filter out permanent super admins
-  const visibleUsers = users.filter(u => !PERMANENT_ADMIN_EMAILS.includes(u.email));
+  // Filter out hidden permanent super admins (none by default now — SA is shown but protected)
+  const visibleUsers = users; // Show all including SUPER_ADMIN
   const nonCustomerUsers = visibleUsers.filter(u => u.role !== 'CUSTOMER');
   
   // Apply role filter
@@ -254,8 +275,8 @@ function UsersSection({
   const handleEditSave = () => {
     setShowEditDialog(false);
     setEditDialogUser(null);
-    // Trigger refresh by calling onEditUser which should refresh the list
-    window.location.reload();
+    // Trigger parent refresh
+    onEditUser(editDialogUser!);
   };
 
   return (
@@ -420,43 +441,50 @@ function UsersSection({
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1 justify-end">
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            onClick={() => onViewUserDetails(u.id)} 
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onViewUserDetails(u.id)}
                             title="View Details"
                           >
                             <Eye className="h-4 w-4 text-gray-500" />
                           </Button>
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            className="hover:bg-blue-50" 
-                            onClick={() => handleEditClick(u)} 
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="hover:bg-blue-50"
+                            onClick={() => handleEditClick(u)}
                             title="Edit"
                           >
                             <Edit className="h-4 w-4 text-blue-600" />
                           </Button>
                           {u.isLocked && (
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="hover:bg-orange-50" 
-                              onClick={() => onUnlockUser(u.id)} 
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="hover:bg-orange-50"
+                              onClick={() => onUnlockUser(u.id)}
                               title="Unlock"
                             >
                               <Shield className="h-4 w-4 text-orange-600" />
                             </Button>
                           )}
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            className="hover:bg-red-50" 
-                            onClick={() => onDeleteUser(u)} 
-                            title="Delete"
-                          >
-                            <Trash2 className="h-4 w-4 text-red-600" />
-                          </Button>
+                          {/* Super Admin: no delete, show protected badge */}
+                          {u.role === 'SUPER_ADMIN' ? (
+                            <span className="ml-1 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full font-medium flex items-center gap-1">
+                              <Shield className="h-3 w-3" /> Protected
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="hover:bg-red-50"
+                              onClick={() => onDeleteUser(u)}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

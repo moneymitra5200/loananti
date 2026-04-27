@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, ReactNode, useRef, useEffect } from 'react';
+import { useState, ReactNode, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { Button } from '@/components/ui/button';
@@ -71,54 +71,55 @@ export default function DashboardLayout({
   };
 
   // Dual Credit System State
-  const hasFetchedRef = useRef(false);
   const [companyCredit, setCompanyCredit] = useState<number>(0);
   const [personalCredit, setPersonalCredit] = useState<number>(0);
   const [totalCompanyCredit, setTotalCompanyCredit] = useState<number>(0);
   const [totalPersonalCredit, setTotalPersonalCredit] = useState<number>(0);
-  
-  // Fetch credit on initial load only (no polling to prevent DB connection issues)
-  useEffect(() => {
-    const fetchUserCredit = async () => {
-      try {
-        // For ACCOUNTANT, fetch Super Admin's total credits
-        if (user?.role === 'ACCOUNTANT') {
-          // Get Super Admin's credits (total company credit)
-          const superAdminRes = await fetch('/api/user?role=SUPER_ADMIN');
-          if (superAdminRes.ok) {
-            const superAdmins = await superAdminRes.json();
-            if (superAdmins.users && superAdmins.users.length > 0) {
-              let totalCompany = 0;
-              let totalPersonal = 0;
-              for (const admin of superAdmins.users) {
-                totalCompany += admin.companyCredit || 0;
-                totalPersonal += admin.personalCredit || 0;
-              }
-              setTotalCompanyCredit(totalCompany);
-              setTotalPersonalCredit(totalPersonal);
+
+  const fetchUserCredit = useCallback(async () => {
+    if (!user?.id || user?.role === 'CUSTOMER') return;
+    try {
+      if (user.role === 'ACCOUNTANT') {
+        const superAdminRes = await fetch('/api/user?role=SUPER_ADMIN');
+        if (superAdminRes.ok) {
+          const superAdmins = await superAdminRes.json();
+          if (superAdmins.users?.length > 0) {
+            let totalCompany = 0;
+            let totalPersonal = 0;
+            for (const admin of superAdmins.users) {
+              totalCompany += admin.companyCredit || 0;
+              totalPersonal += admin.personalCredit || 0;
             }
-          }
-        } else if (user?.id && user.role !== 'CUSTOMER') {
-          // For all roles (including SUPER_ADMIN), fetch individual credits
-          const res = await fetch(`/api/credit?userId=${user.id}&action=summary`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.summary) {
-              setCompanyCredit(data.summary.companyCredit || 0);
-              setPersonalCredit(data.summary.personalCredit || 0);
-            }
+            setTotalCompanyCredit(totalCompany);
+            setTotalPersonalCredit(totalPersonal);
           }
         }
-      } catch (error) {
-        console.error('Failed to fetch credit:', error);
+      } else {
+        const res = await fetch(`/api/credit?userId=${user.id}&action=summary`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.summary) {
+            setCompanyCredit(data.summary.companyCredit || 0);
+            setPersonalCredit(data.summary.personalCredit || 0);
+          }
+        }
       }
-    };
-    
-    // Only fetch on initial mount - no polling
-    if (user?.id && user.role !== 'CUSTOMER') {
-      fetchUserCredit();
+    } catch (error) {
+      console.error('Failed to fetch credit:', error);
     }
   }, [user?.id, user?.role]);
+
+  // Fetch on mount, every 60s, and on custom 'credit-updated' event
+  useEffect(() => {
+    fetchUserCredit();
+    const interval = setInterval(fetchUserCredit, 60000);
+    const handler = () => fetchUserCredit();
+    window.addEventListener('credit-updated', handler);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('credit-updated', handler);
+    };
+  }, [fetchUserCredit]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col">

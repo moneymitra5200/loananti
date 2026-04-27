@@ -49,7 +49,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, phone, isActive, agentId, companyCredit, personalCredit, password } = body;
+    const { name, email, phone, isActive, agentId, companyCredit, personalCredit, password } = body;
 
     if (!id) return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
 
@@ -61,8 +61,17 @@ export async function PUT(
       }
     }
 
+    // If email is being changed, check uniqueness
+    if (email) {
+      const conflict = await db.user.findFirst({ where: { email, NOT: { id } } });
+      if (conflict) {
+        return NextResponse.json({ error: 'This email is already in use by another account.' }, { status: 400 });
+      }
+    }
+
     const updateData: Record<string, unknown> = {};
     if (name        !== undefined) updateData.name        = name;
+    if (email       !== undefined) updateData.email       = email;
     if (phone       !== undefined) updateData.phone       = phone;
     if (isActive    !== undefined) updateData.isActive    = isActive;
     if (agentId     !== undefined) updateData.agentId     = agentId || null;

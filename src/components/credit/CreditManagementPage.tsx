@@ -192,11 +192,17 @@ export default function CreditManagementPage() {
   const [todayCreditData, setTodayCreditData] = useState<any>(null);
   const [todayCreditLoading, setTodayCreditLoading] = useState(false);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [dateRangeMode, setDateRangeMode] = useState(false);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  const fetchTodayCredit = async (date: string) => {
+  const fetchTodayCredit = async (date?: string, start?: string, end?: string) => {
     setTodayCreditLoading(true);
     try {
-      const res = await fetch(`/api/credit/today-credit?date=${date}`);
+      const url = (start && end)
+        ? `/api/credit/today-credit?startDate=${start}&endDate=${end}`
+        : `/api/credit/today-credit?date=${date || todayCreditDate}`;
+      const res = await fetch(url);
       const d = await res.json();
       if (d.success) setTodayCreditData(d);
     } catch { } finally { setTodayCreditLoading(false); }
@@ -663,9 +669,9 @@ export default function CreditManagementPage() {
       </Card>
 
       {/* Main Content */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'today') fetchTodayCredit(todayCreditDate); }}>
         <TabsList className="bg-white border flex flex-wrap gap-0.5">
-          <TabsTrigger value="today" className="flex items-center gap-2" onClick={() => !todayCreditData && fetchTodayCredit(todayCreditDate)}>
+          <TabsTrigger value="today" className="flex items-center gap-2">
             <Sun className="h-4 w-4 text-amber-500" />
             Today Credit
           </TabsTrigger>
@@ -687,27 +693,46 @@ export default function CreditManagementPage() {
         <TabsContent value="today" className="mt-4">
           <Card>
             <CardHeader>
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <Sun className="h-5 w-5 text-amber-500" />
-                    Today Credit — Who Collected What
+                    {dateRangeMode ? 'Credit by Date Range' : 'Today Credit'} — Who Collected What
                   </CardTitle>
                   <CardDescription>
-                    All users whose credit increased today due to EMI payments, with company-wise sub-breakdown
+                    Credit increases per user with per-company breakdown (Super Admin excluded)
                   </CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="date"
-                    value={todayCreditDate}
-                    onChange={e => { setTodayCreditDate(e.target.value); fetchTodayCredit(e.target.value); }}
-                    className="w-40 h-9"
-                  />
-                  <Button variant="outline" size="icon" className="h-9 w-9"
-                    onClick={() => fetchTodayCredit(todayCreditDate)} disabled={todayCreditLoading}>
-                    <RefreshCw className={`h-4 w-4 ${todayCreditLoading ? 'animate-spin' : ''}`} />
-                  </Button>
+                {/* Date controls */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDateRangeMode(!dateRangeMode)}
+                      className={`text-xs px-2 py-1 rounded-full border transition-all ${dateRangeMode ? 'bg-blue-100 border-blue-400 text-blue-700' : 'border-gray-300 text-gray-600'}`}
+                    >
+                      {dateRangeMode ? '📅 Range Mode' : '📅 Single Date'}
+                    </button>
+                    <Button variant="outline" size="icon" className="h-8 w-8"
+                      onClick={() => dateRangeMode ? fetchTodayCredit(undefined, startDate, endDate) : fetchTodayCredit(todayCreditDate)}
+                      disabled={todayCreditLoading}>
+                      <RefreshCw className={`h-4 w-4 ${todayCreditLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                  {dateRangeMode ? (
+                    <div className="flex items-center gap-2">
+                      <Input type="date" value={startDate}
+                        onChange={e => { setStartDate(e.target.value); fetchTodayCredit(undefined, e.target.value, endDate); }}
+                        className="w-36 h-8 text-sm" />
+                      <span className="text-gray-400 text-sm">to</span>
+                      <Input type="date" value={endDate}
+                        onChange={e => { setEndDate(e.target.value); fetchTodayCredit(undefined, startDate, e.target.value); }}
+                        className="w-36 h-8 text-sm" />
+                    </div>
+                  ) : (
+                    <Input type="date" value={todayCreditDate}
+                      onChange={e => { setTodayCreditDate(e.target.value); fetchTodayCredit(e.target.value); }}
+                      className="w-40 h-8 text-sm" />
+                  )}
                 </div>
               </div>
 
@@ -739,13 +764,13 @@ export default function CreditManagementPage() {
               ) : !todayCreditData ? (
                 <div className="text-center py-10 text-gray-400">
                   <Sun className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>Click the refresh button to load today's credit data</p>
-                  <Button className="mt-3" onClick={() => fetchTodayCredit(todayCreditDate)}>Load Today's Data</Button>
+                  <p>Click the refresh button to load credit data</p>
+                  <Button className="mt-3" onClick={() => fetchTodayCredit(todayCreditDate)}>Load Data</Button>
                 </div>
               ) : todayCreditData.users.length === 0 ? (
                 <div className="text-center py-10 text-gray-400">
                   <IndianRupee className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>No credit increases recorded on {todayCreditDate}</p>
+                  <p>No credit increases recorded for the selected period</p>
                 </div>
               ) : (
                 <div className="space-y-3">
