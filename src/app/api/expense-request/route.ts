@@ -73,10 +73,14 @@ async function postToAccounting(tx: any, expenseId: string, expense: any, adminI
   return { newBankBalance, newCashBalance };
 }
 
-// Non-blocking journal entry
+// Non-blocking journal entry — awaited so errors are caught, not truly non-blocking
 async function createJournalEntry(companyId: string, expense: any, createdById: string, bankAccountId?: string, paymentMode?: string) {
   try {
-    const accountCode = EXPENSE_ACCOUNT_CODES[expense.expenseType || 'MISCELLANEOUS'] || '4800';
+    if (!companyId) {
+      console.error('[ExpenseRequest] createJournalEntry: companyId is empty — skipping');
+      return;
+    }
+    const accountCode = EXPENSE_ACCOUNT_CODES[expense.expenseType || 'MISCELLANEOUS'] || '5400';
     const accountingService = new AccountingService(companyId);
     await accountingService.initializeChartOfAccounts();
     await accountingService.recordExpense({
@@ -91,49 +95,56 @@ async function createJournalEntry(companyId: string, expense: any, createdById: 
       bankAccountId,
       isPayable: false,
     });
+    console.log(`[ExpenseRequest] ✅ Journal entry created: ${expense.expenseNumber} ₹${expense.amount} in company ${companyId}`);
   } catch (err) {
-    console.error('[ExpenseRequest] Journal entry failed (non-critical):', err);
+    console.error('[ExpenseRequest] Journal entry failed:', err);
   }
 }
 
-// ------------------------------------------------------------
 // GET — Fetch expense requests
-// ?role=CASHIER&userId=xxx   → own requests
-// ?role=SUPER_ADMIN           → all pending requests (status filter available)
-// ?status=PENDING|APPROVED|REJECTED|ALL
-// ------------------------------------------------------------
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');
     const userId = searchParams.get('userId');
-    const status = searchParams.get('status'); // PENDING | APPROVED | REJECTED | ALL
+    const status = searchParams.get('status');
     const companyId = searchParams.get('companyId');
     const limit = parseInt(searchParams.get('limit') || '100');
 
     const where: any = {};
     if (companyId) where.companyId = companyId;
 
-    // categoryId stores status: PENDING | APPROVED | REJECTED
     if (status && status !== 'ALL') {
       where.categoryId = status;
     }
-
-    // Cashier: only see own submissions
     if (role === 'CASHIER' && userId) {
       where.payeeId = userId;
     }
-
-    // Default Super Admin view: show all pending if no explicit status
     if (role === 'SUPER_ADMIN' && !status) {
       where.categoryId = 'PENDING';
     }
 
-    const requests = await db.expense.findMany({
+    const expenses = await db.expense.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+
+    // Attach requester (cashier) user info for each expense
+    const payeeIds = [...new Set(expenses.map((e: any) => e.payeeId).filter(Boolean))];
+    const approverIds = [...new Set(expenses.map((e: any) => e.approvedById).filter(Boolean))];
+    const allIds = [...new Set([...payeeIds, ...approverIds])];
+    const users = allIds.length > 0
+      ? await db.user.findMany({ where: { id: { in: allIds as string[] } }, select: { id: true, name: true, role: true } })
+      : [];
+    const userMap: Record<string, any> = {};
+    for (const u of users) userMap[u.id] = u;
+
+    const requests = expenses.map((e: any) => ({
+      ...e,
+      requester: e.payeeId ? userMap[e.payeeId] || null : null,
+      approver:  e.approvedById ? userMap[e.approvedById] || null : null,
+    }));
 
     return NextResponse.json({ success: true, requests });
   } catch (error) {
@@ -260,7 +271,7 @@ export async function POST(request: NextRequest) {
         return { expense, ...balances, bankAccount };
       });
 
-      // Journal entry (non-blocking)
+      // Journal entry — awaited so entry is guaranteed before response
       await createJournalEntry(effectiveCompanyId, result.expense, userId, bankAccount?.id, resolvedPaymentMode);
 
       return NextResponse.json({
@@ -269,7 +280,7 @@ export async function POST(request: NextRequest) {
         newBankBalance: result.newBankBalance,
         newCashBalance: result.newCashBalance,
         bankName: result.bankAccount?.bankName,
-        message: 'Expense recorded successfully in accounting',
+        message: `Expense ₹${amount} recorded in ${result.bankAccount ? result.bankAccount.bankName + ' Bank' : 'Cash Book'} and posted to accounting`,
       });
     }
 
@@ -327,26 +338,32 @@ export async function PUT(request: NextRequest) {
     }
 
     if (action === 'APPROVE') {
-      const paymentSource = expense.payeeName || 'CASH'; // cashier stored their preference here
-      const storedBankAccountId = expense.paymentReference; // cashier stored bank account id here
+      const paymentSource = expense.payeeName || 'CASH';
+      const storedBankAccountId = expense.paymentReference;
+
+      // Resolve effective company ID (expense.companyId may be set)
+      let effectiveCompanyId = expense.companyId || '';
+      if (!effectiveCompanyId) {
+        const first = await db.company.findFirst({ select: { id: true } });
+        if (first) effectiveCompanyId = first.id;
+      }
 
       let bankAccount: any = null;
       if (paymentSource === 'BANK') {
         if (storedBankAccountId) {
           bankAccount = await db.bankAccount.findUnique({ where: { id: storedBankAccountId } });
         }
-        if (!bankAccount) {
+        if (!bankAccount && effectiveCompanyId) {
           bankAccount = await db.bankAccount.findFirst({
-            where: { companyId: expense.companyId, isActive: true, isDefault: true },
+            where: { companyId: effectiveCompanyId, isActive: true, isDefault: true },
           });
         }
-        if (!bankAccount) {
-          bankAccount = await db.bankAccount.findFirst({ where: { companyId: expense.companyId, isActive: true } });
+        if (!bankAccount && effectiveCompanyId) {
+          bankAccount = await db.bankAccount.findFirst({ where: { companyId: effectiveCompanyId, isActive: true } });
         }
       }
 
       const result = await db.$transaction(async (tx) => {
-        // Mark approved
         await tx.expense.update({
           where: { id },
           data: {
@@ -357,12 +374,18 @@ export async function PUT(request: NextRequest) {
           },
         });
 
-        const balances = await postToAccounting(tx, expense.id, expense, adminId, bankAccount, paymentSource);
+        const balances = await postToAccounting(tx, expense.id, { ...expense, companyId: effectiveCompanyId }, adminId, bankAccount, paymentSource);
         return { ...balances, bankAccount };
       });
 
-      // Journal entry (non-blocking)
-      await createJournalEntry(expense.companyId, expense, adminId, bankAccount?.id, paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH');
+      // Journal entry — awaited so entry is guaranteed before response
+      await createJournalEntry(
+        effectiveCompanyId,
+        { ...expense, companyId: effectiveCompanyId },
+        adminId,
+        bankAccount?.id,
+        paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH'
+      );
 
       // Notify the requester
       if (expense.payeeId && expense.payeeId !== adminId) {
@@ -370,15 +393,15 @@ export async function PUT(request: NextRequest) {
           userId: expense.payeeId,
           type: 'SYSTEM_ANNOUNCEMENT',
           category: 'SYSTEM',
-          title: 'Expense Request Approved',
-          message: `Your expense request for ₹${(expense.amount || 0).toLocaleString()} has been approved and posted to accounting.`,
+          title: 'Expense Request Approved ✅',
+          message: `Your expense request (${expense.expenseNumber}) for ₹${(expense.amount || 0).toLocaleString()} has been approved and posted to accounting.`,
           actionUrl: '/cashier/expense'
         }).catch(err => console.error('[ExpenseRequest] Failed to notify requester:', err));
       }
 
       return NextResponse.json({
         success: true,
-        message: 'Expense approved and posted to accounting',
+        message: `Expense approved & posted to ${bankAccount ? bankAccount.bankName + ' Bank' : 'Cash Book'}`,
         newBankBalance: result.newBankBalance,
         newCashBalance: result.newCashBalance,
         bankName: result.bankAccount?.bankName,

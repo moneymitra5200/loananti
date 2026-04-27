@@ -40,9 +40,10 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // ── Offline closed loans (exclude mirror loans — they are internal accounting duplicates) ──
+    // ── Offline closed loans (include ALL — mirror included — for pair matching) ──
     if (filter === 'all' || filter === 'offline') {
-      const offlineWhere: any = { status: 'CLOSED', isMirrorLoan: false };
+      // Fetch without isMirrorLoan filter so mirror loans are available for pairing
+      const offlineWhere: any = { status: 'CLOSED' };
       if (companyId)   offlineWhere.companyId   = companyId;
       if (agentId)     offlineWhere.agentId      = agentId;
       if (createdById) offlineWhere.createdById  = createdById;
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
           createdBy: { select: { id: true, name: true, role: true } },
           emis: {
             orderBy: { installmentNumber: 'asc' },
-            select: { id: true, installmentNumber: true, dueDate: true, totalAmount: true, paidAmount: true, paymentStatus: true, paidDate: true }
+            select: { id: true, installmentNumber: true, dueDate: true, totalAmount: true, paidAmount: true, paymentStatus: true, paidDate: true, paymentMode: true }
           }
         }
       });
@@ -139,9 +140,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Standalone offline loans (no mirror)
+    // Standalone offline loans (no mirror, and not a mirror loan itself)
     for (const loan of offlineLoans) {
-      if (!pairedOfflineIds.has(loan.id)) {
+      if (!pairedOfflineIds.has(loan.id) && !loan.isMirrorLoan) {
         standaloneOffline.push({ isPair: false, ...formatOfflineLoan(loan, 'ORIGINAL') });
       }
     }
