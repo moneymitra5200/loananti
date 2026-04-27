@@ -136,12 +136,12 @@ export async function GET(request: NextRequest) {
 
     // ─── MIRROR INTEREST ───────────────────────────────────────────────────────
     else if (account === 'MIRROR') {
-      accountName = 'Mirror Interest Income'; accountCode = '4005'; accountType = 'INCOME';
+      accountName = 'Loan Interest Income'; accountCode = '4005'; accountType = 'INCOME';
       const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
         const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['MIRROR_INTEREST_INCOME', 'MIRROR_EMI_PAYMENT', 'INTEREST_ONLY_PAYMENT'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
         let bal = 0;
-        for (const e of entries) { bal += e.amount; totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'MIRROR INTEREST', debit: 0, credit: e.amount, balance: bal }); }
+        for (const e of entries) { bal += e.amount; totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'INTEREST', debit: 0, credit: e.amount, balance: bal }); }
       }
     }
 

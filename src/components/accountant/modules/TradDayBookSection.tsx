@@ -129,7 +129,7 @@ function resolveAccounts(
     };
   }
 
-  // Mirror EMI / Mirror interest
+  // EMI / Loan interest
   if (ref.includes('MIRROR')) {
     return {
       drLines: [{ account: cashLabel, amount: amt }],

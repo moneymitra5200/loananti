@@ -89,12 +89,12 @@ const ALL_TYPES = ['all', ...PAYMENT_REF_TYPES, ...DISBURSEMENT_REF_TYPES, ...FE
 const TYPE_LABELS: Record<string, string> = {
   all: 'All Types',
   EMI_PAYMENT: 'EMI Payment',
-  MIRROR_EMI_PAYMENT: 'Mirror EMI',
-  MIRROR_INTEREST_INCOME: 'Mirror Interest',
+  MIRROR_EMI_PAYMENT: 'EMI Payment',
+  MIRROR_INTEREST_INCOME: 'Interest Income',
   PARTIAL_EMI_PAYMENT: 'Partial EMI',
   INTEREST_ONLY_PAYMENT: 'Interest Only',
   LOAN_DISBURSEMENT: 'Loan Disbursement',
-  MIRROR_LOAN_DISBURSEMENT: 'Mirror Disbursement',
+  MIRROR_LOAN_DISBURSEMENT: 'Loan Disbursement',
   PROCESSING_FEE_COLLECTION: 'Processing Fee',
   PROCESSING_FEE: 'Processing Fee',
   MANUAL_ENTRY: 'Manual Entry',
@@ -468,7 +468,7 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
       <div className="flex flex-wrap gap-3 text-xs text-gray-500 pt-1 pb-2 border-t">
         <span className="font-medium text-gray-700 mr-1">Legend:</span>
         {[
-          { label: 'EMI / Mirror Payment', bg: 'bg-emerald-100', text: 'text-emerald-700' },
+          { label: 'EMI / Loan Payment', bg: 'bg-emerald-100', text: 'text-emerald-700' },
           { label: 'Disbursement', bg: 'bg-blue-100', text: 'text-blue-700' },
           { label: 'Processing Fee', bg: 'bg-amber-100', text: 'text-amber-700' },
           { label: 'Expense', bg: 'bg-red-100', text: 'text-red-700' },

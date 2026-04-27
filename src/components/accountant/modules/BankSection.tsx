@@ -105,7 +105,7 @@ export default function BankSection({
       'TRANSFER_IN': 'Transfer In',
       'TRANSFER_OUT': 'Transfer Out',
       'OPENING_BALANCE': 'Opening Balance',
-      'MIRROR_EMI_PAYMENT': 'Mirror EMI Payment',
+      'MIRROR_EMI_PAYMENT': 'EMI Payment',
       'EXTRA_EMI_PAYMENT': 'Extra EMI Payment'
     };
     return labels[type] || type;

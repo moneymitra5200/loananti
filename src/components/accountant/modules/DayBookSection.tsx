@@ -33,7 +33,7 @@ const fmtDate = (d: string) => format(new Date(d), 'dd MMM yyyy');
 const refLabel = (t?: string) => ({
   EMI_PAYMENT: 'EMI Receipt', LOAN_DISBURSEMENT: 'Loan Disbursed', PROCESSING_FEE: 'Processing Fee',
   EXPENSE: 'Expense', EXPENSE_PAYMENT: 'Expense', EQUITY_INVESTMENT: 'Capital', BORROWED_MONEY: 'Borrowed',
-  LOAN_REPAYMENT: 'Repayment', MANUAL_ENTRY: 'Manual', MIRROR_EMI_PAYMENT: 'Mirror EMI',
+  LOAN_REPAYMENT: 'Repayment', MANUAL_ENTRY: 'Manual', MIRROR_EMI_PAYMENT: 'EMI Receipt',
   INTEREST_ONLY_PAYMENT: 'Interest Only',
 }[t || ''] || (t?.replace(/_/g, ' ') || 'Transaction'));
 

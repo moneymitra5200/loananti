@@ -996,13 +996,13 @@ export class AccountingService {
       entryDate: new Date(),
       referenceType: 'MIRROR_INTEREST_INCOME',
       referenceId: params.paymentId,
-      narration: `Mirror Interest Margin - Loan: ${params.loanId}`,
+      narration: `Interest Income - Loan: ${params.loanId}`,
       lines: [
         {
           accountCode: debitAccount,
           debitAmount: params.amount,
           creditAmount: 0,
-          narration: `Mirror interest profit received via ${params.paymentMode}`,
+          narration: `Interest profit received via ${params.paymentMode}`,
         },
         {
           accountCode: ACCOUNT_CODES.INTEREST_INCOME,
@@ -1010,7 +1010,7 @@ export class AccountingService {
           creditAmount: params.amount,
           loanId: params.loanId,
           customerId: params.customerId,
-          narration: 'Mirror interest margin (profit)',
+          narration: 'Loan interest income (profit)',
         },
       ],
       createdById: params.createdById,
@@ -2564,28 +2564,28 @@ export async function recordMirrorLoanEMIPayment(params: {
     entryDate: params.paymentDate,
     referenceType: 'MIRROR_EMI_PAYMENT',
     referenceId: params.paymentId,
-    narration: `Mirror EMI Payment - ${params.mirrorLoanNumber || params.mirrorLoanId} - Principal: ₹${params.mirrorPrincipal}, Interest: ₹${params.mirrorInterest}`,
+    narration: `EMI Payment - ${params.mirrorLoanNumber || params.mirrorLoanId} - Principal: ₹${params.mirrorPrincipal}, Interest: ₹${params.mirrorInterest}`,
     lines: [
       {
         accountCode: params.paymentMode === 'ONLINE' ? ACCOUNT_CODES.CASH_IN_HAND : ACCOUNT_CODES.CASH_IN_HAND,
         debitAmount: totalAmount,
         creditAmount: 0,
         loanId: params.mirrorLoanId,
-        narration: `${params.paymentMode === 'ONLINE' ? 'Bank' : 'Cash'} received for Mirror EMI`
+        narration: `${params.paymentMode === 'ONLINE' ? 'Bank' : 'Cash'} received for EMI`
       },
       {
         accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
         debitAmount: 0,
         creditAmount: params.mirrorPrincipal,
         loanId: params.mirrorLoanId,
-        narration: 'Mirror principal repayment'
+        narration: 'Principal repayment'
       },
       {
         accountCode: ACCOUNT_CODES.INTEREST_INCOME,
         debitAmount: 0,
         creditAmount: params.mirrorInterest,
         loanId: params.mirrorLoanId,
-        narration: 'Mirror interest income'
+        narration: 'Interest income'
       }
     ],
     createdById: params.createdById,

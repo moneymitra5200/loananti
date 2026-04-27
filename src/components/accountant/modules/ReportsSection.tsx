@@ -382,7 +382,7 @@ export function CashFlowSection({
               <Table>
                 <TableBody>
                   <TableRow>
-                    <TableCell className="font-medium">Mirror Loans with Extra EMIs</TableCell>
+                    <TableCell className="font-medium">Loans with Extra EMIs</TableCell>
                     <TableCell className="text-right">{extraEMIProfit.mirrorLoansWithExtraEMIs || 0}</TableCell>
                   </TableRow>
                   <TableRow>
@@ -428,22 +428,22 @@ export function CashFlowSection({
             <CardHeader className="bg-emerald-50">
               <CardTitle className="text-emerald-700 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
-                Mirror Interest Income (Operational Company)
+                Loan Interest Income (Operational Company)
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableBody>
                   <TableRow>
-                    <TableCell className="font-medium">Active Mirror Loans</TableCell>
+                    <TableCell className="font-medium">Active Loans</TableCell>
                     <TableCell className="text-right">{extraEMIProfit.activeMirrorLoans || 0}</TableCell>
                   </TableRow>
                   <TableRow>
-                    <TableCell className="font-medium">Completed Mirror Loans</TableCell>
+                    <TableCell className="font-medium">Completed Loans</TableCell>
                     <TableCell className="text-right">{extraEMIProfit.completedMirrorLoans || 0}</TableCell>
                   </TableRow>
                   <TableRow className="bg-emerald-50 font-bold">
-                    <TableCell>Total Mirror Interest Received</TableCell>
+                    <TableCell>Total Loan Interest Received</TableCell>
                     <TableCell className="text-right text-emerald-700 text-lg">
                       {formatCurrency(extraEMIProfit.totalMirrorInterestReceived || 0)}
                     </TableCell>
