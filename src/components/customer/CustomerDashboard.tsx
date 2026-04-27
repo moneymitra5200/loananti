@@ -234,12 +234,6 @@ export default function CustomerDashboard() {
     return () => clearInterval(interval);
   }, [user?.id]);
 
-  // Refresh full notification list when user opens the notifications tab
-  useEffect(() => {
-    if (activeTab === 'notifications') {
-      fetchNotifications();
-    }
-  }, [activeTab, fetchNotifications]);
 
   useEffect(() => {
     fetchAllData();
@@ -326,6 +320,13 @@ export default function CustomerDashboard() {
       console.error('Error fetching notifications:', error);
     }
   }, [user]);
+
+  // Refresh full notification list when user opens the notifications tab
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      fetchNotifications();
+    }
+  }, [activeTab, fetchNotifications]);
 
   const fetchEMISchedules = useCallback(async (loanId: string) => {
     try {
