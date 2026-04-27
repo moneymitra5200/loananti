@@ -429,9 +429,9 @@ export default function CashierDashboard() {
       return;
     }
     
-    // Check for Extra EMI Payment Page selection (required for mirror loans)
-    if (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId) {
-      console.error('[handleDisburse] No extra EMI payment page');
+    // Check for Extra EMI Payment Page selection (only required when extra EMIs exist)
+    if (mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId) {
+      console.error('[handleDisburse] No extra EMI payment page selected for extra EMIs');
       toast({ title: 'Error', description: 'Please select a Secondary Payment Page for Extra EMIs', variant: 'destructive' });
       return;
     }
