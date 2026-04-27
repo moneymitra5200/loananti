@@ -140,49 +140,49 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     fetchActionableItems();
   }, [userId, userRole, page, statusFilter, companyFilter, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch mirror mappings AND mirror loan details atomically — both states set in one go
+  // to eliminate the race condition where mappings arrive before loan details
   const fetchMirrorMappings = async () => {
     try {
       const res = await fetch('/api/mirror-loan?action=all-mappings');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.mappings) {
-          const mappingMap: Record<string, MirrorLoanMapping> = {};
-          const mirrorLoanIds: string[] = [];
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.success || !data.mappings) return;
 
-          for (const mapping of data.mappings) {
-            mappingMap[mapping.originalLoanId] = mapping;
-            if (mapping.mirrorLoanId) {
-              mappingMap[mapping.mirrorLoanId] = mapping;
-              mirrorLoanIds.push(mapping.mirrorLoanId);
-            }
-          }
-          setMirrorMappings(mappingMap);
+      // Only care about OFFLINE loan mappings
+      const offlineMappings = (data.mappings as (MirrorLoanMapping & { isOfflineLoan?: boolean })[]).filter(
+        m => m.isOfflineLoan !== false // keep offline + unknowns
+      );
 
-          if (mirrorLoanIds.length > 0) {
-            fetchMirrorLoanDetails(mirrorLoanIds);
-          }
+      const mappingMap: Record<string, MirrorLoanMapping> = {};
+      const mirrorLoanIds: string[] = [];
+
+      for (const mapping of offlineMappings) {
+        if (mapping.originalLoanId) mappingMap[mapping.originalLoanId] = mapping;
+        if (mapping.mirrorLoanId) {
+          mappingMap[mapping.mirrorLoanId] = mapping;
+          mirrorLoanIds.push(mapping.mirrorLoanId);
         }
       }
-    } catch (error) {
-      console.error('Failed to fetch mirror mappings:', error);
-    }
-  };
 
-  const fetchMirrorLoanDetails = async (loanIds: string[]) => {
-    try {
+      // Batch-fetch ALL mirror loan details in parallel
       const mirrorLoansMap: Record<string, OfflineLoan> = {};
-      for (const loanId of loanIds) {
-        const res = await fetch(`/api/offline-loan?loanId=${loanId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.loan) {
-            mirrorLoansMap[loanId] = data.loan;
+      if (mirrorLoanIds.length > 0) {
+        const results = await Promise.allSettled(
+          mirrorLoanIds.map(id => fetch(`/api/offline-loan?loanId=${id}`).then(r => r.json()))
+        );
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled' && result.value?.success && result.value?.loan) {
+            mirrorLoansMap[mirrorLoanIds[i]] = result.value.loan;
           }
-        }
+        });
       }
+
+      // Set BOTH states atomically (no intermediate re-render between them)
+      setMirrorMappings(mappingMap);
       setMirrorLoans(mirrorLoansMap);
     } catch (error) {
-      console.error('Failed to fetch mirror loan details:', error);
+      console.error('Failed to fetch mirror mappings:', error);
     }
   };
 
@@ -416,33 +416,23 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const renderLoanInParallelView = (loan: OfflineLoan, index: number) => {
     const mapping = mirrorMappings[loan.id];
 
-    // Try multiple methods to find the mirror loan:
-    // 1. From mirrorLoans state (fetched from API)
-    // 2. From local loans array (look for loan with originalLoanId = this loan's id and isMirrorLoan = true)
-    let mirrorLoan = mapping?.mirrorLoanId ? mirrorLoans[mapping.mirrorLoanId] : null;
+    // Tier-1: look up in the mirrorLoans map (batch-fetched atomically with mappings)
+    let mirrorLoan: OfflineLoan | null = mapping?.mirrorLoanId ? (mirrorLoans[mapping.mirrorLoanId] ?? null) : null;
 
-    // Fallback: Search in local loans array for mirror loan
-    if (!mirrorLoan && !mapping?.mirrorLoanId) {
-      mirrorLoan = loans.find(l =>
-        l.isMirrorLoan === true &&
-        l.originalLoanId === loan.id
-      ) || null;
+    // Tier-2: check the in-memory loans list (mirror loans may have arrived in the main list)
+    if (!mirrorLoan) {
+      const candidate = Object.values(mirrorLoans).find(ml => ml.originalLoanId === loan.id);
+      if (candidate) mirrorLoan = candidate;
     }
 
-    // Also check if mapping exists but mirrorLoanId is null - look for mirror in loans array
-    if (!mirrorLoan && mapping && !mapping.mirrorLoanId) {
-      mirrorLoan = loans.find(l =>
-        l.isMirrorLoan === true &&
-        l.originalLoanId === loan.id
-      ) || null;
+    // Tier-3: fallback — scan the local loans array (unlikely but handles edge cases)
+    if (!mirrorLoan) {
+      mirrorLoan = loans.find(l => l.isMirrorLoan === true && l.originalLoanId === loan.id) ?? null;
     }
 
-    return (
-      <ParallelLoanView
-        key={loan.id}
-        originalLoan={convertToLoanData(loan)}
-        mirrorLoan={mirrorLoan ? convertToLoanData(mirrorLoan) : null}
-        mirrorMapping={mapping ? {
+    // Build mirror mapping info (prefer DB mapping, then derive from mirrorLoan data)
+    const mirrorMappingProp = mapping
+      ? {
           displayColor: mapping.displayColor,
           extraEMICount: mapping.extraEMICount,
           mirrorInterestRate: mapping.mirrorInterestRate,
@@ -450,9 +440,10 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
           mirrorEMIsPaid: mapping.mirrorEMIsPaid,
           extraEMIsPaid: mapping.extraEMIsPaid,
           mirrorCompanyId: mapping.mirrorCompanyId,
-          originalCompanyId: mapping.originalCompanyId
-        } : (mirrorLoan ? {
-          // Create a basic mapping from the mirror loan data
+          originalCompanyId: mapping.originalCompanyId,
+        }
+      : mirrorLoan
+      ? {
           displayColor: loan.displayColor || mirrorLoan.displayColor,
           extraEMICount: Math.max(0, loan.tenure - mirrorLoan.tenure),
           mirrorInterestRate: mirrorLoan.interestRate,
@@ -460,8 +451,16 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
           mirrorEMIsPaid: 0,
           extraEMIsPaid: 0,
           mirrorCompanyId: mirrorLoan.company?.id,
-          originalCompanyId: loan.company?.id
-        } : null)}
+          originalCompanyId: loan.company?.id,
+        }
+      : null;
+
+    return (
+      <ParallelLoanView
+        key={loan.id}
+        originalLoan={convertToLoanData(loan)}
+        mirrorLoan={mirrorLoan ? convertToLoanData(mirrorLoan) : null}
+        mirrorMapping={mirrorMappingProp}
         onViewOriginal={() => handleViewLoan(loan)}
         onViewMirror={() => mirrorLoan && handleViewLoan(mirrorLoan)}
         onPayEmi={(l, isOriginal) => handleViewLoan(isOriginal ? loan : mirrorLoan!)}

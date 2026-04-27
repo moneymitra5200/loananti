@@ -128,12 +128,25 @@ export function ParallelLoanView({
     const headerBg = isOriginal ? 'bg-emerald-100' : 'bg-blue-100';
 
     if (!hasLoan) {
-      // Empty state for mirror side when no mirror exists
+      // If there IS a mapping but the mirror loan data isn't loaded yet, show "linked" state
+      if (mirrorMapping) {
+        return (
+          <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 min-h-[160px] flex flex-col items-center justify-center">
+            <Building2 className="h-8 w-8 text-blue-300 mb-2" />
+            <p className="text-sm text-blue-500 font-medium">Mirror Loan Linked</p>
+            <p className="text-xs text-blue-400 mt-1 text-center">Mirror loan is linked · Rate: {mirrorMapping.mirrorInterestRate}%</p>
+            {mirrorMapping.extraEMICount && mirrorMapping.extraEMICount > 0 && (
+              <p className="text-xs text-emerald-600 mt-1">+{mirrorMapping.extraEMICount} Extra EMIs</p>
+            )}
+          </div>
+        );
+      }
+      // No mapping at all — this loan has no mirror
       return (
         <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50/50 min-h-[160px] flex flex-col items-center justify-center">
           <Building2 className="h-8 w-8 text-gray-300 mb-2" />
           <p className="text-sm text-gray-400 font-medium">No Mirror Loan</p>
-          <p className="text-xs text-gray-300 mt-1">This loan is not mirrored</p>
+          <p className="text-xs text-gray-300 mt-1">This loan has no mirror</p>
         </div>
       );
     }

@@ -1712,18 +1712,13 @@ export async function POST(request: NextRequest) {
     } // End of else block for non-mirror loans
 
     // ============================================
-    // CREATE ACCOUNTING ENTRIES FOR LOAN DISBURSEMENT
-    // This updates the Chart of Accounts, Daybook, and Bank/Cash records
-    // 
-    // IMPORTANT FOR MIRROR LOANS:
-    // - Accounting entry is ALREADY created in mirror loan creation section above
-    // - So we SKIP this section for mirror loans
+    // CREATE ACCOUNTING ENTRIES FOR ORIGINAL LOAN DISBURSEMENT
+    // This ALWAYS runs — for both regular AND mirror loans.
+    // For mirror loans: the MIRROR COMPANY journal is already created above.
+    // But the ORIGINAL COMPANY journal (Loans Receivable DR / Bank or Cash CR)
+    // must ALSO be recorded here for the original company's books.
     // ============================================
-    
-    // SKIP for mirror loans - already handled in mirror loan creation section
-    if (isMirrorLoan && mirrorCompanyId) {
-      console.log(`[Accounting] SKIPPED for mirror loan - already handled in mirror loan creation section`);
-    } else {
+    {
       // Regular loan - create accounting entries
       const effectiveDisbursementMode = disbursementMode || 'CASH';
       

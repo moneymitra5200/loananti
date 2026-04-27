@@ -622,21 +622,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
-    // Reset mirror loan if company changes to non-Company 3
-    if (field === 'companyId') {
-      // Check if new company is Company 3
-      const selectedCompany = companies.find(c => c.id === value);
-      const sortedCompanies = [...companies].sort((a, b) => 
-        new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
-      );
-      const isC3 = selectedCompany?.code === 'C3' || 
-                   (sortedCompanies.length >= 3 && sortedCompanies[2].id === value);
-      
-      if (!isC3) {
-        // Reset mirror loan state when not Company 3
-        setIsMirrorLoan(false);
-        setMirrorCompanyId('');
-      }
+    // When company changes, reset mirror only if the NEW company is the same as the current mirror company
+    // (can't mirror to yourself). Do NOT reset based on company code — backend validates this.
+    if (field === 'companyId' && mirrorCompanyId && mirrorCompanyId === value) {
+      setMirrorCompanyId('');
     }
     
     if (['loanAmount', 'interestRate', 'tenure', 'interestType'].includes(field)) {
@@ -903,6 +892,20 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 ? `Loan ${data.loan.loanNumber} created for ${formData.customerName}. Amount: ₹${parseFloat(formData.loanAmount).toLocaleString()}. ${data.emiCount} EMIs generated.`
                 : `Loan ${data.loan.loanNumber} created for ${formData.customerName}. Amount: ₹${parseFloat(formData.loanAmount).toLocaleString()}.`
           });
+
+          // Warn if mirror was requested but failed to create
+          if (isMirrorLoan && mirrorCompanyId && !data.mirrorLoan) {
+            toast({
+              title: '⚠️ Mirror Loan Not Created',
+              description: 'The main loan was created, but the mirror loan could not be created. Please create it manually or contact support.',
+              variant: 'destructive'
+            });
+          } else if (data.mirrorLoan) {
+            toast({
+              title: '✅ Mirror Loan Created',
+              description: `Mirror loan ${data.mirrorLoan.mirrorLoanNumber} created successfully with ${data.mirrorLoan.extraEMICount || 0} extra EMIs.`
+            });
+          }
           setOpen(false);
           resetForm();
           onLoanCreated?.();
