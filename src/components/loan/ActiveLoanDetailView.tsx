@@ -366,13 +366,9 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
   };
 
 
-  // Handle extra EMI payment with secondary page
+  // Handle extra EMI payment — secondary page is OPTIONAL (only used if pages are configured)
   const handleExtraEMIPayment = async () => {
-    if (!selectedSecondaryPage) {
-      toast.error('Please select a secondary payment page');
-      return;
-    }
-
+    // No mandatory secondary page check — if no pages configured, proceed without one
     setProcessingExtraEMI(true);
     try {
       // Process each extra EMI
@@ -385,10 +381,11 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
             loanId: loanDetails?.id,
             paidAmount: emi.emiAmount + (emi.lateFee || 0),
             paymentMode: 'EXTRA_EMI',
-            paymentRef: `Secondary Page: ${selectedSecondaryPage}`,
-            remarks: `Extra EMI paid via secondary payment page`,
+            paymentRef: selectedSecondaryPage ? `Secondary Page: ${selectedSecondaryPage}` : 'Direct Collection',
+            remarks: selectedSecondaryPage ? `Extra EMI paid via secondary payment page` : `Extra EMI direct collection`,
             userId,
-            secondaryPaymentPageId: selectedSecondaryPage,
+            // Only pass secondaryPaymentPageId if one was selected
+            ...(selectedSecondaryPage ? { secondaryPaymentPageId: selectedSecondaryPage } : {}),
             syncMirror: false, // Don't sync - these are extra EMIs
           }),
         });
@@ -938,7 +935,10 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
               Pay Extra EMIs
             </DialogTitle>
             <DialogDescription>
-              These EMIs are beyond the mirror loan tenure. Select a secondary payment page for accounting.
+              These EMIs are beyond the mirror loan tenure and are pure profit.
+              {secondaryPaymentPages.length > 0
+                ? ' Optionally select a secondary payment page for accounting.'
+                : ' Payment will be recorded as direct collection.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -965,34 +965,37 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
               </p>
             </div>
 
-            {/* Secondary Payment Page Selection */}
-            <div className="space-y-2">
-              <Label>Select Secondary Payment Page</Label>
-              <Select value={selectedSecondaryPage} onValueChange={setSelectedSecondaryPage}>
-                <SelectTrigger className="bg-white">
-                  <SelectValue placeholder="Select a payment page" />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  {secondaryPaymentPages.map((page) => (
-                    <SelectItem key={page.id} value={page.id}>
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="h-4 w-4" />
-                        {page.name}
-                        {page.bankName && <span className="text-xs text-gray-500">({page.bankName})</span>}
-                      </div>
-                    </SelectItem>
-                  ))}
-                  {secondaryPaymentPages.length === 0 && (
-                    <SelectItem value="none" disabled>No secondary payment pages available</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-              {selectedSecondaryPage && (
-                <p className="text-xs text-gray-500">
-                  Payment will be recorded via this secondary page for separate accounting
-                </p>
-              )}
-            </div>
+            {/* Secondary Payment Page Selection — only shown if pages are configured */}
+            {secondaryPaymentPages.length > 0 && (
+              <div className="space-y-2">
+                <Label>Secondary Payment Page <span className="text-gray-400 font-normal text-xs">(optional)</span></Label>
+                <Select value={selectedSecondaryPage} onValueChange={setSelectedSecondaryPage}>
+                  <SelectTrigger className="bg-white">
+                    <SelectValue placeholder="Select a payment page (optional)" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    {secondaryPaymentPages.map((page) => (
+                      <SelectItem key={page.id} value={page.id}>
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="h-4 w-4" />
+                          {page.name}
+                          {page.bankName && <span className="text-xs text-gray-500">({page.bankName})</span>}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedSecondaryPage ? (
+                  <p className="text-xs text-gray-500">
+                    Payment will be recorded via this secondary page for separate accounting.
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400">
+                    If not selected, payment will be recorded as direct collection.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter>
@@ -1000,7 +1003,7 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
             <Button
               className="bg-purple-500 hover:bg-purple-600"
               onClick={handleExtraEMIPayment}
-              disabled={processingExtraEMI || !selectedSecondaryPage || extraEMIs.filter(e => e.status !== 'PAID').length === 0}
+              disabled={processingExtraEMI || extraEMIs.filter(e => e.status !== 'PAID').length === 0}
             >
               {processingExtraEMI ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
               Pay {extraEMIs.filter(e => e.status !== 'PAID').length} Extra EMI(s)
