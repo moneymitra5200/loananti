@@ -153,7 +153,7 @@ export default function CustomerDashboard() {
       const [loansRes, servicesRes, notificationsRes, offersRes, referralsRes, ticketsRes] = await Promise.all([
         fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`),
         fetch('/api/cms/product?isActive=true'),
-        fetch(`/api/notification?userId=${user.id}&limit=5`),
+        fetch(`/api/notification?userId=${user.id}&limit=100`),
         fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`),
         fetch(`/api/loan-features?action=referrals&customerId=${user.id}`),
         fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`),
@@ -225,7 +225,7 @@ export default function CustomerDashboard() {
     if (!user?.id) return;
     const pollNotifications = async () => {
       try {
-        const res = await fetch(`/api/notification?userId=${user.id}&limit=10`);
+        const res = await fetch(`/api/notification?userId=${user.id}&limit=50`);
         const data = await res.json();
         if (data.notifications) setNotifications(data.notifications);
       } catch {}
@@ -233,6 +233,13 @@ export default function CustomerDashboard() {
     const interval = setInterval(pollNotifications, 300000); // 5 minutes
     return () => clearInterval(interval);
   }, [user?.id]);
+
+  // Refresh full notification list when user opens the notifications tab
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      fetchNotifications();
+    }
+  }, [activeTab, fetchNotifications]);
 
   useEffect(() => {
     fetchAllData();
@@ -312,7 +319,7 @@ export default function CustomerDashboard() {
   const fetchNotifications = useCallback(async () => {
     if (!user) return;
     try {
-      const response = await fetch(`/api/notification?userId=${user.id}&limit=5`);
+      const response = await fetch(`/api/notification?userId=${user.id}&limit=100`);
       const data = await response.json();
       setNotifications(data.notifications || []);
     } catch (error) {
@@ -1667,6 +1674,129 @@ export default function CustomerDashboard() {
                 </button>
               </CardContent>
             </Card>
+          </div>
+        );
+
+      case 'notifications':
+        return (
+          <div className="space-y-4 pb-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setActiveTab('profile')} className="p-1 rounded-full hover:bg-gray-100">
+                  <ChevronRight className="h-5 w-5 text-gray-500 rotate-180" />
+                </button>
+                <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Bell className="h-5 w-5 text-emerald-600" /> Notifications
+                </h2>
+                {notifications.filter(n => !n.isRead).length > 0 && (
+                  <Badge className="bg-red-500 text-white">{notifications.filter(n => !n.isRead).length} new</Badge>
+                )}
+              </div>
+              {notifications.some(n => !n.isRead) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-xs text-emerald-600"
+                  onClick={async () => {
+                    if (!user?.id) return;
+                    await fetch('/api/notification', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ markAllRead: true, userId: user.id }),
+                    });
+                    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+                    toast({ title: 'All notifications marked as read' });
+                  }}
+                >
+                  <CheckCircle className="h-4 w-4 mr-1" /> Mark all read
+                </Button>
+              )}
+            </div>
+
+            {/* Notification List */}
+            {notifications.length === 0 ? (
+              <Card className="border-0 shadow-sm">
+                <CardContent className="p-12 text-center">
+                  <Bell className="h-16 w-16 mx-auto mb-4 text-gray-200" />
+                  <p className="font-semibold text-gray-600">No notifications yet</p>
+                  <p className="text-sm text-gray-400 mt-1">We'll notify you when something important happens</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-2">
+                {notifications.map((notif: any) => {
+                  const categoryColors: Record<string, string> = {
+                    EMI: 'bg-orange-100 text-orange-600',
+                    LOAN: 'bg-blue-100 text-blue-600',
+                    PAYMENT: 'bg-green-100 text-green-600',
+                    CREDIT: 'bg-purple-100 text-purple-600',
+                    SYSTEM: 'bg-gray-100 text-gray-600',
+                  };
+                  const catColor = categoryColors[notif.category] || categoryColors.SYSTEM;
+                  return (
+                    <motion.div
+                      key={notif.id}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`rounded-xl border p-4 shadow-sm transition-all ${!notif.isRead ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-gray-100'}`}
+                    >
+                      <div className="flex gap-3">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${catColor}`}>
+                          <Bell className="h-4 w-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className={`text-sm font-semibold leading-snug ${!notif.isRead ? 'text-gray-900' : 'text-gray-700'}`}>
+                              {notif.title}
+                            </p>
+                            <span className="text-xs text-gray-400 flex-shrink-0">
+                              {(() => {
+                                const diff = Date.now() - new Date(notif.createdAt).getTime();
+                                const m = Math.floor(diff / 60000);
+                                const h = Math.floor(m / 60);
+                                const d = Math.floor(h / 24);
+                                if (d > 7) return new Date(notif.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                                if (d > 0) return `${d}d ago`;
+                                if (h > 0) return `${h}h ago`;
+                                if (m > 0) return `${m}m ago`;
+                                return 'Just now';
+                              })()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1 leading-relaxed">{notif.message}</p>
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-1">
+                              <Badge className={`text-xs ${catColor}`}>{notif.category}</Badge>
+                              {!notif.isRead && <Badge className="bg-blue-100 text-blue-600 text-xs">New</Badge>}
+                              {notif.priority === 'HIGH' && <Badge className="bg-orange-100 text-orange-600 text-xs">Important</Badge>}
+                              {notif.priority === 'CRITICAL' && <Badge className="bg-red-100 text-red-600 text-xs">Urgent</Badge>}
+                            </div>
+                            {!notif.isRead && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs text-emerald-600 hover:text-emerald-700"
+                                onClick={async () => {
+                                  await fetch('/api/notification', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: notif.id, isRead: true }),
+                                  });
+                                  setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, isRead: true } : n));
+                                }}
+                              >
+                                <CheckCircle className="h-3 w-3 mr-1" /> Mark read
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
 
