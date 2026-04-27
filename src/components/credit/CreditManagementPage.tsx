@@ -757,6 +757,19 @@ export default function CreditManagementPage() {
                       <p className="text-xs text-purple-600">Users Active</p>
                       <p className="font-bold text-purple-700">{todayCreditData.summary.userCount}</p>
                     </div>
+                    {/* Cash vs Online */}
+                    {(todayCreditData.summary.cash > 0 || todayCreditData.summary.online > 0) && (
+                      <>
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                          <p className="text-xs text-gray-500">💵 Cash</p>
+                          <p className="font-bold text-gray-700">{formatCurrency(todayCreditData.summary.cash || 0)}</p>
+                        </div>
+                        <div className="bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2">
+                          <p className="text-xs text-cyan-600">🌐 Online / UPI</p>
+                          <p className="font-bold text-cyan-700">{formatCurrency(todayCreditData.summary.online || 0)}</p>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {/* Per-company grand breakdown */}
@@ -888,13 +901,21 @@ export default function CreditManagementPage() {
                             <div className="space-y-1 max-h-40 overflow-y-auto">
                               {u.transactions.map((tx: any) => (
                                 <div key={tx.id} className="flex items-center justify-between text-xs py-1 border-b border-gray-50">
-                                  <div className="text-gray-600">
+                                  <div className="text-gray-600 flex-1 min-w-0 truncate">
                                     {tx.customerName && <span className="font-medium">{tx.customerName}</span>}
                                     {tx.loanApplicationNo && <span className="text-gray-400 ml-1">({tx.loanApplicationNo})</span>}
                                     {tx.installmentNumber && <span className="text-gray-400 ml-1">EMI #{tx.installmentNumber}</span>}
-                                    {tx.description && <span className="text-gray-400 ml-1">{tx.description.substring(0, 50)}</span>}
+                                    {tx.description && <span className="text-gray-400 ml-1">{tx.description.substring(0, 40)}</span>}
                                   </div>
-                                  <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                                  <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                                    <Badge className={(
+                                      tx.paymentMode === 'CASH' ? 'bg-gray-100 text-gray-700' :
+                                      tx.paymentMode === 'ONLINE' || tx.paymentMode === 'UPI' ? 'bg-cyan-100 text-cyan-700' :
+                                      tx.paymentMode === 'BANK_TRANSFER' || tx.paymentMode === 'NEFT' || tx.paymentMode === 'RTGS' ? 'bg-blue-100 text-blue-700' :
+                                      'bg-gray-100 text-gray-600'
+                                    ) + ' text-[10px] px-1.5 py-0'}>
+                                      {tx.paymentMode === 'BANK_TRANSFER' ? 'BANK' : tx.paymentMode || 'CASH'}
+                                    </Badge>
                                     <Badge className={tx.creditType === 'PERSONAL' ? 'bg-amber-100 text-amber-700 text-xs' : 'bg-emerald-100 text-emerald-700 text-xs'}>
                                       {tx.creditType}
                                     </Badge>
@@ -904,6 +925,7 @@ export default function CreditManagementPage() {
                               ))}
                             </div>
                           </div>
+
                         </div>
                       )}
                     </div>
