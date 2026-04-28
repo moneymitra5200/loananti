@@ -58,6 +58,7 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: false, // disable for prod – avoids double-fetch in dev-mode
+  output: 'standalone', // Hostinger / Node.js self-contained deployment
   turbopack: {},
   images: {
     unoptimized: true,
