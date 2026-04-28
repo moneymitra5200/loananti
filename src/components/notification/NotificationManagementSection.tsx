@@ -13,7 +13,8 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Bell, BellOff, Settings, Zap, AlertTriangle, CheckCircle2,
   Clock, TrendingUp, Users, DollarSign, RefreshCw, Shield,
-  Eye, EyeOff, Palette, Info, Save, RotateCcw, Send
+  Eye, EyeOff, Palette, Info, Save, RotateCcw, Send, Activity,
+  PlayCircle, Calendar, Timer
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -88,6 +89,8 @@ export default function NotificationManagementSection({ userId }: Props) {
   const [applyingPenalty, setApplyingPenalty] = useState(false);
   const [scenarioToggles, setScenarioToggles] = useState<Record<string, boolean>>(DEFAULT_SCENARIO_TOGGLES);
   const [themeColor, setThemeColor] = useState(DEFAULT_THEME_COLOR);
+  const [cronRunning, setCronRunning] = useState(false);
+  const [cronResult, setCronResult] = useState<any>(null);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -170,6 +173,28 @@ export default function NotificationManagementSection({ userId }: Props) {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleTriggerCron = async (cronPath: string, label: string) => {
+    setCronRunning(true);
+    setCronResult(null);
+    try {
+      const res = await fetch(cronPath);
+      const data = await res.json();
+      setCronResult({ label, ...data, ok: res.ok });
+      toast({
+        title: data.success ? `✅ ${label} Completed` : `❌ ${label} Failed`,
+        description: data.success
+          ? `Online: ${data.stats?.onlineOverdue ?? 0} overdue, Offline: ${data.stats?.offlineOverdue ?? 0} overdue. Notifications sent.`
+          : data.error || 'Cron failed',
+        variant: data.success ? 'default' : 'destructive',
+      });
+    } catch (err: any) {
+      setCronResult({ label, ok: false, error: err.message });
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setCronRunning(false);
+    }
+  };
+
   const toggleScenario = (key: string, value: boolean) => {
     setScenarioToggles(prev => ({ ...prev, [key]: value }));
   };
@@ -213,11 +238,12 @@ export default function NotificationManagementSection({ userId }: Props) {
       </div>
 
       <Tabs defaultValue="scenarios" className="space-y-4">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-4 gap-1 h-auto p-1 bg-gray-100 rounded-xl">
+        <TabsList className="grid grid-cols-2 sm:grid-cols-5 gap-1 h-auto p-1 bg-gray-100 rounded-xl">
           <TabsTrigger value="scenarios" className="rounded-lg text-sm">📋 Scenarios</TabsTrigger>
           <TabsTrigger value="penalty" className="rounded-lg text-sm">⚠️ Penalty</TabsTrigger>
           <TabsTrigger value="colors" className="rounded-lg text-sm">🎨 Colors</TabsTrigger>
           <TabsTrigger value="access" className="rounded-lg text-sm">🔒 Role Access</TabsTrigger>
+          <TabsTrigger value="crons" className="rounded-lg text-sm">⏰ Cron Jobs</TabsTrigger>
         </TabsList>
 
         {/* ── Scenarios Tab ──────────────────────────────────────── */}
@@ -584,6 +610,150 @@ export default function NotificationManagementSection({ userId }: Props) {
                   </div>
                 </motion.div>
               ))}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── Cron Jobs Tab ─────────────────────────────────────────── */}
+        <TabsContent value="crons" className="space-y-4">
+          <Card className="border border-blue-100">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Timer className="h-5 w-5 text-blue-600" />
+                Scheduled Cron Jobs
+              </CardTitle>
+              <CardDescription>
+                These jobs run automatically on Vercel. You can also trigger them manually to test or catch up on missed runs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Schedule info table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-blue-50 text-blue-700">
+                      <th className="text-left p-3 rounded-tl-lg">Cron Job</th>
+                      <th className="text-left p-3">Schedule (IST)</th>
+                      <th className="text-left p-3">UTC Schedule</th>
+                      <th className="text-left p-3 rounded-tr-lg">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    <tr className="hover:bg-gray-50">
+                      <td className="p-3 font-medium">🌅 Morning Overdue Alert</td>
+                      <td className="p-3 text-gray-600">8:00 AM IST</td>
+                      <td className="p-3 font-mono text-xs text-gray-500">30 2 * * *</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => handleTriggerCron('/api/cron/overdue-notify', '🌅 Morning Overdue Alert')}
+                          disabled={cronRunning}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg disabled:opacity-50 transition-colors"
+                        >
+                          <PlayCircle className="h-3.5 w-3.5" />
+                          {cronRunning ? 'Running...' : 'Run Now'}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-gray-50">
+                      <td className="p-3 font-medium">☀️ Afternoon Overdue Alert</td>
+                      <td className="p-3 text-gray-600">1:00 PM IST</td>
+                      <td className="p-3 font-mono text-xs text-gray-500">30 7 * * *</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => handleTriggerCron('/api/cron/overdue-notify', '☀️ Afternoon Overdue Alert')}
+                          disabled={cronRunning}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs rounded-lg disabled:opacity-50 transition-colors"
+                        >
+                          <PlayCircle className="h-3.5 w-3.5" />
+                          {cronRunning ? 'Running...' : 'Run Now'}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-gray-50">
+                      <td className="p-3 font-medium">🌆 Evening Overdue Alert</td>
+                      <td className="p-3 text-gray-600">7:00 PM IST</td>
+                      <td className="p-3 font-mono text-xs text-gray-500">30 13 * * *</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => handleTriggerCron('/api/cron/overdue-notify', '🌆 Evening Overdue Alert')}
+                          disabled={cronRunning}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-lg disabled:opacity-50 transition-colors"
+                        >
+                          <PlayCircle className="h-3.5 w-3.5" />
+                          {cronRunning ? 'Running...' : 'Run Now'}
+                        </button>
+                      </td>
+                    </tr>
+                    <tr className="hover:bg-gray-50 border-t-2 border-gray-200">
+                      <td className="p-3 font-medium">⚡ Auto Penalty Apply</td>
+                      <td className="p-3 text-gray-600">12:00 AM IST</td>
+                      <td className="p-3 font-mono text-xs text-gray-500">30 18 * * *</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => handleTriggerCron('/api/cron/auto-penalty', '⚡ Auto Penalty Apply')}
+                          disabled={cronRunning}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg disabled:opacity-50 transition-colors"
+                        >
+                          <PlayCircle className="h-3.5 w-3.5" />
+                          {cronRunning ? 'Running...' : 'Run Now'}
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Cron result display */}
+              {cronResult && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`p-4 rounded-xl border ${cronResult.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    {cronResult.ok
+                      ? <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      : <AlertTriangle className="h-5 w-5 text-red-600" />}
+                    <span className="font-semibold text-sm">{cronResult.label}</span>
+                  </div>
+                  {cronResult.stats && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mt-2">
+                      <div className="bg-white rounded-lg p-2 text-center">
+                        <p className="text-lg font-bold text-orange-600">{cronResult.stats.onlineOverdue ?? 0}</p>
+                        <p className="text-xs text-gray-500">Online Overdue</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-2 text-center">
+                        <p className="text-lg font-bold text-red-600">{cronResult.stats.offlineOverdue ?? 0}</p>
+                        <p className="text-xs text-gray-500">Offline Overdue</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-2 text-center">
+                        <p className="text-lg font-bold text-blue-600">{cronResult.stats.customerNotifications ?? 0}</p>
+                        <p className="text-xs text-gray-500">Customer Alerts</p>
+                      </div>
+                      <div className="bg-white rounded-lg p-2 text-center">
+                        <p className="text-lg font-bold text-purple-600">{cronResult.stats.staffNotifications ?? 0}</p>
+                        <p className="text-xs text-gray-500">Staff Alerts</p>
+                      </div>
+                    </div>
+                  )}
+                  {cronResult.error && (
+                    <p className="text-sm text-red-700 mt-2">Error: {cronResult.error}</p>
+                  )}
+                  {(cronResult.stats?.errors?.length > 0) && (
+                    <p className="text-xs text-orange-700 mt-2">{cronResult.stats.errors.length} minor error(s) during run.</p>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Info box */}
+              <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                <p className="text-sm font-semibold text-blue-800 mb-2">📋 What these crons do:</p>
+                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                  <li><strong>Overdue Alert (3x daily)</strong>: Finds all overdue EMIs (online + offline), sends push + in-app notifications to customer, loan agent, company, and super admin showing EMI amount + penalty.</li>
+                  <li><strong>Auto Penalty (midnight)</strong>: Adds daily penalty to all overdue EMIs based on loan amount tier (₹100–₹500+/day).</li>
+                  <li>All notifications appear in the 🔔 bell panel AND as phone push notifications.</li>
+                </ul>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
