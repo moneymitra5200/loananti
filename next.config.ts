@@ -57,7 +57,8 @@ const withPWA = withPWAInit({
 });
 
 const nextConfig: NextConfig = {
-  reactStrictMode: false, // disable for prod – avoids double-fetch in dev-mode
+  reactStrictMode: false,
+  turbopack: {}, // required: next-pwa uses webpack; turbopack:{} silences Next.js 16 warning
   images: {
     unoptimized: true,
   },
@@ -104,6 +105,8 @@ const nextConfig: NextConfig = {
 };
 
 export default withPWA(nextConfig);
+
+
 
 
 
