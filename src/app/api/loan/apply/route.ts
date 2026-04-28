@@ -179,9 +179,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Export function to generate active loan number (used by disbursement)
-export { generateActiveLoanNo };
-
 // Define valid LoanApplication fields from schema
 const VALID_LOAN_APPLICATION_FIELDS = [
   // Personal Info
