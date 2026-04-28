@@ -270,39 +270,22 @@ async function listCustomersFallback(companyId: string | null) {
     }
   };
 
-  // Mirror-mapped loans (mirror company owns receivable)
-  if (companyId) {
-    const mirrorMappings = await db.mirrorLoanMapping.findMany({
-      where: { mirrorCompanyId: companyId, isOfflineLoan: false },
-    });
-    for (const mapping of mirrorMappings) {
-      const loan = await db.loanApplication.findUnique({
-        where: { id: mapping.originalLoanId },
-        include: {
-          customer: { select: { id: true, name: true, phone: true, email: true } },
-          emiSchedules: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
-        }
-      });
-      if (!loan?.customer) continue;
-      const outstanding = loan.emiSchedules.reduce((s, e) =>
-        e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
-      const totalPaid = loan.emiSchedules.reduce((s, e) => s + (e.paidAmount || 0), 0);
-      addOrMerge(loan.customer.id, {
-        id: loan.customer.id, name: loan.customer.name || 'Unknown',
-        phone: loan.customer.phone || 'N/A', email: loan.customer.email,
-        totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: true,
-      });
-    }
-  }
+  // ── Fetch all mirror mappings upfront ─────────────────────────────────────
+  const allMirrorMappings = await db.mirrorLoanMapping.findMany({
+    where: { isOfflineLoan: false },
+    select: { originalLoanId: true, mirrorCompanyId: true, mirrorLoanId: true }
+  });
+  const mirroredOriginalIds = new Set(allMirrorMappings.map(m => m.originalLoanId));
+  const mirrorCompanyOfLoan = new Map(allMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+  const mirrorLoanIdSet     = new Set(allMirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[]);
 
-  // All mirrored original loan IDs globally (to exclude from non-mirror company view)
-  const allMirroredLoanIds = (await db.mirrorLoanMapping.findMany({
-    where: { isOfflineLoan: false }, select: { originalLoanId: true }
-  })).map(m => m.originalLoanId);
-
-  const onlineWhere: any = { status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } };
+  // ── ONLINE LOANS ─────────────────────────────────────────────────────────
+  // Include all relevant statuses so no loan is missed
+  const onlineWhere: any = {
+    status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY', 'FINAL_APPROVED'] },
+    customer: { isNot: null },
+  };
   if (companyId) onlineWhere.companyId = companyId;
-  if (allMirroredLoanIds.length > 0) onlineWhere.id = { notIn: allMirroredLoanIds };
 
   const onlineLoans = await db.loanApplication.findMany({
     where: onlineWhere,
@@ -311,20 +294,52 @@ async function listCustomersFallback(companyId: string | null) {
       emiSchedules: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
     }
   });
+
   for (const loan of onlineLoans) {
     if (!loan.customer) continue;
+
+    // Mirror rule: if original has a mirror, skip original UNLESS we're the mirror company
+    if (mirroredOriginalIds.has(loan.id)) {
+      if (!companyId) continue; // hide original when no filter (mirror loan handles it)
+      if (mirrorCompanyOfLoan.get(loan.id) !== companyId) continue; // not our mirror company
+      // We ARE the mirror company but only the mirror LOAN has the right entries
+      // The original loan still shouldn't appear here — mirror loan record handles it
+      continue;
+    }
+
+    // For mirror loan records: only show for their own company (or all if no filter)
+    if (mirrorLoanIdSet.has(loan.id) && companyId && loan.companyId !== companyId) continue;
+
     const outstanding = loan.emiSchedules.reduce((s, e) =>
-      e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
+      ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus)
+        ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
     const totalPaid = loan.emiSchedules.reduce((s, e) => s + (e.paidAmount || 0), 0);
+
     addOrMerge(loan.customer.id, {
-      id: loan.customer.id, name: loan.customer.name || 'Unknown',
-      phone: loan.customer.phone || 'N/A', email: loan.customer.email,
-      totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
+      id: loan.customer.id,
+      name: loan.customer.name || 'Unknown',
+      phone: loan.customer.phone || 'N/A',
+      email: loan.customer.email,
+      totalLoans: 1,
+      totalOutstanding: outstanding,
+      totalPaid,
+      isMirror: mirrorLoanIdSet.has(loan.id),
     });
   }
 
-  const offlineWhere: any = { status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } };
+  // ── OFFLINE LOANS ─────────────────────────────────────────────────────────
+  const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
+    where: { isOfflineLoan: true },
+    select: { originalLoanId: true, mirrorCompanyId: true }
+  });
+  const mirroredOfflineIds  = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
+  const offlineMirrorCoMap  = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+
+  const offlineWhere: any = {
+    status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'COMPLETED'] },
+  };
   if (companyId) offlineWhere.companyId = companyId;
+
   const offlineLoans = await db.offlineLoan.findMany({
     where: offlineWhere,
     include: {
@@ -332,16 +347,39 @@ async function listCustomersFallback(companyId: string | null) {
       emis: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
     }
   });
+
   for (const loan of offlineLoans) {
-    if (!loan.customer) continue;
+    // Mirror rule for offline: hide original, show only for mirror company
+    if (mirroredOfflineIds.has(loan.id)) {
+      if (!companyId) continue;
+      if (offlineMirrorCoMap.get(loan.id) !== companyId) continue;
+    }
+
     const outstanding = loan.emis.reduce((s, e) =>
-      e.paymentStatus === 'PAID' ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
+      ['PAID', 'WAIVED'].includes(e.paymentStatus)
+        ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
     const totalPaid = loan.emis.reduce((s, e) => s + (e.paidAmount || 0), 0);
-    addOrMerge(loan.customer.id, {
-      id: loan.customer.id, name: loan.customer.name || 'Unknown',
-      phone: loan.customer.phone || 'N/A', email: loan.customer.email,
-      totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
-    });
+
+    if (loan.customer) {
+      // Linked customer account
+      addOrMerge(loan.customer.id, {
+        id: loan.customer.id,
+        name: loan.customer.name || loan.customerName || 'Unknown',
+        phone: loan.customer.phone || loan.customerPhone || 'N/A',
+        email: loan.customer.email,
+        totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
+      });
+    } else {
+      // No linked user account — use loan ID as key
+      const syntheticId = `offline_${loan.id}`;
+      addOrMerge(syntheticId, {
+        id: syntheticId,
+        name: loan.customerName || 'Unknown',
+        phone: loan.customerPhone || 'N/A',
+        email: loan.customerEmail || '',
+        totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
+      });
+    }
   }
 
   result.sort((a, b) => b.totalOutstanding - a.totalOutstanding);
@@ -397,30 +435,40 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // IDs of the mirror-loan records themselves (e.g. C3PL00001)
   const mirrorLoanIds   = new Set(mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[]);
 
-  // Filter loans by mirror rule + company ownership
-  // Rule: If a loan has a mirror → the MIRROR COMPANY sees the mirror loan.
-  //       The original company does NOT see the original loan (mirror takes precedence).
-  //       If a loan is itself a mirror loan → only shown when viewing from mirror company.
-  //       If a loan has no mirror at all → shown only for its own company.
+  // Mirror rule:
+  //  - Loan has a mirror → HIDE the original, SHOW the mirror loan record.
+  //  - Loan IS a mirror record → show only for its own company (or always if no filter).
+  //  - Loan has no mirror → show for its own company (or always if no filter).
   const validOnlineLoans = allOnlineLoans.filter(l => {
-    // This loan is an original that has a mirror
     if (mirroredIds.has(l.id)) {
-      if (!companyId) return false; // no filter → hide originals that have mirrors (mirror takes precedence)
-      // Only shown if we're viewing from the MIRROR company — but the mirror loan record handles that
-      return false; // original is never shown when mirror exists
+      // This is an ORIGINAL that has been mirrored → always hide original, mirror takes over.
+      return false;
     }
-    // This loan is itself a mirror loan record
     if (mirrorLoanIds.has(l.id)) {
-      // Only show if viewing from this loan's own company
+      // This IS the mirror loan record → show for its company (or all companies if no filter).
       return !companyId || l.companyId === companyId;
     }
-    // Regular loan with no mirror: show only if it belongs to the current company
+    // Regular loan with no mirror → show for its company (or all if no filter).
     return !companyId || l.companyId === companyId;
   });
 
-  const validOfflineLoans = allOfflineLoans.filter(l =>
-    !companyId || l.companyId === companyId
-  );
+  // For offline loans: no mirror loan records exist (mirror is tracked by loanNumber only)
+  // So we just filter by company if provided, and exclude mirrored offline originals
+  const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
+    where: { isOfflineLoan: true },
+    select: { originalLoanId: true, mirrorCompanyId: true, originalCompanyId: true }
+  });
+  const mirroredOfflineIds   = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
+  const offlineMirrorCoMap   = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+
+  const validOfflineLoans = allOfflineLoans.filter(l => {
+    if (!companyId) return true; // no filter: show all
+    if (mirroredOfflineIds.has(l.id)) {
+      // Offline original with mirror → show only for the MIRROR company
+      return offlineMirrorCoMap.get(l.id) === companyId;
+    }
+    return l.companyId === companyId;
+  });
 
   const validLoanIds = [
     ...validOnlineLoans.map(l => l.id),
