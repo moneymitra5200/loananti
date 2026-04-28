@@ -74,6 +74,8 @@ export default function AIChatbot() {
   const [session, setSession] = useState<ChatSession | null>(null);
   const [showEscalateDialog, setShowEscalateDialog] = useState(false);
   const [aiFailCount, setAiFailCount] = useState(0);
+  // Generate a stable session ID per page load
+  const sessionIdRef = useRef<string>(`session_${Date.now()}_${Math.random().toString(36).slice(2)}`);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -101,37 +103,33 @@ export default function AIChatbot() {
   const fetchHistory = async () => {
     if (!user?.id) return;
     try {
-      const response = await fetch(`/api/chatbot/history?userId=${user.id}`);
+      const response = await fetch(`/api/ai/chat?customerId=${user.id}&sessionId=${sessionIdRef.current}`);
       if (response.ok) {
         const data = await response.json();
-        if (data.session) {
-          setSession(data.session);
-        } else {
-          setSession({
-            id: 'new',
-            messages: [{
-              id: '1',
-              role: 'assistant',
-              content: '👋 Hi! I\'m **MitraBot** — your AI loan assistant from MoneyMitra Finance!\n\nI can help you with:\n• EMI due dates & payment history\n• Overdue EMIs & penalty details\n• Loan status & outstanding balance\n• Interest rates & foreclosure\n• How to make payments\n• Documents needed for loans\n\nAsk me anything! 🤖',
-              timestamp: new Date(),
-            }],
-            status: 'ACTIVE',
-          });
+        // Build prior messages from history if any
+        if (data.history && data.history.length > 0) {
+          const msgs: ChatMessage[] = data.history.flatMap((h: any) => [
+            { id: `u-${h.id}`, role: 'user' as const, content: h.userMessage, timestamp: new Date(h.createdAt) },
+            { id: `a-${h.id}`, role: 'assistant' as const, content: h.aiResponse, intent: h.intent, timestamp: new Date(h.createdAt) },
+          ]);
+          setSession({ id: sessionIdRef.current, messages: msgs, status: 'ACTIVE' });
+          return;
         }
       }
     } catch (error) {
       console.error('Failed to fetch history:', error);
-      setSession({
-        id: 'new',
-        messages: [{
-          id: '1',
-          role: 'assistant',
-          content: '👋 Hi! I\'m **MitraBot** — your AI loan assistant. Ask me about your EMI, loan status, penalties, payments, or anything loan-related! 🤖',
-          timestamp: new Date(),
-        }],
-        status: 'ACTIVE',
-      });
     }
+    // Default welcome
+    setSession({
+      id: sessionIdRef.current,
+      messages: [{
+        id: '1',
+        role: 'assistant',
+        content: `👋 Hi${user?.name ? ` ${user.name}` : ''}! I'm **MitraBot** — your AI Loan Assistant from MoneyMitra Finance!\n\nI can help you with:\n• Your EMI due dates & payment status\n• Outstanding balance & overdue details\n• Loan details & history\n• New loan suggestions\n• How to make payments\n• Foreclosure information\n\nJust ask me anything! 🤖`,
+        timestamp: new Date(),
+      }],
+      status: 'ACTIVE',
+    });
   };
 
   const sendMessage = async (message: string) => {
@@ -167,18 +165,14 @@ export default function AIChatbot() {
     } : null);
 
     try {
-      const response = await fetch('/api/chatbot', {
+      const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          sessionId: session.id === 'new' ? null : session.id,
-          userId: user.id,
-          aiFailCount,
-          conversationHistory: session.messages
-            .filter(m => !m.isTyping)
-            .slice(-8)
-            .map(m => ({ role: m.role, content: m.content })),
+          sessionId: sessionIdRef.current,
+          customerId: user.id,
+          customerName: user.name,
         }),
       });
 
@@ -196,14 +190,11 @@ export default function AIChatbot() {
           role: 'assistant',
           content: data.response,
           intent: data.intent,
-          suggestedActions: data.suggestedActions,
           timestamp: new Date(),
         };
         return {
           ...prev,
-          id: data.sessionId || prev.id,
           messages: [...messagesWithoutTyping, assistantMessage],
-          status: data.status || prev.status,
         };
       });
     } catch (error) {

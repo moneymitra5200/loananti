@@ -2818,9 +2818,6 @@ export default function UnifiedAccountantDashboard() {
 
               {/* Quick Action Buttons */}
               <div className="flex items-center gap-1">
-                <Button size="sm" onClick={() => setShowExpenseDialog(true)} className="h-8 bg-red-500/80 hover:bg-red-400 text-white text-xs px-2" title="Add Expense">
-                  <Receipt className="h-3.5 w-3.5 mr-1" /> Expense
-                </Button>
                 <Button size="sm" onClick={() => setShowBorrowDialog(true)} className="h-8 bg-amber-500/80 hover:bg-amber-400 text-white text-xs px-2" title="Record Borrowing">
                   <ArrowDownRight className="h-3.5 w-3.5 mr-1" /> Borrow
                 </Button>
@@ -2831,6 +2828,7 @@ export default function UnifiedAccountantDashboard() {
                   <PiggyBank className="h-3.5 w-3.5 mr-1" /> Capital
                 </Button>
               </div>
+
 
               {/* User Menu */}
               <DropdownMenu>

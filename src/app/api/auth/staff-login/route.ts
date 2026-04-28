@@ -10,18 +10,27 @@ const PERMANENT_SUPER_ADMIN_EMAIL = 'moneymitra@gmail.com';
 const PERMANENT_SUPER_ADMIN_PASSWORD = '1122334455';
 
 async function ensureSuperAdmin() {
-  // Cost 8 = ~75ms on average server (vs 300ms at cost 10) — still very secure
-  const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 8);
-  const admin = await db.user.upsert({
+  // Quick check first — skip expensive bcrypt hash if user already exists
+  const existing = await db.user.findUnique({
     where: { email: PERMANENT_SUPER_ADMIN_EMAIL },
-    update: {
-      password: hashedPassword,
-      plainPassword: PERMANENT_SUPER_ADMIN_PASSWORD,
-      isActive: true,
-      isLocked: false,
-      role: 'SUPER_ADMIN'
-    },
-    create: {
+    select: { id: true, isActive: true, isLocked: true },
+  });
+
+  if (existing) {
+    // User exists — just make sure it's active/unlocked (no re-hashing!)
+    if (!existing.isActive || existing.isLocked) {
+      await db.user.update({
+        where: { email: PERMANENT_SUPER_ADMIN_EMAIL },
+        data: { isActive: true, isLocked: false },
+      });
+    }
+    return existing;
+  }
+
+  // First-time creation only
+  const hashedPassword = await bcrypt.hash(PERMANENT_SUPER_ADMIN_PASSWORD, 8);
+  const admin = await db.user.create({
+    data: {
       email: PERMANENT_SUPER_ADMIN_EMAIL,
       password: hashedPassword,
       plainPassword: PERMANENT_SUPER_ADMIN_PASSWORD,
@@ -29,8 +38,8 @@ async function ensureSuperAdmin() {
       firebaseUid: 'super-admin-permanent',
       role: 'SUPER_ADMIN',
       isActive: true,
-      isLocked: false
-    }
+      isLocked: false,
+    },
   });
   return admin;
 }

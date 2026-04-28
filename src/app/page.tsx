@@ -57,7 +57,8 @@ function AppContent() {
   return (
     <SettingsProvider>
       {renderDashboard()}
-      <AIChatbot />
+      {/* AI Chatbot — CUSTOMER ONLY */}
+      {user.role === 'CUSTOMER' && <AIChatbot />}
     </SettingsProvider>
   );
 }

@@ -39,7 +39,27 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
     let pushSuccess = false;
     let pushError: string | undefined;
 
-    // Send push notification if user has FCM token and notifications enabled
+    // ── Always create an in-app notification (bell panel) ──────────────────
+    let inAppNotificationId: string | undefined;
+    try {
+      const inApp = await db.notification.create({
+        data: {
+          userId: data.userId,
+          type: 'GENERAL',
+          category: 'SYSTEM',
+          title: data.title,
+          message: data.body,
+          actionUrl: data.actionUrl,
+          data: data.data ? JSON.stringify(data.data) : null,
+          priority: 'NORMAL',
+        },
+      });
+      inAppNotificationId = inApp.id;
+    } catch (inAppErr) {
+      console.error('[Push Notification Service] Failed to create in-app notification:', inAppErr);
+    }
+
+    // ── Send FCM push if user has token and notifications enabled ──────────
     if (user?.fcmToken && user.notificationEnabled !== false) {
       const pushResult = await sendPushNotification(user.fcmToken, {
         title: data.title,
@@ -66,6 +86,7 @@ export async function sendPushNotificationToUser(data: PushNotificationData): Pr
 
     return {
       success: true,
+      inAppNotificationId,
       pushSuccess,
       pushError,
     };
