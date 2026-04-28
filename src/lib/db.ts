@@ -86,25 +86,30 @@ if (process.env.NODE_ENV !== 'production') {
 export async function dbWithRetry<T>(
   fn: () => Promise<T>,
   retries = 3,
-  delayMs = 500
+  delayMs = 800
 ): Promise<T> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (err: any) {
+      const msg: string = err?.message || '';
       const isConnectionError =
-        err?.code === 'P1017' ||           // Connection closed
-        err?.code === 'P2024' ||           // Connection pool timeout
-        err?.message?.includes('Too many connections') ||
-        err?.message?.includes('max_connections_per_hour') ||
-        err?.message?.includes('ECONNRESET') ||
-        err?.message?.includes('ETIMEDOUT') ||
-        err?.message?.includes('connection') ||
-        err?.message?.includes('socket');
+        err?.code === 'P1001' ||                         // Can't reach database server
+        err?.code === 'P1017' ||                         // Connection closed
+        err?.code === 'P2024' ||                         // Connection pool timeout
+        msg.includes("Can't reach database") ||          // Hostinger exact error
+        msg.includes('Too many connections') ||
+        msg.includes('max_connections_per_hour') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('connection') ||
+        msg.includes('socket');
 
       if (isConnectionError && attempt < retries) {
-        console.warn(`[DB Retry] Attempt ${attempt} failed (${err?.code || 'connection'}). Retrying in ${delayMs * attempt}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+        const waitMs = delayMs * attempt;
+        console.warn(`[DB Retry] Attempt ${attempt}/${retries} failed (${err?.code || 'connection'}). Retrying in ${waitMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitMs));
         continue;
       }
       throw err;
