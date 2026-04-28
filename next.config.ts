@@ -58,7 +58,6 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: false, // disable for prod – avoids double-fetch in dev-mode
-  turbopack: {},
   images: {
     unoptimized: true,
   },
@@ -105,6 +104,7 @@ const nextConfig: NextConfig = {
 };
 
 export default withPWA(nextConfig);
+
 
 
 
