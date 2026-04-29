@@ -21,10 +21,23 @@ const globalForPrisma = globalThis as unknown as {
  */
 
 const buildDatabaseUrl = () => {
+  // HOSTINGER FIX: hPanel URL-decodes %40 → @ when saving env vars, which
+  // corrupts "mysql://user:Mahadev%406163@host" into a broken double-@ URL.
+  // Solution: store credentials as plain-text individual vars, encode in code.
+  const host = process.env.DB_HOST;
+  const user = process.env.DB_USER;
+  const pass = process.env.DB_PASS;
+  const name = process.env.DB_NAME;
+  const port = process.env.DB_PORT || '3306';
+
+  if (host && user && pass && name) {
+    const encodedPass = encodeURIComponent(pass); // safely encodes @ → %40
+    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=1&connect_timeout=30&pool_timeout=30`;
+  }
+
+  // Fallback: use DATABASE_URL as-is (for local dev where .env has %40 already)
   const base = process.env.DATABASE_URL || '';
-  // Already has connection params - don't double-add
   if (base.includes('connection_limit')) return base;
-  // Add strictest possible connection limits for serverless
   const sep = base.includes('?') ? '&' : '?';
   return `${base}${sep}connection_limit=1&connect_timeout=10&pool_timeout=10`;
 };
