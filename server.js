@@ -1,15 +1,29 @@
 /**
  * Hostinger Node.js Startup Server
- * 
+ *
  * Hostinger Business Plan Node.js hosting:
  * - Sets PORT from Hostinger's environment (or defaults to 3000)
  * - Sets HOSTNAME to 0.0.0.0 so it's reachable externally
- * - Loads the standalone Next.js build
  */
+
+// Prevent Prisma RustPanic / any uncaught error from killing the process
+process.on('uncaughtException', (err) => {
+  console.error('[server] Uncaught exception (process kept alive):', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection (process kept alive):', reason);
+});
 
 const { createServer } = require('http');
 const { parse } = require('url');
-const next = require('./.next/standalone/node_modules/next/dist/server/next');
+
+// Try standalone first, fall back to standard next
+let next;
+try {
+  next = require('./.next/standalone/node_modules/next/dist/server/next');
+} catch {
+  next = require('next');
+}
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = process.env.HOSTNAME || '0.0.0.0';
