@@ -6,6 +6,10 @@ const withPWA = withPWAInit({
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === "development",
+  // ── Include our Firebase push event handler in the generated sw.js ────────
+  // This handles FCM background push messages without needing a separate
+  // firebase-messaging-sw.js (which would conflict with sw.js at scope "/").
+  importScripts: ['/firebase-push-handler.js'],
   runtimeCaching: [
     // Images – Cache First, 30 days
     {

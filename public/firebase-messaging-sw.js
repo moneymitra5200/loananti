@@ -28,8 +28,8 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle   = payload.notification?.title   || 'Money Mitra';
   const notificationOptions = {
     body:               payload.notification?.body || 'You have a new notification',
-    icon:               '/logo-circle.png',
-    badge:              '/badge-72x72.png',
+    icon:               payload.notification?.icon  || '/icons/icon-192x192.png',
+    badge:              '/icons/icon-72x72.png',
     vibrate:            [200, 100, 200, 100, 200],
     tag:                payload.data?.type || 'general',
     requireInteraction: true,

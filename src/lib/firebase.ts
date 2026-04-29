@@ -59,19 +59,40 @@ const VAPID_KEY = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || 'BGpGe_IFqrZnrDo
 export const requestNotificationPermission = async (): Promise<{ success: boolean; token?: string; error?: string }> => {
   try {
     if (!messagingInstance) {
-      return { success: false, error: 'Messaging not initialized' };
+      return { success: false, error: 'Firebase Messaging not initialized (service worker or browser not supported)' };
     }
 
-    // Request permission
+    // Request permission first
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
-      return { success: false, error: 'Notification permission denied' };
+      return { success: false, error: 'Notification permission denied by user' };
     }
 
-    // Get FCM token
-    const token = await getToken(messagingInstance, { vapidKey: VAPID_KEY });
-    console.log('[FCM] Token obtained:', token?.substring(0, 20) + '...');
-    
+    // ── CRITICAL: Use the ACTIVE service worker registration ────────────────
+    // sw.js (workbox) is the active SW at scope '/'. It includes firebase-push-handler.js
+    // via importScripts, so it CAN show Firebase push notifications.
+    // Do NOT try to separately register firebase-messaging-sw.js — it conflicts.
+    let swRegistration: ServiceWorkerRegistration | undefined;
+    if ('serviceWorker' in navigator) {
+      try {
+        // getRegistration('/') returns the SW controlling the current page = sw.js
+        swRegistration = await navigator.serviceWorker.getRegistration('/');
+      } catch (swErr) {
+        console.warn('[FCM] Could not get active SW registration:', swErr);
+      }
+    }
+
+    // Get FCM token bound to the active SW (sw.js + firebase-push-handler.js)
+    const token = await getToken(messagingInstance, {
+      vapidKey: VAPID_KEY,
+      ...(swRegistration ? { serviceWorkerRegistration: swRegistration } : {}),
+    });
+
+    if (!token) {
+      return { success: false, error: 'FCM returned an empty token. Check browser/device notification settings.' };
+    }
+
+    console.log('[FCM] Token obtained:', token.substring(0, 20) + '...');
     return { success: true, token };
   } catch (error: any) {
     console.error('[FCM] Error getting token:', error);
@@ -100,7 +121,16 @@ export const onForegroundMessage = (callback: (payload: MessagePayload) => void)
 export const getCurrentFCMToken = async (): Promise<string | null> => {
   try {
     if (!messagingInstance) return null;
-    const token = await getToken(messagingInstance, { vapidKey: VAPID_KEY });
+    let swRegistration: ServiceWorkerRegistration | undefined;
+    if ('serviceWorker' in navigator) {
+      try {
+        swRegistration = await navigator.serviceWorker.getRegistration('/');
+      } catch { /* ignore */ }
+    }
+    const token = await getToken(messagingInstance, {
+      vapidKey: VAPID_KEY,
+      ...(swRegistration ? { serviceWorkerRegistration: swRegistration } : {}),
+    });
     return token || null;
   } catch (error) {
     console.error('[FCM] Error getting current token:', error);

@@ -92,9 +92,9 @@ export async function sendPushNotification(
         notification: {
           title: notification.title,
           body: notification.body,
-          icon: notification.icon || '/icon-192x192.png',
+          icon: notification.icon || '/icons/icon-192x192.png',
           image: notification.image,
-          badge: '/badge-72x72.png',
+          badge: '/icons/icon-72x72.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
           actions: [
@@ -166,9 +166,9 @@ export async function sendPushNotificationToMany(
         notification: {
           title: notification.title,
           body: notification.body,
-          icon: notification.icon || '/icon-192x192.png',
+          icon: notification.icon || '/icons/icon-192x192.png',
           image: notification.image,
-          badge: '/badge-72x72.png',
+          badge: '/icons/icon-72x72.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
         },
