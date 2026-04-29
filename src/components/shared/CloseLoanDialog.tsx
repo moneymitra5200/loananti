@@ -57,9 +57,9 @@ interface ForeclosureData {
   } | null;
 }
 
+// Close Loan: CASH only — no online payment allowed for either Collect or Loss
 const PAYMENT_MODES = [
-  { value: 'CASH',   label: 'Cash',   icon: Banknote  },
-  { value: 'ONLINE', label: 'Online', icon: Building  },
+  { value: 'CASH', label: 'Cash', icon: Banknote },
 ];
 
 export default function CloseLoanDialog({
@@ -413,40 +413,20 @@ export default function CloseLoanDialog({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment Mode</p>
-                    {creditType === 'PERSONAL' && (
-                      <p className="text-[10px] text-amber-600 font-semibold bg-amber-100 px-2 py-0.5 rounded">
-                        Personal Credit requires CASH
-                      </p>
-                    )}
+                    <p className="text-[10px] text-amber-600 font-semibold bg-amber-100 px-2 py-0.5 rounded">
+                      Loan closing — CASH only (no online)
+                    </p>
                   </div>
-                  {creditType === 'PERSONAL' ? (
-                    <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                      <div className="flex items-center gap-2 text-amber-800">
-                        <Banknote className="h-5 w-5" />
-                        <span className="font-semibold">CASH</span>
-                      </div>
-                      <p className="text-xs text-amber-600 mt-1">
-                        Only CASH payments can be recorded under Personal Credit.
-                      </p>
+                  {/* CASH only for loan closing — no online payments allowed */}
+                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                    <div className="flex items-center gap-2 text-green-800">
+                      <Banknote className="h-5 w-5" />
+                      <span className="font-semibold">CASH</span>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {PAYMENT_MODES.map(({ value, label, icon: Icon }) => (
-                        <button
-                          key={value}
-                          onClick={() => setPaymentMode(value)}
-                          className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
-                            paymentMode === value
-                              ? 'border-blue-400 bg-blue-50 text-blue-700'
-                              : 'border-gray-200 text-gray-700 hover:border-gray-300'
-                          }`}
-                        >
-                          <Icon className="h-4 w-4" />
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                    <p className="text-xs text-green-600 mt-1">
+                      Loan closing payments are recorded as CASH only — no online/bank transfer allowed.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}

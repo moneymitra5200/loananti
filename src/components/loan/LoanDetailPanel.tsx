@@ -771,12 +771,18 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
               <FileText className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="font-bold text-lg">
+              <h2 className="font-bold text-lg flex items-center gap-2">
                 {isInterestOnlyLoan 
                   ? 'Interest-Only Loan' 
                   : isMirrorLoan 
                     ? 'Mirror Loan (Read-Only)' 
-                    : 'Loan Details'}
+                    : 'Online Loan Details'}
+                {/* Mode indicator */}
+                {!isMirrorLoan && !isInterestOnlyLoan && (
+                  <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal">
+                    🌐 ONLINE MODE
+                  </span>
+                )}
               </h2>
               <p className="text-sm text-white/80">{loanDetails?.applicationNo || 'Loading...'}</p>
             </div>

@@ -737,6 +737,7 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [showAddEquityDialog, setShowAddEquityDialog] = useState(false);
+  const [showWithdrawEquityDialog, setShowWithdrawEquityDialog] = useState(false);
   const [showAddBorrowedDialog, setShowAddBorrowedDialog] = useState(false);
   const [showAddInvestDialog, setShowAddInvestDialog] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -922,14 +923,23 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
                 <TableRow className="bg-gray-50">
                   <TableCell colSpan={2} className="font-semibold text-gray-700">
                     <div className="flex items-center justify-between">
-                      <span>1. EQUITY (Owner's Capital)</span>
-                      <Button 
-                        size="sm" 
-                        onClick={() => setShowAddEquityDialog(true)}
-                        className="h-7 bg-red-100 text-red-700 hover:bg-red-200 border-red-200"
-                      >
-                        <Plus className="h-3 w-3 mr-1" /> Add Equity
-                      </Button>
+                      <span>1. EQUITY (Owner&apos;s Capital)</span>
+                      <div className="flex gap-1">
+                        <Button 
+                          size="sm" 
+                          onClick={() => setShowAddEquityDialog(true)}
+                          className="h-7 bg-red-100 text-red-700 hover:bg-red-200 border-red-200"
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Add Equity
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          onClick={() => setShowWithdrawEquityDialog(true)}
+                          className="h-7 bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-200"
+                        >
+                          <ArrowDownRight className="h-3 w-3 mr-1" /> Withdraw
+                        </Button>
+                      </div>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1164,6 +1174,15 @@ export function EnhancedTrialBalanceSection({ selectedCompanyId, formatCurrency,
       <AddEquityDialog 
         open={showAddEquityDialog}
         onOpenChange={setShowAddEquityDialog}
+        companyId={selectedCompanyId}
+        onSuccess={fetchTrialBalance}
+        formatCurrency={formatCurrency}
+      />
+
+      {/* Withdraw Equity Dialog */}
+      <WithdrawEquityDialog
+        open={showWithdrawEquityDialog}
+        onOpenChange={setShowWithdrawEquityDialog}
         companyId={selectedCompanyId}
         onSuccess={fetchTrialBalance}
         formatCurrency={formatCurrency}
@@ -1421,6 +1440,140 @@ export function GeneralLedgerSection({ selectedCompanyId, formatCurrency, format
         </Card>
       </div>
     </div>
+  );
+}
+
+// ============================================
+// WITHDRAW EQUITY DIALOG
+// ============================================
+
+function WithdrawEquityDialog({ open, onOpenChange, companyId, onSuccess, formatCurrency }: DialogProps) {
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    amount: '',
+    description: 'Owner Equity Withdrawal',
+    entryDate: format(new Date(), 'yyyy-MM-dd')
+  });
+
+  const handleSubmit = async () => {
+    const amt = parseFloat(form.amount);
+    if (!amt || amt <= 0) {
+      toast.error('Please enter a valid withdrawal amount');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/accounting/equity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId,
+          entryType: 'WITHDRAWAL',
+          amount: amt,
+          description: form.description || 'Owner Equity Withdrawal',
+          entryDate: form.entryDate,
+          createdById: 'system'
+        })
+      });
+
+      if (res.ok) {
+        toast.success(`Equity withdrawal of ${formatCurrency(amt)} recorded successfully`);
+        setForm({ amount: '', description: 'Owner Equity Withdrawal', entryDate: format(new Date(), 'yyyy-MM-dd') });
+        onOpenChange(false);
+        onSuccess();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Failed to record withdrawal');
+      }
+    } catch {
+      toast.error('Failed to record withdrawal');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ArrowDownRight className="h-5 w-5 text-orange-600" />
+            Withdraw Owner&apos;s Equity
+          </DialogTitle>
+          <DialogDescription>
+            Record a withdrawal from owner&apos;s capital. This debits the Owner&apos;s Capital account
+            and credits Cash — reducing the company&apos;s equity.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
+          {/* Info Banner */}
+          <div className="flex items-start gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+            <ArrowDownRight className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
+            <div className="text-sm text-orange-800">
+              <p className="font-medium">Double-Entry: Withdrawal</p>
+              <ul className="mt-1 space-y-0.5 text-orange-700 text-xs">
+                <li>• Debit: Owner&apos;s Capital (reduces equity)</li>
+                <li>• Credit: Cash in Hand (reduces cash)</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Amount */}
+          <div className="space-y-2">
+            <Label className="font-semibold">Withdrawal Amount *</Label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">₹</span>
+              <Input
+                type="number"
+                min="1"
+                className="pl-8 text-lg font-semibold"
+                placeholder="0"
+                value={form.amount}
+                onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value }))}
+              />
+            </div>
+            {form.amount && parseFloat(form.amount) > 0 && (
+              <p className="text-sm text-orange-600 font-medium">
+                Will withdraw: {formatCurrency(parseFloat(form.amount))}
+              </p>
+            )}
+          </div>
+
+          {/* Date */}
+          <div className="space-y-2">
+            <Label>Date of Withdrawal</Label>
+            <Input
+              type="date"
+              value={form.entryDate}
+              onChange={(e) => setForm(prev => ({ ...prev, entryDate: e.target.value }))}
+            />
+          </div>
+
+          {/* Description */}
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Input
+              value={form.description}
+              onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+              placeholder="Owner Equity Withdrawal"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || !form.amount || parseFloat(form.amount) <= 0}
+            className="bg-orange-600 hover:bg-orange-700"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowDownRight className="h-4 w-4 mr-2" />}
+            Withdraw {form.amount && parseFloat(form.amount) > 0 ? formatCurrency(parseFloat(form.amount)) : 'Equity'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

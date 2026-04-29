@@ -1045,6 +1045,12 @@ export default function OfflineLoanDetailPanel({
                     {loan?.isMirrored && !loan?.isMirrorLoan && (
                       <Badge className="bg-white/30 text-white border-white/50">Has Mirror</Badge>
                     )}
+                    {/* Mode indicator */}
+                    {!loan?.isMirrorLoan && !isInterestOnlyLoan && (
+                      <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal">
+                        💵 OFFLINE MODE
+                      </span>
+                    )}
                   </h2>
                   <p className="text-sm text-white/80">{loan?.loanNumber || 'Loading...'}</p>
                 </div>
@@ -1176,7 +1182,7 @@ export default function OfflineLoanDetailPanel({
                         </Card>
                         <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
                           <CardContent className="p-3">
-                            <p className="text-xs text-amber-600">Outstanding</p>
+                            <p className="text-xs text-amber-600">Total Receivable</p>
                             <p className="text-lg font-bold text-amber-700">{formatCurrency(summary?.totalOutstanding || 0)}</p>
                           </CardContent>
                         </Card>
@@ -2541,7 +2547,12 @@ export default function OfflineLoanDetailPanel({
                     type="button"
                     onClick={() => {
                       setCreditType('COMPANY');
-                      setPaymentMode('ONLINE'); // Default to ONLINE for company credit
+                      // For interest/principal only payments, force CASH (no online allowed)
+                      if (paymentType === 'INTEREST_ONLY' || paymentType === 'PRINCIPAL_ONLY') {
+                        setPaymentMode('CASH');
+                      } else {
+                        setPaymentMode('CASH'); // Default to CASH (safer default)
+                      }
                     }}
                     className={`p-4 rounded-lg border-2 text-left transition-all ${
                       creditType === 'COMPANY' 
@@ -2744,7 +2755,8 @@ export default function OfflineLoanDetailPanel({
                 ) : (
                   <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
-                    {/* ONLINE Option */}
+                    {/* ONLINE Option - hidden for Interest Only / Principal Only payments */}
+                    {paymentType !== 'INTEREST_ONLY' && paymentType !== 'PRINCIPAL_ONLY' && (
                     <button
                       type="button"
                       onClick={() => setPaymentMode('ONLINE')}
@@ -2764,6 +2776,7 @@ export default function OfflineLoanDetailPanel({
                         Entry: Loan Company&apos;s Bank Account
                       </p>
                     </button>
+                    )}
 
                     {/* CASH Option */}
                     <button

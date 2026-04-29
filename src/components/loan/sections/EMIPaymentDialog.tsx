@@ -102,11 +102,11 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
         paymentMode: 'CASH'
       });
     } else {
-      // Company Credit: Default to ONLINE (standard bank transfer)
+      // Company Credit: Default to CASH. ONLINE only available for FULL/PARTIAL payments.
       setEmiPaymentForm({
         ...emiPaymentForm,
         creditType: 'COMPANY',
-        paymentMode: 'ONLINE'
+        paymentMode: 'CASH'
       });
     }
   };
@@ -491,7 +491,8 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
               <div className="grid grid-cols-2 gap-3">
-              {/* ONLINE Option */}
+              {/* ONLINE Option - hidden for Interest Only / Principal Only (cash only) */}
+              {emiPaymentForm.paymentType !== 'INTEREST_ONLY' && emiPaymentForm.paymentType !== 'PRINCIPAL_ONLY' && (
                 <button
                   type="button"
                   onClick={() => setEmiPaymentForm({ ...emiPaymentForm, paymentMode: 'ONLINE' })}
@@ -511,6 +512,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}` : 'Loan Company'}&apos;s Bank Account
                   </p>
                 </button>
+              )}
 
                 {/* CASH Option */}
                 <button
