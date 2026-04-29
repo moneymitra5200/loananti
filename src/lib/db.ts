@@ -5,19 +5,19 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 /**
- * HOSTINGER SHARED MYSQL — CONNECTION LIMIT FIX
+ * HOSTINGER PERSISTENT NODE.JS SERVER — SINGLETON FIX
  *
- * Problem: Vercel serverless functions create a new process for every request.
- * Each process tries to open its own connection pool. With Hostinger limiting
- * you to 500 connections/hour and 10-20 simultaneous connections, this
- * exhausts your quota in minutes.
+ * This app runs on Hostinger as a PERSISTENT Node.js process (not serverless).
+ * Global state IS shared across all requests within the same process.
+ *
+ * Problem: Without the global singleton in production, every simultaneous
+ * request at startup creates a NEW PrismaClient. They all race to initialize
+ * the Rust query engine at the same time → PANIC: timer has gone away.
  *
  * Solution:
- * 1. connection_limit=1  → Each serverless function uses AT MOST 1 connection
- * 2. Global singleton    → In dev (long-running), reuse the same client
+ * 1. Global singleton    → Always reuse the same client (dev AND production)
+ * 2. connection_limit=1  → Respect Hostinger's shared MySQL connection limits
  * 3. connect_timeout     → Fail fast rather than queue connections
- * 4. Production guard    → In production, ALWAYS create new client (no global)
- *    because Node.js global state is NOT shared between Vercel function instances
  */
 
 const buildDatabaseUrl = () => {
@@ -57,24 +57,19 @@ const prismaClientSingleton = () => {
 };
 
 /**
- * In DEVELOPMENT: reuse the same instance (Next.js hot-reload safe)
- * In PRODUCTION: create a new client per serverless function instance.
- *   This is intentional — Vercel doesn't share global state between instances,
- *   so the singleton pattern does nothing in production. Each function instance
- *   gets its own client with connection_limit=1, which is the safest approach.
+ * ALWAYS use the global singleton on Hostinger's persistent Node.js server.
+ * Global state IS shared between requests in the same process.
+ * This prevents multiple PrismaClient instances racing to init the Rust engine.
  */
 export const db = globalForPrisma.prisma ?? prismaClientSingleton();
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = db;
-}
+// Store singleton globally in ALL environments (safe for persistent servers)
+globalForPrisma.prisma = db;
 
-// Graceful shutdown in dev
-if (process.env.NODE_ENV !== 'production') {
-  process.on('beforeExit', async () => {
-    await db.$disconnect();
-  });
-}
+// Graceful shutdown
+process.on('beforeExit', async () => {
+  await db.$disconnect();
+});
 
 /**
  * Wrapper for DB queries with automatic retry on connection failures.
@@ -93,6 +88,12 @@ export async function dbWithRetry<T>(
       return await fn();
     } catch (err: any) {
       const msg: string = err?.message || '';
+      // Never retry on Rust engine panics — retrying makes it worse
+      const isRustPanic = err?.name === 'PrismaClientRustPanicError' ||
+        msg.includes('PANIC') ||
+        msg.includes('timer has gone away');
+      if (isRustPanic) throw err;
+
       const isConnectionError =
         err?.code === 'P1001' ||                         // Can't reach database server
         err?.code === 'P1017' ||                         // Connection closed
