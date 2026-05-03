@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "prisma generate && next build --webpack",
+    "build": "npx prisma generate",
+    "build:local": "prisma generate && next build --webpack",
     "build:hostinger": "npx prisma generate",
     "start": "node .next/standalone/server.js",
     "lint": "eslint .",
