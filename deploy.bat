@@ -4,26 +4,26 @@ echo   LOAN APP - DEPLOY TO LIVE SERVER
 echo ========================================
 echo.
 
-echo [1/4] Building app...
+echo [1/2] Committing and pushing to GitHub...
 cd C:\Users\bscom\Desktop\reallll
-call npm run build
+git add -A
+git commit -m "deploy: %date% %time%"
+git push loananti main
 if %errorlevel% neq 0 (
-    echo BUILD FAILED! Fix errors and try again.
+    echo PUSH FAILED! Check your GitHub connection.
     pause
     exit /b 1
 )
 
-echo [2/4] Committing to GitHub...
-git add -A
-git commit -m "auto-deploy: %date% %time%"
-git push loananti main
-
-echo [3/4] Updating live server...
-ssh -p 65002 u366636586@153.92.6.50 "export NVM_DIR=$HOME/.nvm && \. $NVM_DIR/nvm.sh && cd ~/public_html/loanapp && git pull origin main && pkill -f 'node server.js'; sleep 2; nohup node server.js > server.log 2>&1 &"
-
 echo.
 echo ========================================
-echo   DONE! Site is LIVE at:
-echo   https://moneymitraadvisor.com
+echo   DONE! Hostinger is now auto-building
+echo   and deploying your site.
+echo.
+echo   Check build progress at:
+echo   hpanel.hostinger.com > Deployments
+echo.
+echo   Site will be LIVE in ~2-3 minutes at:
+echo   https://moneymitrafinancialadvisor.com
 echo ========================================
 pause

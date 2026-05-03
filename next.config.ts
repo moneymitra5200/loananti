@@ -62,6 +62,8 @@ const withPWA = withPWAInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
+  output: 'standalone', // ← smaller runtime, less RAM on Hostinger
+  productionBrowserSourceMaps: false, // ← disable source maps to save RAM
   turbopack: {}, // required: next-pwa uses webpack; turbopack:{} silences Next.js 16 warning
   images: {
     unoptimized: true,
@@ -106,6 +108,8 @@ const nextConfig: NextConfig = {
       "framer-motion",
     ],
   },
+  // Exclude heavy server-only packages from bundle to save RAM on Hostinger
+  serverExternalPackages: ['socket.io', 'socket.io-client'],
 };
 
 export default withPWA(nextConfig);

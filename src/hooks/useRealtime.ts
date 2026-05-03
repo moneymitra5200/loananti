@@ -21,15 +21,11 @@ interface UseRealtimeOptions {
 let socketInstance: Socket | null = null;
 let connectionCount = 0;
 
-// Check if WebSocket is available (not available on Vercel serverless)
+// Check if WebSocket is available
+// Disabled on Hostinger shared hosting — persistent connections cause 503 errors.
+// The polling fallback (every 5 min) handles real-time updates instead.
 const isWebSocketAvailable = (): boolean => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    if (hostname.includes('vercel.app') || hostname.includes('vercel')) {
-      return false;
-    }
-  }
-  return true;
+  return false; // ← Hostinger shared hosting: polling-only mode
 };
 
 export function useRealtime(options: UseRealtimeOptions = {}) {
