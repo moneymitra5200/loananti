@@ -7,7 +7,7 @@
     "build": "npx prisma generate",
     "build:local": "prisma generate && next build --webpack",
     "build:hostinger": "npx prisma generate",
-    "start": "next start",
+    "start": "next start -p ${PORT:-3000}",
     "lint": "eslint .",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
