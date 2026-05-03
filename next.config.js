@@ -1,14 +1,12 @@
-import type { NextConfig } from "next";
-import withPWAInit from "next-pwa";
+// @ts-check
+const withPWAInit = require("next-pwa");
 
 const withPWA = withPWAInit({
   dest: "public",
   register: true,
   skipWaiting: true,
   disable: process.env.NODE_ENV === "development",
-  // ── Include our Firebase push event handler in the generated sw.js ────────
-  // This handles FCM background push messages without needing a separate
-  // firebase-messaging-sw.js (which would conflict with sw.js at scope "/").
+  // Include our Firebase push event handler in the generated sw.js
   importScripts: ['/firebase-push-handler.js'],
   runtimeCaching: [
     // Images – Cache First, 30 days
@@ -38,7 +36,7 @@ const withPWA = withPWAInit({
         expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 7 },
       },
     },
-    // Settings + CMS APIs – long-lived StaleWhileRevalidate (they change rarely)
+    // Settings + CMS APIs – long-lived StaleWhileRevalidate
     {
       urlPattern: /\/api\/(settings|cms|company)/i,
       handler: "StaleWhileRevalidate",
@@ -47,7 +45,7 @@ const withPWA = withPWAInit({
         expiration: { maxEntries: 30, maxAgeSeconds: 60 * 5 },
       },
     },
-    // All other API calls – NetworkFirst, 10-second timeout, 2-min cache
+    // All other API calls – NetworkFirst, 8-second timeout, 2-min cache
     {
       urlPattern: /\/api\//i,
       handler: "NetworkFirst",
@@ -60,12 +58,13 @@ const withPWA = withPWAInit({
   ],
 });
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: false,
-  output: 'standalone', // ← smaller runtime, less RAM on Hostinger
-  outputFileTracingRoot: process.cwd(), // ← fix standalone output path (was going to .next/standalone/Desktop/reallll/)
-  productionBrowserSourceMaps: false, // ← disable source maps to save RAM
-  turbopack: {}, // required: next-pwa uses webpack; turbopack:{} silences Next.js 16 warning
+  output: 'standalone',                   // smaller runtime, less RAM on Hostinger
+  outputFileTracingRoot: process.cwd(),   // fix standalone output path
+  productionBrowserSourceMaps: false,     // disable source maps to save RAM
+  turbopack: {},                          // silences Next.js 16 warning for next-pwa
   images: {
     unoptimized: true,
   },
@@ -92,7 +91,6 @@ const nextConfig: NextConfig = {
         source: "/api/stats",
         headers: [{ key: "Cache-Control", value: "private, s-maxage=30, stale-while-revalidate=60" }],
       },
-      // Never cache mutation endpoints
       {
         source: "/api/auth/:path*",
         headers: [{ key: "Cache-Control", value: "no-store" }],
@@ -109,17 +107,8 @@ const nextConfig: NextConfig = {
       "framer-motion",
     ],
   },
-  // Exclude heavy server-only packages from bundle to save RAM on Hostinger
+  // Exclude heavy packages from server bundle to save RAM on Hostinger
   serverExternalPackages: ['socket.io', 'socket.io-client'],
 };
 
-export default withPWA(nextConfig);
-
-
-
-
-
-
-
-
-
+module.exports = withPWA(nextConfig);
