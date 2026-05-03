@@ -13,9 +13,8 @@ node_modules
 # testing
 /coverage
 
-# next.js build output - exclude entire .next folder
-# (Hostinger can build on deploy using: npm run build)
-/.next/
+# next.js build output - allow standalone build to be committed for Hostinger
+/.next/cache/
 /out/
 
 # production
