@@ -91,7 +91,6 @@ self.__SERVER_FILES_MANIFEST={
     "compiler": {},
     "expireTime": 31536000,
     "staticPageGenerationTimeout": 60,
-    "output": "standalone",
     "modularizeImports": {
       "@mui/icons-material": {
         "transform": "@mui/icons-material/{{member}}"
@@ -100,7 +99,7 @@ self.__SERVER_FILES_MANIFEST={
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "C:\\Users\\bscom\\Desktop\\reallll",
+    "outputFileTracingRoot": "C:\\Users\\bscom",
     "cacheComponents": false,
     "cacheLife": {
       "default": {
@@ -297,7 +296,7 @@ self.__SERVER_FILES_MANIFEST={
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.js",
     "turbopack": {
-      "root": "C:\\Users\\bscom\\Desktop\\reallll"
+      "root": "C:\\Users\\bscom"
     },
     "serverExternalPackages": [
       "socket.io",
@@ -306,7 +305,7 @@ self.__SERVER_FILES_MANIFEST={
     "distDirRoot": ".next"
   },
   "appDir": "C:\\Users\\bscom\\Desktop\\reallll",
-  "relativeAppDir": "",
+  "relativeAppDir": "Desktop\\reallll",
   "files": [
     ".next\\routes-manifest.json",
     ".next\\server\\pages-manifest.json",

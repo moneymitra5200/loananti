@@ -61,8 +61,6 @@ const withPWA = withPWAInit({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: false,
-  output: 'standalone',                   // smaller runtime, less RAM on Hostinger
-  outputFileTracingRoot: process.cwd(),   // fix standalone output path
   productionBrowserSourceMaps: false,     // disable source maps to save RAM
   turbopack: {},                          // silences Next.js 16 warning for next-pwa
   images: {
