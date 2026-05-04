@@ -139,8 +139,8 @@ export default function DirectMessaging({ userId, userRole, userName }: DirectMe
   useEffect(() => {
     if (selectedContact) {
       loadMessages(selectedContact.id);
-      // Poll every 5s for new messages
-      pollRef.current = setInterval(() => loadMessages(selectedContact.id), 120000); // Poll every 2 minutes
+      // Safety-net poll every 10 min. Instant messages via optimistic UI when sent.
+      pollRef.current = setInterval(() => loadMessages(selectedContact.id), 600_000);
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [selectedContact, loadMessages]);

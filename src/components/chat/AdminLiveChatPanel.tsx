@@ -59,7 +59,8 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
 
   useEffect(() => {
     fetchSessions();
-    const interval = setInterval(fetchSessions, 120000); // 2 minutes
+    // Safety-net poll every 10 min. Socket handles instant chat events.
+    const interval = setInterval(fetchSessions, 600_000);
     return () => clearInterval(interval);
   }, [fetchSessions]);
 

@@ -111,9 +111,9 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
     fetchRequests();
   }, [statusFilter]);
 
-  // Auto-poll every 60 seconds so new requests appear without refresh
+  // Safety-net poll every 10 min. Socket.io dashboard:refresh fires instantly on payment updates.
   useEffect(() => {
-    const interval = setInterval(() => fetchRequests(), 180000);
+    const interval = setInterval(() => fetchRequests(), 600_000);
     return () => clearInterval(interval);
   }, [statusFilter]);
 

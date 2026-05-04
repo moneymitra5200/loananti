@@ -83,7 +83,7 @@ export default function CustomerMessages() {
   useEffect(() => {
     if (selected) {
       loadMessages(selected.id);
-      pollRef.current = setInterval(() => loadMessages(selected.id), 120000); // Poll every 2 minutes
+      pollRef.current = setInterval(() => loadMessages(selected.id), 600_000); // 10 min safety-net
     }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [selected, loadMessages]);

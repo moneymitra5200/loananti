@@ -109,10 +109,10 @@ export default function DashboardLayout({
     }
   }, [user?.id, user?.role]);
 
-  // Fetch on mount, every 60s, and on custom 'credit-updated' event
+  // Safety-net poll every 10 min. Instant updates come via `credit-updated` window event or socket.
   useEffect(() => {
     fetchUserCredit();
-    const interval = setInterval(fetchUserCredit, 60000);
+    const interval = setInterval(fetchUserCredit, 600_000);
     const handler = () => fetchUserCredit();
     window.addEventListener('credit-updated', handler);
     return () => {

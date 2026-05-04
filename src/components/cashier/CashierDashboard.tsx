@@ -145,7 +145,7 @@ export default function CashierDashboard() {
       } catch {}
     };
     fetchPendingCount();
-    const interval = setInterval(fetchPendingCount, 300000); // 5 minutes
+    const interval = setInterval(fetchPendingCount, 900_000); // 15 minutes — socket handles instant
     return () => clearInterval(interval);
   }, []);
 

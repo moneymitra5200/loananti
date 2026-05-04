@@ -11,6 +11,7 @@
 
 import { db } from '@/lib/db';
 import { sendPushNotificationToUser, sendPushNotificationToRole } from './push-notification-service';
+import { emitNotification, emitToUser } from './socket-emit';
 
 // ==================== TYPES ====================
 
@@ -77,6 +78,21 @@ export async function createNotification(data: CreateNotificationData) {
         templateId: data.templateId,
       },
     });
+
+    // ── Instant WebSocket push (no polling needed) ─────────────────────────
+    emitNotification(data.userId, {
+      id: notification.id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      category: notification.category,
+      priority: notification.priority,
+      actionUrl: notification.actionUrl,
+      createdAt: notification.createdAt,
+    });
+    // Also trigger dashboard refresh for the user
+    emitToUser(data.userId, 'dashboard:refresh');
+    // ──────────────────────────────────────────────────────────────────────
 
     // Also send push notification
     await sendPushNotificationToUser({

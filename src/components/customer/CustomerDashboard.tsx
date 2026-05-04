@@ -230,7 +230,7 @@ export default function CustomerDashboard() {
         if (data.notifications) setNotifications(data.notifications);
       } catch {}
     };
-    const interval = setInterval(pollNotifications, 300000); // 5 minutes
+    const interval = setInterval(pollNotifications, 900_000); // 15 minutes — socket handles instant
     return () => clearInterval(interval);
   }, [user?.id]);
 

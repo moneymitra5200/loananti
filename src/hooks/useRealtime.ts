@@ -88,6 +88,9 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     const socket = socketInstance;
     connectionCount++;
 
+    // Expose globally so other components (e.g. NotificationBell) can subscribe directly
+    if (typeof window !== 'undefined') (window as any).__realtimeSocket = socket;
+
     socket.emit('register', { userId, role });
     if (companyId) socket.emit('join-company', companyId);
 

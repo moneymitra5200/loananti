@@ -86,18 +86,32 @@ export default function NotificationBell() {
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // Auto-refresh every 30 seconds
+  // Safety-net poll every 10 minutes. Socket.io `notification` event handles instant delivery.
   useEffect(() => {
-    const interval = setInterval(() => fetchNotifications(true), 30_000);
+    const interval = setInterval(() => fetchNotifications(true), 600_000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
-  // Instant refresh when a foreground push arrives
+  // Instant refresh when a foreground push arrives (window event from FCM)
   useEffect(() => {
     const handler = () => fetchNotifications(true);
     window.addEventListener('new-notification', handler);
     return () => window.removeEventListener('new-notification', handler);
   }, [fetchNotifications]);
+
+  // Instant update via Socket.io `notification` event — prepends new notification without DB call
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // @ts-ignore — socket is set globally by useRealtime hook
+    const socket = (window as any).__realtimeSocket;
+    if (!socket) return;
+    const handler = (notification: any) => {
+      setNotifications(prev => [{ ...notification, isRead: false, readAt: null, data: null, actionText: null }, ...prev]);
+      setUnreadCount(prev => prev + 1);
+    };
+    socket.on('notification', handler);
+    return () => socket.off('notification', handler);
+  }, []);
 
   const handleMarkAsRead = async (id: string) => {
     try {
