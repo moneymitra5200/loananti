@@ -213,8 +213,8 @@ export async function POST(request: NextRequest) {
         event: 'EXPENSE_REQUEST',
         title: '💳 New Expense Request Pending',
         body: `Cashier submitted expense of ₹${amount.toLocaleString('en-IN')} — ${description}`,
-        data: { expenseId: expense.id, expenseNumber, type: 'EXPENSE_REQUEST', actionUrl: '/super-admin/expense' },
-        actionUrl: '/super-admin/expense',
+        data: { expenseId: expense.id, expenseNumber, type: 'EXPENSE_REQUEST', actionUrl: '/' },
+        actionUrl: '/',
       });
 
       return NextResponse.json({ success: true, expense, message: 'Expense request submitted for Super Admin approval' });

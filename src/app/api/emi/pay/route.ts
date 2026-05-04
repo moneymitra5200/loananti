@@ -1833,8 +1833,8 @@ export async function POST(request: NextRequest) {
       event: 'EMI_PAYMENT_RECEIVED',
       title: `💵 EMI Payment Collected`,
       body: `₹${paidAmount.toFixed(2)} (${paymentType}) collected — ${emi.loanApplication?.applicationNo || loanId}`,
-      data: { loanId, emiId, type: 'EMI_PAYMENT', actionUrl: '/super-admin/payments' },
-      actionUrl: '/super-admin/payments',
+      data: { loanId, emiId, type: 'EMI_PAYMENT', actionUrl: '/' },
+      actionUrl: '/',
     });
 
     return NextResponse.json({

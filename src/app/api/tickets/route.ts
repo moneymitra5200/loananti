@@ -168,8 +168,8 @@ export async function POST(request: NextRequest) {
       event: 'TICKET_CREATED',
       title: `🎫 New Support Ticket: ${ticketNumber}`,
       body: `${subject} — Priority: ${priority || 'NORMAL'} | Category: ${category || 'GENERAL'}`,
-      data: { ticketId: ticket.id, ticketNumber, type: 'TICKET_CREATED', actionUrl: '/super-admin/tickets' },
-      actionUrl: '/super-admin/tickets',
+      data: { ticketId: ticket.id, ticketNumber, type: 'TICKET_CREATED', actionUrl: '/' },
+      actionUrl: '/',
     });
 
     return NextResponse.json({

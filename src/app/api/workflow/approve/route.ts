@@ -837,8 +837,8 @@ async function processSingleApproval({
         sendPushNotificationToRole('SUPER_ADMIN', {
           title: `🏦 Loan Update: ${loan.applicationNo}`,
           body: saStatusLabel,
-          data: { loanId: loan.id, applicationNo: loan.applicationNo, status: actualStatus, type: 'LOAN_WORKFLOW', actionUrl: '/super-admin/loans' },
-          actionUrl: '/super-admin/loans',
+          data: { loanId: loan.id, applicationNo: loan.applicationNo, status: actualStatus, type: 'LOAN_WORKFLOW', actionUrl: '/' },
+          actionUrl: '/',
         })
       );
 

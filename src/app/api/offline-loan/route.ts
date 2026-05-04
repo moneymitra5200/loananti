@@ -1851,8 +1851,8 @@ export async function POST(request: NextRequest) {
       event: 'OFFLINE_LOAN_CREATED',
       title: `🏦 New Offline Loan Disbursed`,
       body: `${loanType} loan of ₹${Number(loanAmount).toLocaleString('en-IN')} for ${customerName} — ${loanNumber}`,
-      data: { loanId: loan.id, loanNumber, type: 'OFFLINE_LOAN_CREATED', actionUrl: '/super-admin/offline-loans' },
-      actionUrl: '/super-admin/offline-loans',
+      data: { loanId: loan.id, loanNumber, type: 'OFFLINE_LOAN_CREATED', actionUrl: '/' },
+      actionUrl: '/',
     });
 
     return NextResponse.json({

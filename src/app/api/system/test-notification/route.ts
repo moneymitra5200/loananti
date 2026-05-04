@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     const r = await sendPushNotification(
       targetUser.fcmToken,
       { title: '🔔 Step 3 — Direct FCM', body: `Direct test at ${new Date().toLocaleTimeString('en-IN')}` },
-      { type: 'TEST_DIRECT', actionUrl: '/super-admin' }
+      { type: 'TEST_DIRECT', actionUrl: '/' }
     );
     report.step3_direct_fcm = { success: r.success, messageId: r.messageId, error: r.error };
     if (!r.success) {
@@ -98,8 +98,8 @@ export async function GET(request: NextRequest) {
     const r4 = await sendPushNotificationToRoles(['SUPER_ADMIN'], {
       title: '🔔 Step 4 — Role-based notification',
       body:  `Role test at ${new Date().toLocaleTimeString('en-IN')} — real event path`,
-      data:  { type: 'TEST_ROLE', actionUrl: '/super-admin' },
-      actionUrl: '/super-admin',
+      data:  { type: 'TEST_ROLE', actionUrl: '/' },
+      actionUrl: '/',
     });
     report.step4_role_notification = {
       success:    r4.success,
@@ -127,8 +127,8 @@ export async function GET(request: NextRequest) {
     event: 'EMI_PAYMENT_RECEIVED',
     title: '🔔 Step 5 — Real Event Simulation',
     body:  `notifyEvent() test at ${new Date().toLocaleTimeString('en-IN')}`,
-    data:  { type: 'TEST_EVENT', actionUrl: '/super-admin/payments' },
-    actionUrl: '/super-admin/payments',
+    data:  { type: 'TEST_EVENT', actionUrl: '/' },
+    actionUrl: '/',
   });
   report.step5_notify_event = 'fired (fire-and-forget — check your phone in 5 seconds)';
 

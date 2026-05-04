@@ -55,9 +55,10 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'close') return;
 
-  // Get the target URL – stored in notification.data.url by the handler above
-  const targetUrl = event.notification.data?.url || '/';
-  const fullUrl   = self.location.origin + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
+  // The app is a single-page app — all dashboards live at '/'.
+  // Always open '/' so the user sees their role-based dashboard.
+  const targetUrl = '/';
+  const fullUrl   = self.location.origin + targetUrl;
 
   event.waitUntil(
     self.clients
