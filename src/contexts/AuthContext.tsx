@@ -68,14 +68,23 @@ interface CustomerRegisterData {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper to get initial user from sessionStorage (client-side only)
+// Helper to get initial user from localStorage (persistent across app restarts)
 function getInitialUser(): User | null {
   if (typeof window === 'undefined') return null;
   try {
+    // Try localStorage first (survives app swipe from recents)
+    const localStr = localStorage.getItem('loggedInUser');
+    if (localStr) {
+      const storedUser = JSON.parse(localStr);
+      return storedUser;
+    }
+    // Fallback: legacy sessionStorage key
     const demoUserStr = sessionStorage.getItem('demoUser');
     if (demoUserStr) {
       const storedUser = JSON.parse(demoUserStr);
-      console.log('[Auth] Restored user from sessionStorage:', storedUser.email, storedUser.role);
+      // Migrate to localStorage immediately
+      localStorage.setItem('loggedInUser', demoUserStr);
+      sessionStorage.removeItem('demoUser');
       return storedUser;
     }
   } catch {
@@ -179,6 +188,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     if (typeof window !== 'undefined') {
+      // Clear BOTH storages on explicit logout
+      localStorage.removeItem('loggedInUser');
       sessionStorage.removeItem('demoUser');
     }
     await firebaseSignOut(auth);
@@ -197,14 +208,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const data = await response.json();
           if (data.user) {
             const updatedUser = {
-              ...user,
-              ...data.user
-            };
-            setUser(updatedUser);
-            if (typeof window !== 'undefined') {
-              sessionStorage.setItem('demoUser', JSON.stringify(updatedUser));
+            ...user,
+            ...data.user
+          };
+          setUser(updatedUser);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('loggedInUser', JSON.stringify(updatedUser));
             localStorage.setItem('lastActivity', Date.now().toString());
-            }
+          }
           }
         }
       } catch (error) {
@@ -256,7 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok && result.success) {
         setUser(result.user);
         if (typeof window !== 'undefined') {
-          sessionStorage.setItem('demoUser', JSON.stringify(result.user));
+          localStorage.setItem('loggedInUser', JSON.stringify(result.user));
           localStorage.setItem('lastActivity', Date.now().toString());
         }
         setLoading(false);
