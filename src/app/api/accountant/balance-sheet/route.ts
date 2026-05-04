@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
 
 /**
  * GNUCASH-STYLE BALANCE SHEET API
@@ -70,6 +71,11 @@ export async function GET(request: NextRequest) {
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
+
+    // Cache 5 min — balance sheet only changes when journal entries are made
+    const cacheKey = `accountant:balance-sheet:${companyId}:${year || 'current'}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
 
     // Get company details
     const company = await db.company.findUnique({
@@ -148,8 +154,6 @@ export async function GET(request: NextRequest) {
     });
     const actualCashBalance = cashBookData?.currentBalance || 0;
     const actualCashOpening = cashBookData?.openingBalance || 0;
-
-    console.log(`[Balance Sheet] Bank Balance: ${actualBankBalance}, Cash Balance: ${actualCashBalance}`);
 
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {
@@ -338,42 +342,19 @@ export async function GET(request: NextRequest) {
       { name: 'FY 2023-24', startDate: new Date(2023, 3, 1), endDate: new Date(2024, 2, 31) }
     ];
 
-    return NextResponse.json({
-      company: {
-        id: company.id,
-        name: company.name,
-        code: company.code
-      },
+    const responseData = {
+      company: { id: company.id, name: company.name, code: company.code },
       financialYear: year ? `FY ${year}-${parseInt(year) + 1}` : `FY ${new Date().getFullYear()}-${new Date().getFullYear() + 1}`,
       yearOptions,
-      
-      // LEFT SIDE - Liabilities & Equity (Source of Funds)
-      leftSide: {
-        title: 'Liabilities & Equity',
-        items: leftSideItems,
-        total: leftTotal
-      },
-      
-      // RIGHT SIDE - Assets (How Funds Are Used)
-      rightSide: {
-        title: 'Assets',
-        items: rightSideItems,
-        total: rightTotal
-      },
-      
-      // Summary
+      leftSide: { title: 'Liabilities & Equity', items: leftSideItems, total: leftTotal },
+      rightSide: { title: 'Assets', items: rightSideItems, total: rightTotal },
       summary: {
         totalEquity: ownersCapital + openingBalanceEquity + retainedEarnings + profitLoss,
         totalLiabilities: bankLoans + investorCapital + borrowedFunds,
-        totalAssets: rightTotal,
-        profitLoss,
-        totalIncome,
-        totalExpenses,
+        totalAssets: rightTotal, profitLoss, totalIncome, totalExpenses,
         isBalanced: Math.abs(leftTotal - rightTotal) < 0.01,
         difference: Math.abs(leftTotal - rightTotal)
       },
-
-      // Guidance for adding equity
       guidance: {
         title: 'How to Add Equity (GnuCash Style)',
         steps: [
@@ -394,7 +375,9 @@ export async function GET(request: NextRequest) {
           result: 'Assets = ₹1,00,000 | Equity = ₹1,00,000 | Balanced ✓'
         }
       }
-    });
+    };
+    cache.set(cacheKey, responseData, CacheTTL.LONG); // 5 min
+    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('Balance sheet error:', error);

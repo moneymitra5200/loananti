@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
     let onlineLoans: any[] = [];
     let offlineLoans: any[] = [];
 
-    console.log('[all-active] Fetching active loans with filter:', filter);
+    // Remove production console.log — fires on every request
+    // console.log('[all-active] Fetching active loans with filter:', filter);
 
     // Define allowed statuses for offline loans
     const activeOfflineStatuses = [
@@ -77,6 +78,7 @@ export async function GET(request: NextRequest) {
         where: { status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } },
         orderBy: { createdAt: 'desc' },
         include: onlineInclude,
+        take: 300, // Hard cap — prevents loading 1000+ loans into RAM
       });
     }
 
@@ -117,6 +119,7 @@ export async function GET(request: NextRequest) {
         where: { status: { in: activeOfflineStatuses }, isMirrorLoan: false },
         orderBy: { createdAt: 'desc' },
         include: offlineInclude,
+        take: 300, // Hard cap
       });
     }
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
 
 /**
  * TRIAL BALANCE API for Accountant Dashboard
@@ -24,6 +25,11 @@ export async function GET(request: NextRequest) {
     }
 
     const dateFilter = asOfDate ? new Date(asOfDate) : new Date();
+
+    // Cache 5 minutes per company/date combo (accountant data rarely changes live)
+    const cacheKey = `accountant:trial-balance:${companyId}:${dateFilter.toISOString().split('T')[0]}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
 
     // Get all active accounts for this company
     const accounts = await db.chartOfAccount.findMany({
@@ -53,7 +59,6 @@ export async function GET(request: NextRequest) {
     const actualCashBalance = cashBook?.currentBalance || 0;
     const cashOpeningBalance = cashBook?.openingBalance || 0;
 
-    console.log(`[Trial Balance] Bank Balance: ${actualBankBalance}, Cash Balance: ${actualCashBalance}`);
 
     // Get all journal entries up to the as-of date
     const journalEntries = await db.journalEntry.findMany({
@@ -130,13 +135,11 @@ export async function GET(request: NextRequest) {
         closingBalance = actualBankBalance;
         openingBalance = bankOpeningBalance;
         isActualBalance = true;
-        console.log(`[Trial Balance] Account 1102 (Bank) - Using actual balance: ${actualBankBalance}`);
       } else if (account.accountCode === '1101') {
         // Cash in Hand - use actual balance from CashBook table
         closingBalance = actualCashBalance;
         openingBalance = cashOpeningBalance;
         isActualBalance = true;
-        console.log(`[Trial Balance] Account 1101 (Cash) - Using actual balance: ${actualCashBalance}`);
       } else {
         // Other accounts - calculate from journal entries
         openingBalance = balances.openingBalance;
@@ -189,7 +192,7 @@ export async function GET(request: NextRequest) {
 
     const isBalanced = Math.abs(totalDebitBalance - totalCreditBalance) < 0.01;
 
-    return NextResponse.json({
+    const result = {
       success: true,
       trialBalance,
       totalDebits: totalDebitBalance,
@@ -199,12 +202,10 @@ export async function GET(request: NextRequest) {
       accountCount: accounts.length,
       entryCount: journalEntries.length,
       asOfDate: dateFilter,
-      // Include actual balances for reference
-      actualBalances: {
-        bank: actualBankBalance,
-        cash: actualCashBalance
-      }
-    });
+      actualBalances: { bank: actualBankBalance, cash: actualCashBalance }
+    };
+    cache.set(cacheKey, result, CacheTTL.LONG); // 5 min
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Trial balance fetch error:', error);
     return NextResponse.json(

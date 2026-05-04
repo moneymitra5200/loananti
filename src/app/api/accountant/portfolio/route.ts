@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
 
 // GET - Loan portfolio summary for a company
 export async function GET(request: NextRequest) {
@@ -10,6 +11,10 @@ export async function GET(request: NextRequest) {
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
+
+    const cacheKey = `accountant:portfolio:${companyId}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
 
     // Get active loans for company with EMI schedules
     const loans = await db.loanApplication.findMany({
@@ -30,7 +35,8 @@ export async function GET(request: NextRequest) {
             interestAmount: true
           }
         }
-      }
+      },
+      take: 200,
     });
 
     // Get offline loans
@@ -49,7 +55,8 @@ export async function GET(request: NextRequest) {
             paidAmount: true
           }
         }
-      }
+      },
+      take: 200,
     });
 
     // Calculate totals
@@ -101,7 +108,7 @@ export async function GET(request: NextRequest) {
     const npaAmount = npaLoans.reduce((sum, e) => 
       sum + (e.principalAmount || 0) + (e.interestAmount || 0), 0);
 
-    return NextResponse.json({
+    const result = {
       totalLoans,
       totalDisbursed,
       totalOutstanding,
@@ -109,7 +116,9 @@ export async function GET(request: NextRequest) {
       totalPrincipalCollected,
       npaCount: npaLoans.length,
       npaAmount
-    });
+    };
+    cache.set(cacheKey, result, CacheTTL.LONG); // 5 min
+    return NextResponse.json(result);
 
   } catch (error) {
     console.error('Portfolio error:', error);

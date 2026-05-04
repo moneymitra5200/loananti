@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,12 +34,18 @@ export async function GET(request: NextRequest) {
       take: 100
     });
 
-    return NextResponse.json({
+    const cacheKey = `accountant:cashbook:${companyId}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
+
+    const result = {
       cashBookId: cashBook.id,
       openingBalance: cashBook.openingBalance || 0,
       currentBalance: cashBook.currentBalance,
       entries
-    });
+    };
+    cache.set(cacheKey, result, CacheTTL.SHORT); // 30s — balance changes frequently
+    return NextResponse.json(result);
 
   } catch (error) {
     console.error('Error fetching cashbook:', error);

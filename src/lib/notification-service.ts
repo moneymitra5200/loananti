@@ -94,14 +94,34 @@ export async function createNotification(data: CreateNotificationData) {
     emitToUser(data.userId, 'dashboard:refresh');
     // ──────────────────────────────────────────────────────────────────────
 
-    // Also send push notification
-    await sendPushNotificationToUser({
+    // Push notification: fire-and-forget (non-blocking)
+    // Previously awaited — this caused 200-500ms delay per notification
+    sendPushNotificationToUser({
       userId: data.userId,
       title: data.title,
       body: data.message,
       actionUrl: data.actionUrl,
       data: data.data,
-    });
+    }).catch(() => { /* non-critical — push fails silently */ });
+
+    // Auto-cleanup: if user has >150 notifications, delete oldest read ones in background
+    // Prevents table growing to 500k+ rows over months
+    db.notification.count({ where: { userId: data.userId } }).then(count => {
+      if (count > 150) {
+        db.notification.findMany({
+          where: { userId: data.userId, isRead: true },
+          orderBy: { createdAt: 'asc' },
+          take: 50,
+          select: { id: true },
+        }).then(old => {
+          if (old.length > 0) {
+            db.notification.deleteMany({
+              where: { id: { in: old.map(n => n.id) } },
+            }).catch(() => { /* non-critical */ });
+          }
+        }).catch(() => { /* non-critical */ });
+      }
+    }).catch(() => { /* non-critical */ });
 
     return { success: true, notification };
   } catch (error) {
