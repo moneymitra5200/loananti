@@ -118,17 +118,16 @@ export async function dbWithRetry<T>(
     } catch (err: any) {
       const msg: string = err?.message || '';
 
-      // ── Prisma Rust panic: MUST exit immediately ──────────────────────────
-      // A panic leaves a zombie engine in memory. Retrying makes it worse.
-      // process.exit(1) lets Hostinger auto-restart with a clean engine.
+      // ── Prisma Rust panic: log and re-throw, let global handler decide ────
+      // DO NOT call process.exit() here — it creates restart loops when the
+      // panic is caught inside a try-catch. The global uncaughtException handler
+      // in server.js handles true unhandled panics cleanly.
       const isRustPanic = err?.name === 'PrismaClientRustPanicError' ||
         msg.includes('PANIC') ||
         msg.includes('timer has gone away');
       if (isRustPanic) {
-        console.error('[DB] 🔴 Prisma engine panic in dbWithRetry — forcing clean restart');
-        // Small delay so the error can be logged before process dies
-        setTimeout(() => process.exit(1), 100);
-        throw err; // surface to caller while restart is scheduled
+        console.error('[DB] 🔴 Prisma engine panic detected — re-throwing');
+        throw err;
       }
 
       const isConnectionError =
@@ -157,15 +156,15 @@ export async function dbWithRetry<T>(
 }
 
 /**
- * Call this in any API catch block when you catch a Prisma panic.
- * Schedules a clean process restart in 200ms (enough time to send the error response).
+ * Log a Prisma error for diagnostics. Does NOT exit the process.
+ * The global uncaughtException handler in server.js handles true panics.
  */
 export function handlePrismaError(err: any): void {
   const msg: string = err?.message || '';
   const isPanic = err?.name === 'PrismaClientRustPanicError' ||
     msg.includes('PANIC') || msg.includes('timer has gone away');
   if (isPanic) {
-    console.error('[DB] 🔴 Prisma panic detected — scheduling clean restart in 200ms');
-    setTimeout(() => process.exit(1), 200);
+    console.error('[DB] 🔴 Prisma panic caught in route handler:', msg.substring(0, 120));
+    // DO NOT process.exit() — would restart loop if called in a request handler
   }
 }
