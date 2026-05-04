@@ -106,3 +106,49 @@ export function emitPaymentReceived(data: {
     if (data.companyId) io.to(`company:${data.companyId}`).emit('payment:received', data);
   } catch { /* non-critical */ }
 }
+
+/**
+ * Invalidate server-side report caches after a write operation
+ * and notify all relevant clients to re-fetch instantly.
+ * Call this after EMI payments, credit changes, or loan updates.
+ */
+export function emitReportInvalidate(options: {
+  userId?: string;
+  companyId?: string;
+  type: 'payment' | 'credit' | 'loan' | 'all';
+}) {
+  try {
+    // Import cache lazily to avoid circular deps
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { cache } = require('./cache');
+
+    // Clear the relevant caches so next request fetches fresh data
+    if (options.type === 'payment' || options.type === 'all') {
+      const today = new Date().toISOString().split('T')[0];
+      cache.deletePattern('report:day-end-cash:');
+      cache.deletePattern('report:emi-today:');
+      cache.deletePattern(`collection:today-calc:${today}`);
+      cache.deletePattern('money-summary:');
+      cache.deletePattern('analytics:emi-collection:');
+    }
+    if (options.type === 'credit' || options.type === 'all') {
+      cache.delete('money-summary:users-credit');
+      cache.delete('money-summary:companies');
+      cache.deletePattern('credit:summary:');
+      cache.deletePattern('dashboard:stats:');
+    }
+    if (options.type === 'loan' || options.type === 'all') {
+      cache.deletePattern('active-loans:');
+      cache.deletePattern('loans:');
+      cache.deletePattern('dashboard:stats:');
+    }
+
+    // Push socket events so open tabs re-fetch immediately
+    const io = getIO();
+    if (!io) return;
+    io.to('role:SUPER_ADMIN').emit('report:invalidated', { type: options.type });
+    if (options.companyId) io.to(`company:${options.companyId}`).emit('report:invalidated', { type: options.type });
+    if (options.userId)    io.to(`user:${options.userId}`).emit('report:invalidated', { type: options.type });
+  } catch { /* non-critical */ }
+}
+

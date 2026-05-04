@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { getCompany3Id, recordEMIPaymentAccounting, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
-
+import { emitReportInvalidate } from '@/lib/socket-emit';
+import { invalidateLoanCache, invalidatePaymentCache } from '@/lib/cache';
 
 export async function POST(request: NextRequest) {
   try {
@@ -1806,6 +1807,18 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── Invalidate caches + push real-time update to all open tabs ──────────
+    // Fire-and-forget: non-blocking, won't delay the success response
+    try {
+      invalidatePaymentCache();
+      invalidateLoanCache(loanId);
+      emitReportInvalidate({
+        userId: paidBy,
+        companyId: companyId || emi.loanApplication?.companyId || undefined,
+        type: 'payment',
+      });
+    } catch { /* non-critical */ }
+
     return NextResponse.json({
       success: true,
       message: getPaymentSuccessMessage(paymentType, paidAmount, remainingPrincipal),
@@ -1827,6 +1840,7 @@ export async function POST(request: NextRequest) {
         receiptNumber: payment.receiptNumber
       }
     });
+
 
   } catch (error) {
     console.error('EMI payment error:', error);

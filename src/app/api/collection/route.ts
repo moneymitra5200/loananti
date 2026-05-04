@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache, CacheTTL } from '@/lib/cache';
 
 // Local type definition - Prisma schema uses strings, not enums
 
@@ -22,21 +23,22 @@ export async function GET(request: NextRequest) {
 
       // If no record exists, calculate from transactions
       if (!todayCollection) {
+        // Cache the calculated summary for 90 seconds
+        const txCacheKey = `collection:today-calc:${today.toISOString().split('T')[0]}`;
+        const txCached = cache.get<object>(txCacheKey);
+        if (txCached) return NextResponse.json({ success: true, collection: txCached, fromTransactions: true, cached: true });
+
         const todayTransactions = await db.creditTransaction.findMany({
-          where: {
-            createdAt: { gte: today },
-            transactionType: 'CREDIT_INCREASE'
-          },
-          include: {
-            user: { select: { role: true } }
-          }
+          where: { createdAt: { gte: today }, transactionType: 'CREDIT_INCREASE' },
+          include: { user: { select: { role: true } } },
+          take: 300, // Safety cap
         });
 
         const summary = {
           date: today,
           totalCash: todayTransactions.filter(t => t.paymentMode === 'CASH').reduce((sum, t) => sum + t.amount, 0),
           totalCheque: todayTransactions.filter(t => t.paymentMode === 'CHEQUE').reduce((sum, t) => sum + t.amount, 0),
-          totalOnline: todayTransactions.filter(t => t.paymentMode === 'ONLINE' || t.paymentMode === 'UPI' || t.paymentMode === 'BANK_TRANSFER').reduce((sum, t) => sum + t.amount, 0),
+          totalOnline: todayTransactions.filter(t => ['ONLINE', 'UPI', 'BANK_TRANSFER'].includes(t.paymentMode)).reduce((sum, t) => sum + t.amount, 0),
           totalAmount: todayTransactions.reduce((sum, t) => sum + t.amount, 0),
           totalTransactions: todayTransactions.length,
           emiPaymentsCount: todayTransactions.filter(t => t.sourceType === 'EMI_PAYMENT').length,
@@ -46,9 +48,10 @@ export async function GET(request: NextRequest) {
           agentCollection: todayTransactions.filter(t => t.user?.role === 'AGENT').reduce((sum, t) => sum + t.amount, 0),
           staffCollection: todayTransactions.filter(t => t.user?.role === 'STAFF').reduce((sum, t) => sum + t.amount, 0),
           cashierCollection: todayTransactions.filter(t => t.user?.role === 'CASHIER').reduce((sum, t) => sum + t.amount, 0),
-          customerDirect: todayTransactions.filter(t => t.user?.role === 'CUSTOMER').reduce((sum, t) => sum + t.amount, 0)
+          customerDirect: todayTransactions.filter(t => t.user?.role === 'CUSTOMER').reduce((sum, t) => sum + t.amount, 0),
         };
 
+        cache.set(txCacheKey, summary, 90_000); // 90s cache for today's running total
         return NextResponse.json({ success: true, collection: summary, fromTransactions: true });
       }
 

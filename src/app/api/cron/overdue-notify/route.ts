@@ -31,13 +31,12 @@ export async function GET(request: NextRequest) {
     errors: [] as string[],
   };
 
-  // ── Helper: send notification to a user ──────────────────────────────────
-  async function notify(userId: string, title: string, body: string, actionUrl: string, data?: Record<string, string>) {
-    try {
-      await sendPushNotificationToUser({ userId, title, body, actionUrl, data });
-    } catch (err: any) {
-      stats.errors.push(`User ${userId}: ${err.message}`);
-    }
+  // ── Helper: fire-and-forget push notification (non-blocking) ─────────────
+  // IMPORTANT: NOT awaited — prevents sequential blocking on 200 Firebase calls.
+  // Each push call is independent; failure of one doesn't affect others.
+  function notify(userId: string, title: string, body: string, actionUrl: string, data?: Record<string, string>) {
+    sendPushNotificationToUser({ userId, title, body, actionUrl, data })
+      .catch((err: any) => { stats.errors.push(`User ${userId}: ${err.message}`); });
   }
 
   // ── Fetch Super Admin user IDs (for batch notification) ──────────────────
@@ -239,7 +238,7 @@ export async function GET(request: NextRequest) {
     stats.errors.push(`Offline loans error: ${err.message}`);
   }
 
-  // ── Log cron run to SA notifications panel ────────────────────────────────
+  // ── Log cron run — single createMany instead of N separate creates ────────
   const slot = now.getUTCHours() < 8
     ? '🌅 Morning'
     : now.getUTCHours() < 14
@@ -247,16 +246,18 @@ export async function GET(request: NextRequest) {
     : '🌆 Evening';
 
   try {
-    for (const sa of superAdmins) {
-      await db.notification.create({
-        data: {
+    if (superAdmins.length > 0) {
+      // createMany = 1 DB write for all admins instead of N separate writes
+      await db.notification.createMany({
+        data: superAdmins.map(sa => ({
           userId: sa.id,
           type: 'SYSTEM',
           category: 'SYSTEM',
           priority: 'LOW',
           title: `${slot} Overdue Alert Cron Completed`,
-          message: `Ran at ${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST. Online overdue: ${stats.onlineOverdue}, Offline overdue: ${stats.offlineOverdue}. Customer notifications: ${stats.customerNotifications}, Staff notifications: ${stats.staffNotifications}.${stats.errors.length > 0 ? ` Errors: ${stats.errors.length}` : ' ✅ No errors.'}`,
-        },
+          message: `Ran at ${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST. Online: ${stats.onlineOverdue}, Offline: ${stats.offlineOverdue}. Notified: ${stats.customerNotifications + stats.staffNotifications}.${stats.errors.length > 0 ? ` Errors: ${stats.errors.length}` : ' ✅ No errors.'}`,
+        })),
+        skipDuplicates: true,
       });
     }
   } catch { /* non-critical */ }
