@@ -32,14 +32,14 @@ const buildDatabaseUrl = () => {
 
   if (host && user && pass && name) {
     const encodedPass = encodeURIComponent(pass); // safely encodes @ → %40
-    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=1&connect_timeout=30&pool_timeout=30`;
+    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=3&connect_timeout=15&pool_timeout=15`;
   }
 
   // Fallback: use DATABASE_URL as-is (for local dev where .env has %40 already)
   const base = process.env.DATABASE_URL || '';
   if (base.includes('connection_limit')) return base;
   const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}connection_limit=1&connect_timeout=10&pool_timeout=10`;
+  return `${base}${sep}connection_limit=3&connect_timeout=15&pool_timeout=15`;
 };
 
 const prismaClientSingleton = () => {
@@ -82,6 +82,22 @@ globalForPrisma.prisma = db;
 // Graceful shutdown
 process.on('beforeExit', async () => {
   await db.$disconnect();
+});
+
+// ── CRITICAL: Exit immediately on Prisma engine panic ────────────────────────
+// A Prisma RustPanic leaves a zombie engine in memory that never gets freed.
+// Calling process.exit(1) lets Hostinger auto-restart with a clean engine.
+// This is the #1 cause of RAM growing to 100% in 15-20 minutes.
+process.on('uncaughtException', (err: any) => {
+  const isPanic = err?.name === 'PrismaClientRustPanicError' ||
+    (err?.message || '').includes('PANIC') ||
+    (err?.message || '').includes('timer has gone away');
+  if (isPanic) {
+    console.error('[DB] 🔴 Prisma engine panic — restarting process for clean recovery');
+    process.exit(1);
+  }
+  // Re-throw non-panic errors so other handlers can log them
+  console.error('[DB] Uncaught exception:', err?.message || err);
 });
 
 /**

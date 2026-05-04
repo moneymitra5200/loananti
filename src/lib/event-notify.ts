@@ -112,34 +112,31 @@ export function notifyEvent(payload: NotifyEventPayload): void {
       const notificationData = payload.data ?? {};
       const actionUrl = payload.actionUrl ?? '/';
 
-      // 1. Send push notification to each role
-      await Promise.all(
-        roles.map(role =>
-          sendPushNotificationToRole(role, {
+      // 1. Send push notification to each role SEQUENTIALLY
+      //    (avoid concurrent DB queries that cause Prisma panic on connection_limit=1)
+      for (const role of roles) {
+        await sendPushNotificationToRole(role, {
+          title: payload.title,
+          body: payload.body,
+          data: { ...notificationData, type: payload.event, actionUrl },
+          actionUrl,
+        }).catch(() => { /* non-critical */ });
+      }
+
+      // 2. Send push notification to specific users (e.g. customers) SEQUENTIALLY
+      if (payload.notifyUserIds?.length) {
+        for (const uid of payload.notifyUserIds) {
+          await sendPushNotificationToUser({
+            userId: uid,
             title: payload.title,
             body: payload.body,
             data: { ...notificationData, type: payload.event, actionUrl },
             actionUrl,
-          })
-        )
-      );
-
-      // 2. Send push notification to specific users (e.g. customers)
-      if (payload.notifyUserIds?.length) {
-        await Promise.all(
-          payload.notifyUserIds.map(uid =>
-            sendPushNotificationToUser({
-              userId: uid,
-              title: payload.title,
-              body: payload.body,
-              data: { ...notificationData, type: payload.event, actionUrl },
-              actionUrl,
-            })
-          )
-        );
+          }).catch(() => { /* non-critical */ });
+        }
       }
 
-      // 3. Emit socket events for real-time UI update
+      // 3. Emit socket events for real-time UI update (no DB queries)
       emitSocketEvent(
         payload.event,
         roles,

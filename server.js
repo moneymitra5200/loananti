@@ -6,8 +6,26 @@
  * - Memory-safe: process limit stays well below 120
  */
 
-process.on('uncaughtException',  (err)    => console.error('[server] Uncaught exception:', err?.message || err));
-process.on('unhandledRejection', (reason) => console.error('[server] Unhandled rejection:', reason));
+process.on('uncaughtException', (err) => {
+  const msg = err?.message || '';
+  const isPanic = err?.name === 'PrismaClientRustPanicError' ||
+    msg.includes('PANIC') || msg.includes('timer has gone away');
+  if (isPanic) {
+    console.error('[server] 🔴 Prisma panic — restarting for clean recovery:', msg);
+    process.exit(1); // Hostinger auto-restarts → clean engine, no zombie RAM
+  }
+  console.error('[server] Uncaught exception:', msg || err);
+});
+process.on('unhandledRejection', (reason) => {
+  const msg = (reason as any)?.message || String(reason);
+  const isPanic = (reason as any)?.name === 'PrismaClientRustPanicError' ||
+    msg.includes('PANIC') || msg.includes('timer has gone away');
+  if (isPanic) {
+    console.error('[server] 🔴 Prisma panic (rejection) — restarting:', msg);
+    process.exit(1);
+  }
+  console.error('[server] Unhandled rejection:', msg);
+});
 
 const { createServer } = require('http');
 const { parse }        = require('url');
@@ -87,6 +105,20 @@ app.prepare().then(() => {
       if (entry.windowStart < cutoff) rateLimitMap.delete(ip);
     }
   }, 120_000);
+
+  // ── Fix 4: Memory Watchdog — restart before hitting 100% ────────────────────
+  // Checks every 5 minutes. If RSS > 420MB (82% of 512MB limit),
+  // exits cleanly so Hostinger restarts with fresh memory.
+  // This is the last line of defence against memory leaks.
+  setInterval(() => {
+    const rss = process.memoryUsage().rss;
+    const rssMb = Math.round(rss / 1024 / 1024);
+    console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
+    if (rss > 420 * 1024 * 1024) {
+      console.error(`[server] 🔴 Memory ${rssMb}MB > 420MB limit — restarting for clean state`);
+      process.exit(1); // Hostinger auto-restarts
+    }
+  }, 5 * 60 * 1000); // every 5 minutes
 
   io.on('connection', (socket) => {
     socket.on('register', ({ userId, role }) => {

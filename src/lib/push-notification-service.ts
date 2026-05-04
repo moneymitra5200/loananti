@@ -115,26 +115,21 @@ export async function sendPushNotificationToRole(
   }
 ): Promise<{ success: boolean; totalSent: number; pushSent: number; errors: string[] }> {
   try {
-    // Get all users with this role who have FCM tokens
-    const users = await db.user.findMany({
-      where: {
-        role: role as any,
-        isActive: true,
-        notificationEnabled: true,
-        fcmToken: { not: null },
-      },
-      select: { id: true, fcmToken: true },
+    // ONE query: get all active users with this role — then split in JS
+    // (was 2 queries before → halves DB load per notification)
+    const allUsersWithRole = await db.user.findMany({
+      where: { role: role as any, isActive: true },
+      select: { id: true, fcmToken: true, notificationEnabled: true },
     });
+
+    // Split: those with FCM tokens (can receive push) vs all (get in-app bell)
+    const usersWithFcm = allUsersWithRole.filter(
+      u => u.fcmToken && u.notificationEnabled !== false
+    );
 
     const errors: string[] = [];
 
-    // Create in-app notifications for ALL users with this role (not just those with FCM)
-    const allUsersWithRole = await db.user.findMany({
-      where: { role: role as any, isActive: true },
-      select: { id: true },
-    });
-
-    // Batch create in-app notifications
+    // Batch create in-app notifications for ALL users with this role
     if (allUsersWithRole.length > 0) {
       await db.notification.createMany({
         data: allUsersWithRole.map(u => ({
@@ -150,10 +145,10 @@ export async function sendPushNotificationToRole(
       });
     }
 
-    // Send push notifications to users with FCM tokens
+    // Send FCM push to users who have tokens
     let pushSent = 0;
-    if (users.length > 0) {
-      const tokens = users.map(u => u.fcmToken).filter(Boolean) as string[];
+    if (usersWithFcm.length > 0) {
+      const tokens = usersWithFcm.map(u => u.fcmToken).filter(Boolean) as string[];
       const pushResult = await sendPushNotificationToMany(tokens, {
         title: notification.title,
         body: notification.body,
