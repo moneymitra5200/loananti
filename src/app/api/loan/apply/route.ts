@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
+import { sendPushNotificationToRole } from '@/lib/push-notification-service';
 
 // Loan type to code mapping
 const LOAN_TYPE_CODES: Record<string, string> = {
@@ -165,6 +166,38 @@ export async function POST(request: NextRequest) {
         ipAddress: request.headers.get('x-forwarded-for') || 'unknown'
       }
     });
+
+    // ── Notify ALL SUPER_ADMINs and COMPANY users instantly (fire-and-forget) ──
+    // Don't await — customer should get instant response
+    const notifyTitle = `🏦 New Loan Application`;
+    const notifyBody  = `${loanTypeValue} loan of ₹${Number(requestedAmount).toLocaleString('en-IN')} submitted. App#: ${applicationNo}`;
+    const notifyData  = { loanId: loan.id, applicationNo, type: 'NEW_LOAN_APPLICATION', actionUrl: '/super-admin/loans' };
+
+    Promise.all([
+      sendPushNotificationToRole('SUPER_ADMIN', {
+        title: notifyTitle,
+        body: notifyBody,
+        data: notifyData,
+        actionUrl: '/super-admin/loans',
+      }),
+      sendPushNotificationToRole('COMPANY', {
+        title: notifyTitle,
+        body: notifyBody,
+        data: notifyData,
+        actionUrl: '/company/loans',
+      }),
+    ]).catch(() => {});
+
+    // Emit real-time socket event so dashboards refresh immediately
+    try {
+      const io = (global as any).io;
+      if (io) {
+        io.to('role:SUPER_ADMIN').emit('loan:new', { loanId: loan.id, applicationNo, loanType: loanTypeValue });
+        io.to('role:SUPER_ADMIN').emit('dashboard:refresh');
+        io.to('role:COMPANY').emit('loan:new',  { loanId: loan.id, applicationNo, loanType: loanTypeValue });
+        io.to('role:COMPANY').emit('dashboard:refresh');
+      }
+    } catch { /* socket not available */ }
 
     return NextResponse.json({
       success: true,

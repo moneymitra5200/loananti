@@ -4,6 +4,7 @@ import { identifyCompanyType } from '@/lib/mirror-company-utils';
 import { invalidateLoanCache } from '@/lib/cache';
 import NotificationService from '@/lib/notification-service';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
+import { sendPushNotificationToRole, sendPushNotificationToUser } from '@/lib/push-notification-service';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type LoanStatus = 'SUBMITTED' | 'SA_APPROVED' | 'COMPANY_APPROVED' | 'AGENT_APPROVED_STAGE1' | 'LOAN_FORM_COMPLETED' | 'SESSION_CREATED' | 'CUSTOMER_SESSION_APPROVED' | 'FINAL_APPROVED' | 'ACTIVE' | 'ACTIVE_INTEREST_ONLY' | 'REJECTED_BY_SA' | 'REJECTED_BY_COMPANY' | 'REJECTED_FINAL' | 'SESSION_REJECTED' | 'CANCELLED' | 'CLOSED' | 'DISBURSED';
@@ -808,16 +809,68 @@ async function processSingleApproval({
     try {
       const parallelOps: Promise<unknown>[] = [];
       
-      // ============ ENHANCED NOTIFICATIONS ============
-      // Determine the actual status for notifications (may be different for INTEREST_ONLY loans)
+      // ============ NOTIFY SUPER_ADMIN on every workflow transition ============
+      // Determine the actual status for notifications (may be ACTIVE_INTEREST_ONLY for interest-only loans)
       const actualStatus = (updateData.status as string) || nextStatus;
-      
+
+      // Super Admin must know whenever ANY status changes in the system
+      const statusLabels: Record<string, string> = {
+        SA_APPROVED:              '✅ Application SA Approved — Awaiting Company Assignment',
+        COMPANY_APPROVED:         '✅ Company Approved — Awaiting Agent Assignment',
+        AGENT_APPROVED_STAGE1:    '✅ Agent Approved — Staff Verification Pending',
+        LOAN_FORM_COMPLETED:      '📋 Form Completed — Session Creation Pending',
+        SESSION_CREATED:          '📄 Sanction Sent — Awaiting Customer Approval',
+        CUSTOMER_SESSION_APPROVED:'❗ Customer Approved Sanction — Your Final Action Required',
+        FINAL_APPROVED:           '✅ Final Approval Done — Ready for Disbursement',
+        ACTIVE:                   '💰 Loan Disbursed — Loan is Now Active',
+        ACTIVE_INTEREST_ONLY:     '💰 Interest-Only Loan Disbursed — Active',
+        REJECTED_BY_SA:           '❌ Rejected by SA',
+        REJECTED_BY_COMPANY:      '❌ Rejected by Company',
+        REJECTED_FINAL:           '❌ Final Rejection',
+        SESSION_REJECTED:         '❌ Customer Rejected Sanction',
+        CLOSED:                   '🔒 Loan Closed',
+      };
+      const saStatusLabel = statusLabels[actualStatus] || `Status: ${actualStatus}`;
+
+      // Always notify SUPER_ADMIN of every transition
+      parallelOps.push(
+        sendPushNotificationToRole('SUPER_ADMIN', {
+          title: `🏦 Loan Update: ${loan.applicationNo}`,
+          body: saStatusLabel,
+          data: { loanId: loan.id, applicationNo: loan.applicationNo, status: actualStatus, type: 'LOAN_WORKFLOW', actionUrl: '/super-admin/loans' },
+          actionUrl: '/super-admin/loans',
+        })
+      );
+
+      // Notify CASHIER when loan is FINAL_APPROVED (ready for disbursement)
+      if (actualStatus === 'FINAL_APPROVED') {
+        parallelOps.push(
+          sendPushNotificationToRole('CASHIER', {
+            title: '💸 Loan Ready for Disbursement',
+            body: `Loan ${loan.applicationNo} is final approved. Please disburse the amount.`,
+            data: { loanId: loan.id, applicationNo: loan.applicationNo, type: 'LOAN_WORKFLOW', actionUrl: '/cashier/loans' },
+            actionUrl: '/cashier/loans',
+          })
+        );
+      }
+
+      // Notify AGENT when SA approves (SA_APPROVED stage)
+      if (actualStatus === 'SA_APPROVED') {
+        parallelOps.push(
+          sendPushNotificationToRole('AGENT', {
+            title: '👍 SA Approved Application',
+            body: `Application ${loan.applicationNo} has been SA approved. Assign to a company/agent.`,
+            data: { loanId: loan.id, applicationNo: loan.applicationNo, type: 'LOAN_WORKFLOW', actionUrl: '/agent/loans' },
+            actionUrl: '/agent/loans',
+          })
+        );
+      }
+
       // Send notification to customer
       if (loan.customerId) {
         const notificationPromises: Promise<unknown>[] = [];
         
         if (actualStatus === 'FINAL_APPROVED') {
-          // Loan approved notification
           notificationPromises.push(
             NotificationService.sendLoanStatusNotification(loan.customerId, {
               status: 'FINAL_APPROVED',
@@ -827,7 +880,6 @@ async function processSingleApproval({
             })
           );
         } else if (actualStatus === 'ACTIVE' || actualStatus === 'ACTIVE_INTEREST_ONLY') {
-          // Loan disbursed notification
           notificationPromises.push(
             NotificationService.sendLoanStatusNotification(loan.customerId, {
               status: 'DISBURSED',
@@ -837,7 +889,6 @@ async function processSingleApproval({
             })
           );
         } else if (actualStatus === 'SESSION_CREATED') {
-          // Session created notification
           notificationPromises.push(
             NotificationService.createNotification({
               userId: loan.customerId,
@@ -852,7 +903,6 @@ async function processSingleApproval({
             })
           );
         } else if (['REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED'].includes(actualStatus)) {
-          // Rejection notification
           notificationPromises.push(
             NotificationService.sendLoanStatusNotification(loan.customerId, {
               status: actualStatus,
@@ -863,13 +913,12 @@ async function processSingleApproval({
           );
         }
         
-        // Execute all customer notifications
         for (const p of notificationPromises) {
           parallelOps.push(p);
         }
       }
       
-      // Notify assigned users (Agent/Staff/Company) about status changes
+      // Notify assigned Agent when assigned
       if (agentId && actualStatus === 'AGENT_APPROVED_STAGE1') {
         parallelOps.push(
           NotificationService.createNotification({
@@ -882,6 +931,16 @@ async function processSingleApproval({
             actionUrl: `/agent/application/${loan.id}`,
             actionText: 'View Application',
             data: { loanId: loan.id },
+          })
+        );
+        // Also send push to specific agent
+        parallelOps.push(
+          sendPushNotificationToUser({
+            userId: agentId,
+            title: '📎 New Application Assigned',
+            body: `Application ${loan.applicationNo} assigned to you. Please process.`,
+            data: { loanId: loan.id, type: 'LOAN_WORKFLOW', actionUrl: `/agent/application/${loan.id}` },
+            actionUrl: `/agent/application/${loan.id}`,
           })
         );
       }
