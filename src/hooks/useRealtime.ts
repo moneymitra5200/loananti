@@ -21,11 +21,9 @@ interface UseRealtimeOptions {
 let socketInstance: Socket | null = null;
 let connectionCount = 0;
 
-// Check if WebSocket is available
-// Disabled on Hostinger shared hosting — persistent connections cause 503 errors.
-// The polling fallback (every 5 min) handles real-time updates instead.
+// WebSocket enabled — using same-origin connection (no separate port needed)
 const isWebSocketAvailable = (): boolean => {
-  return false; // ← Hostinger shared hosting: polling-only mode
+  return typeof window !== 'undefined';
 };
 
 export function useRealtime(options: UseRealtimeOptions = {}) {
@@ -75,11 +73,11 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
 
     if (!socketInstance) {
       try {
-        socketInstance = io('/?XTransformPort=3005', {
-          transports: ['websocket', 'polling'],
+        socketInstance = io('/', {
+          transports: ['polling', 'websocket'],
           reconnection: true,
           reconnectionAttempts: 5,
-          reconnectionDelay: 2000,
+          reconnectionDelay: 3000,
         });
       } catch (error) {
         console.log('[realtime] WebSocket not available:', error);

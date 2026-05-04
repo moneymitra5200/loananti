@@ -1,7 +1,7 @@
 /**
  * Hostinger Node.js Startup Server
- * This file is executed directly by Hostinger as the startup file.
- * Set "Startup file" / "Output directory" to: server.js
+ * - Starts Next.js on the PORT provided by Hostinger
+ * - Attaches Socket.io to the same HTTP server (no extra port needed)
  */
 
 process.on('uncaughtException', (err) => {
@@ -14,13 +14,13 @@ process.on('unhandledRejection', (reason) => {
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
+const { Server } = require('socket.io');
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const hostname = '0.0.0.0';
 
-console.log(`[server] Starting Next.js on port ${port}...`);
+console.log(`[server] Starting Next.js + Socket.io on port ${port}...`);
 console.log(`[server] NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`[server] __dirname: ${__dirname}`);
 
 const app = next({
   dev: false,
@@ -32,7 +32,7 @@ const app = next({
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
-  createServer(async (req, res) => {
+  const httpServer = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url, true);
       await handle(req, res, parsedUrl);
@@ -41,9 +41,46 @@ app.prepare().then(() => {
       res.statusCode = 500;
       res.end('internal server error');
     }
-  }).listen(port, hostname, (err) => {
+  });
+
+  // Attach Socket.io to the same HTTP server
+  const io = new Server(httpServer, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
+    transports: ['polling', 'websocket'],
+  });
+
+  // Store io globally so API routes can emit events
+  global.io = io;
+
+  io.on('connection', (socket) => {
+    console.log(`[socket.io] Client connected: ${socket.id}`);
+
+    socket.on('register', ({ userId, role }) => {
+      if (userId) socket.join(`user:${userId}`);
+      if (role)   socket.join(`role:${role}`);
+      console.log(`[socket.io] Registered user ${userId} as ${role}`);
+    });
+
+    socket.on('join-company', (companyId) => {
+      if (companyId) socket.join(`company:${companyId}`);
+    });
+
+    socket.on('request-refresh', () => {
+      socket.emit('dashboard:refresh');
+    });
+
+    socket.on('disconnect', () => {
+      console.log(`[socket.io] Client disconnected: ${socket.id}`);
+    });
+  });
+
+  httpServer.listen(port, hostname, (err) => {
     if (err) throw err;
     console.log(`[server] ✅ Ready on http://${hostname}:${port}`);
+    console.log(`[server] ✅ Socket.io attached on same port`);
   });
 }).catch((err) => {
   console.error('[server] Failed to start:', err);
