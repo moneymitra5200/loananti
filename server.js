@@ -49,6 +49,45 @@ app.prepare().then(() => {
 
   global.io = io;
 
+  // ── Simple in-memory rate limiter (prevents API hammering) ──────────────────
+  // Tracks: IP -> { count, windowStart }
+  const rateLimitMap = new Map();
+  const RATE_LIMIT_WINDOW_MS = 10_000;  // 10 seconds
+  const RATE_LIMIT_MAX_REQS  = 25;       // max 25 requests per 10s per IP
+  const HEAVY_ROUTES = ['/api/emi/pay', '/api/loan/all-active', '/api/notification', '/api/reports/', '/api/accountant/'];
+
+  const originalHandle = handle;
+  global.rateLimitedHandle = async (req, res, parsedUrl) => {
+    const isHeavy = HEAVY_ROUTES.some(r => req.url?.startsWith(r));
+    if (isHeavy) {
+      const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
+      const now = Date.now();
+      const entry = rateLimitMap.get(ip) || { count: 0, windowStart: now };
+      if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
+        entry.count = 1; entry.windowStart = now;
+      } else {
+        entry.count++;
+      }
+      rateLimitMap.set(ip, entry);
+      if (entry.count > RATE_LIMIT_MAX_REQS) {
+        res.statusCode = 429;
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Retry-After', '10');
+        res.end(JSON.stringify({ error: 'Too many requests. Please slow down.' }));
+        return;
+      }
+    }
+    return originalHandle(req, res, parsedUrl);
+  };
+
+  // Clean rate limit map every 2 min to avoid unbounded growth
+  setInterval(() => {
+    const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS * 2;
+    for (const [ip, entry] of rateLimitMap.entries()) {
+      if (entry.windowStart < cutoff) rateLimitMap.delete(ip);
+    }
+  }, 120_000);
+
   io.on('connection', (socket) => {
     socket.on('register', ({ userId, role }) => {
       if (userId) socket.join(`user:${userId}`);
@@ -58,6 +97,25 @@ app.prepare().then(() => {
     socket.on('request-refresh', ()  => { socket.emit('dashboard:refresh'); });
     socket.on('disconnect',      ()  => { /* no-op */ });
   });
+
+  // ── Socket.io room cleanup every 30 min — prevents RAM accumulation from dead sessions
+  setInterval(() => {
+    try {
+      const adapter = io.sockets.adapter;
+      const rooms = adapter.rooms;
+      let cleaned = 0;
+      for (const [roomId, socketsInRoom] of rooms.entries()) {
+        // Skip built-in socket rooms (they are socket IDs)
+        if (adapter.sids.has(roomId)) continue;
+        // If a named room has 0 actual sockets, delete it
+        if (socketsInRoom.size === 0) {
+          rooms.delete(roomId);
+          cleaned++;
+        }
+      }
+      if (cleaned > 0) console.log(`[server] 🧹 Cleaned ${cleaned} empty socket rooms`);
+    } catch { /* non-critical */ }
+  }, 30 * 60 * 1000); // every 30 min
 
   // ── Cron helper ──────────────────────────────────────────────────────────────
   async function callCron(path, label) {
@@ -76,10 +134,27 @@ app.prepare().then(() => {
   cron.schedule('30 13 * * *', () => callCron('/api/cron/overdue-notify', '🌆 Evening overdue'),   { timezone: 'UTC' });
   cron.schedule('30 18 * * *', () => callCron('/api/cron/auto-penalty',   '⚡ Auto-penalty'),      { timezone: 'UTC' });
 
+  // ── Daily audit log cleanup: delete AuditLog + LocationLog older than 6 months ──
+  // Runs at 2:00 AM UTC (7:30 AM IST) — low traffic time
+  cron.schedule('0 20 * * *', async () => {
+    try {
+      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      // Lazy import prisma only when needed (avoid module load at startup)
+      const { db } = require('./src/lib/db');
+      const [auditDeleted, locationDeleted] = await Promise.all([
+        db.auditLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
+        db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
+      ]);
+      console.log(`[cron] 🧹 Cleanup: deleted ${auditDeleted.count} audit logs + ${locationDeleted.count} location logs older than 6 months`);
+    } catch (err) {
+      console.error('[cron] ❌ Cleanup error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
   httpServer.listen(port, hostname, (err) => {
     if (err) throw err;
     console.log(`[server] ✅ Ready on http://${hostname}:${port}`);
-    console.log(`[server] ✅ Socket.io attached | Cron jobs active`);
+    console.log(`[server] ✅ Socket.io attached | Cron jobs active | Rate limiter active`);
   });
 
 }).catch((err) => {

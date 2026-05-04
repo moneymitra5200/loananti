@@ -168,11 +168,19 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Handle proof upload — accept pre-compressed base64 from client
+    // Handle proof upload — validate size (max 3MB) then store as base64
+    const MAX_PROOF_SIZE_BYTES = 3 * 1024 * 1024; // 3MB
     let proofUrl = '';
     if (proofBase64) {
+      // base64 string length × 0.75 = approximate raw byte size
+      const approxBytes = proofBase64.length * 0.75;
+      if (approxBytes > MAX_PROOF_SIZE_BYTES) {
+        return NextResponse.json(
+          { error: 'Payment proof image must be less than 3MB. Please compress the image and try again.' },
+          { status: 400 }
+        );
+      }
       proofUrl = proofBase64;
-      console.log('[EMI Pay] Proof attached as base64 string.');
     }
 
     // Calculate payment amounts based on payment type

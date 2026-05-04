@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { startOfYear, endOfYear, format } from 'date-fns';
+import { startOfYear, endOfYear } from 'date-fns';
+import { cache, CacheTTL } from '@/lib/cache';
 
 // GET - Generate Annual Report for Government of India
 export async function GET(request: NextRequest) {
@@ -12,6 +13,11 @@ export async function GET(request: NextRequest) {
 
     const startDate = startOfYear(new Date(parseInt(year)));
     const endDate = endOfYear(new Date(parseInt(year)));
+
+    // Cache 5 minutes — annual reports are heavy but change infrequently
+    const cacheKey = `accountant:annual-report:${companyId || 'all'}:${year}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
 
     // Base filter for date range
     const dateFilter = {
@@ -66,7 +72,8 @@ export async function GET(request: NextRequest) {
         loanType: true,
         customer: { select: { name: true, phone: true } },
         sessionForm: { select: { interestRate: true, tenure: true } }
-      }
+      },
+      take: 200, // cap
     });
 
     const totalDisbursed = disbursedLoans.reduce((sum, l) => sum + (l.disbursedAmount || 0), 0);
@@ -117,7 +124,8 @@ export async function GET(request: NextRequest) {
         createdAt: true,
         paymentType: true,
         paymentMode: true
-      }
+      },
+      take: 500, // cap
     });
 
     const totalCollections = collections.reduce((sum, p) => sum + p.amount, 0);
@@ -161,7 +169,8 @@ export async function GET(request: NextRequest) {
         emiSchedules: {
           select: { totalAmount: true, paidAmount: true, paymentStatus: true }
         }
-      }
+      },
+      take: 200, // cap
     });
 
     const totalOutstanding = activeLoans.reduce((sum, loan) => {
@@ -339,10 +348,9 @@ export async function GET(request: NextRequest) {
       }
     };
 
-    return NextResponse.json({
-      success: true,
-      report
-    });
+    const result = { success: true, report };
+    cache.set(cacheKey, result, CacheTTL.LONG); // 5 min
+    return NextResponse.json(result);
 
   } catch (error) {
     console.error('Error generating annual report:', error);

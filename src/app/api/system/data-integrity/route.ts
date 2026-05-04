@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { recordEMIPaymentAccounting, getCompany3Id } from '@/lib/simple-accounting';
+import { cache, CacheTTL } from '@/lib/cache';
 
 // ==========================================
 // DATA INTEGRITY CHECK & SYNC ENDPOINT
@@ -53,6 +54,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
 
+  // Cache non-autoFix results 5 min — prevents repeated full table scans
+  if (!autoFix) {
+    const cacheKey = `system:data-integrity:${userRole}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
+  }
+
   const report: IntegrityReport = {
     timestamp: new Date().toISOString(),
     checks: [],
@@ -64,101 +72,69 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    // ==========================================
     // CHECK 1: Orphan CashBook Entries
-    // ==========================================
-    console.log('[Integrity] Checking for orphan CashBook entries...');
     const orphanCashCheck = await checkOrphanAccountingEntries('CASHBOOK');
     report.checks.push(orphanCashCheck);
     if (orphanCashCheck.issues > 0) {
       report.summary.totalIssues += orphanCashCheck.issues;
-      if (orphanCashCheck.status === 'FIXED') {
-        report.summary.totalFixed += orphanCashCheck.fixed;
-      }
+      if (orphanCashCheck.status === 'FIXED') report.summary.totalFixed += orphanCashCheck.fixed;
     }
 
-    // ==========================================
     // CHECK 2: Orphan Bank Transactions
-    // ==========================================
-    console.log('[Integrity] Checking for orphan Bank transactions...');
     const orphanBankCheck = await checkOrphanAccountingEntries('BANK');
     report.checks.push(orphanBankCheck);
     if (orphanBankCheck.issues > 0) {
       report.summary.totalIssues += orphanBankCheck.issues;
-      if (orphanBankCheck.status === 'FIXED') {
-        report.summary.totalFixed += orphanBankCheck.fixed;
-      }
+      if (orphanBankCheck.status === 'FIXED') report.summary.totalFixed += orphanBankCheck.fixed;
     }
 
-    // ==========================================
     // CHECK 3: Orphan Credit Transactions
-    // ==========================================
-    console.log('[Integrity] Checking for orphan Credit transactions...');
     const orphanCreditCheck = await checkOrphanCreditTransactions();
     report.checks.push(orphanCreditCheck);
     if (orphanCreditCheck.issues > 0) {
       report.summary.totalIssues += orphanCreditCheck.issues;
-      if (orphanCreditCheck.status === 'FIXED') {
-        report.summary.totalFixed += orphanCreditCheck.fixed;
-      }
+      if (orphanCreditCheck.status === 'FIXED') report.summary.totalFixed += orphanCreditCheck.fixed;
     }
 
-    // ==========================================
     // CHECK 4: Missing Accounting Entries for Paid EMIs
-    // ==========================================
-    console.log('[Integrity] Checking for missing accounting entries...');
     const missingEntriesCheck = await checkMissingAccountingEntries(autoFix);
     report.checks.push(missingEntriesCheck);
     if (missingEntriesCheck.issues > 0) {
       report.summary.totalIssues += missingEntriesCheck.issues;
-      if (missingEntriesCheck.status === 'FIXED') {
-        report.summary.totalFixed += missingEntriesCheck.fixed;
-      }
+      if (missingEntriesCheck.status === 'FIXED') report.summary.totalFixed += missingEntriesCheck.fixed;
     }
 
-    // ==========================================
     // CHECK 5: Company-wise Data Integrity
-    // ==========================================
-    console.log('[Integrity] Checking company-wise data integrity...');
     const companyIntegrityCheck = await checkCompanyIntegrity();
     report.checks.push(companyIntegrityCheck);
     if (companyIntegrityCheck.issues > 0) {
       report.summary.totalIssues += companyIntegrityCheck.issues;
-      if (companyIntegrityCheck.status === 'FIXED') {
-        report.summary.totalFixed += companyIntegrityCheck.fixed;
+      if (companyIntegrityCheck.status === 'FIXED') report.summary.totalFixed += companyIntegrityCheck.fixed;
+    }
+
+    if (report.summary.totalIssues > 0) report.summary.status = 'ISSUES_FOUND';
+
+    // Audit log (fire-and-forget, non-critical)
+    db.auditLog.create({
+      data: {
+        userId: 'system', action: 'DATA_INTEGRITY_CHECK', module: 'SYSTEM',
+        description: `Integrity check. Issues: ${report.summary.totalIssues}, Fixed: ${report.summary.totalFixed}`,
+        oldValue: null, newValue: null, recordId: 'integrity-check', recordType: 'SYSTEM_CHECK'
       }
-    }
+    }).catch(() => {});
 
-    // Set final status
-    if (report.summary.totalIssues > 0) {
-      report.summary.status = 'ISSUES_FOUND';
-    }
-
-    // Log the integrity check
-    try {
-      await db.auditLog.create({
-        data: {
-          userId: 'system',
-          action: 'DATA_INTEGRITY_CHECK',
-          module: 'SYSTEM',
-          description: `Data integrity check completed. Issues: ${report.summary.totalIssues}, Fixed: ${report.summary.totalFixed}`,
-          oldValue: null,
-          newValue: JSON.stringify(report),
-          recordId: 'integrity-check',
-          recordType: 'SYSTEM_CHECK'
-        }
-      });
-    } catch {
-      // Ignore audit log errors
-    }
-
-    return NextResponse.json({
-      success: true,
-      report,
-      message: autoFix 
+    const response = {
+      success: true, report,
+      message: autoFix
         ? `Integrity check completed. Found ${report.summary.totalIssues} issues, fixed ${report.summary.totalFixed}.`
         : `Integrity check completed. Found ${report.summary.totalIssues} issues. Run with autoFix=true to fix.`
-    });
+    };
+
+    // Cache read-only results 5 min (not autoFix — autoFix mutates data)
+    if (!autoFix) {
+      cache.set(`system:data-integrity:${userRole}`, response, CacheTTL.LONG);
+    }
+    return NextResponse.json(response);
 
   } catch (error) {
     console.error('[Integrity] Error during integrity check:', error);

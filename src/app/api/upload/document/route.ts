@@ -16,10 +16,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'File must be an image or PDF' }, { status: 400 });
     }
 
-    // Validate file size (max 10MB for documents)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    // Validate file size (max 3MB for documents)
+    const maxSize = 3 * 1024 * 1024; // 3MB
     if (file.size > maxSize) {
-      return NextResponse.json({ error: 'File size must be less than 10MB' }, { status: 400 });
+      return NextResponse.json({ error: 'File size must be less than 3MB. Please compress the image and try again.' }, { status: 400 });
     }
 
     // Convert file to base64 data URL

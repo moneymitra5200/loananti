@@ -793,6 +793,8 @@ model Notification {
   @@index([type])
   @@index([category])
   @@index([createdAt])
+  @@index([userId, isRead])        // compound: notification bell (userId WHERE isRead=false)
+  @@index([userId, createdAt])    // compound: auto-cleanup oldest per user
 }
 
 model Reminder {
