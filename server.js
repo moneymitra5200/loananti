@@ -170,14 +170,25 @@ app.prepare().then(() => {
   // Runs at 2:00 AM UTC (7:30 AM IST) — low traffic time
   cron.schedule('0 20 * * *', async () => {
     try {
-      const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const sixMonthsAgo  = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+      const thirtyDaysAgo = new Date(Date.now() -  30 * 24 * 60 * 60 * 1000);
+
       // Lazy import prisma only when needed (avoid module load at startup)
       const { db } = require('./src/lib/db');
-      const [auditDeleted, locationDeleted] = await Promise.all([
-        db.auditLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
-        db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
-      ]);
-      console.log(`[cron] 🧹 Cleanup: deleted ${auditDeleted.count} audit logs + ${locationDeleted.count} location logs older than 6 months`);
+
+      // Fix D: Run cleanups SEQUENTIALLY to respect connection_limit=3
+      const auditDeleted    = await db.auditLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } });
+      const locationDeleted = await db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } });
+      // Fix D: Keep notification table small — delete read notifications older than 30 days
+      const notifDeleted    = await db.notification.deleteMany({
+        where: { createdAt: { lt: thirtyDaysAgo }, isRead: true },
+      });
+
+      console.log(
+        `[cron] 🧹 Cleanup: deleted ${auditDeleted.count} audit logs + ` +
+        `${locationDeleted.count} location logs (>6mo) + ` +
+        `${notifDeleted.count} read notifications (>30d)`
+      );
     } catch (err) {
       console.error('[cron] ❌ Cleanup error:', err.message);
     }
