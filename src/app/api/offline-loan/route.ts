@@ -4,6 +4,7 @@ import { processBankTransaction } from '@/lib/bank-transaction-service';
 import { calculateEMI } from '@/utils/helpers';
 import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { recordOfflineLoanDisbursement as recordDaybookDisbursement } from '@/lib/accounting-helper';
+import { notifyEvent } from '@/lib/event-notify';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
@@ -1845,7 +1846,17 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    // Notify SUPER_ADMIN + COMPANY of new offline loan (fire-and-forget)
+    notifyEvent({
+      event: 'OFFLINE_LOAN_CREATED',
+      title: `🏦 New Offline Loan Disbursed`,
+      body: `${loanType} loan of ₹${Number(loanAmount).toLocaleString('en-IN')} for ${customerName} — ${loanNumber}`,
+      data: { loanId: loan.id, loanNumber, type: 'OFFLINE_LOAN_CREATED', actionUrl: '/super-admin/offline-loans' },
+      actionUrl: '/super-admin/offline-loans',
+    });
+
     return NextResponse.json({
+
       success: true,
       loan,
       emiCount: isInterestOnlyLoan ? 1 : tenure, // Interest Only loans have 1 EMI initially

@@ -5,6 +5,7 @@ import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
 import { emitReportInvalidate } from '@/lib/socket-emit';
 import { invalidateLoanCache, invalidatePaymentCache } from '@/lib/cache';
+import { notifyEvent } from '@/lib/event-notify';
 
 export async function POST(request: NextRequest) {
   try {
@@ -1827,7 +1828,17 @@ export async function POST(request: NextRequest) {
       });
     } catch { /* non-critical */ }
 
+    // Notify SUPER_ADMIN + CASHIER that EMI payment was collected (fire-and-forget)
+    notifyEvent({
+      event: 'EMI_PAYMENT_RECEIVED',
+      title: `💵 EMI Payment Collected`,
+      body: `₹${paidAmount.toFixed(2)} (${paymentType}) collected — ${emi.loanApplication?.applicationNo || loanId}`,
+      data: { loanId, emiId, type: 'EMI_PAYMENT', actionUrl: '/super-admin/payments' },
+      actionUrl: '/super-admin/payments',
+    });
+
     return NextResponse.json({
+
       success: true,
       message: getPaymentSuccessMessage(paymentType, paidAmount, remainingPrincipal),
       accountingOk: onlineAccountingWarnings.length === 0,

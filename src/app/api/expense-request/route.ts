@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
+import { notifyEvent } from '@/lib/event-notify';
 
 // Expense type → account code mapping (must match DEFAULT_CHART_OF_ACCOUNTS in accounting-service.ts)
 const EXPENSE_ACCOUNT_CODES: Record<string, string> = {
@@ -207,18 +208,14 @@ export async function POST(request: NextRequest) {
         },
       });
       
-      // Notify Super Admins
-      NotificationService.getUserIdsByRole('SUPER_ADMIN').then(adminIds => {
-        if (adminIds.length > 0) {
-          NotificationService.createNotificationsForUsers(adminIds, {
-            type: 'SYSTEM_ANNOUNCEMENT',
-            category: 'SYSTEM',
-            title: 'New Expense Request',
-            message: `A new expense request for ₹${amount.toLocaleString()} has been submitted.`,
-            actionUrl: '/super-admin/expense'
-          });
-        }
-      }).catch(err => console.error('[ExpenseRequest] Failed to notify admins:', err));
+      // Notify SUPER_ADMIN + ACCOUNTANT of new pending expense (push + in-app)
+      notifyEvent({
+        event: 'EXPENSE_REQUEST',
+        title: '💳 New Expense Request Pending',
+        body: `Cashier submitted expense of ₹${amount.toLocaleString('en-IN')} — ${description}`,
+        data: { expenseId: expense.id, expenseNumber, type: 'EXPENSE_REQUEST', actionUrl: '/super-admin/expense' },
+        actionUrl: '/super-admin/expense',
+      });
 
       return NextResponse.json({ success: true, expense, message: 'Expense request submitted for Super Admin approval' });
     }
@@ -274,6 +271,15 @@ export async function POST(request: NextRequest) {
       // Journal entry — awaited so entry is guaranteed before response
       await createJournalEntry(effectiveCompanyId, result.expense, userId, bankAccount?.id, resolvedPaymentMode);
 
+      // Notify ACCOUNTANT that a direct expense was posted
+      notifyEvent({
+        event: 'EXPENSE_REQUEST',
+        title: '💳 Expense Posted to Accounting',
+        body: `₹${amount.toLocaleString('en-IN')} — ${description} posted by ${role}`,
+        data: { type: 'EXPENSE_REQUEST', actionUrl: '/accountant/expense' },
+        actionUrl: '/accountant/expense',
+      });
+
       return NextResponse.json({
         success: true,
         expense: result.expense,
@@ -325,16 +331,16 @@ export async function PUT(request: NextRequest) {
         },
       });
 
-      // Notify the requester
+      // Notify cashier that their expense was rejected
       if (expense.payeeId) {
-        NotificationService.createNotification({
-          userId: expense.payeeId,
-          type: 'SYSTEM_ANNOUNCEMENT',
-          category: 'SYSTEM',
-          title: 'Expense Request Rejected',
-          message: `Your expense request for ₹${(expense.amount || 0).toLocaleString()} was rejected: ${rejectionReason || 'No reason provided'}`,
-          actionUrl: '/cashier/expense'
-        }).catch(err => console.error('[ExpenseRequest] Failed to notify requester:', err));
+        notifyEvent({
+          event: 'EXPENSE_REQUEST',
+          title: '❌ Expense Request Rejected',
+          body: `Your expense of ₹${(expense.amount || 0).toLocaleString('en-IN')} was rejected: ${rejectionReason || 'No reason provided'}`,
+          data: { type: 'EXPENSE_REQUEST', actionUrl: '/cashier/expense' },
+          actionUrl: '/cashier/expense',
+          notifyUserIds: [expense.payeeId],
+        });
       }
 
       return NextResponse.json({ success: true, message: 'Expense request rejected' });
@@ -402,17 +408,16 @@ export async function PUT(request: NextRequest) {
         paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH'
       );
 
-      // Notify the requester
-      if (expense.payeeId && expense.payeeId !== adminId) {
-        NotificationService.createNotification({
-          userId: expense.payeeId,
-          type: 'SYSTEM_ANNOUNCEMENT',
-          category: 'SYSTEM',
-          title: 'Expense Request Approved ✅',
-          message: `Your expense request (${expense.expenseNumber}) for ₹${(expense.amount || 0).toLocaleString()} has been approved and posted to accounting.`,
-          actionUrl: '/cashier/expense'
-        }).catch(err => console.error('[ExpenseRequest] Failed to notify requester:', err));
-      }
+      // Notify cashier that their expense was approved + push to ACCOUNTANT
+      const notifyUserIds = expense.payeeId && expense.payeeId !== adminId ? [expense.payeeId] : [];
+      notifyEvent({
+        event: 'EXPENSE_REQUEST',
+        title: '✅ Expense Approved & Posted',
+        body: `Expense (${expense.expenseNumber}) ₹${(expense.amount || 0).toLocaleString('en-IN')} approved and posted to accounting.`,
+        data: { type: 'EXPENSE_REQUEST', actionUrl: '/accountant/expense' },
+        actionUrl: '/accountant/expense',
+        notifyUserIds,
+      });
 
       return NextResponse.json({
         success: true,

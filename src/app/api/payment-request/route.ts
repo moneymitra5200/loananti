@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
 import { sendPaymentConfirmationPush } from '@/lib/push-notification-service';
+import { notifyEvent } from '@/lib/event-notify';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type PaymentType = 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY';
@@ -399,6 +400,15 @@ export async function POST(request: NextRequest) {
         },
         emiSchedule: true
       }
+    });
+
+    // Notify SUPER_ADMIN + CASHIER that customer submitted a payment request
+    notifyEvent({
+      event: 'PAYMENT_REQUEST',
+      title: '💰 Customer Payment Submitted',
+      body: `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')}`,
+      data: { paymentRequestId: paymentRequest.id, requestNumber, type: 'PAYMENT_REQUEST', actionUrl: '/cashier/payments' },
+      actionUrl: '/cashier/payments',
     });
 
     return NextResponse.json({ 
@@ -884,7 +894,16 @@ export async function PUT(request: NextRequest) {
         }
       }).catch(e => console.error('[PR Notification] In-app notify failed:', e));
 
-      // 2. FCM Push notification to customer phone
+      // Notify SUPER_ADMIN that a payment was approved
+      notifyEvent({
+        event: 'PAYMENT_REQUEST',
+        title: `✅ Payment Approved — ₹${paidAmtForNotif.toFixed(2)}`,
+        body: `${typeLabel} approved for loan ${appNo} EMI #${emi?.installmentNumber}`,
+        data: { loanId: paymentRequest.loanApplicationId, type: 'PAYMENT_REQUEST', actionUrl: '/super-admin/payments' },
+        actionUrl: '/super-admin/payments',
+      });
+
+      // FCM Push notification to customer phone
       sendPaymentConfirmationPush(paymentRequest.customerId, {
         amount: paidAmtForNotif,
         paymentId: paymentRequest.id,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { notifyEvent } from '@/lib/event-notify';
 
 // GET - List tickets with filters
 export async function GET(request: NextRequest) {
@@ -162,8 +163,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Notify SUPER_ADMIN + AGENT of new ticket (fire-and-forget)
+    notifyEvent({
+      event: 'TICKET_CREATED',
+      title: `🎫 New Support Ticket: ${ticketNumber}`,
+      body: `${subject} — Priority: ${priority || 'NORMAL'} | Category: ${category || 'GENERAL'}`,
+      data: { ticketId: ticket.id, ticketNumber, type: 'TICKET_CREATED', actionUrl: '/super-admin/tickets' },
+      actionUrl: '/super-admin/tickets',
+    });
+
     return NextResponse.json({
       success: true,
+      ticket,
       data: ticket,
       message: 'Ticket created successfully',
     });
