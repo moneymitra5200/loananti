@@ -58,6 +58,14 @@ export default function AgentDashboard() {
   const [remarks, setRemarks] = useState('');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Deep link: notification click → /?section=X → open that tab
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section) { setActiveTab(section); window.history.replaceState({}, '', '/'); }
+  }, []);
+
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });

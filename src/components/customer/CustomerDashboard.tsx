@@ -89,6 +89,14 @@ export default function CustomerDashboard() {
   });
   
   const [activeTab, setActiveTab] = useState('home');
+
+  // Deep link: notification click → /?section=X → open that tab
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section) { setActiveTab(section); window.history.replaceState({}, '', '/'); }
+  }, []);
+
   const [loans, setLoans] = useState<Loan[]>([]);
   const [services, setServices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

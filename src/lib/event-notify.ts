@@ -46,7 +46,8 @@ export interface NotifyEventPayload {
   title: string;
   body: string;
   data?: Record<string, string>;
-  actionUrl?: string;
+  actionUrl?: string;           // Deep-link section for STAFF roles (e.g. /?section=pending)
+  customerActionUrl?: string;   // Deep-link section for CUSTOMER (e.g. /?section=loans)
   // Optional: specific user IDs to also notify individually (e.g. customer)
   notifyUserIds?: string[];
 }
@@ -123,15 +124,17 @@ export function notifyEvent(payload: NotifyEventPayload): void {
         }).catch(() => { /* non-critical */ });
       }
 
-      // 2. Send push notification to specific users (e.g. customers) SEQUENTIALLY
+      // 2. Send push notification to specific users (e.g. customers) — use customerActionUrl
       if (payload.notifyUserIds?.length) {
+        // Customers always land on /?section=loans (their My Loans tab)
+        const customerUrl = payload.customerActionUrl ?? '/?section=loans';
         for (const uid of payload.notifyUserIds) {
           await sendPushNotificationToUser({
             userId: uid,
             title: payload.title,
             body: payload.body,
-            data: { ...notificationData, type: payload.event, actionUrl },
-            actionUrl,
+            data: { ...notificationData, type: payload.event, actionUrl: customerUrl },
+            actionUrl: customerUrl,
           }).catch(() => { /* non-critical */ });
         }
       }

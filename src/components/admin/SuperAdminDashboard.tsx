@@ -141,6 +141,20 @@ export default function SuperAdminDashboard() {
   const [remarks, setRemarks] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // ── Deep link: notification click → open specific section ───────────────
+  // When notification is clicked, opens /?section=pending, /?section=emi-collection etc.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const section = params.get('section');
+    if (section) {
+      setActiveTab(section);
+      // Clean URL so refresh doesn't re-jump to same tab
+      window.history.replaceState({}, '', '/');
+    }
+  }, []);
+
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [products, setProducts] = useState<any[]>([]);
   const [showProductDialog, setShowProductDialog] = useState(false);

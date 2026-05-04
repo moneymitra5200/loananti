@@ -171,14 +171,14 @@ export async function POST(request: NextRequest) {
     // Don't await — customer should get instant response
     const notifyTitle = `🏦 New Loan Application`;
     const notifyBody  = `${loanTypeValue} loan of ₹${Number(requestedAmount).toLocaleString('en-IN')} submitted. App#: ${applicationNo}`;
-    const notifyData  = { loanId: loan.id, applicationNo, type: 'NEW_LOAN_APPLICATION', actionUrl: '/' };
+    const notifyData  = { loanId: loan.id, applicationNo, type: 'NEW_LOAN_APPLICATION', actionUrl: '/?section=pending' };
 
     Promise.all([
       sendPushNotificationToRole('SUPER_ADMIN', {
         title: notifyTitle,
         body: notifyBody,
         data: notifyData,
-        actionUrl: '/',
+        actionUrl: '/?section=pending',
       }),
       sendPushNotificationToRole('COMPANY', {
         title: notifyTitle,

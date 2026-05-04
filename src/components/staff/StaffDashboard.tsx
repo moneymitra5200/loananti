@@ -230,6 +230,14 @@ export default function StaffDashboard() {
   const [showLoanFormDialog, setShowLoanFormDialog] = useState(false);
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Deep link: notification click → /?section=X → open that tab
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section) { setActiveTab(section); window.history.replaceState({}, '', '/'); }
+  }, []);
+
   const [saving, setSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [formErrors, setFormErrors] = useState<FormErrors>({});

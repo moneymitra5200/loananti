@@ -46,6 +46,14 @@ export default function CashierDashboard() {
   const [showInterestPaymentDialog, setShowInterestPaymentDialog] = useState(false);
   const [interestOnlyLoan, setInterestOnlyLoan] = useState<Loan | null>(null);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Deep link: notification click → /?section=X → open that tab
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const section = new URLSearchParams(window.location.search).get('section');
+    if (section) { setActiveTab(section); window.history.replaceState({}, '', '/'); }
+  }, []);
+
   const [saving, setSaving] = useState(false);
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);

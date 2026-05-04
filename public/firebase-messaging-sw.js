@@ -55,10 +55,9 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'close') return;
 
-  // The app is a single-page app — all dashboards live at '/'.
-  // Always open '/' so the user sees their role-based dashboard.
-  const targetUrl = '/';
-  const fullUrl   = self.location.origin + targetUrl;
+  // Deep link: use actionUrl from notification data (e.g. /?section=pending)
+  const targetUrl = event.notification.data?.url || event.notification.data?.actionUrl || '/';
+  const fullUrl   = self.location.origin + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
 
   event.waitUntil(
     self.clients

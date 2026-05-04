@@ -899,8 +899,8 @@ export async function PUT(request: NextRequest) {
         event: 'PAYMENT_REQUEST',
         title: `✅ Payment Approved — ₹${paidAmtForNotif.toFixed(2)}`,
         body: `${typeLabel} approved for loan ${appNo} EMI #${emi?.installmentNumber}`,
-        data: { loanId: paymentRequest.loanApplicationId, type: 'PAYMENT_REQUEST', actionUrl: '/' },
-        actionUrl: '/',
+        data: { loanId: paymentRequest.loanApplicationId, type: 'PAYMENT_REQUEST', actionUrl: '/?section=paymentRequests' },
+        actionUrl: '/?section=paymentRequests',
       });
 
       // FCM Push notification to customer phone
