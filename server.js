@@ -1,5 +1,6 @@
 /**
  * Hostinger Node.js Startup Server
+ * - Auto-runs prisma db push before starting (from localhost, works on Hostinger)
  * - Starts Next.js on the PORT provided by Hostinger
  * - Attaches Socket.io to the same HTTP server (no extra port needed)
  */
@@ -13,6 +14,7 @@ process.on('unhandledRejection', (reason) => {
 
 const { createServer } = require('http');
 const { parse } = require('url');
+const { execSync } = require('child_process');
 const next = require('next');
 const { Server } = require('socket.io');
 
@@ -21,7 +23,34 @@ const hostname = '0.0.0.0';
 
 console.log(`[server] Starting Next.js + Socket.io on port ${port}...`);
 console.log(`[server] NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`[server] DATABASE_URL host: ${(process.env.DATABASE_URL || '').split('@')[1]?.split('/')[0] || 'unknown'}`);
 
+// ── Auto-migrate: push schema to DB before starting ─────────────────────────
+function runDbPush() {
+  try {
+    console.log('[server] Running prisma db push...');
+    execSync('npx prisma db push --accept-data-loss', {
+      stdio: 'pipe',
+      cwd: __dirname,
+      env: process.env,
+      timeout: 120_000, // 2 min max
+    });
+    console.log('[server] ✅ prisma db push completed');
+  } catch (err) {
+    const out = err.stdout?.toString() || '';
+    const errOut = err.stderr?.toString() || '';
+    // If tables already exist / no changes needed, it's fine
+    if (out.includes('Your database is now in sync') || out.includes('already in sync') || out.includes('No changes')) {
+      console.log('[server] ✅ Database already in sync');
+    } else {
+      console.warn('[server] ⚠️ prisma db push warning (app will still start):', errOut || out);
+    }
+  }
+}
+
+runDbPush();
+
+// ── Start Next.js ─────────────────────────────────────────────────────────────
 const app = next({
   dev: false,
   hostname,
