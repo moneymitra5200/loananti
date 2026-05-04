@@ -1,32 +1,31 @@
 /**
- * GET /api/system/test-notification?secret=diag-secret-2024&userId=OPTIONAL_USER_ID
+ * GET /api/system/test-notification?secret=diag-secret-2024
  *
- * Tests the ENTIRE notification pipeline end-to-end:
- *   1. Firebase Admin SDK initialization
- *   2. Look up FCM token for SUPER_ADMIN (or specific userId)
- *   3. Send a real FCM push message
- *   4. Returns full pass/fail for each step
- *
- * Use this to verify notifications work after deploy.
+ * Tests the ENTIRE notification pipeline in 5 steps:
+ *   1. Firebase Admin env vars
+ *   2. DB: find SUPER_ADMIN with FCM token
+ *   3. Direct FCM send (single token)                    ← was already working
+ *   4. sendPushNotificationToRoles(['SUPER_ADMIN'])      ← exact path real events use
+ *   5. notifyEvent() fire-and-forget simulation
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db, handlePrismaError } from '@/lib/db';
 import { sendPushNotification, getFirebaseInitError } from '@/lib/firebase-admin';
+import { sendPushNotificationToRoles } from '@/lib/push-notification-service';
+import { notifyEvent } from '@/lib/event-notify';
 
 const REQUIRED_SECRET = process.env.DIAGNOSTIC_SECRET || 'diag-secret-2024';
 
 export async function GET(request: NextRequest) {
-  // Auth guard
   const secret = request.nextUrl.searchParams.get('secret');
   if (secret !== REQUIRED_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized. Pass ?secret=diag-secret-2024' }, { status: 401 });
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const targetUserId = request.nextUrl.searchParams.get('userId');
   const report: Record<string, unknown> = {};
 
-  // ── Step 1: Check Firebase Admin env vars ─────────────────────────────
+  // ── Step 1: Firebase env vars ──────────────────────────────────────────────
   const projectId   = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey  = process.env.FIREBASE_PRIVATE_KEY;
@@ -39,106 +38,104 @@ export async function GET(request: NextRequest) {
   };
 
   if (!projectId || !clientEmail || !privateKey) {
-    return NextResponse.json({
-      status: '❌ FAILED at Step 1',
-      message: 'Firebase env vars missing on Hostinger. Add FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in hPanel → Environment Variables',
-      report,
-    });
+    return NextResponse.json({ status: '❌ FAILED Step 1 — missing Firebase env vars', report });
   }
 
-  // ── Step 2: Find target user with FCM token ────────────────────────────
-  let targetUser: { id: string; name: string | null; role: string; fcmToken: string | null } | null = null;
-
+  // ── Step 2: Find SUPER_ADMIN with FCM token ────────────────────────────────
+  let targetUser: any = null;
   try {
-    if (targetUserId) {
-      targetUser = await db.user.findUnique({
-        where: { id: targetUserId },
-        select: { id: true, name: true, role: true, fcmToken: true },
-      }) as any;
-    } else {
-      // Default: find SUPER_ADMIN with FCM token
-      targetUser = await db.user.findFirst({
-        where: { role: 'SUPER_ADMIN', isActive: true, fcmToken: { not: null } },
-        select: { id: true, name: true, role: true, fcmToken: true },
-      }) as any;
-    }
+    targetUser = await db.user.findFirst({
+      where: { role: 'SUPER_ADMIN' as any, isActive: true, fcmToken: { not: null } },
+      select: { id: true, name: true, role: true, fcmToken: true },
+    });
 
-    report.step2_target_user = targetUser ? {
-      id:       targetUser.id,
-      name:     targetUser.name,
-      role:     targetUser.role,
-      has_fcm_token: !!targetUser.fcmToken,
-      token_preview: targetUser.fcmToken ? targetUser.fcmToken.substring(0, 30) + '...' : null,
-    } : '❌ No user found with FCM token';
+    // Count all users with tokens
+    const withToken = await db.user.count({ where: { fcmToken: { not: null } } });
+    const total     = await db.user.count();
+
+    report.step2_db = {
+      found_super_admin_with_token: !!targetUser,
+      name: targetUser?.name,
+      token_preview: targetUser?.fcmToken?.substring(0, 25) + '...',
+      total_users_with_fcm_token: `${withToken}/${total}`,
+    };
 
     if (!targetUser?.fcmToken) {
-      // Check if there are ANY users with FCM tokens
-      const countWithToken = await db.user.count({ where: { fcmToken: { not: null } } });
-      const totalUsers     = await db.user.count();
-
       return NextResponse.json({
-        status: '❌ FAILED at Step 2',
-        message: `No FCM token found. ${countWithToken}/${totalUsers} users have tokens registered.`,
-        fix: 'User must open the app in a browser with notifications allowed. Token is registered automatically on login.',
+        status: '❌ FAILED Step 2 — SUPER_ADMIN has no FCM token',
+        fix: 'Open the app on your phone, allow notifications, and login as SUPER_ADMIN',
         report,
       });
     }
   } catch (err: any) {
-    handlePrismaError(err); // If Prisma panic — restarts process after 200ms
+    handlePrismaError(err);
     report.step2_error = err.message;
-    return NextResponse.json({ status: '❌ FAILED at Step 2 (DB error)', report });
+    return NextResponse.json({ status: '❌ FAILED Step 2 (DB panic)', report });
   }
 
-  // ── Step 3: Send test FCM push ──────────────────────────────────────────
+  // ── Step 3: Direct FCM send (single token) ─────────────────────────────────
   try {
-    const result = await sendPushNotification(
+    const r = await sendPushNotification(
       targetUser.fcmToken,
-      {
-        title: '🔔 Test Notification',
-        body:  `Pipeline test at ${new Date().toLocaleTimeString('en-IN')} — if you see this, FCM is working! ✅`,
-        icon:  '/logo-circle.png',
-      },
-      {
-        type:      'TEST',
-        actionUrl: '/super-admin',
-      }
+      { title: '🔔 Step 3 — Direct FCM', body: `Direct test at ${new Date().toLocaleTimeString('en-IN')}` },
+      { type: 'TEST_DIRECT', actionUrl: '/super-admin' }
     );
-
-    report.step3_fcm_send = {
-      success:    result.success,
-      messageId:  result.messageId,
-      error:      result.error,
-    };
-
-    if (result.success) {
+    report.step3_direct_fcm = { success: r.success, messageId: r.messageId, error: r.error };
+    if (!r.success) {
       return NextResponse.json({
-        status: '✅ SUCCESS — notification sent!',
-        message: `Push notification sent to ${targetUser.name} (${targetUser.role}). Check your phone!`,
-        messageId: result.messageId,
-        report,
-      });
-    } else {
-      const firebaseInitErr = getFirebaseInitError();
-      return NextResponse.json({
-        status: '❌ FAILED at Step 3 — FCM rejected the message',
-        message: result.error,
-        firebase_init_error: firebaseInitErr || 'No init error captured — check Runtime Logs in Hostinger',
-        fix: result.error?.includes('registration-token-not-registered')
-          ? 'FCM token is expired/invalid. User needs to re-open the app to refresh it.'
-          : result.error?.includes('invalid-argument')
-          ? 'FCM token format is wrong. User should clear browser data and re-login.'
-          : firebaseInitErr?.includes('error')
-          ? `Firebase private key issue: ${firebaseInitErr}. Re-paste FIREBASE_PRIVATE_KEY in Hostinger env vars — make sure to copy the FULL key including -----BEGIN/END----- lines.`
-          : 'Check Firebase Admin credentials on Hostinger.',
+        status: '❌ FAILED Step 3 — Direct FCM failed',
+        firebase_init_error: getFirebaseInitError(),
         report,
       });
     }
   } catch (err: any) {
     report.step3_error = err.message;
-    return NextResponse.json({
-      status: '❌ FAILED at Step 3 (Firebase Admin exception)',
-      message: err.message,
-      report,
-    });
+    return NextResponse.json({ status: '❌ FAILED Step 3 (exception)', report });
   }
+
+  // ── Step 4: sendPushNotificationToRoles — EXACT path that notifyEvent uses ─
+  try {
+    const r4 = await sendPushNotificationToRoles(['SUPER_ADMIN'], {
+      title: '🔔 Step 4 — Role-based notification',
+      body:  `Role test at ${new Date().toLocaleTimeString('en-IN')} — real event path`,
+      data:  { type: 'TEST_ROLE', actionUrl: '/super-admin' },
+      actionUrl: '/super-admin',
+    });
+    report.step4_role_notification = {
+      success:    r4.success,
+      totalSent:  r4.totalSent,
+      pushSent:   r4.pushSent,
+    };
+    if (!r4.success || r4.totalSent === 0) {
+      return NextResponse.json({
+        status: r4.totalSent === 0
+          ? '❌ FAILED Step 4 — No users found for SUPER_ADMIN role (DB query returned 0)'
+          : '❌ FAILED Step 4 — sendPushNotificationToRoles returned failure',
+        fix: r4.totalSent === 0
+          ? 'The DB query role: { in: ["SUPER_ADMIN"] } returned 0 users. Check isActive flag.'
+          : 'Check server Runtime Logs on Hostinger for the exact error.',
+        report,
+      });
+    }
+  } catch (err: any) {
+    report.step4_error = err.message;
+    return NextResponse.json({ status: '❌ FAILED Step 4 (sendPushNotificationToRoles exception)', report });
+  }
+
+  // ── Step 5: notifyEvent — fire-and-forget (simulates a real app event) ─────
+  notifyEvent({
+    event: 'EMI_PAYMENT_RECEIVED',
+    title: '🔔 Step 5 — Real Event Simulation',
+    body:  `notifyEvent() test at ${new Date().toLocaleTimeString('en-IN')}`,
+    data:  { type: 'TEST_EVENT', actionUrl: '/super-admin/payments' },
+    actionUrl: '/super-admin/payments',
+  });
+  report.step5_notify_event = 'fired (fire-and-forget — check your phone in 5 seconds)';
+
+  // ── All steps passed ───────────────────────────────────────────────────────
+  return NextResponse.json({
+    status: '✅ ALL STEPS PASSED',
+    message: 'Check your phone — you should get 3 notifications (Steps 3, 4, 5)',
+    report,
+  });
 }
