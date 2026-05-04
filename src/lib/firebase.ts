@@ -68,37 +68,51 @@ export const requestNotificationPermission = async (): Promise<{ success: boolea
       return { success: false, error: 'Notification permission denied by user' };
     }
 
-    // ── CRITICAL: Use the ACTIVE service worker registration ────────────────
-    // sw.js (workbox) is the active SW at scope '/'. It includes firebase-push-handler.js
-    // via importScripts, so it CAN show Firebase push notifications.
-    // Do NOT try to separately register firebase-messaging-sw.js — it conflicts.
+    // ── CRITICAL FIX: Explicitly register firebase-messaging-sw.js ────────
+    // FCM requires its OWN service worker to issue valid tokens and receive
+    // background messages. Using the Workbox SW (sw.js) causes FCM to return
+    // empty/invalid tokens because it's not the expected Firebase SW.
     let swRegistration: ServiceWorkerRegistration | undefined;
     if ('serviceWorker' in navigator) {
       try {
-        // getRegistration('/') returns the SW controlling the current page = sw.js
-        swRegistration = await navigator.serviceWorker.getRegistration('/');
+        // Register (or get existing) firebase-messaging-sw.js
+        swRegistration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+          scope: '/',
+        });
+        // Wait for it to be active before requesting a token
+        await navigator.serviceWorker.ready;
+        console.log('[FCM] firebase-messaging-sw.js registered, state:', swRegistration.active?.state);
       } catch (swErr) {
-        console.warn('[FCM] Could not get active SW registration:', swErr);
+        console.warn('[FCM] Could not register firebase-messaging-sw.js, trying fallback:', swErr);
+        try {
+          // Fallback: find any existing SW that has firebase in the URL
+          const regs = await navigator.serviceWorker.getRegistrations();
+          swRegistration = regs.find(r =>
+            r.active?.scriptURL?.includes('firebase-messaging-sw') ||
+            r.installing?.scriptURL?.includes('firebase-messaging-sw')
+          ) ?? regs[0];
+        } catch { /* use no SW registration */ }
       }
     }
 
-    // Get FCM token bound to the active SW (sw.js + firebase-push-handler.js)
+    // Get FCM token — MUST be bound to the firebase-messaging-sw.js registration
     const token = await getToken(messagingInstance, {
       vapidKey: VAPID_KEY,
       ...(swRegistration ? { serviceWorkerRegistration: swRegistration } : {}),
     });
 
     if (!token) {
-      return { success: false, error: 'FCM returned an empty token. Check browser/device notification settings.' };
+      return { success: false, error: 'FCM returned empty token — check notification permission and SW registration' };
     }
 
-    console.log('[FCM] Token obtained:', token.substring(0, 20) + '...');
+    console.log('[FCM] ✅ Token obtained:', token.substring(0, 20) + '...');
     return { success: true, token };
   } catch (error: any) {
     console.error('[FCM] Error getting token:', error);
     return { success: false, error: error.message };
   }
 };
+
 
 /**
  * Listen for foreground messages
