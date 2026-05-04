@@ -74,32 +74,20 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  // ── 3. Database — Count large tables ─────────────────────────
+  // ── 3. Database — Count large tables (SEQUENTIAL to respect connection_limit=1) ──
   let dbReport: Record<string, unknown> = {};
   try {
-    const [
-      notifications,
-      auditLogs,
-      locationLogs,
-      payments,
-      workflowLogs,
-      usersWithFcmToken,
-      loanApps,
-      offlineLoans,
-      emiSchedules,
-      offlineEmis,
-    ] = await Promise.all([
-      db.notification.count(),
-      db.auditLog.count().catch(() => 0),
-      db.locationLog.count().catch(() => 0),
-      db.payment.count().catch(() => 0),
-      db.workflowLog.count().catch(() => 0),
-      db.user.count({ where: { fcmToken: { not: null } } }).catch(() => 0),
-      db.loanApplication.count().catch(() => 0),
-      db.offlineLoan.count().catch(() => 0),
-      db.eMISchedule.count().catch(() => 0),
-      db.offlineLoanEMI.count().catch(() => 0),
-    ]);
+    // Run counts ONE AT A TIME — connection_limit=1 means concurrent queries cause Prisma panic
+    const notifications     = await db.notification.count().catch(() => -1);
+    const auditLogs         = await db.auditLog.count().catch(() => -1);
+    const locationLogs      = await db.locationLog.count().catch(() => -1);
+    const payments          = await db.payment.count().catch(() => -1);
+    const workflowLogs      = await db.workflowLog.count().catch(() => -1);
+    const usersWithFcmToken = await db.user.count({ where: { fcmToken: { not: null } } }).catch(() => -1);
+    const loanApps          = await db.loanApplication.count().catch(() => -1);
+    const offlineLoans      = await db.offlineLoan.count().catch(() => -1);
+    const emiSchedules      = await db.eMISchedule.count().catch(() => -1);
+    const offlineEmis       = await db.offlineLoanEMI.count().catch(() => -1);
 
     dbReport = {
       notifications,
@@ -141,11 +129,22 @@ export async function GET(request: NextRequest) {
   };
 
   // ── 5. Environment sanity checks ─────────────────────────────
+  const firebaseProjectId   = process.env.FIREBASE_PROJECT_ID;
+  const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const firebasePrivateKey  = process.env.FIREBASE_PRIVATE_KEY;
+
   const envChecks = {
-    has_firebase_key: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+    has_firebase_project_id:   !!firebaseProjectId,
+    has_firebase_client_email: !!firebaseClientEmail,
+    has_firebase_private_key:  !!firebasePrivateKey,
+    firebase_ready: !!(firebaseProjectId && firebaseClientEmail && firebasePrivateKey),
+    firebase_project: firebaseProjectId || '(not set — push notifications are BROKEN)',
     has_database_url: !!process.env.DATABASE_URL,
     has_nextauth_secret: !!process.env.NEXTAUTH_SECRET,
     next_public_app_url: process.env.NEXT_PUBLIC_APP_URL || '(not set)',
+    firebase_warning: (!firebaseProjectId || !firebaseClientEmail || !firebasePrivateKey)
+      ? '🔴 FIREBASE ENV VARS MISSING on Hostinger — push notifications will NOT work! Add FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in Hostinger hPanel → Node.js → Environment Variables'
+      : '🟢 Firebase credentials present',
   };
 
   // ── Final report ──────────────────────────────────────────────
