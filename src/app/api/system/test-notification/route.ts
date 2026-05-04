@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { sendPushNotification } from '@/lib/firebase-admin';
+import { sendPushNotification, getFirebaseInitError } from '@/lib/firebase-admin';
 
 const REQUIRED_SECRET = process.env.DIAGNOSTIC_SECRET || 'diag-secret-2024';
 
@@ -117,13 +117,17 @@ export async function GET(request: NextRequest) {
         report,
       });
     } else {
+      const firebaseInitErr = getFirebaseInitError();
       return NextResponse.json({
         status: '❌ FAILED at Step 3 — FCM rejected the message',
         message: result.error,
+        firebase_init_error: firebaseInitErr || 'No init error captured — check Runtime Logs in Hostinger',
         fix: result.error?.includes('registration-token-not-registered')
           ? 'FCM token is expired/invalid. User needs to re-open the app to refresh it.'
           : result.error?.includes('invalid-argument')
           ? 'FCM token format is wrong. User should clear browser data and re-login.'
+          : firebaseInitErr?.includes('error')
+          ? `Firebase private key issue: ${firebaseInitErr}. Re-paste FIREBASE_PRIVATE_KEY in Hostinger env vars — make sure to copy the FULL key including -----BEGIN/END----- lines.`
           : 'Check Firebase Admin credentials on Hostinger.',
         report,
       });

@@ -8,6 +8,9 @@ import admin from 'firebase-admin';
 // Lazy initialization flag
 let isInitialized = false;
 
+// Cached init error for diagnostics
+let initError: string | null = null;
+
 /**
  * Initialize Firebase Admin SDK
  * Only initializes when actually needed, not at module load time
@@ -18,15 +21,30 @@ function initializeFirebase(): boolean {
   }
 
   try {
-    const projectId = process.env.FIREBASE_PROJECT_ID;
+    const projectId   = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    let   privateKey  = process.env.FIREBASE_PRIVATE_KEY;
 
     // Skip initialization if credentials are missing (e.g., during build)
     if (!projectId || !clientEmail || !privateKey) {
-      console.log('[Firebase Admin] Skipping initialization - missing credentials');
+      initError = `Missing env vars: ${!projectId ? 'FIREBASE_PROJECT_ID ' : ''}${!clientEmail ? 'FIREBASE_CLIENT_EMAIL ' : ''}${!privateKey ? 'FIREBASE_PRIVATE_KEY' : ''}`;
+      console.log('[Firebase Admin] Skipping initialization -', initError);
       return false;
     }
+
+    // ── Robust private key normalisation ─────────────────────────────────────
+    // Hostinger hPanel can store the key in several formats depending on how it
+    // was pasted. Handle all of them:
+    //   1. Remove surrounding quotes if present  → "-----BEGIN..." or '-----BEGIN...'
+    //   2. Replace double-escaped \\n → \n (JSON-encoded inside env var)
+    //   3. Replace single-escaped \n → actual newline (standard .env format)
+    privateKey = privateKey.trim();
+    if ((privateKey.startsWith('"') && privateKey.endsWith('"')) ||
+        (privateKey.startsWith("'") && privateKey.endsWith("'"))) {
+      privateKey = privateKey.slice(1, -1);
+    }
+    // Handle double-escape first \\n → \n, then single \n → newline
+    privateKey = privateKey.replace(/\\\\n/g, '\n').replace(/\\n/g, '\n');
 
     if (!admin.apps.length) {
       admin.initializeApp({
@@ -39,12 +57,19 @@ function initializeFirebase(): boolean {
     }
 
     isInitialized = true;
-    console.log('[Firebase Admin] Initialized successfully');
+    initError     = null;
+    console.log('[Firebase Admin] ✅ Initialized successfully for project:', projectId);
     return true;
-  } catch (error) {
-    console.error('[Firebase Admin] Initialization error:', error);
+  } catch (error: any) {
+    initError = error?.message || String(error);
+    console.error('[Firebase Admin] ❌ Initialization error:', initError);
     return false;
   }
+}
+
+/** Expose last init error for diagnostics (used by test-notification endpoint) */
+export function getFirebaseInitError(): string | null {
+  return initError;
 }
 
 /**
