@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, handlePrismaError } from '@/lib/db';
 import { sendPushNotification, getFirebaseInitError } from '@/lib/firebase-admin';
 
 const REQUIRED_SECRET = process.env.DIAGNOSTIC_SECRET || 'diag-secret-2024';
@@ -84,6 +84,7 @@ export async function GET(request: NextRequest) {
       });
     }
   } catch (err: any) {
+    handlePrismaError(err); // If Prisma panic — restarts process after 200ms
     report.step2_error = err.message;
     return NextResponse.json({ status: '❌ FAILED at Step 2 (DB error)', report });
   }

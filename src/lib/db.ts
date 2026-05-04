@@ -117,17 +117,25 @@ export async function dbWithRetry<T>(
       return await fn();
     } catch (err: any) {
       const msg: string = err?.message || '';
-      // Never retry on Rust engine panics — retrying makes it worse
+
+      // ── Prisma Rust panic: MUST exit immediately ──────────────────────────
+      // A panic leaves a zombie engine in memory. Retrying makes it worse.
+      // process.exit(1) lets Hostinger auto-restart with a clean engine.
       const isRustPanic = err?.name === 'PrismaClientRustPanicError' ||
         msg.includes('PANIC') ||
         msg.includes('timer has gone away');
-      if (isRustPanic) throw err;
+      if (isRustPanic) {
+        console.error('[DB] 🔴 Prisma engine panic in dbWithRetry — forcing clean restart');
+        // Small delay so the error can be logged before process dies
+        setTimeout(() => process.exit(1), 100);
+        throw err; // surface to caller while restart is scheduled
+      }
 
       const isConnectionError =
-        err?.code === 'P1001' ||                         // Can't reach database server
-        err?.code === 'P1017' ||                         // Connection closed
-        err?.code === 'P2024' ||                         // Connection pool timeout
-        msg.includes("Can't reach database") ||          // Hostinger exact error
+        err?.code === 'P1001' ||
+        err?.code === 'P1017' ||
+        err?.code === 'P2024' ||
+        msg.includes("Can't reach database") ||
         msg.includes('Too many connections') ||
         msg.includes('max_connections_per_hour') ||
         msg.includes('ECONNRESET') ||
@@ -146,4 +154,18 @@ export async function dbWithRetry<T>(
     }
   }
   throw new Error('dbWithRetry: max retries exceeded');
+}
+
+/**
+ * Call this in any API catch block when you catch a Prisma panic.
+ * Schedules a clean process restart in 200ms (enough time to send the error response).
+ */
+export function handlePrismaError(err: any): void {
+  const msg: string = err?.message || '';
+  const isPanic = err?.name === 'PrismaClientRustPanicError' ||
+    msg.includes('PANIC') || msg.includes('timer has gone away');
+  if (isPanic) {
+    console.error('[DB] 🔴 Prisma panic detected — scheduling clean restart in 200ms');
+    setTimeout(() => process.exit(1), 200);
+  }
 }
