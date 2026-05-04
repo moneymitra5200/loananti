@@ -211,10 +211,11 @@ export const CacheKeys = {
 
 // ── TTL presets (milliseconds) ────────────────────────────────────────────
 export const CacheTTL = {
-  SHORT:     30_000,   //  30 seconds — frequently changing
+  SHORT:     30_000,   //  30 seconds — frequently changing (stats, counts)
+  REPORT:   120_000,   //   2 minutes — today's reports (emi-today, day-end-cash)
   MEDIUM:    60_000,   //   1 minute  — normal data
-  LONG:     300_000,   //   5 minutes — rarely changing
-  VERY_LONG:900_000,   //  15 minutes — near-static (CMS, settings)
+  LONG:     300_000,   //   5 minutes — rarely changing (companies, settings)
+  VERY_LONG:900_000,   //  15 minutes — near-static (CMS, banners)
 };
 
 // ── Invalidation helpers ──────────────────────────────────────────────────
