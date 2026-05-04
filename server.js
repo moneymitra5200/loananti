@@ -17,8 +17,8 @@ process.on('uncaughtException', (err) => {
   console.error('[server] Uncaught exception:', msg || err);
 });
 process.on('unhandledRejection', (reason) => {
-  const msg = (reason as any)?.message || String(reason);
-  const isPanic = (reason as any)?.name === 'PrismaClientRustPanicError' ||
+  const msg = (reason && reason.message) ? reason.message : String(reason);
+  const isPanic = (reason && reason.name === 'PrismaClientRustPanicError') ||
     msg.includes('PANIC') || msg.includes('timer has gone away');
   if (isPanic) {
     console.error('[server] 🔴 Prisma panic (rejection) — restarting:', msg);
