@@ -45,65 +45,44 @@ export async function GET(request: NextRequest) {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
 
-    // ── All counts in parallel ──────────────────────────────────────────────
-    const [
-      activeDisbursedLoans,
-      offlineLoanCount,
-      totalCustomers,
-      pendingLoans,
-      closedOfflineLoans,
-      closedOnlineLoans,
-      totalCompanies,
-      totalAgents,
-      totalStaff,
-      todayEMIs,
-      overdueEMIs,
-    ] = await Promise.all([
-      // Online loans: DISBURSED + ACTIVE + ACTIVE_INTEREST_ONLY
-      db.loanApplication.count({
-        where: { ...loanWhere, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
-      }).catch(() => 0),
+    // ── All counts SEQUENTIALLY — prevents connection starvation on connection_limit=3 ──
+    // Slightly slower (~200ms) but NEVER exceeds connection pool
+    const activeDisbursedLoans = await db.loanApplication.count({
+      where: { ...loanWhere, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
+    }).catch(() => 0);
 
-      // Offline loans
-      db.offlineLoan.count({ where: offlineWhere }).catch(() => 0),
+    const offlineLoanCount = await db.offlineLoan.count({ where: offlineWhere }).catch(() => 0);
 
-      // Customers (role-filtered above)
-      db.user.count({ where: { role: 'CUSTOMER' } }).catch(() => 0),
+    const totalCustomers = await db.user.count({ where: { role: 'CUSTOMER' } }).catch(() => 0);
 
-      // Pending loans awaiting any approval step
-      db.loanApplication.count({
-        where: { ...companyFilter, status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1', 'LOAN_FORM_COMPLETED'] } },
-      }).catch(() => 0),
+    const pendingLoans = await db.loanApplication.count({
+      where: { ...companyFilter, status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1', 'LOAN_FORM_COMPLETED'] } },
+    }).catch(() => 0);
 
-      // Closed offline loans (exclude mirror loans)
-      db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED', isMirrorLoan: false } }).catch(() => 0),
+    const closedOfflineLoans = await db.offlineLoan.count({ where: { ...companyFilter, status: 'CLOSED', isMirrorLoan: false } }).catch(() => 0);
 
-      // Closed online loans
-      db.loanApplication.count({ where: { ...companyFilter, status: 'CLOSED' } }).catch(() => 0),
+    const closedOnlineLoans = await db.loanApplication.count({ where: { ...companyFilter, status: 'CLOSED' } }).catch(() => 0);
 
-      // Admin-only: companies, agents, staff
-      role === 'SUPER_ADMIN' ? db.company.count({ where: { isActive: true } }).catch(() => 0) : Promise.resolve(0),
-      role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'AGENT', isActive: true } }).catch(() => 0) : Promise.resolve(0),
-      role === 'SUPER_ADMIN' ? db.user.count({ where: { role: 'STAFF', isActive: true } }).catch(() => 0) : Promise.resolve(0),
+    const totalCompanies = role === 'SUPER_ADMIN' ? await db.company.count({ where: { isActive: true } }).catch(() => 0) : 0;
+    const totalAgents = role === 'SUPER_ADMIN' ? await db.user.count({ where: { role: 'AGENT', isActive: true } }).catch(() => 0) : 0;
+    const totalStaff = role === 'SUPER_ADMIN' ? await db.user.count({ where: { role: 'STAFF', isActive: true } }).catch(() => 0) : 0;
 
-      // EMIs due today (exclude mirror loan EMIs)
-      db.offlineLoanEMI.count({
-        where: {
-          dueDate: { gte: todayStart, lte: todayEnd },
-          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-          offlineLoan: { isMirrorLoan: false },
-        },
-      }).catch(() => 0),
+    const todayEMIs = await db.offlineLoanEMI.count({
+      where: {
+        dueDate: { gte: todayStart, lte: todayEnd },
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        offlineLoan: { isMirrorLoan: false },
+      },
+    }).catch(() => 0);
 
-      // Overdue EMIs (due before today, still PENDING, exclude mirror loans)
-      db.offlineLoanEMI.count({
-        where: {
-          dueDate: { lt: todayStart },
-          paymentStatus: 'PENDING',
-          offlineLoan: { isMirrorLoan: false },
-        },
-      }).catch(() => 0),
-    ]);
+    const overdueEMIs = await db.offlineLoanEMI.count({
+      where: {
+        dueDate: { lt: todayStart },
+        paymentStatus: 'PENDING',
+        offlineLoan: { isMirrorLoan: false },
+      },
+    }).catch(() => 0);
+
 
     const stats = {
       totalActiveLoans: activeDisbursedLoans + offlineLoanCount,

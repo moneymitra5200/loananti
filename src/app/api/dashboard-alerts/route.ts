@@ -23,108 +23,71 @@ export async function GET(request: NextRequest) {
     // Optionally scope EMI / loan queries to a specific agent
     const loanWhere: any = agentId ? { agentId } : {};
 
-    // Run all queries in parallel; individual failures return safe defaults
-    const [
-      todayEMIsResult,
-      overdueEMIsResult,
-      newAppsOnlineResult,
-      newAppsOfflineResult,
-      pendingDisbOnlineResult,
-      pendingDisbOfflineResult,
-      offlineTodayEMIsResult,
-      offlineOverdueEMIsResult,
-    ] = await Promise.allSettled([
+    // Run all queries SEQUENTIALLY — prevents connection starvation on connection_limit=3
+    // Each query has its own try-catch for fault tolerance (same as Promise.allSettled)
+    const todayEMIs = await db.eMISchedule.findMany({
+      where: {
+        dueDate: { gte: dayStart, lte: dayEnd },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
+        loanApplication: loanWhere,
+      },
+      select: { totalAmount: true },
+    }).catch(() => [] as any[]);
 
-      // 1. Online EMIs due today
-      db.eMISchedule.findMany({
-        where: {
-          dueDate: { gte: dayStart, lte: dayEnd },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-          loanApplication: loanWhere,
-        },
-        select: { totalAmount: true },
-      }),
+    const overdueEMIs = await db.eMISchedule.findMany({
+      where: {
+        dueDate: { lt: dayStart },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
+        loanApplication: loanWhere,
+      },
+      select: { totalAmount: true },
+    }).catch(() => [] as any[]);
 
-      // 2. Online overdue EMIs (dueDate < today, still unpaid)
-      db.eMISchedule.findMany({
-        where: {
-          dueDate: { lt: dayStart },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-          loanApplication: loanWhere,
-        },
-        select: { totalAmount: true },
-      }),
+    const newAppsOnline = await db.loanApplication.count({
+      where: {
+        createdAt: { gte: dayStart, lte: dayEnd },
+        status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1'] as any[] },
+        ...loanWhere,
+      },
+    }).catch(() => 0);
 
-      // 3. New online applications today
-      // NOTE: LoanStatus enum uses SUBMITTED (not PENDING)
-      db.loanApplication.count({
-        where: {
-          createdAt: { gte: dayStart, lte: dayEnd },
-          status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1'] as any[] },
-          ...loanWhere,
-        },
-      }),
+    const newAppsOffline = await db.offlineLoan.count({
+      where: {
+        createdAt: { gte: dayStart, lte: dayEnd },
+        status: 'PENDING_APPROVAL' as any,
+      },
+    }).catch(() => 0);
 
-      // 4. New offline applications today
-      db.offlineLoan.count({
-        where: {
-          createdAt: { gte: dayStart, lte: dayEnd },
-          status: 'PENDING_APPROVAL' as any,
-        },
-      }),
+    const pendingDisbOnline = await db.loanApplication.count({
+      where: {
+        status: 'FINAL_APPROVED' as any,
+        ...loanWhere,
+      },
+    }).catch(() => 0);
 
-      // 5. Online loans pending disbursement
-      db.loanApplication.count({
-        where: {
-          status: 'FINAL_APPROVED' as any,
-          ...loanWhere,
-        },
-      }),
+    const pendingDisbOffline = await db.offlineLoan.count({
+      where: { status: 'PENDING_APPROVAL' as any },
+    }).catch(() => 0);
 
-      // 6. Offline loans pending disbursement
-      db.offlineLoan.count({
-        where: { status: 'PENDING_APPROVAL' as any },
-      }),
+    const offlineTodayEMIs = await db.offlineLoanEMI.findMany({
+      where: {
+        dueDate: { gte: dayStart, lte: dayEnd },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
+        offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
+      },
+      select: { totalAmount: true, paidAmount: true },
+    }).catch(() => [] as any[]);
 
-      // 7. Offline EMIs due today
-      db.offlineLoanEMI.findMany({
-        where: {
-          dueDate: { gte: dayStart, lte: dayEnd },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-          offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
-        },
-        select: { totalAmount: true, paidAmount: true },
-      }),
+    const offlineOverdueEMIs = await db.offlineLoanEMI.findMany({
+      where: {
+        dueDate: { lt: dayStart },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
+        offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
+      },
+      select: { totalAmount: true, paidAmount: true },
+    }).catch(() => [] as any[]);
 
-      // 8. Offline overdue EMIs
-      db.offlineLoanEMI.findMany({
-        where: {
-          dueDate: { lt: dayStart },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-          offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
-        },
-        select: { totalAmount: true, paidAmount: true },
-      }),
-    ]);
 
-    // Safely extract — default to [] / 0 if DB query failed
-    const todayEMIs          = todayEMIsResult.status          === 'fulfilled' ? todayEMIsResult.value          : [];
-    const overdueEMIs        = overdueEMIsResult.status        === 'fulfilled' ? overdueEMIsResult.value        : [];
-    const newAppsOnline      = newAppsOnlineResult.status      === 'fulfilled' ? newAppsOnlineResult.value      : 0;
-    const newAppsOffline     = newAppsOfflineResult.status     === 'fulfilled' ? newAppsOfflineResult.value     : 0;
-    const pendingDisbOnline  = pendingDisbOnlineResult.status  === 'fulfilled' ? pendingDisbOnlineResult.value  : 0;
-    const pendingDisbOffline = pendingDisbOfflineResult.status === 'fulfilled' ? pendingDisbOfflineResult.value : 0;
-    const offlineTodayEMIs   = offlineTodayEMIsResult.status   === 'fulfilled' ? offlineTodayEMIsResult.value   : [];
-    const offlineOverdueEMIs = offlineOverdueEMIsResult.status === 'fulfilled' ? offlineOverdueEMIsResult.value : [];
-
-    // Log any individual failures for debugging
-    [todayEMIsResult, overdueEMIsResult, newAppsOnlineResult, newAppsOfflineResult,
-     pendingDisbOnlineResult, pendingDisbOfflineResult, offlineTodayEMIsResult, offlineOverdueEMIsResult
-    ].forEach((r, i) => {
-      if (r.status === 'rejected') {
-        console.error(`[Dashboard Alerts] Query ${i + 1} failed:`, (r as any).reason?.message);
-      }
-    });
 
     return NextResponse.json({
       success:              true,

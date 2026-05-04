@@ -38,7 +38,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onNotification,
     onDashboardRefresh,
     onCreditUpdated,
-    pollInterval = 300_000,  // 5 min default — reduces DB queries significantly
+    pollInterval = 0,  // DISABLED — socket push handles all updates, no polling needed
   } = options;
 
   const callbacksRef = useRef({
@@ -157,7 +157,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   useEffect(() => {
     if (!userId) return;
 
-    const VISIBILITY_REFRESH_THROTTLE_MS = 30_000; // 30 seconds minimum between refreshes
+    const VISIBILITY_REFRESH_THROTTLE_MS = 120_000; // 2 minutes minimum between tab-switch refreshes
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {

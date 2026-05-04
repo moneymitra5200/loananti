@@ -13,7 +13,7 @@
 
 import { useEffect, useRef } from 'react';
 
-const CHECK_INTERVAL = 3 * 60 * 1000; // 3 minutes
+const CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes (was 3 — reduced to save resources)
 const STORAGE_KEY = 'app_build_id';
 
 async function fetchBuildId(): Promise<string | null> {

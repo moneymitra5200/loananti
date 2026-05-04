@@ -37,7 +37,7 @@ export function useStats({
   role = 'SUPER_ADMIN',
   userId = '',
   companyId = '',
-  refetchInterval = 300_000,
+  refetchInterval = 0,  // DISABLED — socket events trigger refresh, not polling
   enabled = true,
 }: UseStatsOptions = {}) {
   const params = new URLSearchParams();
@@ -54,7 +54,7 @@ export function useStats({
     },
     staleTime: 25_000,          // treat data as fresh for 25s
     gcTime: 60_000,             // keep in cache 60s after unmount
-    refetchInterval,            // auto-refresh every 30s (live counters)
+    refetchInterval: refetchInterval || false, // disabled by default — socket events trigger refetch()
     refetchIntervalInBackground: false,
     enabled: enabled && !!(role),
     retry: 2,
