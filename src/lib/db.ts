@@ -50,6 +50,18 @@ export const db = globalForPrisma.prisma ?? createPrismaClient();
 globalForPrisma.prisma = db;
 globalForPrisma.prismaRestarting = false;
 
+// ── PRE-WARM: Connect eagerly at module load ───────────────────────────────────
+// The #1 cause of "timer has gone away" is a query hitting the engine while
+// libraryStarted=false (engine still initializing). By calling $connect()
+// immediately on import, the engine is ready before the first real request.
+if (!(globalForPrisma as any).prismaConnected) {
+  (globalForPrisma as any).prismaConnected = true;
+  db.$connect()
+    .then(() => console.log('[DB] ✅ Prisma engine pre-warmed'))
+    .catch((e: any) => console.error('[DB] ⚠️ Pre-warm failed (will retry on first query):', e?.message));
+}
+
+
 // ── PANIC HANDLER: FORCE EXIT immediately on Prisma Rust engine panic ─────────
 // This is the #1 fix for "PANIC: timer has gone away" loops.
 // The panic makes the Rust engine permanently broken.
