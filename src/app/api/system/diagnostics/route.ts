@@ -77,54 +77,68 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // ── 3. Database — table counts + response time ────────────────────────────
+  // ── 3. Database — table counts + response time (CACHED 60s) ─────────────────
+  // The audit page refreshes every 5s — without caching this runs 11 DB queries
+  // per refresh = ~130 DB queries/minute → connection exhaustion.
   let dbReport: Record<string, unknown> = {};
-  try {
-    const dbStart = Date.now();
-    // Simple ping query
-    await db.$queryRaw`SELECT 1`;
-    const dbPingMs = Date.now() - dbStart;
+  const DB_CACHE_TTL = 60_000; // 60 seconds
+  const g = globalThis as any;
 
-    const notifications  = await db.notification.count().catch(() => -1);
-    const auditLogs      = await db.auditLog.count().catch(() => -1);
-    const locationLogs   = await db.locationLog.count().catch(() => -1);
-    const loanApps       = await db.loanApplication.count().catch(() => -1);
-    const offlineLoans   = await db.offlineLoan.count().catch(() => -1);
-    const emiSchedules   = await db.eMISchedule.count().catch(() => -1);
-    const offlineEmis    = await db.offlineLoanEMI.count().catch(() => -1);
-    const payments       = await db.payment.count().catch(() => -1);
-    const usersTotal     = await db.user.count().catch(() => -1);
-    const usersWithFcm   = await db.user.count({ where: { fcmToken: { not: null } } }).catch(() => -1);
-    const workflowLogs   = await db.workflowLog.count().catch(() => -1);
+  if (g._diagDbCache && Date.now() - g._diagDbCache.ts < DB_CACHE_TTL) {
+    // Serve from cache — no DB hit
+    dbReport = g._diagDbCache.data;
+  } else {
+    try {
+      const dbStart = Date.now();
+      await db.$queryRaw`SELECT 1 as test`;
+      const dbPingMs = Date.now() - dbStart;
 
-    const warnings: string[] = [];
-    if (notifications > 5000) warnings.push(`🔴 ${notifications} notifications — run cleanup`);
-    if (auditLogs > 10000)    warnings.push(`🔴 ${auditLogs} audit logs — cron may not be running`);
-    if (locationLogs > 5000)  warnings.push(`🔴 ${locationLogs} location logs — cron may not be running`);
-    if (usersWithFcm === 0)   warnings.push('🟡 No FCM tokens — push notifications broken');
-    if (dbPingMs > 500)       warnings.push(`🟡 DB ping ${dbPingMs}ms — DB server is slow`);
+      const notifications  = await db.notification.count().catch(() => -1);
+      const auditLogs      = await db.auditLog.count().catch(() => -1);
+      const locationLogs   = await db.locationLog.count().catch(() => -1);
+      const loanApps       = await db.loanApplication.count().catch(() => -1);
+      const offlineLoans   = await db.offlineLoan.count().catch(() => -1);
+      const emiSchedules   = await db.eMISchedule.count().catch(() => -1);
+      const offlineEmis    = await db.offlineLoanEMI.count().catch(() => -1);
+      const payments       = await db.payment.count().catch(() => -1);
+      const usersTotal     = await db.user.count().catch(() => -1);
+      const usersWithFcm   = await db.user.count({ where: { fcmToken: { not: null } } }).catch(() => -1);
+      const workflowLogs   = await db.workflowLog.count().catch(() => -1);
 
-    dbReport = {
-      ping_ms: dbPingMs,
-      ping_status: dbPingMs < 100 ? '🟢 Fast' : dbPingMs < 300 ? '🟡 OK' : '🔴 Slow',
-      table_counts: {
-        users: usersTotal,
-        users_with_fcm_token: usersWithFcm,
-        notifications,
-        audit_logs: auditLogs,
-        location_logs: locationLogs,
-        loan_applications: loanApps,
-        offline_loans: offlineLoans,
-        emi_schedules: emiSchedules,
-        offline_loan_emis: offlineEmis,
-        payments,
-        workflow_logs: workflowLogs,
-      },
-      warnings,
-    };
-  } catch (err: any) {
-    dbReport = { error: err.message, ping_status: '🔴 DB connection failed' };
+      const warnings: string[] = [];
+      if (notifications > 5000) warnings.push(`🔴 ${notifications} notifications — run cleanup`);
+      if (auditLogs > 10000)    warnings.push(`🔴 ${auditLogs} audit logs — cron may not be running`);
+      if (locationLogs > 5000)  warnings.push(`🔴 ${locationLogs} location logs — cron may not be running`);
+      if (usersWithFcm === 0)   warnings.push('🟡 No FCM tokens — push notifications broken');
+      if (dbPingMs > 500)       warnings.push(`🟡 DB ping ${dbPingMs}ms — DB server is slow`);
+
+      dbReport = {
+        ping_ms: dbPingMs,
+        ping_status: dbPingMs < 100 ? '🟢 Fast' : dbPingMs < 300 ? '🟡 OK' : '🔴 Slow',
+        cached: false,
+        table_counts: {
+          users: usersTotal,
+          users_with_fcm_token: usersWithFcm,
+          notifications,
+          audit_logs: auditLogs,
+          location_logs: locationLogs,
+          loan_applications: loanApps,
+          offline_loans: offlineLoans,
+          emi_schedules: emiSchedules,
+          offline_loan_emis: offlineEmis,
+          payments,
+          workflow_logs: workflowLogs,
+        },
+        warnings,
+      };
+
+      // Store in cache
+      g._diagDbCache = { ts: Date.now(), data: { ...dbReport, cached: true } };
+    } catch (err: any) {
+      dbReport = { error: err.message, ping_status: '🔴 DB connection failed' };
+    }
   }
+
 
   // ── 4. Process Info ───────────────────────────────────────────────────────
   const uptimeSec = process.uptime();
