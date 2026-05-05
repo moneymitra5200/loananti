@@ -152,37 +152,21 @@ export default function CustomerDashboard() {
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [successDialogData, setSuccessDialogData] = useState({ title: '', description: '', applicationNo: '' });
 
-  // Parallel fetch all data at once for instant loading
+  // SEQUENTIAL fetch — prevents DB connection starvation (connection_limit=3)
+  // 6 parallel calls × 3 concurrent customers = 18 DB connections = 503 error
   const fetchAllData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // PARALLEL FETCH - All requests at once (including tickets)
-      const [loansRes, servicesRes, notificationsRes, offersRes, referralsRes, ticketsRes] = await Promise.all([
-        fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`),
-        fetch('/api/cms/product?isActive=true'),
-        fetch(`/api/notification?userId=${user.id}&limit=100`),
-        fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`),
-        fetch(`/api/loan-features?action=referrals&customerId=${user.id}`),
-        fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`),
-      ]);
-
-      // Process all responses in parallel
-      const [loansData, servicesData, notificationsData, offersData, referralsData, ticketsData] = await Promise.all([
-        loansRes.json(),
-        servicesRes.json(),
-        notificationsRes.json(),
-        offersRes.json(),
-        referralsRes.json(),
-        ticketsRes.json().catch(() => ({ success: false, tickets: [] })),
-      ]);
-
-      // Update loans store for caching
+      // ── Phase 1: Critical data (user sees this first) ──────────────────
+      const loansRes = await fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`);
+      const loansData = await loansRes.json();
       const loansList = loansData.loans || [];
       setLoans(loansList);
       useLoansStore.getState().setLoans(loansList);
 
-      // Process services
+      const servicesRes = await fetch('/api/cms/product?isActive=true');
+      const servicesData = await servicesRes.json();
       const products = (servicesData.products || []).map((p: any) => ({
         id: p.id,
         title: p.title || 'Loan',
@@ -200,13 +184,21 @@ export default function CustomerDashboard() {
         code: p.code || 'LN'
       }));
       setServices(products);
-      
+
+      const notificationsRes = await fetch(`/api/notification?userId=${user.id}&limit=50`);
+      const notificationsData = await notificationsRes.json();
       setNotifications(notificationsData.notifications || []);
-      
-      if (offersData.success) {
-        setPreApprovedOffers(offersData.offers || []);
-      }
-      
+
+      // Show UI now — loading complete for critical data
+      setLoading(false);
+
+      // ── Phase 2: Non-critical data (deferred, user already sees the UI) ─
+      const offersRes = await fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`);
+      const offersData = await offersRes.json().catch(() => ({ success: false }));
+      if (offersData.success) setPreApprovedOffers(offersData.offers || []);
+
+      const referralsRes = await fetch(`/api/loan-features?action=referrals&customerId=${user.id}`);
+      const referralsData = await referralsRes.json().catch(() => ({ success: false }));
       if (referralsData.success) {
         const refs = referralsData.referrals || [];
         setReferralStats({
@@ -216,10 +208,10 @@ export default function CustomerDashboard() {
         });
       }
 
-    if (ticketsData.success) {
-        const rawTickets = ticketsData.data || ticketsData.tickets || [];
-        setTickets(rawTickets);
-      }
+      const ticketsRes = await fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`);
+      const ticketsData = await ticketsRes.json().catch(() => ({ success: false, tickets: [] }));
+      if (ticketsData.success) setTickets(ticketsData.data || ticketsData.tickets || []);
+
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {

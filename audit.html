@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>🔬 Live Resource Audit</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 16px; }
+  h1 { font-size: 20px; color: #38bdf8; margin-bottom: 4px; }
+  .sub { color: #64748b; font-size: 13px; margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 10px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-left: 6px; }
+  .ok { background:#064e3b; color:#34d399; } .warn { background:#451a03; color:#fb923c; } .crit { background:#450a0a; color:#f87171; }
+  .stat { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1e293b; font-size: 13px; }
+  .stat:last-child { border-bottom: none; }
+  .val { font-weight: 700; color: #f1f5f9; }
+  .bar-wrap { background:#1e293b; border-radius:4px; height:8px; margin-top:4px; overflow:hidden; }
+  .bar { height:8px; border-radius:4px; transition: width 0.5s; }
+  .green{background:#10b981;} .yellow{background:#f59e0b;} .red{background:#ef4444;}
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; color:#64748b; padding:4px 6px; border-bottom:1px solid #334155; }
+  td { padding:5px 6px; border-bottom:1px solid #1e293b; color:#cbd5e1; }
+  tr:hover td { background:#1e293b; }
+  .hot { color:#f87171; font-weight:700; }
+  .refresh-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  button { background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; cursor:pointer; font-size:13px; }
+  button:hover { background:#1d4ed8; }
+  input { background:#1e293b; border:1px solid #334155; color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:13px; width:260px; }
+  .ts { color:#475569; font-size:11px; }
+  #status { font-size:13px; }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px; }
+  .dot.live { background:#10b981; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+  .warn-box { background:#451a03; border:1px solid #92400e; border-radius:6px; padding:8px 12px; font-size:12px; color:#fb923c; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<h1>🔬 Live Resource Audit — MoneyMitra</h1>
+<p class="sub">Polls your running server every 5 seconds. Keep this open while browsing the app.</p>
+
+<div class="refresh-bar">
+  <input id="url" value="http://localhost:3000/api/system/diagnostics?secret=diag-secret-2024" placeholder="Diagnostics URL + secret" />
+  <button onclick="fetchNow()">Fetch Now</button>
+  <button onclick="resetStats()">Reset API Stats</button>
+  <span id="status"><span class="dot"></span>Not started</span>
+</div>
+
+<div class="grid" id="grid">
+  <div class="card"><h2>⏳ Waiting for data...</h2><p class="ts">Enter your site URL above and click Fetch Now.</p></div>
+</div>
+
+<script>
+let timer = null;
+
+function pct(v, max) { return Math.min(100, Math.round(v / max * 100)); }
+function barColor(p) { return p > 80 ? 'red' : p > 60 ? 'yellow' : 'green'; }
+
+function bar(value, max, unit='MB') {
+  const p = pct(value, max);
+  const c = barColor(p);
+  return `<div style="margin-top:2px"><span style="font-size:11px;color:#94a3b8">${value}${unit} / ${max}${unit} (${p}%)</span>
+  <div class="bar-wrap"><div class="bar ${c}" style="width:${p}%"></div></div></div>`;
+}
+
+function badge(text) {
+  if (!text) return '';
+  const cl = text.includes('CRITICAL') || text.includes('🔴') ? 'crit' : text.includes('WARNING') || text.includes('🟡') ? 'warn' : 'ok';
+  return `<span class="badge ${cl}">${text.replace(/[🔴🟡🟢]/g,'').trim()}</span>`;
+}
+
+function render(d) {
+  const m = d.memory;
+  const s = d.sockets;
+  const db = d.database;
+  const p = d.process;
+  const api = d.api_call_stats;
+  const env = d.environment;
+
+  let html = '';
+
+  // Overall status
+  html += `<div class="card">
+    <h2>Overall Status ${badge(d.overall_status)}</h2>
+    <div class="stat"><span>Generated</span><span class="val ts">${new Date(d.generated_at).toLocaleTimeString()}</span></div>
+    <div class="stat"><span>Uptime</span><span class="val">${p.uptime_human}</span></div>
+    <div class="stat"><span>Node</span><span class="val">${p.node_version}</span></div>
+    <div class="stat"><span>Environment</span><span class="val">${p.env}</span></div>
+    <div class="stat"><span>PID</span><span class="val">${p.pid}</span></div>
+  </div>`;
+
+  // Memory
+  html += `<div class="card">
+    <h2>💾 Memory ${badge(m.status)}</h2>
+    <div class="stat"><span>RSS (Total Process)</span><span class="val">${m.rss_mb} MB</span></div>
+    ${bar(m.rss_mb, m.limit_mb)}
+    <div class="stat" style="margin-top:8px"><span>Heap Used</span><span class="val">${m.heap_used_mb} MB</span></div>
+    <div class="stat"><span>Heap Total</span><span class="val">${m.heap_total_mb} MB</span></div>
+    <div class="stat"><span>External (buffers)</span><span class="val">${m.external_mb} MB</span></div>
+    ${m.external_mb > 50 ? '<div class="warn-box">⚠️ High external memory — possible large file in memory</div>' : ''}
+  </div>`;
+
+  // Database
+  const dbTables = db.table_counts || {};
+  html += `<div class="card">
+    <h2>🗄️ Database ${badge(db.ping_status)}</h2>
+    <div class="stat"><span>Ping</span><span class="val ${db.ping_ms > 300 ? 'hot' : ''}">${db.ping_ms}ms</span></div>
+    ${Object.entries(dbTables).map(([k,v]) => `<div class="stat"><span>${k.replace(/_/g,' ')}</span><span class="val ${Number(v)>5000?'hot':''}">${v?.toLocaleString()}</span></div>`).join('')}
+    ${(db.warnings||[]).map(w=>`<div class="warn-box">${w}</div>`).join('')}
+  </div>`;
+
+  // Sockets
+  html += `<div class="card">
+    <h2>🔌 Socket.io ${badge(s.status)}</h2>
+    <div class="stat"><span>Connected Clients</span><span class="val">${s.connected_clients ?? 'N/A'}</span></div>
+    <div class="stat"><span>Named Rooms</span><span class="val">${s.named_rooms ?? 'N/A'}</span></div>
+    ${s.transport_breakdown ? Object.entries(s.transport_breakdown).map(([t,c])=>`<div class="stat"><span>Transport: ${t}</span><span class="val">${c}</span></div>`).join('') : ''}
+    <div style="margin-top:8px"><h2 style="margin-bottom:6px">Top Rooms</h2>
+    ${(s.top_rooms||[]).slice(0,8).map(r=>`<div class="stat"><span>${r.name}</span><span class="val">${r.size}</span></div>`).join('')}
+    </div>
+  </div>`;
+
+  // Environment
+  html += `<div class="card">
+    <h2>⚙️ Environment</h2>
+    ${Object.entries(env).map(([k,v])=>`<div class="stat"><span>${k.replace(/_/g,' ')}</span><span class="val ts" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${String(v)}</span></div>`).join('')}
+  </div>`;
+
+  // API Stats — the most useful for finding resource hogs
+  if (api && api.topEndpoints) {
+    const top = api.topEndpoints.slice(0, 25);
+    html += `<div class="card" style="grid-column:1/-1">
+      <h2>📊 Live API Call Tracker — Top ${top.length} Endpoints <span class="ts">(since ${new Date(api.trackedSince).toLocaleTimeString()} · ${api.totalRequests} total reqs · ${api.uptimeMinutes}min uptime)</span></h2>
+      <table>
+        <tr><th>#</th><th>Endpoint</th><th>Calls</th><th>Calls/Min</th><th>Avg ms</th><th>Max ms</th><th>Errors</th><th>Error %</th><th>Last Called</th></tr>
+        ${top.map((e,i)=>`<tr>
+          <td>${i+1}</td>
+          <td style="font-family:monospace;color:${e.count>50?'#f87171':e.count>20?'#fb923c':'#cbd5e1'}">${e.path}</td>
+          <td class="${e.count>50?'hot':''}">${e.count}</td>
+          <td>${e.callsPerMin}</td>
+          <td class="${e.avgMs>500?'hot':e.avgMs>200?'':'val'}">${e.avgMs}</td>
+          <td class="${e.maxMs>1000?'hot':''}">${e.maxMs}</td>
+          <td>${e.errors}</td>
+          <td class="${parseFloat(e.errorRate)>5?'hot':''}">${e.errorRate}</td>
+          <td class="ts">${new Date(e.lastCalledAt).toLocaleTimeString()}</td>
+        </tr>`).join('')}
+      </table>
+      ${top.length === 0 ? '<p class="ts" style="padding:8px">No API calls tracked yet. Browse the site to generate traffic.</p>' : ''}
+      <p class="ts" style="margin-top:8px">⚠️ Note: API tracking requires <code>trackApiCall()</code> to be added to route handlers. For now, this shows data from the diagnostics route itself.</p>
+    </div>`;
+  }
+
+  document.getElementById('grid').innerHTML = html;
+  document.getElementById('status').innerHTML = `<span class="dot live"></span>Live — last update ${new Date().toLocaleTimeString()}`;
+}
+
+async function fetchNow() {
+  const url = document.getElementById('url').value.trim();
+  if (!url) return;
+  document.getElementById('status').innerHTML = `<span class="dot" style="background:#f59e0b"></span>Fetching...`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    render(data);
+    if (!timer) timer = setInterval(fetchNow, 5000);
+  } catch(e) {
+    document.getElementById('status').innerHTML = `<span class="dot" style="background:#ef4444"></span>Error: ${e.message}`;
+    document.getElementById('grid').innerHTML = `<div class="card"><h2>❌ Connection Failed</h2><p class="ts">${e.message}</p><p class="ts" style="margin-top:8px">Make sure your site is running and the URL + secret are correct.</p></div>`;
+  }
+}
+
+async function resetStats() {
+  const url = document.getElementById('url').value.trim().replace('diagnostics?', 'diagnostics?reset=true&');
+  try { await fetch(url); alert('Stats reset!'); fetchNow(); } catch(e) { alert('Reset failed: ' + e.message); }
+}
+
+// Auto-start if default URL seems valid
+fetchNow();
+</script>
+</body>
+</html>
