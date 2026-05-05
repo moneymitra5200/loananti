@@ -129,9 +129,12 @@ export async function GET(request: NextRequest) {
   // ── 4. Process Info ───────────────────────────────────────────────────────
   const uptimeSec = process.uptime();
   const cpuUsage  = process.cpuUsage();
+  const uh = Math.floor(uptimeSec / 3600);
+  const um = Math.floor((uptimeSec % 3600) / 60);
+  const us = Math.floor(uptimeSec % 60);
   const processReport = {
     uptime_seconds: Math.round(uptimeSec),
-    uptime_human: formatUptime(uptimeSec),
+    uptime_human: `${uh}h ${um}m ${us}s`,
     node_version: process.version,
     pid: process.pid,
     platform: process.platform,
