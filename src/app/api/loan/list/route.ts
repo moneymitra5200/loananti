@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheKeys, CacheTTL, invalidateLoanCache } from '@/lib/cache';
+import { trackApiCall } from '@/lib/api-tracker';
 
 // List select — includes document fields needed by DisbursementDialog
 const LOAN_LIST_SELECT = {
@@ -76,6 +77,7 @@ const LOAN_LIST_SELECT = {
 };
 
 export async function GET(request: NextRequest) {
+  const done = trackApiCall('/api/loan/list');
   try {
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role');

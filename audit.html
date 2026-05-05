@@ -2,183 +2,372 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>🔬 Live Resource Audit</title>
+<title>🔬 Live Resource Audit — MoneyMitra</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 16px; }
-  h1 { font-size: 20px; color: #38bdf8; margin-bottom: 4px; }
-  .sub { color: #64748b; font-size: 13px; margin-bottom: 16px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
-  .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 10px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; margin-left: 6px; }
-  .ok { background:#064e3b; color:#34d399; } .warn { background:#451a03; color:#fb923c; } .crit { background:#450a0a; color:#f87171; }
-  .stat { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1e293b; font-size: 13px; }
-  .stat:last-child { border-bottom: none; }
-  .val { font-weight: 700; color: #f1f5f9; }
-  .bar-wrap { background:#1e293b; border-radius:4px; height:8px; margin-top:4px; overflow:hidden; }
-  .bar { height:8px; border-radius:4px; transition: width 0.5s; }
-  .green{background:#10b981;} .yellow{background:#f59e0b;} .red{background:#ef4444;}
-  table { width:100%; border-collapse:collapse; font-size:12px; }
-  th { text-align:left; color:#64748b; padding:4px 6px; border-bottom:1px solid #334155; }
-  td { padding:5px 6px; border-bottom:1px solid #1e293b; color:#cbd5e1; }
-  tr:hover td { background:#1e293b; }
-  .hot { color:#f87171; font-weight:700; }
-  .refresh-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
-  button { background:#2563eb; color:#fff; border:none; border-radius:6px; padding:6px 14px; cursor:pointer; font-size:13px; }
-  button:hover { background:#1d4ed8; }
-  input { background:#1e293b; border:1px solid #334155; color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:13px; width:260px; }
-  .ts { color:#475569; font-size:11px; }
-  #status { font-size:13px; }
-  .dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:5px; }
-  .dot.live { background:#10b981; animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
-  .warn-box { background:#451a03; border:1px solid #92400e; border-radius:6px; padding:8px 12px; font-size:12px; color:#fb923c; margin-top:8px; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; padding: 16px; font-size: 14px; }
+h1 { font-size: 22px; color: #38bdf8; }
+.sub { color: #64748b; font-size: 12px; margin: 4px 0 16px; }
+
+/* Setup box */
+.setup { background: #1e293b; border: 1px solid #0ea5e9; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.setup h2 { color: #38bdf8; font-size: 14px; margin-bottom: 10px; }
+.steps { list-style: none; counter-reset: steps; }
+.steps li { counter-increment: steps; padding: 6px 0 6px 32px; position: relative; color: #cbd5e1; font-size: 13px; border-bottom: 1px solid #334155; }
+.steps li:last-child { border-bottom: none; }
+.steps li::before { content: counter(steps); position: absolute; left: 0; top: 6px; background: #0ea5e9; color: #fff; width: 20px; height: 20px; border-radius: 50%; text-align: center; line-height: 20px; font-size: 11px; font-weight: 700; }
+.steps li b { color: #f8fafc; }
+code { background: #0f172a; color: #34d399; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+
+/* Controls */
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+input[type=text] { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 7px 12px; font-size: 13px; flex: 1; min-width: 280px; }
+input[type=range] { accent-color: #38bdf8; }
+button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+button:hover { background: #1d4ed8; }
+button.danger { background: #dc2626; }
+button.danger:hover { background: #b91c1c; }
+button.green { background: #059669; }
+#liveStatus { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.live { background: #10b981; animation: pulse 1.5s infinite; }
+.dot.dead { background: #ef4444; }
+.dot.idle { background: #f59e0b; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+/* Summary bar */
+.summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.kpi { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 16px; flex: 1; min-width: 130px; }
+.kpi .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+.kpi .value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+.kpi.ok .value { color: #34d399; }
+.kpi.warn .value { color: #fb923c; }
+.kpi.crit .value { color: #f87171; }
+.kpi.info .value { color: #38bdf8; }
+
+/* Grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px; }
+.card h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; margin-bottom: 10px; }
+.row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #0f172a; font-size: 13px; }
+.row:last-child { border-bottom: none; }
+.v { font-weight: 700; color: #f1f5f9; }
+.hot { color: #f87171; font-weight: 700; }
+.ok { color: #34d399; }
+.warn { color: #fb923c; }
+
+/* Progress bar */
+.bar-wrap { background: #0f172a; border-radius: 4px; height: 7px; margin-top: 3px; overflow: hidden; }
+.bar { height: 7px; border-radius: 4px; transition: width .5s; }
+.bg-green { background: #10b981; } .bg-yellow { background: #f59e0b; } .bg-red { background: #ef4444; }
+
+/* API table */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; color: #64748b; padding: 6px 8px; border-bottom: 1px solid #334155; font-weight: 600; white-space: nowrap; cursor: pointer; }
+th:hover { color: #e2e8f0; }
+td { padding: 6px 8px; border-bottom: 1px solid #1a2744; color: #cbd5e1; }
+tr:hover td { background: #1a2744; }
+.path { font-family: monospace; font-size: 11px; }
+.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.badge.crit { background: #450a0a; color: #f87171; }
+.badge.warn { background: #451a03; color: #fb923c; }
+.badge.ok { background: #052e16; color: #34d399; }
+.spark { display: inline-flex; gap: 1px; align-items: flex-end; height: 16px; }
+.spark span { width: 3px; background: #38bdf8; border-radius: 1px; display: inline-block; min-height: 1px; }
+
+/* Warnings list */
+.warnlist { margin-top: 8px; }
+.warnitem { background: #451a03; border: 1px solid #92400e; border-radius: 6px; padding: 6px 10px; font-size: 12px; color: #fb923c; margin-bottom: 5px; }
+.warnitem.crit { background: #450a0a; border-color: #991b1b; color: #f87171; }
+
+/* Footer */
+.footer { color: #334155; font-size: 11px; text-align: center; margin-top: 20px; }
 </style>
 </head>
 <body>
 
 <h1>🔬 Live Resource Audit — MoneyMitra</h1>
-<p class="sub">Polls your running server every 5 seconds. Keep this open while browsing the app.</p>
+<p class="sub">Monitors your Hostinger server in real-time. Open this file locally while the site is running.</p>
 
-<div class="refresh-bar">
-  <input id="url" value="http://localhost:3000/api/system/diagnostics?secret=diag-secret-2024" placeholder="Diagnostics URL + secret" />
-  <button onclick="fetchNow()">Fetch Now</button>
-  <button onclick="resetStats()">Reset API Stats</button>
-  <span id="status"><span class="dot"></span>Not started</span>
+<!-- HOW TO USE -->
+<div class="setup" id="howToUse">
+  <h2>📖 How to Use — Read First</h2>
+  <ol class="steps">
+    <li><b>Deploy the latest code</b> to Hostinger (git pull + npm run build + restart server)</li>
+    <li>Enter your <b>Hostinger site URL</b> below — example: <code>https://moneymitra.com/api/system/diagnostics?secret=diag-secret-2024</code></li>
+    <li>Click <b>Start Monitoring</b> — this page auto-refreshes every 5 seconds</li>
+    <li>Open your site in another tab and <b>browse normally</b> — login as customer, admin, cashier etc.</li>
+    <li>Watch the <b>API Call Tracker</b> table below — it shows which endpoints are hit most and how slow they are</li>
+    <li>The <b>Resource Score</b> column tells you which API is eating the most server CPU/DB</li>
+    <li>When done, click <b>Stop</b>. You can also click <b>Reset Stats</b> to get a clean reading after a specific action</li>
+  </ol>
+  <button onclick="document.getElementById('howToUse').style.display='none'" style="margin-top:10px;background:#334155">Hide Instructions</button>
 </div>
 
-<div class="grid" id="grid">
-  <div class="card"><h2>⏳ Waiting for data...</h2><p class="ts">Enter your site URL above and click Fetch Now.</p></div>
+<!-- CONTROLS -->
+<div class="controls">
+  <input type="text" id="url" placeholder="https://yoursite.com/api/system/diagnostics?secret=diag-secret-2024" />
+  <button class="green" onclick="start()">▶ Start Monitoring</button>
+  <button onclick="stop()" style="background:#475569">⏹ Stop</button>
+  <button class="danger" onclick="resetStats()">🔄 Reset Stats</button>
+  <span style="font-size:12px;color:#64748b">Refresh every</span>
+  <input type="range" id="interval" min="2" max="30" value="5" style="width:80px" oninput="changeInterval(this.value)">
+  <span id="intervalLabel" style="font-size:12px;color:#94a3b8">5s</span>
+  <span id="liveStatus"><span class="dot idle"></span> Stopped</span>
 </div>
+
+<!-- KPI SUMMARY BAR -->
+<div class="summary" id="kpiBar">
+  <div class="kpi info"><div class="label">Status</div><div class="value" id="kStatus">—</div></div>
+  <div class="kpi info"><div class="label">RAM Used</div><div class="value" id="kRam">—</div></div>
+  <div class="kpi info"><div class="label">DB Ping</div><div class="value" id="kDb">—</div></div>
+  <div class="kpi info"><div class="label">Sockets</div><div class="value" id="kSock">—</div></div>
+  <div class="kpi info"><div class="label">Total API Calls</div><div class="value" id="kTotal">—</div></div>
+  <div class="kpi info"><div class="label">Uptime</div><div class="value" id="kUptime">—</div></div>
+</div>
+
+<!-- DETAIL GRID -->
+<div class="grid" id="detailGrid"></div>
+
+<!-- API TRACKER TABLE -->
+<div class="card" id="apiCard" style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <h2 style="margin:0">📊 API Call Tracker — Which Feature Is Consuming Resources?</h2>
+    <span id="apiMeta" style="font-size:11px;color:#64748b"></span>
+  </div>
+  <div class="tbl-wrap">
+    <table id="apiTable">
+      <thead><tr>
+        <th onclick="sortBy('rank')">#</th>
+        <th onclick="sortBy('path')">API Endpoint (Route)</th>
+        <th onclick="sortBy('count')">Calls ↕</th>
+        <th onclick="sortBy('callsPerMin')">Calls/Min ↕</th>
+        <th onclick="sortBy('avgMs')">Avg ms ↕</th>
+        <th onclick="sortBy('maxMs')">Max ms</th>
+        <th onclick="sortBy('errors')">Errors</th>
+        <th onclick="sortBy('resourceScore')">⚡ Resource Score ↕</th>
+        <th>Trend</th>
+        <th>Status</th>
+        <th>Last Called</th>
+      </tr></thead>
+      <tbody id="apiBody"><tr><td colspan="11" style="text-align:center;color:#64748b;padding:20px">Click "Start Monitoring" then browse the site…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">audit.html — temporary file, not deployed to server · MoneyMitra Resource Audit Tool</div>
 
 <script>
 let timer = null;
+let sortKey = 'resourceScore';
+let lastData = null;
+let currentInterval = 5000;
 
-function pct(v, max) { return Math.min(100, Math.round(v / max * 100)); }
-function barColor(p) { return p > 80 ? 'red' : p > 60 ? 'yellow' : 'green'; }
+function barColor(pct) { return pct > 80 ? 'bg-red' : pct > 60 ? 'bg-yellow' : 'bg-green'; }
+function kpiClass(pct) { return pct > 80 ? 'crit' : pct > 60 ? 'warn' : 'ok'; }
 
-function bar(value, max, unit='MB') {
-  const p = pct(value, max);
-  const c = barColor(p);
-  return `<div style="margin-top:2px"><span style="font-size:11px;color:#94a3b8">${value}${unit} / ${max}${unit} (${p}%)</span>
-  <div class="bar-wrap"><div class="bar ${c}" style="width:${p}%"></div></div></div>`;
+function progressBar(val, max) {
+  const pct = Math.min(100, Math.round(val / max * 100));
+  const c = barColor(pct);
+  return `<div class="bar-wrap"><div class="bar ${c}" style="width:${pct}%"></div></div>
+          <div style="font-size:11px;color:#64748b;margin-top:2px">${val} / ${max} (${pct}%)</div>`;
 }
 
-function badge(text) {
-  if (!text) return '';
-  const cl = text.includes('CRITICAL') || text.includes('🔴') ? 'crit' : text.includes('WARNING') || text.includes('🟡') ? 'warn' : 'ok';
-  return `<span class="badge ${cl}">${text.replace(/[🔴🟡🟢]/g,'').trim()}</span>`;
+function spark(recent) {
+  if (!recent || recent.length === 0) return '';
+  const max = Math.max(...recent, 1);
+  return '<div class="spark">' + recent.map(v => {
+    const h = Math.max(1, Math.round((v / max) * 16));
+    const c = v > 500 ? '#ef4444' : v > 200 ? '#f59e0b' : '#38bdf8';
+    return `<span style="height:${h}px;background:${c}"></span>`;
+  }).join('') + '</div>';
 }
 
-function render(d) {
-  const m = d.memory;
-  const s = d.sockets;
-  const db = d.database;
-  const p = d.process;
-  const api = d.api_call_stats;
-  const env = d.environment;
+function setStatus(cls, text) {
+  document.getElementById('liveStatus').innerHTML = `<span class="dot ${cls}"></span> ${text}`;
+}
 
-  let html = '';
+function changeInterval(v) {
+  document.getElementById('intervalLabel').textContent = v + 's';
+  currentInterval = v * 1000;
+  if (timer) { stop(); start(); }
+}
 
-  // Overall status
-  html += `<div class="card">
-    <h2>Overall Status ${badge(d.overall_status)}</h2>
-    <div class="stat"><span>Generated</span><span class="val ts">${new Date(d.generated_at).toLocaleTimeString()}</span></div>
-    <div class="stat"><span>Uptime</span><span class="val">${p.uptime_human}</span></div>
-    <div class="stat"><span>Node</span><span class="val">${p.node_version}</span></div>
-    <div class="stat"><span>Environment</span><span class="val">${p.env}</span></div>
-    <div class="stat"><span>PID</span><span class="val">${p.pid}</span></div>
-  </div>`;
-
-  // Memory
-  html += `<div class="card">
-    <h2>💾 Memory ${badge(m.status)}</h2>
-    <div class="stat"><span>RSS (Total Process)</span><span class="val">${m.rss_mb} MB</span></div>
-    ${bar(m.rss_mb, m.limit_mb)}
-    <div class="stat" style="margin-top:8px"><span>Heap Used</span><span class="val">${m.heap_used_mb} MB</span></div>
-    <div class="stat"><span>Heap Total</span><span class="val">${m.heap_total_mb} MB</span></div>
-    <div class="stat"><span>External (buffers)</span><span class="val">${m.external_mb} MB</span></div>
-    ${m.external_mb > 50 ? '<div class="warn-box">⚠️ High external memory — possible large file in memory</div>' : ''}
-  </div>`;
-
-  // Database
-  const dbTables = db.table_counts || {};
-  html += `<div class="card">
-    <h2>🗄️ Database ${badge(db.ping_status)}</h2>
-    <div class="stat"><span>Ping</span><span class="val ${db.ping_ms > 300 ? 'hot' : ''}">${db.ping_ms}ms</span></div>
-    ${Object.entries(dbTables).map(([k,v]) => `<div class="stat"><span>${k.replace(/_/g,' ')}</span><span class="val ${Number(v)>5000?'hot':''}">${v?.toLocaleString()}</span></div>`).join('')}
-    ${(db.warnings||[]).map(w=>`<div class="warn-box">${w}</div>`).join('')}
-  </div>`;
-
-  // Sockets
-  html += `<div class="card">
-    <h2>🔌 Socket.io ${badge(s.status)}</h2>
-    <div class="stat"><span>Connected Clients</span><span class="val">${s.connected_clients ?? 'N/A'}</span></div>
-    <div class="stat"><span>Named Rooms</span><span class="val">${s.named_rooms ?? 'N/A'}</span></div>
-    ${s.transport_breakdown ? Object.entries(s.transport_breakdown).map(([t,c])=>`<div class="stat"><span>Transport: ${t}</span><span class="val">${c}</span></div>`).join('') : ''}
-    <div style="margin-top:8px"><h2 style="margin-bottom:6px">Top Rooms</h2>
-    ${(s.top_rooms||[]).slice(0,8).map(r=>`<div class="stat"><span>${r.name}</span><span class="val">${r.size}</span></div>`).join('')}
-    </div>
-  </div>`;
-
-  // Environment
-  html += `<div class="card">
-    <h2>⚙️ Environment</h2>
-    ${Object.entries(env).map(([k,v])=>`<div class="stat"><span>${k.replace(/_/g,' ')}</span><span class="val ts" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${String(v)}</span></div>`).join('')}
-  </div>`;
-
-  // API Stats — the most useful for finding resource hogs
-  if (api && api.topEndpoints) {
-    const top = api.topEndpoints.slice(0, 25);
-    html += `<div class="card" style="grid-column:1/-1">
-      <h2>📊 Live API Call Tracker — Top ${top.length} Endpoints <span class="ts">(since ${new Date(api.trackedSince).toLocaleTimeString()} · ${api.totalRequests} total reqs · ${api.uptimeMinutes}min uptime)</span></h2>
-      <table>
-        <tr><th>#</th><th>Endpoint</th><th>Calls</th><th>Calls/Min</th><th>Avg ms</th><th>Max ms</th><th>Errors</th><th>Error %</th><th>Last Called</th></tr>
-        ${top.map((e,i)=>`<tr>
-          <td>${i+1}</td>
-          <td style="font-family:monospace;color:${e.count>50?'#f87171':e.count>20?'#fb923c':'#cbd5e1'}">${e.path}</td>
-          <td class="${e.count>50?'hot':''}">${e.count}</td>
-          <td>${e.callsPerMin}</td>
-          <td class="${e.avgMs>500?'hot':e.avgMs>200?'':'val'}">${e.avgMs}</td>
-          <td class="${e.maxMs>1000?'hot':''}">${e.maxMs}</td>
-          <td>${e.errors}</td>
-          <td class="${parseFloat(e.errorRate)>5?'hot':''}">${e.errorRate}</td>
-          <td class="ts">${new Date(e.lastCalledAt).toLocaleTimeString()}</td>
-        </tr>`).join('')}
-      </table>
-      ${top.length === 0 ? '<p class="ts" style="padding:8px">No API calls tracked yet. Browse the site to generate traffic.</p>' : ''}
-      <p class="ts" style="margin-top:8px">⚠️ Note: API tracking requires <code>trackApiCall()</code> to be added to route handlers. For now, this shows data from the diagnostics route itself.</p>
-    </div>`;
-  }
-
-  document.getElementById('grid').innerHTML = html;
-  document.getElementById('status').innerHTML = `<span class="dot live"></span>Live — last update ${new Date().toLocaleTimeString()}`;
+function sortBy(key) {
+  sortKey = key;
+  if (lastData) renderApi(lastData.api_call_stats);
 }
 
 async function fetchNow() {
   const url = document.getElementById('url').value.trim();
   if (!url) return;
-  document.getElementById('status').innerHTML = `<span class="dot" style="background:#f59e0b"></span>Fetching...`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status} — check URL and secret`);
     const data = await res.json();
+    lastData = data;
     render(data);
-    if (!timer) timer = setInterval(fetchNow, 5000);
+    setStatus('live', `Live · ${new Date().toLocaleTimeString()}`);
   } catch(e) {
-    document.getElementById('status').innerHTML = `<span class="dot" style="background:#ef4444"></span>Error: ${e.message}`;
-    document.getElementById('grid').innerHTML = `<div class="card"><h2>❌ Connection Failed</h2><p class="ts">${e.message}</p><p class="ts" style="margin-top:8px">Make sure your site is running and the URL + secret are correct.</p></div>`;
+    setStatus('dead', 'Error: ' + e.message);
   }
 }
 
-async function resetStats() {
-  const url = document.getElementById('url').value.trim().replace('diagnostics?', 'diagnostics?reset=true&');
-  try { await fetch(url); alert('Stats reset!'); fetchNow(); } catch(e) { alert('Reset failed: ' + e.message); }
+function start() {
+  if (timer) clearInterval(timer);
+  fetchNow();
+  timer = setInterval(fetchNow, currentInterval);
+  setStatus('live', 'Connecting…');
 }
 
-// Auto-start if default URL seems valid
-fetchNow();
+function stop() {
+  if (timer) clearInterval(timer);
+  timer = null;
+  setStatus('idle', 'Stopped');
+}
+
+async function resetStats() {
+  const url = document.getElementById('url').value.trim();
+  if (!url) return alert('Enter URL first');
+  const resetUrl = url.includes('?')
+    ? url.replace('?', '?reset=true&')
+    : url + '?reset=true';
+  try {
+    const res = await fetch(resetUrl, { cache: 'no-store' });
+    const d = await res.json();
+    alert('✅ Stats reset: ' + (d.message || 'done'));
+    fetchNow();
+  } catch(e) { alert('Reset failed: ' + e.message); }
+}
+
+function render(d) {
+  const m = d.memory || {};
+  const db = d.database || {};
+  const s = d.sockets || {};
+  const p = d.process || {};
+  const env = d.environment || {};
+  const api = d.api_call_stats || {};
+
+  // KPI bar
+  const ramPct = Math.round((m.rss_mb || 0) / (m.limit_mb || 512) * 100);
+  document.getElementById('kStatus').textContent = (d.overall_status || '—').replace(/[🔴🟡🟢]/g,'').trim();
+  document.getElementById('kRam').textContent = (m.rss_mb || 0) + ' MB';
+  document.getElementById('kDb').textContent = db.ping_ms != null ? db.ping_ms + ' ms' : '—';
+  document.getElementById('kSock').textContent = s.connected_clients ?? '—';
+  document.getElementById('kTotal').textContent = (api.totalRequests || 0).toLocaleString();
+  document.getElementById('kUptime').textContent = p.uptime_human || '—';
+
+  // Update kpi colors
+  ['kRam'].forEach(id => {
+    const el = document.getElementById(id).parentElement;
+    el.className = 'kpi ' + kpiClass(ramPct);
+  });
+  const dbEl = document.getElementById('kDb').parentElement;
+  dbEl.className = 'kpi ' + ((db.ping_ms||0) > 300 ? 'crit' : (db.ping_ms||0) > 100 ? 'warn' : 'ok');
+
+  // Detail grid
+  let grid = '';
+
+  // Memory card
+  grid += `<div class="card">
+    <h2>💾 Memory — ${(m.status||'').replace(/[🔴🟡🟢]/g,'')}</h2>
+    <div class="row"><span>RSS (Total)</span><span class="v ${ramPct>80?'hot':ramPct>60?'warn':'ok'}">${m.rss_mb} MB</span></div>
+    ${progressBar(m.rss_mb, m.limit_mb||512)}
+    <div class="row" style="margin-top:8px"><span>Heap Used</span><span class="v">${m.heap_used_mb} MB (${m.heap_used_pct}%)</span></div>
+    <div class="row"><span>Heap Total</span><span class="v">${m.heap_total_mb} MB</span></div>
+    <div class="row"><span>External Buffers</span><span class="v ${m.external_mb>50?'hot':''}">${m.external_mb} MB</span></div>
+    ${m.external_mb > 50 ? '<div class="warnitem crit">⚠️ High external memory — likely a large file (e.g. EMI proof image) held in memory. Check recent uploads.</div>' : ''}
+  </div>`;
+
+  // DB card
+  const dbTables = db.table_counts || {};
+  grid += `<div class="card">
+    <h2>🗄️ Database — ${(db.ping_status||'').replace(/[🔴🟡🟢]/g,'')}</h2>
+    <div class="row"><span>Ping</span><span class="v ${(db.ping_ms||0)>300?'hot':(db.ping_ms||0)>100?'warn':'ok'}">${db.ping_ms ?? '—'} ms</span></div>
+    ${Object.entries(dbTables).map(([k,v]) => {
+      const num = Number(v);
+      const isHot = (k==='notifications'&&num>5000)||(k==='audit_logs'&&num>10000)||(k==='location_logs'&&num>5000);
+      return `<div class="row"><span>${k.replace(/_/g,' ')}</span><span class="v ${isHot?'hot':''}">${num.toLocaleString()}</span></div>`;
+    }).join('')}
+    <div class="warnlist">${(db.warnings||[]).map(w=>`<div class="warnitem">${w}</div>`).join('')}</div>
+  </div>`;
+
+  // Socket card
+  grid += `<div class="card">
+    <h2>🔌 Socket.io — ${(s.status||'—').replace(/[🔴🟡🟢]/g,'')}</h2>
+    <div class="row"><span>Connected Clients</span><span class="v">${s.connected_clients ?? '—'}</span></div>
+    <div class="row"><span>Named Rooms</span><span class="v">${s.named_rooms ?? '—'}</span></div>
+    ${s.transport_breakdown ? `<div class="row"><span>WebSocket clients</span><span class="v ok">${s.transport_breakdown.websocket||0}</span></div>
+    <div class="row"><span>Polling clients</span><span class="v warn">${s.transport_breakdown.polling||0}</span></div>` : ''}
+    <h2 style="margin-top:10px">Top Rooms</h2>
+    ${(s.top_rooms||[]).slice(0,8).map(r=>`<div class="row"><span style="font-family:monospace;font-size:11px">${r.name}</span><span class="v">${r.size}</span></div>`).join('')}
+  </div>`;
+
+  // Process + Env card
+  grid += `<div class="card">
+    <h2>⚙️ Process & Environment</h2>
+    <div class="row"><span>Node.js</span><span class="v">${p.node_version||'—'}</span></div>
+    <div class="row"><span>PID</span><span class="v">${p.pid||'—'}</span></div>
+    <div class="row"><span>CPU User</span><span class="v">${(p.cpu_user_ms||0).toLocaleString()} ms</span></div>
+    <div class="row"><span>CPU System</span><span class="v">${(p.cpu_system_ms||0).toLocaleString()} ms</span></div>
+    <hr style="border-color:#334155;margin:8px 0">
+    <div class="row"><span>Firebase</span><span class="v ${env.firebase_ready?'ok':'hot'}">${env.firebase_ready?'✅ Ready':'❌ Missing'}</span></div>
+    <div class="row"><span>DB Config</span><span class="v ${env.has_db_components?'ok':'hot'}">${env.has_db_components?'✅ OK':'❌ Missing'}</span></div>
+    <div class="row"><span>App URL</span><span class="v" style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis">${env.app_url||'—'}</span></div>
+    ${!env.firebase_ready ? '<div class="warnitem crit">🔴 Firebase credentials missing — push notifications will NOT work!</div>' : ''}
+  </div>`;
+
+  document.getElementById('detailGrid').innerHTML = grid;
+  renderApi(api);
+}
+
+function renderApi(api) {
+  if (!api || !api.topEndpoints) return;
+  document.getElementById('apiMeta').textContent =
+    `${(api.totalRequests||0).toLocaleString()} total calls · ${api.uptimeMinutes}min uptime · since ${new Date(api.trackedSince||Date.now()).toLocaleTimeString()}`;
+
+  let endpoints = [...(api.topEndpoints || [])];
+  if (sortKey !== 'rank') {
+    endpoints.sort((a,b) => (b[sortKey]||0) - (a[sortKey]||0));
+  }
+
+  if (endpoints.length === 0) {
+    document.getElementById('apiBody').innerHTML =
+      '<tr><td colspan="11" style="text-align:center;color:#64748b;padding:20px">No API calls recorded yet. Browse the site in another tab…</td></tr>';
+    return;
+  }
+
+  document.getElementById('apiBody').innerHTML = endpoints.map((e, i) => {
+    const scoreClass = e.resourceScore > 500 ? 'hot' : e.resourceScore > 100 ? 'warn' : 'ok';
+    const avgClass = e.avgMs > 500 ? 'hot' : e.avgMs > 200 ? 'warn' : '';
+    const badge = e.resourceScore > 500 ? '<span class="badge crit">HIGH LOAD</span>'
+      : e.resourceScore > 100 ? '<span class="badge warn">MODERATE</span>'
+      : '<span class="badge ok">OK</span>';
+    const lastSec = Math.round((Date.now() - new Date(e.lastCalledAt).getTime()) / 1000);
+    const lastStr = lastSec < 5 ? '🟢 just now' : lastSec < 60 ? `${lastSec}s ago` : `${Math.round(lastSec/60)}m ago`;
+
+    return `<tr>
+      <td style="color:#64748b">${i+1}</td>
+      <td class="path" style="color:${e.count>50?'#f87171':e.count>20?'#fb923c':'#93c5fd'}">${e.path}</td>
+      <td class="${e.count>100?'hot':e.count>30?'warn':''}">${e.count}</td>
+      <td>${e.callsPerMin}</td>
+      <td class="${avgClass}">${e.avgMs || '—'}</td>
+      <td class="${e.maxMs>1000?'hot':''}">${e.maxMs || '—'}</td>
+      <td class="${e.errors>0?'hot':''}">${e.errors} <span style="color:#64748b;font-size:11px">(${e.errorRate})</span></td>
+      <td class="${scoreClass}" style="font-weight:700">${e.resourceScore}</td>
+      <td>${spark(e.recentMs)}</td>
+      <td>${badge}</td>
+      <td style="font-size:11px;color:#64748b">${lastStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Auto-start if URL looks valid
+window.addEventListener('load', () => {
+  const u = document.getElementById('url').value;
+  if (u && u.includes('http')) start();
+});
 </script>
 </body>
 </html>
