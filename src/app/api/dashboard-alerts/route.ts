@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { trackApiCall } from '@/lib/api-tracker';
 
-/**
- * GET /api/dashboard-alerts
- * Returns role-based daily briefing counts for the DashboardAlertPopup.
- * Each sub-query runs independently via Promise.allSettled so one DB
- * timeout cannot crash the whole endpoint.
- *
- * Query params:
- *   date      – ISO date string (defaults to today, UTC)
- *   agentId   – filter by agent (for AGENT role)
- */
 export async function GET(request: NextRequest) {
-  const done = trackApiCall('/api/dashboard-alerts');
   try {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get('date') || new Date().toISOString().split('T')[0];

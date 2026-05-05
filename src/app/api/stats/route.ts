@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
-import { trackApiCall } from '@/lib/api-tracker';
 
 /**
  * GET /api/stats
@@ -11,7 +10,6 @@ import { trackApiCall } from '@/lib/api-tracker';
  * Query params: role, userId, companyId
  */
 export async function GET(request: NextRequest) {
-  const done = trackApiCall('/api/stats');
   try {
     const { searchParams } = new URL(request.url);
     const role = searchParams.get('role') || 'SUPER_ADMIN';
