@@ -148,14 +148,15 @@ export function useAutoLogout(options: UseAutoLogoutOptions = {}): AutoLogoutSta
       performLogout();
     }, timeoutMs);
 
-    // Update time remaining every second
+    // Update time remaining every 10 seconds — 1s precision not needed for 15-min timeout
+    // This eliminates 54 unnecessary React re-renders per minute per user (CPU fix)
     intervalRef.current = setInterval(() => {
       if (lastActivityRef.current) {
         const elapsed = Date.now() - lastActivityRef.current.getTime();
         const remaining = Math.max(0, timeoutMs - elapsed);
         setTimeRemaining(remaining);
       }
-    }, 1000);
+    }, 10_000);
   }, [enabled, user, timeoutMs, warningMs, clearTimers, performLogout, onWarning]);
 
   // Handle user activity

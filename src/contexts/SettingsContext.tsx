@@ -292,20 +292,23 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
   useEffect(() => {
     if (!hasFetchedRef.current) {
       hasFetchedRef.current = true;
-      
-      // First, try to load from cache for instant display
+
       if (!hydratedRef.current) {
         hydratedRef.current = true;
         const { settings: cachedSettings, isValid } = getCachedSettings();
         if (isValid && cachedSettings) {
           setSettings({ ...defaultSettings, ...cachedSettings });
           setLoading(false);
-          // Still fetch in background to ensure fresh data
-          fetchSettings(true);
+          // C5 FIX: Only background-refresh if cache is >10min old (avoid DB hit every page load)
+          const ts = parseInt(localStorage.getItem(SETTINGS_TIMESTAMP_KEY) || '0', 10);
+          const ageMs = Date.now() - ts;
+          if (ageMs > 10 * 60 * 1000) {
+            fetchSettings(true);
+          }
           return;
         }
       }
-      
+
       fetchSettings();
     }
   }, [fetchSettings]);

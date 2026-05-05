@@ -74,7 +74,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     if (!socketInstance) {
       try {
         socketInstance = io('/', {
-          transports: ['polling', 'websocket'],
+          transports: ['websocket', 'polling'], // WebSocket FIRST — matches server.js config
           reconnection: true,
           reconnectionAttempts: 5,
           reconnectionDelay: 3000,

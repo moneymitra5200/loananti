@@ -37,53 +37,38 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, template });
     }
 
-    // Get recipient counts for different segments
+    // Get recipient counts — SEQUENTIAL + CACHED (prevents connection starvation)
     if (action === 'recipient-counts') {
-      const [
-        totalUsers,
-        customers,
-        agents,
-        staff,
-        companies,
-        cashiers,
-        customersWithActiveLoans,
-        customersWithOverdueEMI,
-      ] = await Promise.all([
-        db.user.count({ where: { isActive: true } }),
-        db.user.count({ where: { isActive: true, role: 'CUSTOMER' } }),
-        db.user.count({ where: { isActive: true, role: 'AGENT' } }),
-        db.user.count({ where: { isActive: true, role: 'STAFF' } }),
-        db.user.count({ where: { isActive: true, role: 'COMPANY' } }),
-        db.user.count({ where: { isActive: true, role: 'CASHIER' } }),
-        db.user.count({
-          where: {
-            isActive: true,
-            role: 'CUSTOMER',
-            loanApplications: { some: { status: { in: ['ACTIVE', 'DISBURSED'] } } },
-          },
-        }),
-        db.eMISchedule.count({
-          where: {
-            paymentStatus: { in: ['OVERDUE', 'PARTIALLY_PAID'] },
-            dueDate: { lt: new Date() },
-          },
-        }),
-      ]);
+      const cacheKey = 'notification:recipient-counts';
+      // Import cache inline to avoid circular deps
+      const { cache, CacheTTL } = await import('@/lib/cache');
+      const cached = cache.get<object>(cacheKey);
+      if (cached) return NextResponse.json({ success: true, counts: cached });
 
-      return NextResponse.json({
-        success: true,
-        counts: {
-          totalUsers,
-          customers,
-          agents,
-          staff,
-          companies,
-          cashiers,
-          customersWithActiveLoans,
-          customersWithOverdueEMI,
+      const totalUsers              = await db.user.count({ where: { isActive: true } }).catch(() => 0);
+      const customers               = await db.user.count({ where: { isActive: true, role: 'CUSTOMER' } }).catch(() => 0);
+      const agents                  = await db.user.count({ where: { isActive: true, role: 'AGENT' } }).catch(() => 0);
+      const staff                   = await db.user.count({ where: { isActive: true, role: 'STAFF' } }).catch(() => 0);
+      const companies               = await db.user.count({ where: { isActive: true, role: 'COMPANY' } }).catch(() => 0);
+      const cashiers                = await db.user.count({ where: { isActive: true, role: 'CASHIER' } }).catch(() => 0);
+      const customersWithActiveLoans = await db.user.count({
+        where: {
+          isActive: true, role: 'CUSTOMER',
+          loanApplications: { some: { status: { in: ['ACTIVE', 'DISBURSED'] } } },
         },
-      });
+      }).catch(() => 0);
+      const customersWithOverdueEMI = await db.eMISchedule.count({
+        where: { paymentStatus: { in: ['OVERDUE', 'PARTIALLY_PAID'] }, dueDate: { lt: new Date() } },
+      }).catch(() => 0);
+
+      const counts = {
+        totalUsers, customers, agents, staff, companies, cashiers,
+        customersWithActiveLoans, customersWithOverdueEMI,
+      };
+      cache.set(cacheKey, counts, CacheTTL.MEDIUM); // 5 min cache
+      return NextResponse.json({ success: true, counts });
     }
+
 
     // Get users by role for recipient selection
     if (action === 'users-by-role') {

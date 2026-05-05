@@ -62,7 +62,8 @@ export function useLoans(filters: {
   return useQuery({
     queryKey: queryKeys.loans(filters),
     queryFn: () => fetchApi(`/api/loan/list?${params.toString()}`),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 5 * 60 * 1000, // 5 min — socket events handle instant updates
+    refetchOnWindowFocus: false, // prevent refetch on every tab switch
   });
 }
 
@@ -85,7 +86,8 @@ export function useActiveLoans() {
   return useQuery({
     queryKey: queryKeys.activeLoans(),
     queryFn: () => fetchApi('/api/loan/all-active'),
-    staleTime: 30 * 1000,
+    staleTime: 5 * 60 * 1000, // 5 min — socket events handle instant updates
+    refetchOnWindowFocus: false,
   });
 }
 

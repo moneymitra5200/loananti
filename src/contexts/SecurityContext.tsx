@@ -96,6 +96,8 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     router.push('/');
   }, [enableSecurityFeatures, router, hasActiveSession]);
   
+  const lastStorageWriteRef = useRef<number>(0);
+
   // Track user activity
   const trackActivity = useCallback(() => {
     if (!enableSecurityFeatures) return;
@@ -103,8 +105,13 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     setLastActivity(Date.now());
     setShowWarning(false);
     
-    // Store last activity in localStorage
-    localStorage.setItem('lastActivity', Date.now().toString());
+    // M3 FIX: Throttle localStorage writes to max once per 30s (was once per ~1s)
+    // localStorage.setItem is synchronous I/O that blocks the JS thread.
+    const now = Date.now();
+    if (now - lastStorageWriteRef.current > 30_000) {
+      localStorage.setItem('lastActivity', now.toString());
+      lastStorageWriteRef.current = now;
+    }
     
     // Clear existing timeout
     if (activityTimeoutRef.current) {
@@ -238,17 +245,9 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     };
   }, [enableSecurityFeatures, sessionTimeout, isRealTimeEnabled, trackActivity, handleSessionTimeout, lastActivity, refreshData, hasActiveSession]);
   
-  // Effect for real-time updates toggle
-  useEffect(() => {
-    if (isRealTimeEnabled && !realTimeIntervalRef.current) {
-      realTimeIntervalRef.current = setInterval(() => {
-        refreshData();
-      }, 30000);
-    } else if (!isRealTimeEnabled && realTimeIntervalRef.current) {
-      clearInterval(realTimeIntervalRef.current);
-      realTimeIntervalRef.current = null;
-    }
-  }, [isRealTimeEnabled, refreshData]);
+  // NOTE: realtime interval is managed inside the main effect above (lines ~189-193).
+  // A separate effect here was creating a DUPLICATE interval — removed (C2 fix).
+
   
   const value: SecurityContextType = {
     sessionTimeout,

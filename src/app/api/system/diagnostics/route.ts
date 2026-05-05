@@ -1,206 +1,204 @@
 /**
  * /api/system/diagnostics
  * ─────────────────────────────────────────────────────────────────
- * Call this GET endpoint from browser / Postman to see a real-time
- * breakdown of exactly what is consuming memory and connections.
+ * Real-time server health endpoint. Visit /audit in the browser for
+ * the visual dashboard, or call this directly for raw JSON.
  *
  * Usage: GET /api/system/diagnostics?secret=YOUR_ADMIN_SECRET
- *
- * Returns:
- *   - Node.js heap, RSS, external memory in MB
- *   - Socket.io room count + total connected clients
- *   - Active database connection pool info
- *   - In-memory cache entries
- *   - Top memory consumers (GC heap stats)
- *   - Process uptime + CPU usage estimate
+ *        GET /api/system/diagnostics?secret=...&reset=true  (reset API stats)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getApiStats, resetApiStats } from '@/lib/api-tracker';
 
-// Simple secret guard — set DIAGNOSTIC_SECRET in .env
 const REQUIRED_SECRET = process.env.DIAGNOSTIC_SECRET || 'diag-secret-2024';
 
 function mb(bytes: number) {
-  return Math.round(bytes / 1024 / 1024 * 100) / 100;
+  return Math.round((bytes / 1024 / 1024) * 100) / 100;
 }
 
 export async function GET(request: NextRequest) {
-  // Auth guard
   const secret = request.nextUrl.searchParams.get('secret');
   if (secret !== REQUIRED_SECRET) {
     return NextResponse.json({ error: 'Unauthorized. Pass ?secret=YOUR_SECRET' }, { status: 401 });
   }
 
-  // ── 1. Node.js Memory ─────────────────────────────────────────
+  // Optional: reset stats
+  if (request.nextUrl.searchParams.get('reset') === 'true') {
+    resetApiStats();
+    return NextResponse.json({ success: true, message: 'API stats reset' });
+  }
+
+  // ── 1. Node.js Memory ─────────────────────────────────────────────────────
   const mem = process.memoryUsage();
+  const rssMb = mb(mem.rss);
   const memReport = {
-    rss_mb:        mb(mem.rss),          // Total process RAM (most important for Hostinger limit)
-    heap_used_mb:  mb(mem.heapUsed),     // JS objects in use
-    heap_total_mb: mb(mem.heapTotal),    // Total heap allocated
-    external_mb:   mb(mem.external),     // Buffers (e.g. large base64 images in memory)
+    rss_mb:           rssMb,
+    heap_used_mb:     mb(mem.heapUsed),
+    heap_total_mb:    mb(mem.heapTotal),
+    external_mb:      mb(mem.external),
     array_buffers_mb: mb(mem.arrayBuffers || 0),
-    warning: mem.rss > 400 * 1024 * 1024
-      ? '🔴 RSS > 400MB — approaching Hostinger 512MB limit!'
-      : mem.rss > 300 * 1024 * 1024
-      ? '🟡 RSS > 300MB — monitor closely'
-      : '🟢 Memory OK',
+    heap_used_pct:    Math.round((mem.heapUsed / mem.heapTotal) * 100),
+    status: rssMb > 420 ? '🔴 CRITICAL' : rssMb > 320 ? '🟡 WARNING' : '🟢 OK',
+    limit_mb: 512,
+    used_pct_of_limit: Math.round((rssMb / 512) * 100),
   };
 
-  // ── 2. Socket.io Connections ──────────────────────────────────
+  // ── 2. Socket.io Connections ──────────────────────────────────────────────
   const io = (global as any).io;
-  let socketReport: Record<string, unknown> = { status: 'Socket.io not found on global' };
+  let socketReport: Record<string, unknown> = { status: '⚠️ Socket.io not initialised' };
   if (io) {
-    const sockets = await io.fetchSockets();
-    const rooms = io.sockets.adapter.rooms;
-    const roomEntries: { name: string; size: number }[] = [];
-    rooms.forEach((room: Set<string>, name: string) => {
-      // Skip individual socket-id rooms
-      if (!io.sockets.sockets.has(name)) {
-        roomEntries.push({ name, size: room.size });
-      }
-    });
-    roomEntries.sort((a, b) => b.size - a.size);
+    try {
+      const sockets = await io.fetchSockets();
+      const rooms = io.sockets.adapter.rooms;
+      const namedRooms: { name: string; size: number }[] = [];
+      rooms.forEach((room: Set<string>, name: string) => {
+        if (!io.sockets.sockets.has(name)) {
+          namedRooms.push({ name, size: room.size });
+        }
+      });
+      namedRooms.sort((a, b) => b.size - a.size);
 
-    socketReport = {
-      total_connected_clients: sockets.length,
-      total_rooms: roomEntries.length,
-      top_rooms: roomEntries.slice(0, 20),
-      warning: sockets.length > 200
-        ? '🔴 > 200 socket connections — possible leak!'
-        : sockets.length > 100
-        ? '🟡 > 100 connections — watch this'
-        : `🟢 ${sockets.length} connections — OK`,
-    };
+      const clientCount = sockets.length;
+      socketReport = {
+        connected_clients: clientCount,
+        named_rooms: namedRooms.length,
+        top_rooms: namedRooms.slice(0, 15),
+        status: clientCount > 200 ? '🔴 Possible leak' : clientCount > 100 ? '🟡 High' : `🟢 OK (${clientCount})`,
+        transport_breakdown: sockets.reduce((acc: Record<string, number>, s: any) => {
+          const t = s.conn?.transport?.name || 'unknown';
+          acc[t] = (acc[t] || 0) + 1;
+          return acc;
+        }, {}),
+      };
+    } catch (e: any) {
+      socketReport = { error: e.message };
+    }
   }
 
-  // ── 3. Database — Count large tables (SEQUENTIAL to respect connection_limit=1) ──
+  // ── 3. Database — table counts + response time ────────────────────────────
   let dbReport: Record<string, unknown> = {};
   try {
-    // Run counts ONE AT A TIME — connection_limit=1 means concurrent queries cause Prisma panic
-    const notifications     = await db.notification.count().catch(() => -1);
-    const auditLogs         = await db.auditLog.count().catch(() => -1);
-    const locationLogs      = await db.locationLog.count().catch(() => -1);
-    const payments          = await db.payment.count().catch(() => -1);
-    const workflowLogs      = await db.workflowLog.count().catch(() => -1);
-    const usersWithFcmToken = await db.user.count({ where: { fcmToken: { not: null } } }).catch(() => -1);
-    const loanApps          = await db.loanApplication.count().catch(() => -1);
-    const offlineLoans      = await db.offlineLoan.count().catch(() => -1);
-    const emiSchedules      = await db.eMISchedule.count().catch(() => -1);
-    const offlineEmis       = await db.offlineLoanEMI.count().catch(() => -1);
+    const dbStart = Date.now();
+    // Simple ping query
+    await db.$queryRaw`SELECT 1`;
+    const dbPingMs = Date.now() - dbStart;
+
+    const notifications  = await db.notification.count().catch(() => -1);
+    const auditLogs      = await db.auditLog.count().catch(() => -1);
+    const locationLogs   = await db.locationLog.count().catch(() => -1);
+    const loanApps       = await db.loanApplication.count().catch(() => -1);
+    const offlineLoans   = await db.offlineLoan.count().catch(() => -1);
+    const emiSchedules   = await db.eMISchedule.count().catch(() => -1);
+    const offlineEmis    = await db.offlineLoanEMI.count().catch(() => -1);
+    const payments       = await db.payment.count().catch(() => -1);
+    const usersTotal     = await db.user.count().catch(() => -1);
+    const usersWithFcm   = await db.user.count({ where: { fcmToken: { not: null } } }).catch(() => -1);
+    const workflowLogs   = await db.workflowLog.count().catch(() => -1);
+
+    const warnings: string[] = [];
+    if (notifications > 5000) warnings.push(`🔴 ${notifications} notifications — run cleanup`);
+    if (auditLogs > 10000)    warnings.push(`🔴 ${auditLogs} audit logs — cron may not be running`);
+    if (locationLogs > 5000)  warnings.push(`🔴 ${locationLogs} location logs — cron may not be running`);
+    if (usersWithFcm === 0)   warnings.push('🟡 No FCM tokens — push notifications broken');
+    if (dbPingMs > 500)       warnings.push(`🟡 DB ping ${dbPingMs}ms — DB server is slow`);
 
     dbReport = {
-      notifications,
-      audit_logs: auditLogs,
-      location_logs: locationLogs,
-      payments,
-      workflow_logs: workflowLogs,
-      users_with_fcm_token: usersWithFcmToken,
-      loan_applications: loanApps,
-      offline_loans: offlineLoans,
-      emi_schedules: emiSchedules,
-      offline_loan_emis: offlineEmis,
-      warnings: [
-        notifications > 5000  && `🔴 ${notifications} notifications — run cleanup`,
-        auditLogs > 10000     && `🔴 ${auditLogs} audit logs — run cleanup`,
-        locationLogs > 5000   && `🔴 ${locationLogs} location logs — run cleanup`,
-        usersWithFcmToken === 0 && `🟡 No users have FCM tokens registered — push notifications will not work!`,
-        usersWithFcmToken < 3  && usersWithFcmToken > 0 && `🟡 Only ${usersWithFcmToken} user(s) have FCM tokens — check if SUPER_ADMIN is registered`,
-        emiSchedules > 50000  && `🟡 ${emiSchedules} EMI records — normal but large`,
-      ].filter(Boolean),
+      ping_ms: dbPingMs,
+      ping_status: dbPingMs < 100 ? '🟢 Fast' : dbPingMs < 300 ? '🟡 OK' : '🔴 Slow',
+      table_counts: {
+        users: usersTotal,
+        users_with_fcm_token: usersWithFcm,
+        notifications,
+        audit_logs: auditLogs,
+        location_logs: locationLogs,
+        loan_applications: loanApps,
+        offline_loans: offlineLoans,
+        emi_schedules: emiSchedules,
+        offline_loan_emis: offlineEmis,
+        payments,
+        workflow_logs: workflowLogs,
+      },
+      warnings,
     };
-  } catch (err) {
-    dbReport = { error: String(err) };
+  } catch (err: any) {
+    dbReport = { error: err.message, ping_status: '🔴 DB connection failed' };
   }
 
-  // ── 4. Process Info ───────────────────────────────────────────
-  const uptimeSeconds = process.uptime();
-  const uptimeHours = Math.round(uptimeSeconds / 3600 * 10) / 10;
-  const cpuUsage = process.cpuUsage();
-
+  // ── 4. Process Info ───────────────────────────────────────────────────────
+  const uptimeSec = process.uptime();
+  const cpuUsage  = process.cpuUsage();
   const processReport = {
-    uptime_hours: uptimeHours,
+    uptime_seconds: Math.round(uptimeSec),
+    uptime_human: formatUptime(uptimeSec),
     node_version: process.version,
-    platform: process.platform,
     pid: process.pid,
+    platform: process.platform,
     cpu_user_ms:   Math.round(cpuUsage.user / 1000),
     cpu_system_ms: Math.round(cpuUsage.system / 1000),
     env: process.env.NODE_ENV,
   };
 
-  // ── 5. Environment sanity checks ─────────────────────────────
-  const firebaseProjectId   = process.env.FIREBASE_PROJECT_ID;
-  const firebaseClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const firebasePrivateKey  = process.env.FIREBASE_PRIVATE_KEY;
-
-  const envChecks = {
-    has_firebase_project_id:   !!firebaseProjectId,
-    has_firebase_client_email: !!firebaseClientEmail,
-    has_firebase_private_key:  !!firebasePrivateKey,
-    firebase_ready: !!(firebaseProjectId && firebaseClientEmail && firebasePrivateKey),
-    firebase_project: firebaseProjectId || '(not set — push notifications are BROKEN)',
-    has_database_url: !!process.env.DATABASE_URL,
+  // ── 5. Environment sanity checks ─────────────────────────────────────────
+  const fbProjectId   = process.env.FIREBASE_PROJECT_ID;
+  const fbClientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const fbPrivateKey  = process.env.FIREBASE_PRIVATE_KEY;
+  const envReport = {
+    firebase_ready: !!(fbProjectId && fbClientEmail && fbPrivateKey),
+    firebase_project: fbProjectId || '(not set)',
+    firebase_status: (fbProjectId && fbClientEmail && fbPrivateKey) ? '🟢 OK' : '🔴 MISSING — push notifications broken',
+    has_database_url: !!(process.env.DATABASE_URL || process.env.DB_HOST),
+    has_db_components: !!(process.env.DB_HOST && process.env.DB_USER && process.env.DB_PASS && process.env.DB_NAME),
+    app_url: process.env.NEXT_PUBLIC_APP_URL || '(not set)',
     has_nextauth_secret: !!process.env.NEXTAUTH_SECRET,
-    next_public_app_url: process.env.NEXT_PUBLIC_APP_URL || '(not set)',
-    firebase_warning: (!firebaseProjectId || !firebaseClientEmail || !firebasePrivateKey)
-      ? '🔴 FIREBASE ENV VARS MISSING on Hostinger — push notifications will NOT work! Add FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in Hostinger hPanel → Node.js → Environment Variables'
-      : '🟢 Firebase credentials present',
+    diagnostic_secret_set: process.env.DIAGNOSTIC_SECRET ? '🟢 Custom secret configured' : '🟡 Using default secret — set DIAGNOSTIC_SECRET in .env',
   };
 
-  // ── Final report ──────────────────────────────────────────────
-  const report = {
+  // ── 6. Live API call stats ────────────────────────────────────────────────
+  const apiStats = getApiStats();
+
+  // ── 7. Cache stats (from global cache singleton) ─────────────────────────
+  let cacheReport: Record<string, unknown> = { status: 'Cache module not loaded' };
+  try {
+    const { cache } = await import('@/lib/cache');
+    const stats = (cache as any).getStats?.() || {};
+    cacheReport = {
+      ...stats,
+      status: '🟢 Active',
+    };
+  } catch {
+    cacheReport = { status: '⚠️ Could not read cache stats' };
+  }
+
+  // ── Final report ──────────────────────────────────────────────────────────
+  const overallStatus =
+    rssMb > 420 ? '🔴 CRITICAL'
+    : rssMb > 320 ? '🟡 WARNING'
+    : (dbReport as any).ping_status?.includes('Slow') ? '🟡 DB SLOW'
+    : '🟢 HEALTHY';
+
+  return NextResponse.json({
     generated_at: new Date().toISOString(),
-    summary: {
-      rss_mb: memReport.rss_mb,
-      heap_used_mb: memReport.heap_used_mb,
-      socket_clients: io ? (socketReport.total_connected_clients ?? 0) : 'N/A',
-      uptime_hours: uptimeHours,
-      overall_status: memReport.rss_mb > 400
-        ? '🔴 CRITICAL — approaching memory limit'
-        : memReport.rss_mb > 300
-        ? '🟡 WARNING — elevated memory'
-        : '🟢 HEALTHY',
-    },
+    overall_status: overallStatus,
     memory: memReport,
     sockets: socketReport,
-    database_table_counts: dbReport,
+    database: dbReport,
     process: processReport,
-    environment: envChecks,
-    recommendations: generateRecommendations(memReport, dbReport as any),
-  };
-
-  return NextResponse.json(report, {
-    headers: { 'Content-Type': 'application/json' }
+    environment: envReport,
+    api_call_stats: apiStats,
+    cache: cacheReport,
+  }, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
   });
 }
 
-function generateRecommendations(mem: Record<string, unknown>, db: Record<string, unknown>) {
-  const recs: string[] = [];
-
-  const rssMb = mem.rss_mb as number;
-  if (rssMb > 350) {
-    recs.push('🔴 RSS > 350MB: Restart the Node.js process immediately from Hostinger panel');
-  }
-  if ((mem.external_mb as number) > 50) {
-    recs.push('🟡 High external memory: likely caused by large base64 image uploads in memory. Check recent EMI proof uploads.');
-  }
-
-  const notifs = db.notifications as number;
-  const audits = db.audit_logs as number;
-  const locs   = db.location_logs as number;
-
-  if (notifs > 5000) {
-    recs.push(`🔴 ${notifs} notifications in DB — run: DELETE FROM Notification WHERE createdAt < NOW() - INTERVAL 30 DAY`);
-  }
-  if (audits > 10000) {
-    recs.push(`🔴 ${audits} audit logs — the daily cron job may not be running. Check server.js cron setup.`);
-  }
-  if (locs > 5000) {
-    recs.push(`🔴 ${locs} location logs — they should auto-purge. Check cron job.`);
-  }
-  if (recs.length === 0) {
-    recs.push('✅ No immediate issues found. Monitor RSS over time.');
-  }
-
-  return recs;
+function formatUptime(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${h}h ${m}m ${s}s`;
 }
