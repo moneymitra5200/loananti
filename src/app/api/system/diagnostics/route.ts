@@ -178,6 +178,14 @@ export async function GET(request: NextRequest) {
     : (dbReport as any).ping_status?.includes('Slow') ? '🟡 DB SLOW'
     : '🟢 HEALTHY';
 
+  const CORS = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
   return NextResponse.json({
     generated_at: new Date().toISOString(),
     overall_status: overallStatus,
@@ -188,17 +196,17 @@ export async function GET(request: NextRequest) {
     environment: envReport,
     api_call_stats: apiStats,
     cache: cacheReport,
-  }, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
+  }, { headers: CORS });
 }
 
-function formatUptime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  return `${h}h ${m}m ${s}s`;
+// Handle CORS preflight from local audit.html
+export async function OPTIONS() {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
 }
