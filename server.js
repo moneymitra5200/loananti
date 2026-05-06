@@ -53,6 +53,21 @@ const compress = compression({ threshold: 1024 }); // Only compress responses > 
 // Rate limit map — module-scope so it persists across requests
 const rateLimitMap = new Map();
 
+// ── Confirmed attacker IPs/subnets (from Kodee analytics, May 2025) ──────────
+// These 10 IPs account for ~3,800 of 7,619 weekly requests (50%+ of all traffic)
+// IPv6 prefix 2401:4900:8fc6:3da7:: = 2,943 requests (one device, multiple addrs)
+const BLOCKED_IPS = new Set([
+  '49.36.124.36',      // 204 requests — repeat scanner
+  '49.36.127.161',     // 124 requests — repeat scanner
+]);
+// Block entire IPv6 /64 subnets (one attacker device with rotating addresses)
+const BLOCKED_IPV6_PREFIXES = [
+  '2401:4900:8fc6:3da7:',  // 2,943 requests — top offender subnet
+  '2401:4900:8fc5:a47b:',  // 381 requests
+  '2401:4900:8fc4:bc0b:',  // 237 requests
+  '2409:4090:1014:5406:',  // 162 requests
+];
+
 app.prepare().then(async () => {
   // ── CRITICAL: Wait for Prisma engine to be fully ready BEFORE accepting requests ──
   // Root cause of "PANIC: timer has gone away":
@@ -70,6 +85,18 @@ app.prepare().then(async () => {
   }
 
   const httpServer = createServer(async (req, res) => {
+    // ── #0 FIRST: Block known attacker IPs (from Kodee analytics) ────────
+    // Checked before everything else — 0 DB queries, 0 Next.js processing
+    const clientIp = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+                   || req.socket?.remoteAddress
+                   || '').toLowerCase();
+    if (BLOCKED_IPS.has(clientIp) ||
+        BLOCKED_IPV6_PREFIXES.some(prefix => clientIp.startsWith(prefix))) {
+      res.statusCode = 403;
+      res.end('Forbidden');
+      return;
+    }
+
     // ── Fix 4: Gzip compression for all responses ──────────────────────────
     compress(req, res, () => {});
 
