@@ -53,12 +53,6 @@ const compress = compression({ threshold: 1024 }); // Only compress responses > 
 // Rate limit map — module-scope so it persists across requests
 const rateLimitMap = new Map();
 
-// ── Confirmed scanner IPs only — specific bots, NOT subnets (May 2025) ──────
-// IPv6 subnets removed: 2401:4900:: = Jio India (millions of real users)
-const BLOCKED_IPS = new Set([
-  '49.36.124.36',   // 204 requests — confirmed scanner (not a real browser)
-  '49.36.127.161',  // 124 requests — confirmed scanner
-]);
 
 app.prepare().then(async () => {
   // ── CRITICAL: Wait for Prisma engine to be fully ready BEFORE accepting requests ──
@@ -77,41 +71,13 @@ app.prepare().then(async () => {
   }
 
   const httpServer = createServer(async (req, res) => {
-    // ── #0 FIRST: Block confirmed scanner IPs ────────────────────────────
-    const clientIp = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()
-                   || req.socket?.remoteAddress
-                   || '').toLowerCase();
-    if (BLOCKED_IPS.has(clientIp)) {
-      res.statusCode = 403;
-      res.end('Forbidden');
-      return;
-    }
-
     // ── Fix 4: Gzip compression for all responses ──────────────────────────
     compress(req, res, () => {});
 
-    // ── Bot / scanner blocking ──────────────────────────────────────────
-    // Based on confirmed attack paths (Kodee analytics, May 2025):
-    // #1 offender: /wp-admin/install.php?step=1 (WordPress exploit scanner)
-    const ua   = (req.headers['user-agent'] || '').toLowerCase();
-    const path = req.url?.split('?')[0] || '/';
+    // ── Block exploit paths (bad URLs, not users) ──────────────────────────
+    const path  = req.url?.split('?')[0] || '/';
     const pathL = path.toLowerCase();
 
-    // Block known scanner user-agents (specific tool names only)
-    const BAD_UA = [
-      'wordpress', 'wpscan', 'sqlmap', 'nikto', 'masscan', 'zgrab',
-      'go-http-client', 'python-requests/2.', 'libwww-perl',
-      'nmap', 'dirbuster', 'nuclei', 'acunetix', 'burpsuite',
-    ];
-    // Only block if UA matches a known scanner name — do NOT block empty UA
-    // (Hostinger CDN can strip UA headers from legitimate browser requests)
-    if (ua && BAD_UA.some(b => ua.includes(b))) {
-      res.statusCode = 403;
-      res.end('Forbidden');
-      return;
-    }
-
-    // Block confirmed exploit/scanner paths
     const BAD_PATH = [
       '/wp-',          // /wp-admin/, /wp-login.php, /wp-content/ etc.
       '/wordpress',
