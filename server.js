@@ -73,21 +73,47 @@ app.prepare().then(async () => {
     // ── Fix 4: Gzip compression for all responses ──────────────────────────
     compress(req, res, () => {});
 
-    // ── Fix 3: Bot / scanner blocking ─────────────────────────────────────
-    // Block WordPress probes, common exploit scanners, and empty UAs
-    const ua = (req.headers['user-agent'] || '').toLowerCase();
-    const BAD_UA = ['wordpress', 'wpscan', 'sqlmap', 'nikto', 'masscan', 'zgrab',
-                    'go-http-client', 'python-requests/2.', 'curl/7.', 'libwww-perl'];
-    const BAD_PATH = ['/wp-', '/wordpress', '/admin/config', '/phpmy', '/.env',
-                      '/xmlrpc', '/wp-login', '/.git', '/actuator', '/config.json'];
+    // ── Bot / scanner blocking ──────────────────────────────────────────
+    // Based on confirmed attack paths (Kodee analytics, May 2025):
+    // #1 offender: /wp-admin/install.php?step=1 (WordPress exploit scanner)
+    const ua   = (req.headers['user-agent'] || '').toLowerCase();
     const path = req.url?.split('?')[0] || '/';
+    const pathL = path.toLowerCase();
 
-    if (BAD_UA.some(b => ua.includes(b)) && !path.startsWith('/api/')) {
+    // Block known scanner user-agents
+    const BAD_UA = [
+      'wordpress', 'wpscan', 'sqlmap', 'nikto', 'masscan', 'zgrab',
+      'go-http-client', 'python-requests/2.', 'curl/7.', 'libwww-perl',
+      'nmap', 'dirbuster', 'nuclei', 'acunetix', 'burpsuite',
+    ];
+    // Block empty UA (almost all legitimate browsers send a UA)
+    if (!ua || BAD_UA.some(b => ua.includes(b))) {
       res.statusCode = 403;
       res.end('Forbidden');
       return;
     }
-    if (BAD_PATH.some(b => path.toLowerCase().startsWith(b))) {
+
+    // Block confirmed exploit/scanner paths
+    const BAD_PATH = [
+      '/wp-',          // /wp-admin/, /wp-login.php, /wp-content/ etc.
+      '/wordpress',
+      '/xmlrpc',       // WordPress XML-RPC exploit
+      '/.env',         // Environment file probe
+      '/.git',         // Git repo exposure
+      '/phpmy',        // phpMyAdmin
+      '/admin/config',
+      '/actuator',     // Spring Boot actuator
+      '/config.json',
+      '/setup.php',
+      '/install.php',
+      '/shell',
+      '/cgi-bin',
+      '/admin.php',
+      '/phpmyadmin',
+      '/mysql',
+      '/.well-known/security',
+    ];
+    if (BAD_PATH.some(b => pathL.startsWith(b))) {
       res.statusCode = 404;
       res.end('Not Found');
       return;
