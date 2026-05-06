@@ -50,7 +50,25 @@ const handle = app.getRequestHandler();
 // Build compression middleware (gzip/deflate) — call once, reuse
 const compress = compression({ threshold: 1024 }); // Only compress responses > 1KB
 
-app.prepare().then(() => {
+// Rate limit map — module-scope so it persists across requests
+const rateLimitMap = new Map();
+
+app.prepare().then(async () => {
+  // ── CRITICAL: Wait for Prisma engine to be fully ready BEFORE accepting requests ──
+  // Root cause of "PANIC: timer has gone away":
+  //   requests hit Prisma while libraryStarted=false → engine overwhelmed → panic.
+  // Fix: block HTTP listener until $connect() resolves → libraryStarted=true.
+  try {
+    const { db } = require('./src/lib/db');
+    await db.$connect();
+    console.log('[server] ✅ Prisma engine connected and ready');
+  } catch (dbErr) {
+    console.error('[server] ⚠️  Prisma connect warning (will retry on first query):', dbErr?.message);
+    // Don't exit — Prisma will retry on first real query.
+    // But add a short delay so the engine has more time to settle.
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
   const httpServer = createServer(async (req, res) => {
     // ── Fix 4: Gzip compression for all responses ──────────────────────────
     compress(req, res, () => {});
@@ -127,9 +145,6 @@ app.prepare().then(() => {
       }
     }
   });
-
-  // Rate limit map — shared between all requests
-  const rateLimitMap = new Map();
 
   // Clean rate limit map every 2 min to avoid unbounded growth
   setInterval(() => {
