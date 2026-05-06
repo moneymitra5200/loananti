@@ -1814,9 +1814,17 @@ export default function CustomerDashboard() {
       <header className="sticky top-0 z-40 bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-4 py-4 shadow-lg">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-              <Building2 className="h-5 w-5" />
-            </div>
+            {settings.companyLogo ? (
+              <img
+                src={settings.companyLogo}
+                alt={settings.companyName || 'Company'}
+                className="h-10 w-10 rounded-full object-cover bg-white/20 p-0.5"
+              />
+            ) : (
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                <Building2 className="h-5 w-5" />
+              </div>
+            )}
             <div>
               <p className="text-sm text-emerald-100">Welcome back,</p>
               <h1 className="font-semibold text-lg">{user?.name?.split(' ')[0] || 'Customer'}!</h1>
@@ -1873,8 +1881,8 @@ export default function CustomerDashboard() {
             initial={{ opacity: 0, scale: 0.9, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
-            className="w-[320px] max-w-[90vw] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
-            style={{ height: 'min(480px, 70vh)' }}
+            className="w-[92vw] sm:w-[340px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden"
+            style={{ height: 'min(85vh, 560px)' }}
           >
             {/* Chat Header */}
             <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-4 py-3 flex items-center gap-3">

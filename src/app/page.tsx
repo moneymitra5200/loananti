@@ -10,7 +10,6 @@ import StaffDashboard from "@/components/staff/StaffDashboard";
 import CashierDashboard from "@/components/cashier/CashierDashboard";
 import CustomerDashboard from "@/components/customer/CustomerDashboard";
 import AccountantDashboard from "@/components/accountant/AccountantDashboard";
-import AIChatbot from "@/components/shared/AIChatbot";
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -57,8 +56,6 @@ function AppContent() {
   return (
     <SettingsProvider>
       {renderDashboard()}
-      {/* AI Chatbot — CUSTOMER ONLY */}
-      {user.role === 'CUSTOMER' && <AIChatbot />}
     </SettingsProvider>
   );
 }
