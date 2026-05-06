@@ -53,20 +53,12 @@ const compress = compression({ threshold: 1024 }); // Only compress responses > 
 // Rate limit map — module-scope so it persists across requests
 const rateLimitMap = new Map();
 
-// ── Confirmed attacker IPs/subnets (from Kodee analytics, May 2025) ──────────
-// These 10 IPs account for ~3,800 of 7,619 weekly requests (50%+ of all traffic)
-// IPv6 prefix 2401:4900:8fc6:3da7:: = 2,943 requests (one device, multiple addrs)
+// ── Confirmed scanner IPs only — specific bots, NOT subnets (May 2025) ──────
+// IPv6 subnets removed: 2401:4900:: = Jio India (millions of real users)
 const BLOCKED_IPS = new Set([
-  '49.36.124.36',      // 204 requests — repeat scanner
-  '49.36.127.161',     // 124 requests — repeat scanner
+  '49.36.124.36',   // 204 requests — confirmed scanner (not a real browser)
+  '49.36.127.161',  // 124 requests — confirmed scanner
 ]);
-// Block entire IPv6 /64 subnets (one attacker device with rotating addresses)
-const BLOCKED_IPV6_PREFIXES = [
-  '2401:4900:8fc6:3da7:',  // 2,943 requests — top offender subnet
-  '2401:4900:8fc5:a47b:',  // 381 requests
-  '2401:4900:8fc4:bc0b:',  // 237 requests
-  '2409:4090:1014:5406:',  // 162 requests
-];
 
 app.prepare().then(async () => {
   // ── CRITICAL: Wait for Prisma engine to be fully ready BEFORE accepting requests ──
@@ -85,13 +77,11 @@ app.prepare().then(async () => {
   }
 
   const httpServer = createServer(async (req, res) => {
-    // ── #0 FIRST: Block known attacker IPs (from Kodee analytics) ────────
-    // Checked before everything else — 0 DB queries, 0 Next.js processing
+    // ── #0 FIRST: Block confirmed scanner IPs ────────────────────────────
     const clientIp = (req.headers['x-forwarded-for']?.split(',')[0]?.trim()
                    || req.socket?.remoteAddress
                    || '').toLowerCase();
-    if (BLOCKED_IPS.has(clientIp) ||
-        BLOCKED_IPV6_PREFIXES.some(prefix => clientIp.startsWith(prefix))) {
+    if (BLOCKED_IPS.has(clientIp)) {
       res.statusCode = 403;
       res.end('Forbidden');
       return;
@@ -107,14 +97,15 @@ app.prepare().then(async () => {
     const path = req.url?.split('?')[0] || '/';
     const pathL = path.toLowerCase();
 
-    // Block known scanner user-agents
+    // Block known scanner user-agents (specific tool names only)
     const BAD_UA = [
       'wordpress', 'wpscan', 'sqlmap', 'nikto', 'masscan', 'zgrab',
-      'go-http-client', 'python-requests/2.', 'curl/7.', 'libwww-perl',
+      'go-http-client', 'python-requests/2.', 'libwww-perl',
       'nmap', 'dirbuster', 'nuclei', 'acunetix', 'burpsuite',
     ];
-    // Block empty UA (almost all legitimate browsers send a UA)
-    if (!ua || BAD_UA.some(b => ua.includes(b))) {
+    // Only block if UA matches a known scanner name — do NOT block empty UA
+    // (Hostinger CDN can strip UA headers from legitimate browser requests)
+    if (ua && BAD_UA.some(b => ua.includes(b))) {
       res.statusCode = 403;
       res.end('Forbidden');
       return;
