@@ -23,7 +23,9 @@ export async function GET() {
 
     settingsObj['companyLogo'] = '/mm-logo.png';
 
-    return NextResponse.json({ settings: settingsObj });
+    return NextResponse.json({ settings: settingsObj }, {
+      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' },
+    });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
   }

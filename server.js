@@ -54,15 +54,17 @@ app.prepare().then(() => {
     }
   });
 
-  // ── Socket.io — WebSocket preferred, polling only as fallback ───────────────
+  // ── Socket.io — WebSocket ONLY (no HTTP polling fallback) ─────────────────────────
+  // HTTP polling creates one HTTP request every 25s per connected user.
+  // On shared hosting that's hundreds of extra server processes per hour.
+  // WebSocket = ONE persistent connection per user, zero polling overhead.
   const io = new Server(httpServer, {
-    cors:             { origin: '*', methods: ['GET', 'POST'] },
-    transports:       ['websocket', 'polling'],   // WebSocket FIRST = fewer processes
-    pingInterval:     25000,   // how often to ping (ms)
-    pingTimeout:      20000,   // timeout before disconnect
-    upgradeTimeout:   10000,   // time to upgrade from polling to websocket
-    maxHttpBufferSize: 1e6,    // 1 MB max payload
-    connectTimeout:   20000,
+    cors:              { origin: '*', methods: ['GET', 'POST'] },
+    transports:        ['websocket'],   // WebSocket ONLY — no polling fallback
+    pingInterval:      30000,           // ping every 30s (was 25s)
+    pingTimeout:       20000,           // timeout before disconnect
+    maxHttpBufferSize: 1e6,             // 1 MB max payload
+    connectTimeout:    30000,
   });
 
   global.io = io;
@@ -113,9 +115,9 @@ app.prepare().then(() => {
   setInterval(() => {
     const rss = process.memoryUsage().rss;
     const rssMb = Math.round(rss / 1024 / 1024);
-    console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
-    if (rss > 420 * 1024 * 1024) {
-      console.error(`[server] 🔴 Memory ${rssMb}MB > 420MB limit — restarting for clean state`);
+    if (rssMb > 100) console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
+    if (rss > 380 * 1024 * 1024) {
+      console.error(`[server] 🔴 Memory ${rssMb}MB > 380MB limit — restarting for clean state`);
       process.exit(1); // Hostinger auto-restarts
     }
   }, 5 * 60 * 1000); // every 5 minutes
