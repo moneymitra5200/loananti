@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -48,7 +48,7 @@ function EMICalculator() {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700">Loan Amount</label>
-                <span className="text-sm font-bold text-emerald-600">₹{principal.toLocaleString()}</span>
+                <span className="text-sm font-bold text-emerald-600">Γé╣{principal.toLocaleString()}</span>
               </div>
               <input
                 type="range"
@@ -60,8 +60,8 @@ function EMICalculator() {
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>₹10,000</span>
-                <span>₹1,00,00,000</span>
+                <span>Γé╣10,000</span>
+                <span>Γé╣1,00,00,000</span>
               </div>
             </div>
 
@@ -108,21 +108,21 @@ function EMICalculator() {
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 sm:p-6 flex flex-col justify-center">
             <div className="text-center mb-6 md:mb-8">
               <p className="text-gray-600 mb-2 text-sm">Your Monthly EMI</p>
-              <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-emerald-600">₹{calculations.emi.toLocaleString()}</p>
+              <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-emerald-600">Γé╣{calculations.emi.toLocaleString()}</p>
             </div>
 
             <div className="space-y-3 sm:space-y-4">
               <div className="flex justify-between items-center p-3 sm:p-4 bg-white rounded-xl shadow-sm">
                 <span className="text-gray-600 text-sm sm:text-base">Principal Amount</span>
-                <span className="font-bold text-gray-800 text-sm sm:text-base">₹{principal.toLocaleString()}</span>
+                <span className="font-bold text-gray-800 text-sm sm:text-base">Γé╣{principal.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center p-3 sm:p-4 bg-white rounded-xl shadow-sm">
                 <span className="text-gray-600 text-sm sm:text-base">Total Interest</span>
-                <span className="font-bold text-teal-600 text-sm sm:text-base">₹{calculations.totalInterest.toLocaleString()}</span>
+                <span className="font-bold text-teal-600 text-sm sm:text-base">Γé╣{calculations.totalInterest.toLocaleString()}</span>
               </div>
               <div className="flex justify-between items-center p-3 sm:p-4 bg-emerald-600 text-white rounded-xl">
                 <span className="font-medium text-sm sm:text-base">Total Amount Payable</span>
-                <span className="font-bold text-sm sm:text-base">₹{calculations.totalAmount.toLocaleString()}</span>
+                <span className="font-bold text-sm sm:text-base">Γé╣{calculations.totalAmount.toLocaleString()}</span>
               </div>
             </div>
           </div>
@@ -193,31 +193,43 @@ export default function LandingPage() {
     return `https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodedAddress}`;
   }, [settings.companyAddress]);
 
-  // Only 2 CMS queries on landing page � staff role queries removed.
-  // STAFF/AGENT/CASHIER queries were firing on every visit (incl. bots) = 280+ wasted DB hits/week.
+  // Fetch CMS data
   useEffect(() => {
     if (authView !== 'landing') return;
+
     const controller = new AbortController();
     let isMounted = true;
+
     const fetchData = async () => {
       try {
         const [productsRes, statsRes] = await Promise.all([
           fetch('/api/cms/product?isActive=true', { signal: controller.signal }),
-          fetch('/api/cms/service?type=all',       { signal: controller.signal })
+          fetch('/api/cms/service?type=all', { signal: controller.signal })
         ]);
+
         if (!isMounted) return;
+
         const productsData = await productsRes.json();
-        const statsData    = await statsRes.json();
+        const statsData = await statsRes.json();
+
         setServices(productsData.products || []);
         setStats(statsData.stats || { totalLoans: 0, totalDisbursed: 0, activeCustomers: 0, companies: 0 });
-        // staffList NOT fetched here � saves 3 DB queries per page visit
+
+        // Staff NOT fetched on landing page - saves 3 DB queries per visit
       } catch (error) {
         const err = error as Error;
-        if (isMounted && err.name !== 'AbortError') console.error('CMS fetch error:', error);
+        if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
+          console.error('Error fetching CMS data:', error);
+        }
       }
     };
+
     fetchData();
-    return () => { isMounted = false; controller.abort(); };
+
+    return () => {
+      isMounted = false;
+      controller.abort('Component unmounted');
+    };
   }, [authView]);
 
   // Show login pages
@@ -420,7 +432,7 @@ export default function LandingPage() {
               </div>
               <div className="text-center">
                 <Wallet className="h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 sm:mb-3 text-emerald-400" />
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">₹{Math.round((stats.totalDisbursed || 5000000000) / 10000000)}Cr+</p>
+                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">Γé╣{Math.round((stats.totalDisbursed || 5000000000) / 10000000)}Cr+</p>
                 <p className="text-gray-400 text-xs sm:text-sm mt-1">Total Disbursed</p>
               </div>
               <div className="text-center">
@@ -514,7 +526,7 @@ export default function LandingPage() {
                     <div className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500"></div>
                     <CardContent className="p-4 sm:p-6 md:p-8">
                       <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-lg sm:rounded-xl md:rounded-2xl flex items-center justify-center text-2xl sm:text-3xl mb-4 sm:mb-6 group-hover:scale-110 transition-transform">
-                        {product.icon || '💰'}
+                        {product.icon || '≡ƒÆ░'}
                       </div>
                       <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 mb-2 sm:mb-3">{product.title}</h3>
                       <p className="text-gray-600 text-xs sm:text-sm mb-4 sm:mb-6 leading-relaxed">{product.description}</p>
@@ -526,7 +538,7 @@ export default function LandingPage() {
                         </div>
                         <div className="flex justify-between items-center py-1 sm:py-2 border-b border-gray-100">
                           <span className="text-gray-500 text-xs sm:text-sm">Loan Amount</span>
-                          <span className="font-semibold text-gray-800 text-xs sm:text-sm">₹{(product.minAmount || 10000).toLocaleString()} - ₹{(product.maxAmount >= 10000000 ? `${Math.round(product.maxAmount / 10000000)}Cr` : `${Math.round(product.maxAmount / 100000)}L`)}</span>
+                          <span className="font-semibold text-gray-800 text-xs sm:text-sm">Γé╣{(product.minAmount || 10000).toLocaleString()} - Γé╣{(product.maxAmount >= 10000000 ? `${Math.round(product.maxAmount / 10000000)}Cr` : `${Math.round(product.maxAmount / 100000)}L`)}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 sm:py-2">
                           <span className="text-gray-500 text-xs sm:text-sm">Tenure</span>
@@ -912,7 +924,7 @@ export default function LandingPage() {
           <div className="border-t border-gray-800 mt-8 sm:mt-12 pt-6 sm:pt-8">
             <div className="flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4">
               <p className="text-gray-400 text-xs sm:text-sm text-center md:text-left">
-                © {new Date().getFullYear()} {settings.companyName || 'MM Square'}. All rights reserved.
+                ┬⌐ {new Date().getFullYear()} {settings.companyName || 'MM Square'}. All rights reserved.
               </p>
               <div className="flex gap-4 sm:gap-6 text-xs sm:text-sm text-gray-400">
                 <a href="#" className="hover:text-emerald-400 transition-colors">Privacy Policy</a>

@@ -1,0 +1,3 @@
+{
+  "/api/accounting/sync-journal-entries/route": "app/api/accounting/sync-journal-entries/route.js"
+}

@@ -1,0 +1,3 @@
+{
+  "/api/accounting/sync-online-loan-disbursements/route": "app/api/accounting/sync-online-loan-disbursements/route.js"
+}

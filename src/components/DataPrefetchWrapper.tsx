@@ -11,11 +11,7 @@ export default function DataPrefetchWrapper({ children }: { children: React.Reac
 
   return (
     <>
-      <PrefetchDataProvider 
-        userId={user?.id || undefined}
-        userRole={user?.role || undefined}
-        companyId={user?.companyId || undefined}
-      />
+      <PrefetchDataProvider />
       {children}
     </>
   );
