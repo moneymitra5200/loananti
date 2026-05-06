@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
-import { sendPushNotificationToRole } from '@/lib/push-notification-service';
+import { sendPushNotificationToRoles } from '@/lib/push-notification-service';
 
 // Loan type to code mapping
 const LOAN_TYPE_CODES: Record<string, string> = {
@@ -167,26 +167,14 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // ── Notify ALL SUPER_ADMINs and COMPANY users instantly (fire-and-forget) ──
-    // Don't await — customer should get instant response
-    const notifyTitle = `🏦 New Loan Application`;
-    const notifyBody  = `${loanTypeValue} loan of ₹${Number(requestedAmount).toLocaleString('en-IN')} submitted. App#: ${applicationNo}`;
-    const notifyData  = { loanId: loan.id, applicationNo, type: 'NEW_LOAN_APPLICATION', actionUrl: '/?section=pending' };
-
-    Promise.all([
-      sendPushNotificationToRole('SUPER_ADMIN', {
-        title: notifyTitle,
-        body: notifyBody,
-        data: notifyData,
-        actionUrl: '/?section=pending',
-      }),
-      sendPushNotificationToRole('COMPANY', {
-        title: notifyTitle,
-        body: notifyBody,
-        data: notifyData,
-        actionUrl: '/company/loans',
-      }),
-    ]).catch(() => {});
+    // ── Notify SUPER_ADMINs and COMPANY users (one notification per device, deduplicated) ──
+    // sendPushNotificationToRoles fetches both roles in a SINGLE query → no duplicates
+    sendPushNotificationToRoles(['SUPER_ADMIN', 'COMPANY'], {
+      title: `🏦 New Loan Application`,
+      body: `${loanTypeValue} loan of ₹${Number(requestedAmount).toLocaleString('en-IN')} submitted. App#: ${applicationNo}`,
+      data: { loanId: loan.id, applicationNo, type: 'NEW_LOAN_APPLICATION', actionUrl: '/?section=pending' },
+      actionUrl: '/?section=pending',
+    }).catch(() => {});
 
     // Emit real-time socket event so dashboards refresh immediately
     try {
