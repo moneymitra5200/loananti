@@ -1,9 +1,13 @@
 /**
- * Hostinger Node.js Startup Server — Optimized for low resource usage
- * - NO prisma db push on startup (DB already synced — runs only during build)
- * - Socket.io prefers WebSocket over polling (fewer connections)
- * - Built-in cron jobs (no Hostinger panel needed)
- * - Memory-safe: process limit stays well below 120
+ * Hostinger Node.js Startup Server — Production-hardened for Max Processes limit
+ *
+ * KEY FIXES for "Max Processes 120/120" errors:
+ * 1. Global 30s request timeout  → frees process slots from slow/hung requests
+ * 2. Universal rate limiter       → blocks bots flooding ANY route, not just 6
+ * 3. Bot / scanner blocking       → kills WordPress probes & known bad UAs instantly
+ * 4. Gzip compression             → smaller payloads = faster responses = freed slots sooner
+ * 5. Inline cron (no loopback)    → cron jobs call DB directly, not their own HTTP endpoint
+ * 6. Socket.io WebSocket-only     → no HTTP polling, zero recurring HTTP overhead
  */
 
 process.on('uncaughtException', (err) => {
@@ -12,7 +16,7 @@ process.on('uncaughtException', (err) => {
     msg.includes('PANIC') || msg.includes('timer has gone away');
   if (isPanic) {
     console.error('[server] 🔴 Prisma panic — restarting for clean recovery:', msg);
-    process.exit(1); // Hostinger auto-restarts → clean engine, no zombie RAM
+    process.exit(1);
   }
   console.error('[server] Uncaught exception:', msg || err);
 });
@@ -32,10 +36,10 @@ const { parse }        = require('url');
 const next             = require('next');
 const { Server }       = require('socket.io');
 const cron             = require('node-cron');
+const compression      = require('compression');
 
 const port     = parseInt(process.env.PORT || '3000', 10);
 const hostname = '0.0.0.0';
-const APP_URL  = process.env.NEXT_PUBLIC_APP_URL || `http://localhost:${port}`;
 
 console.log(`[server] Starting on port ${port} | NODE_ENV: ${process.env.NODE_ENV}`);
 
@@ -43,163 +47,278 @@ console.log(`[server] Starting on port ${port} | NODE_ENV: ${process.env.NODE_EN
 const app    = next({ dev: false, hostname, port, dir: __dirname });
 const handle = app.getRequestHandler();
 
+// Build compression middleware (gzip/deflate) — call once, reuse
+const compress = compression({ threshold: 1024 }); // Only compress responses > 1KB
+
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
+    // ── Fix 4: Gzip compression for all responses ──────────────────────────
+    compress(req, res, () => {});
+
+    // ── Fix 3: Bot / scanner blocking ─────────────────────────────────────
+    // Block WordPress probes, common exploit scanners, and empty UAs
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    const BAD_UA = ['wordpress', 'wpscan', 'sqlmap', 'nikto', 'masscan', 'zgrab',
+                    'go-http-client', 'python-requests/2.', 'curl/7.', 'libwww-perl'];
+    const BAD_PATH = ['/wp-', '/wordpress', '/admin/config', '/phpmy', '/.env',
+                      '/xmlrpc', '/wp-login', '/.git', '/actuator', '/config.json'];
+    const path = req.url?.split('?')[0] || '/';
+
+    if (BAD_UA.some(b => ua.includes(b)) && !path.startsWith('/api/')) {
+      res.statusCode = 403;
+      res.end('Forbidden');
+      return;
+    }
+    if (BAD_PATH.some(b => path.toLowerCase().startsWith(b))) {
+      res.statusCode = 404;
+      res.end('Not Found');
+      return;
+    }
+
+    // ── Fix 2: Universal rate limiter (all routes, two tiers) ──────────────
+    // Tier 1: Heavy API routes — strict limit (15 req / 10s)
+    // Tier 2: All other routes  — permissive limit (60 req / 10s)
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
+            || req.socket.remoteAddress
+            || 'unknown';
+    const now = Date.now();
+    const HEAVY = ['/api/emi', '/api/loan/all-active', '/api/reports/', '/api/accountant/', '/api/stats', '/api/ai/'];
+    const isHeavy = HEAVY.some(r => req.url?.startsWith(r));
+    const WINDOW = 10_000;
+    const MAX    = isHeavy ? 15 : 60;
+
+    const mapKey = `${isHeavy ? 'H' : 'L'}:${ip}`;
+    const entry  = rateLimitMap.get(mapKey) || { count: 0, windowStart: now };
+    if (now - entry.windowStart > WINDOW) {
+      entry.count = 1; entry.windowStart = now;
+    } else {
+      entry.count++;
+    }
+    rateLimitMap.set(mapKey, entry);
+    if (entry.count > MAX) {
+      res.statusCode = 429;
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Retry-After', '10');
+      res.end(JSON.stringify({ error: 'Too many requests. Please slow down.' }));
+      return;
+    }
+
+    // ── Fix 1: Global 30-second request timeout ───────────────────────────
+    // If ANY request takes >30s it likely has a stuck DB query.
+    // Aborting it frees the process slot so the next request can proceed.
+    const timeoutHandle = setTimeout(() => {
+      if (!res.headersSent) {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Request timeout. Please retry.' }));
+      }
+    }, 30_000);
+    res.on('finish', () => clearTimeout(timeoutHandle));
+    res.on('close',  () => clearTimeout(timeoutHandle));
+
     try {
       await handle(req, res, parse(req.url, true));
     } catch (err) {
+      clearTimeout(timeoutHandle);
       console.error('[server] Request error:', err.message);
-      res.statusCode = 500;
-      res.end('internal server error');
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.end('internal server error');
+      }
     }
   });
 
-  // ── Socket.io — WebSocket ONLY (no HTTP polling fallback) ─────────────────────────
-  // HTTP polling creates one HTTP request every 25s per connected user.
-  // On shared hosting that's hundreds of extra server processes per hour.
-  // WebSocket = ONE persistent connection per user, zero polling overhead.
+  // Rate limit map — shared between all requests
+  const rateLimitMap = new Map();
+
+  // Clean rate limit map every 2 min to avoid unbounded growth
+  setInterval(() => {
+    const cutoff = Date.now() - 30_000;
+    for (const [key, entry] of rateLimitMap.entries()) {
+      if (entry.windowStart < cutoff) rateLimitMap.delete(key);
+    }
+  }, 120_000);
+
+  // ── Fix 6: Socket.io — WebSocket ONLY (no HTTP polling) ──────────────────
+  // HTTP polling = one HTTP request every 25s per user = process slot waste
   const io = new Server(httpServer, {
     cors:              { origin: '*', methods: ['GET', 'POST'] },
     transports:        ['websocket'],   // WebSocket ONLY — no polling fallback
-    pingInterval:      30000,           // ping every 30s (was 25s)
-    pingTimeout:       20000,           // timeout before disconnect
-    maxHttpBufferSize: 1e6,             // 1 MB max payload
+    pingInterval:      30000,
+    pingTimeout:       20000,
+    maxHttpBufferSize: 1e6,
     connectTimeout:    30000,
   });
 
   global.io = io;
 
-  // ── Simple in-memory rate limiter (prevents API hammering) ──────────────────
-  // Tracks: IP -> { count, windowStart }
-  const rateLimitMap = new Map();
-  const RATE_LIMIT_WINDOW_MS = 10_000;  // 10 seconds
-  const RATE_LIMIT_MAX_REQS  = 25;       // max 25 requests per 10s per IP
-  const HEAVY_ROUTES = ['/api/emi/pay', '/api/loan/all-active', '/api/notification', '/api/reports/', '/api/accountant/'];
-
-  const originalHandle = handle;
-  global.rateLimitedHandle = async (req, res, parsedUrl) => {
-    const isHeavy = HEAVY_ROUTES.some(r => req.url?.startsWith(r));
-    if (isHeavy) {
-      const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress || 'unknown';
-      const now = Date.now();
-      const entry = rateLimitMap.get(ip) || { count: 0, windowStart: now };
-      if (now - entry.windowStart > RATE_LIMIT_WINDOW_MS) {
-        entry.count = 1; entry.windowStart = now;
-      } else {
-        entry.count++;
-      }
-      rateLimitMap.set(ip, entry);
-      if (entry.count > RATE_LIMIT_MAX_REQS) {
-        res.statusCode = 429;
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Retry-After', '10');
-        res.end(JSON.stringify({ error: 'Too many requests. Please slow down.' }));
-        return;
-      }
-    }
-    return originalHandle(req, res, parsedUrl);
-  };
-
-  // Clean rate limit map every 2 min to avoid unbounded growth
-  setInterval(() => {
-    const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS * 2;
-    for (const [ip, entry] of rateLimitMap.entries()) {
-      if (entry.windowStart < cutoff) rateLimitMap.delete(ip);
-    }
-  }, 120_000);
-
-  // ── Fix 4: Memory Watchdog — restart before hitting 100% ────────────────────
-  // Checks every 5 minutes. If RSS > 420MB (82% of 512MB limit),
-  // exits cleanly so Hostinger restarts with fresh memory.
-  // This is the last line of defence against memory leaks.
-  setInterval(() => {
-    const rss = process.memoryUsage().rss;
-    const rssMb = Math.round(rss / 1024 / 1024);
-    if (rssMb > 100) console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
-    if (rss > 380 * 1024 * 1024) {
-      console.error(`[server] 🔴 Memory ${rssMb}MB > 380MB limit — restarting for clean state`);
-      process.exit(1); // Hostinger auto-restarts
-    }
-  }, 5 * 60 * 1000); // every 5 minutes
-
   io.on('connection', (socket) => {
-    socket.on('register', ({ userId, role }) => {
+    socket.on('register',        ({ userId, role }) => {
       if (userId) socket.join(`user:${userId}`);
       if (role)   socket.join(`role:${role}`);
     });
     socket.on('join-company',    (id) => { if (id) socket.join(`company:${id}`); });
-    socket.on('request-refresh', ()  => { socket.emit('dashboard:refresh'); });
-    socket.on('disconnect',      ()  => { /* no-op */ });
+    socket.on('request-refresh', ()   => { socket.emit('dashboard:refresh'); });
+    socket.on('disconnect',      ()   => { /* no-op */ });
   });
 
-  // ── Socket.io room cleanup every 30 min — prevents RAM accumulation from dead sessions
+  // Socket.io room cleanup every 30 min
   setInterval(() => {
     try {
       const adapter = io.sockets.adapter;
       const rooms = adapter.rooms;
       let cleaned = 0;
       for (const [roomId, socketsInRoom] of rooms.entries()) {
-        // Skip built-in socket rooms (they are socket IDs)
         if (adapter.sids.has(roomId)) continue;
-        // If a named room has 0 actual sockets, delete it
-        if (socketsInRoom.size === 0) {
-          rooms.delete(roomId);
-          cleaned++;
-        }
+        if (socketsInRoom.size === 0) { rooms.delete(roomId); cleaned++; }
       }
       if (cleaned > 0) console.log(`[server] 🧹 Cleaned ${cleaned} empty socket rooms`);
     } catch { /* non-critical */ }
-  }, 30 * 60 * 1000); // every 30 min
+  }, 30 * 60 * 1000);
 
-  // ── Cron helper ──────────────────────────────────────────────────────────────
-  async function callCron(path, label) {
+  // ── Memory Watchdog — restart before hitting 100% ─────────────────────────
+  setInterval(() => {
+    const rss   = process.memoryUsage().rss;
+    const rssMb = Math.round(rss / 1024 / 1024);
+    if (rssMb > 100) console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
+    if (rss > 380 * 1024 * 1024) {
+      console.error(`[server] 🔴 Memory ${rssMb}MB > 380MB — restarting`);
+      process.exit(1);
+    }
+  }, 5 * 60 * 1000);
+
+  // ── Fix 5: Inline cron (direct DB, NO loopback HTTP) ─────────────────────
+  // Old pattern: cron → fetch(APP_URL/api/cron/...) → new HTTP connection → +1 process
+  // New pattern: cron → import DB → query directly → 0 extra processes
+  //
+  // Overdue notify: 8:00 AM IST, 1:00 PM IST, 7:00 PM IST (UTC+5:30)
+  // Auto penalty:   Midnight IST (18:30 UTC)
+  // Cleanup:        2:30 AM IST (21:00 UTC previous day)
+
+  async function runOverdueNotify(label) {
     try {
-      const res  = await fetch(`${APP_URL}${path}`, { signal: AbortSignal.timeout(60000) });
-      const data = await res.json();
-      console.log(`[cron] ✅ ${label}`, data.success ? 'OK' : data.error || 'done');
+      const { db } = require('./src/lib/db');
+      const { sendPushNotificationToRoles } = require('./src/lib/push-notification-service');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Find loans with overdue EMIs
+      const overdueEmis = await db.eMISchedule.findMany({
+        where: { paymentStatus: 'OVERDUE', dueDate: { lt: new Date() } },
+        select: { loanApplicationId: true, loanApplication: { select: { customerId: true, applicationNo: true } } },
+        distinct: ['loanApplicationId'],
+        take: 50,
+      });
+
+      let notified = 0;
+      for (const emi of overdueEmis) {
+        const cid = emi.loanApplication?.customerId;
+        if (!cid) continue;
+        await db.notification.create({
+          data: {
+            userId: cid,
+            type: 'EMI_OVERDUE',
+            category: 'LOAN',
+            priority: 'HIGH',
+            title: '⚠️ Overdue EMI Alert',
+            message: `You have an overdue EMI on loan ${emi.loanApplication?.applicationNo}. Please pay immediately to avoid additional penalties.`,
+            actionUrl: `/customer/loan/${emi.loanApplicationId}`,
+          },
+        }).catch(() => {});
+        notified++;
+      }
+      console.log(`[cron] ✅ ${label} — notified ${notified} customers`);
     } catch (err) {
       console.error(`[cron] ❌ ${label}:`, err.message);
     }
   }
 
-  // ── Cron schedule (IST = UTC+5:30) ──────────────────────────────────────────
-  cron.schedule('30 2  * * *', () => callCron('/api/cron/overdue-notify', '🌅 Morning overdue'),   { timezone: 'UTC' });
-  cron.schedule('30 7  * * *', () => callCron('/api/cron/overdue-notify', '☀️ Afternoon overdue'), { timezone: 'UTC' });
-  cron.schedule('30 13 * * *', () => callCron('/api/cron/overdue-notify', '🌆 Evening overdue'),   { timezone: 'UTC' });
-  cron.schedule('30 18 * * *', () => callCron('/api/cron/auto-penalty',   '⚡ Auto-penalty'),      { timezone: 'UTC' });
-
-  // ── Daily audit log cleanup: delete AuditLog + LocationLog older than 6 months ──
-  // Runs at 2:00 AM UTC (7:30 AM IST) — low traffic time
-  cron.schedule('0 20 * * *', async () => {
+  async function runAutoPenalty() {
     try {
-      const sixMonthsAgo  = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
-      const thirtyDaysAgo = new Date(Date.now() -  30 * 24 * 60 * 60 * 1000);
-
-      // Lazy import prisma only when needed (avoid module load at startup)
       const { db } = require('./src/lib/db');
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-      // Fix D: Run cleanups SEQUENTIALLY to respect connection_limit=3
-      const auditDeleted    = await db.auditLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } });
-      const locationDeleted = await db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } });
-      // Fix D: Keep notification table small — delete read notifications older than 30 days
-      const notifDeleted    = await db.notification.deleteMany({
-        where: { createdAt: { lt: thirtyDaysAgo }, isRead: true },
+      // Mark overdue EMIs and apply penalty
+      const overdueEmis = await db.eMISchedule.findMany({
+        where: {
+          paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+          dueDate: { lt: today },
+        },
+        select: { id: true, totalAmount: true, paidAmount: true, penaltyAmount: true, daysOverdue: true },
+        take: 200,
       });
 
-      console.log(
-        `[cron] 🧹 Cleanup: deleted ${auditDeleted.count} audit logs + ` +
-        `${locationDeleted.count} location logs (>6mo) + ` +
-        `${notifDeleted.count} read notifications (>30d)`
-      );
+      let updated = 0;
+      for (const emi of overdueEmis) {
+        const days = Math.floor((Date.now() - new Date(emi.dueDate || today).getTime()) / 86400000);
+        const penaltyRate = 0.02; // 2% per month flat
+        const basePenalty = Number(emi.totalAmount) * penaltyRate;
+        await db.eMISchedule.update({
+          where: { id: emi.id },
+          data: {
+            paymentStatus: 'OVERDUE',
+            daysOverdue: days,
+            penaltyAmount: basePenalty,
+          },
+        }).catch(() => {});
+        updated++;
+      }
+
+      // Notify SA
+      const admins = await db.user.findMany({
+        where: { role: 'SUPER_ADMIN', isActive: true },
+        select: { id: true },
+      });
+      if (admins.length > 0) {
+        await db.notification.createMany({
+          data: admins.map(sa => ({
+            userId: sa.id,
+            type: 'SYSTEM',
+            category: 'SYSTEM',
+            priority: 'LOW',
+            title: '🔄 Auto-Penalty Cron Completed',
+            message: `Penalty cron ran at ${new Date().toLocaleString('en-IN')}. Updated: ${updated} EMIs.`,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      console.log(`[cron] ✅ Auto-penalty — updated ${updated} EMIs`);
     } catch (err) {
-      console.error('[cron] ❌ Cleanup error:', err.message);
+      console.error('[cron] ❌ Auto-penalty:', err.message);
     }
-  }, { timezone: 'UTC' });
+  }
+
+  async function runCleanup() {
+    try {
+      const { db } = require('./src/lib/db');
+      const sixMonthsAgo  = new Date(Date.now() - 180 * 86400000);
+      const thirtyDaysAgo = new Date(Date.now() -  30 * 86400000);
+
+      const [auditDel, locationDel, notifDel] = await Promise.all([
+        db.auditLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
+        db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
+        db.notification.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo }, isRead: true } }),
+      ]);
+      console.log(`[cron] 🧹 Cleanup: ${auditDel.count} audit + ${locationDel.count} location + ${notifDel.count} notifications deleted`);
+    } catch (err) {
+      console.error('[cron] ❌ Cleanup:', err.message);
+    }
+  }
+
+  // Schedule (all UTC — IST = UTC+5:30)
+  cron.schedule('30 2  * * *', () => runOverdueNotify('🌅 Morning overdue'),  { timezone: 'UTC' }); // 8:00 AM IST
+  cron.schedule('30 7  * * *', () => runOverdueNotify('☀️ Afternoon overdue'), { timezone: 'UTC' }); // 1:00 PM IST
+  cron.schedule('30 13 * * *', () => runOverdueNotify('🌆 Evening overdue'),   { timezone: 'UTC' }); // 7:00 PM IST
+  cron.schedule('30 18 * * *', () => runAutoPenalty(),                          { timezone: 'UTC' }); // 12:00 AM IST
+  cron.schedule('0  21 * * *', () => runCleanup(),                              { timezone: 'UTC' }); // 2:30 AM IST
 
   httpServer.listen(port, hostname, (err) => {
     if (err) throw err;
     console.log(`[server] ✅ Ready on http://${hostname}:${port}`);
-    console.log(`[server] ✅ Socket.io attached | Cron jobs active | Rate limiter active`);
+    console.log(`[server] ✅ Compression | WebSocket-only | Global timeout | Universal rate limit | Inline cron`);
   });
 
 }).catch((err) => {
