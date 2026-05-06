@@ -150,25 +150,24 @@ const DashboardTab = memo(function DashboardTab({
           ) : (
             <div className="space-y-3">
               {pendingForSA.slice(0, 5).map((loan) => (
-                <div key={loan.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-blue-100 text-blue-700">{loan.customer?.name?.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{loan.applicationNo}</p>
-                      <p className="text-sm text-gray-500">{loan.customer?.name}</p>
-                    </div>
+                <div key={loan.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg overflow-hidden">
+                  <Avatar className="h-10 w-10 flex-shrink-0">
+                    <AvatarFallback className="bg-blue-100 text-blue-700">{loan.customer?.name?.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{loan.applicationNo}</p>
+                    <p className="text-xs text-gray-500 truncate">{loan.customer?.name}</p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <p className="font-semibold">{formatCurrency(loan.requestedAmount)}</p>
-                    <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600" onClick={() => onApprove(loan)}>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <p className="font-semibold text-sm">{formatCurrency(loan.requestedAmount)}</p>
+                    <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-xs px-2 h-8" onClick={() => onApprove(loan)}>
                       Review
                     </Button>
                   </div>
                 </div>
               ))}
             </div>
+
           )}
         </CardContent>
       </Card>

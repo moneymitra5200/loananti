@@ -188,11 +188,22 @@ export default function NotificationBell() {
     if (!notification.isRead) {
       handleMarkAsRead(notification.id);
     }
-    if (notification.actionUrl) {
+    setOpen(false);
+
+    if (!notification.actionUrl) return;
+
+    // Only /customer/loan/[id] is a real page route.
+    // All other URLs (/agent/application/, /cashier/loans, etc.) are dashboard tabs,
+    // not separate pages — navigating to them causes 404.
+    if (notification.actionUrl.startsWith('/customer/loan/')) {
       router.push(notification.actionUrl);
-      setOpen(false);
+      return;
     }
+
+    // For staff/admin notifications: just close the panel.
+    // The notification title already tells them what happened.
   };
+
 
   const getCategoryIcon = (category: string) => {
     const config = CATEGORY_CONFIG[category] || CATEGORY_CONFIG.SYSTEM;

@@ -54,6 +54,16 @@ export default function DashboardLayout({
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [sidebarOpen]);
+
   const userName = user?.name || 'User';
   const userRole = user?.role?.replace('_', ' ') || 'User';
   const userInitial = userName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -302,16 +312,26 @@ export default function DashboardLayout({
         <AnimatePresence>
           {sidebarOpen && (
             <>
-              <motion.div variants={{ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }} initial="initial" animate="animate" exit="exit"
-                className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+              {/* Backdrop — z-50 so it sits above the sticky header (z-40) */}
+              <motion.div
+                variants={{ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }}
+                initial="initial" animate="animate" exit="exit"
+                className="fixed inset-0 bg-black/50 z-50 lg:hidden"
+                onClick={() => setSidebarOpen(false)}
+                onTouchStart={() => setSidebarOpen(false)}
+              />
+              {/* Sidebar panel — z-[60] above backdrop */}
               <motion.nav
                 variants={{ initial: { x: -280 }, animate: { x: 0 }, exit: { x: -280 } }}
-                initial="initial" animate="animate" exit="exit" transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed top-0 left-0 h-full w-72 bg-white z-50 shadow-2xl lg:hidden"
+                initial="initial" animate="animate" exit="exit"
+                transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
+                className="fixed top-0 left-0 h-full w-72 bg-white z-[60] shadow-2xl lg:hidden"
               >
-                <SidebarContent menuItems={menuItems} activeTab={activeTab} onTabChange={(tab) => { onTabChange?.(tab); setSidebarOpen(false); }}
-                  expandedMenu={expandedMenu} setExpandedMenu={setExpandedMenu} signOut={signOut} 
-                  gradient={gradient} onClose={() => setSidebarOpen(false)} companyName={settings.companyName} companyLogo={settings.companyLogo} userRole={user?.role} />
+                <SidebarContent menuItems={menuItems} activeTab={activeTab}
+                  onTabChange={(tab) => { onTabChange?.(tab); setSidebarOpen(false); }}
+                  expandedMenu={expandedMenu} setExpandedMenu={setExpandedMenu} signOut={signOut}
+                  gradient={gradient} onClose={() => setSidebarOpen(false)}
+                  companyName={settings.companyName} companyLogo={settings.companyLogo} userRole={user?.role} />
               </motion.nav>
             </>
           )}
