@@ -193,67 +193,31 @@ export default function LandingPage() {
     return `https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodedAddress}`;
   }, [settings.companyAddress]);
 
-  // Fetch CMS data
+  // Only 2 CMS queries on landing page — staff role queries removed.
+  // STAFF/AGENT/CASHIER queries were firing on every visit (incl. bots) = 280+ wasted DB hits/week.
   useEffect(() => {
     if (authView !== 'landing') return;
-
     const controller = new AbortController();
     let isMounted = true;
-
     const fetchData = async () => {
       try {
         const [productsRes, statsRes] = await Promise.all([
           fetch('/api/cms/product?isActive=true', { signal: controller.signal }),
-          fetch('/api/cms/service?type=all', { signal: controller.signal })
+          fetch('/api/cms/service?type=all',       { signal: controller.signal })
         ]);
-
         if (!isMounted) return;
-
         const productsData = await productsRes.json();
-        const statsData = await statsRes.json();
-
+        const statsData    = await statsRes.json();
         setServices(productsData.products || []);
         setStats(statsData.stats || { totalLoans: 0, totalDisbursed: 0, activeCustomers: 0, companies: 0 });
-
-        // Fetch staff
-        try {
-          const staffRes = await fetch('/api/user?role=STAFF', { signal: controller.signal });
-          const agentRes = await fetch('/api/user?role=AGENT', { signal: controller.signal });
-          const cashierRes = await fetch('/api/user?role=CASHIER', { signal: controller.signal });
-
-          if (!isMounted) return;
-
-          const staffData = await staffRes.json();
-          const agentData = await agentRes.json();
-          const cashierData = await cashierRes.json();
-
-          const allStaff = [
-            ...(staffData.users || []),
-            ...(agentData.users || []),
-            ...(cashierData.users || [])
-          ].filter((u: any) => u.name && u.isActive);
-
-          setStaffList(allStaff);
-        } catch (staffError) {
-          const err = staffError as Error;
-          if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
-            console.error('Error fetching staff:', staffError);
-          }
-        }
+        // staffList NOT fetched here — saves 3 DB queries per page visit
       } catch (error) {
         const err = error as Error;
-        if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
-          console.error('Error fetching CMS data:', error);
-        }
+        if (isMounted && err.name !== 'AbortError') console.error('CMS fetch error:', error);
       }
     };
-
     fetchData();
-
-    return () => {
-      isMounted = false;
-      controller.abort('Component unmounted');
-    };
+    return () => { isMounted = false; controller.abort(); };
   }, [authView]);
 
   // Show login pages
