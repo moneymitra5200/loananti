@@ -58,6 +58,14 @@ app.prepare().then(async () => {
   // ── CRITICAL: Pre-warm Prisma using @prisma/client (NOT ./src/lib/db which is TS-only) ──
   // './src/lib/db' is a TypeScript source file — it does NOT exist compiled on Hostinger.
   // @prisma/client is always available in node_modules after 'prisma generate'.
+
+  // FIX: Random jitter 0–2000ms — when Hostinger starts multiple instances simultaneously,
+  // they all try to connect to MySQL at the exact same millisecond → race condition → PANIC.
+  // Staggering startup prevents this collision.
+  const startupJitter = Math.floor(Math.random() * 2000);
+  console.log(`[DB] Startup jitter: ${startupJitter}ms (prevents multi-instance MySQL race)`);
+  await new Promise(r => setTimeout(r, startupJitter));
+
   let dbClient = null;
   try {
     const { PrismaClient } = require('@prisma/client');
@@ -65,8 +73,22 @@ app.prepare().then(async () => {
     await dbClient.$connect();
     console.log('[DB] ✅ Prisma engine pre-warmed');
   } catch (dbErr) {
-    console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', dbErr?.message);
-    // Don't exit — Next.js API routes have their own Prisma instances that will retry.
+    const msg = dbErr?.message || '';
+    const isPanic =
+      dbErr?.name === 'PrismaClientRustPanicError' ||
+      msg.includes('PANIC') ||
+      msg.includes('timer has gone away') ||
+      msg.includes('non-recoverable');
+
+    if (isPanic) {
+      // FIX: PANIC = Rust engine is permanently broken. MUST exit so Hostinger
+      // restarts with a clean engine. Continuing with a panicked engine causes
+      // EVERY subsequent API call to also panic → cascading failure.
+      console.error('[DB] 🔴 Prisma PANIC during pre-warm — exiting for clean restart:', msg);
+      process.exit(1);
+    }
+
+    console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', msg);
     await new Promise(r => setTimeout(r, 1500));
   } finally {
     // Release the pre-warm connection — each API route manages its own pool

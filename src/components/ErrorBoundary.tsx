@@ -30,8 +30,28 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    // Log to console; swap for Sentry etc. if available
     console.error('[ErrorBoundary]', error, errorInfo);
+
+    // AUTO-RECOVERY: ChunkLoadError = old SW cache serving stale JS after new deploy
+    // Clear all caches and hard-reload so new chunks are fetched from server
+    const isChunkError =
+      error?.name?.includes('ChunkLoad') ||
+      error?.message?.includes('ChunkLoad') ||
+      error?.message?.includes('Loading chunk') ||
+      error?.message?.includes('Failed to fetch dynamically imported module');
+
+    if (isChunkError) {
+      console.warn('[ErrorBoundary] ChunkLoadError detected — clearing SW cache and reloading...');
+      const win = typeof window !== 'undefined' ? window : null;
+      if (win && 'caches' in win) {
+        (win as Window).caches.keys()
+          .then(keys => Promise.all(keys.map(k => (win as Window).caches.delete(k))))
+          .then(() => (win as Window).location.reload())
+          .catch(() => (win as Window).location.reload());
+      } else if (win) {
+        (win as Window).location.reload();
+      }
+    }
   }
 
   handleReset = () => {
