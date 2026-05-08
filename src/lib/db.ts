@@ -58,7 +58,25 @@ if (!(globalForPrisma as any).prismaConnected) {
   (globalForPrisma as any).prismaConnected = true;
   db.$connect()
     .then(() => console.log('[DB] ✅ Prisma engine pre-warmed'))
-    .catch((e: any) => console.error('[DB] ⚠️ Pre-warm failed (will retry on first query):', e?.message));
+    .catch((e: any) => {
+      const msg: string = e?.message || String(e);
+      const isPanic =
+        e?.name === 'PrismaClientRustPanicError' ||
+        msg.includes('PANIC') ||
+        msg.includes('timer has gone away') ||
+        msg.includes('non-recoverable');
+
+      if (isPanic) {
+        // PANIC during $connect = engine permanently broken.
+        // MUST exit immediately — every subsequent API call will also panic.
+        // Hostinger auto-restarts with a fresh clean engine.
+        console.error('[DB] 🔴 PANIC on $connect() — forcing clean restart:', msg);
+        setTimeout(() => process.exit(1), 50);
+        return;
+      }
+      // Non-panic failure (e.g. wrong local credentials during build) — just warn
+      console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', msg);
+    });
 }
 
 
