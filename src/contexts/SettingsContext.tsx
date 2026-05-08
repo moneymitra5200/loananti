@@ -214,7 +214,9 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch settings: ${response.status}`);
+        // DB unreachable (local dev) or transient error — use defaults silently
+        console.warn(`[Settings] API returned ${response.status} — using defaults`);
+        return;
       }
 
       const data = await response.json();
