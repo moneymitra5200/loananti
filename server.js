@@ -55,19 +55,22 @@ const rateLimitMap = new Map();
 
 
 app.prepare().then(async () => {
-  // ── CRITICAL: Wait for Prisma engine to be fully ready BEFORE accepting requests ──
-  // Root cause of "PANIC: timer has gone away":
-  //   requests hit Prisma while libraryStarted=false → engine overwhelmed → panic.
-  // Fix: block HTTP listener until $connect() resolves → libraryStarted=true.
+  // ── CRITICAL: Pre-warm Prisma using @prisma/client (NOT ./src/lib/db which is TS-only) ──
+  // './src/lib/db' is a TypeScript source file — it does NOT exist compiled on Hostinger.
+  // @prisma/client is always available in node_modules after 'prisma generate'.
+  let dbClient = null;
   try {
-    const { db } = require('./src/lib/db');
-    await db.$connect();
-    console.log('[server] ✅ Prisma engine connected and ready');
+    const { PrismaClient } = require('@prisma/client');
+    dbClient = new PrismaClient({ log: [] });
+    await dbClient.$connect();
+    console.log('[DB] ✅ Prisma engine pre-warmed');
   } catch (dbErr) {
-    console.error('[server] ⚠️  Prisma connect warning (will retry on first query):', dbErr?.message);
-    // Don't exit — Prisma will retry on first real query.
-    // But add a short delay so the engine has more time to settle.
-    await new Promise(r => setTimeout(r, 2000));
+    console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', dbErr?.message);
+    // Don't exit — Next.js API routes have their own Prisma instances that will retry.
+    await new Promise(r => setTimeout(r, 1500));
+  } finally {
+    // Release the pre-warm connection — each API route manages its own pool
+    if (dbClient) { dbClient.$disconnect().catch(() => {}); dbClient = null; }
   }
 
   const httpServer = createServer(async (req, res) => {
