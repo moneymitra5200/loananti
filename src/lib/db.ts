@@ -50,34 +50,13 @@ export const db = globalForPrisma.prisma ?? createPrismaClient();
 globalForPrisma.prisma = db;
 globalForPrisma.prismaRestarting = false;
 
-// ── PRE-WARM: Connect eagerly at module load ───────────────────────────────────
-// The #1 cause of "timer has gone away" is a query hitting the engine while
-// libraryStarted=false (engine still initializing). By calling $connect()
-// immediately on import, the engine is ready before the first real request.
-if (!(globalForPrisma as any).prismaConnected) {
-  (globalForPrisma as any).prismaConnected = true;
-  db.$connect()
-    .then(() => console.log('[DB] ✅ Prisma engine pre-warmed'))
-    .catch((e: any) => {
-      const msg: string = e?.message || String(e);
-      const isPanic =
-        e?.name === 'PrismaClientRustPanicError' ||
-        msg.includes('PANIC') ||
-        msg.includes('timer has gone away') ||
-        msg.includes('non-recoverable');
-
-      if (isPanic) {
-        // PANIC during $connect = engine permanently broken.
-        // MUST exit immediately — every subsequent API call will also panic.
-        // Hostinger auto-restarts with a fresh clean engine.
-        console.error('[DB] 🔴 PANIC on $connect() — forcing clean restart:', msg);
-        setTimeout(() => process.exit(1), 50);
-        return;
-      }
-      // Non-panic failure (e.g. wrong local credentials during build) — just warn
-      console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', msg);
-    });
-}
+// NOTE: NO pre-warm here intentionally.
+// Hostinger's kernel restricts timerfd syscalls that Prisma's Rust binary requires.
+// Calling $connect() during startup (while 4+ instances launch simultaneously)
+// causes "timer has gone away" PANIC on every single boot.
+// Prisma's default is LAZY connection — the binary spawns only on the first real query,
+// at which point startup pressure is over and only one instance is active.
+// The panic handler below still catches any runtime panics during real queries.
 
 
 // ── PANIC HANDLER: FORCE EXIT immediately on Prisma Rust engine panic ─────────
