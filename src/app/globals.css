@@ -131,12 +131,65 @@
 * {
   border-color: hsl(var(--border));
   box-sizing: border-box;
+  /* FIX: Remove default blue tap flash on mobile */
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
   /* Mobile-first: 16px base (large enough on phone), scales up on desktop */
   font-size: clamp(15px, 1.5vw, 17px);
   scroll-behavior: smooth;
+  /* FIX: Prevents rubber-band overscroll that causes layout shifts */
+  overscroll-behavior: none;
+}
+
+/* ══════════════════════════════════════════════════════════
+   MOBILE TOUCH FIXES — prevents "stuck section bar" on phone
+══════════════════════════════════════════════════════════ */
+
+/* FIX 1: Remove 300ms tap delay on ALL interactive elements */
+a, button, [role="button"], [role="tab"], [role="menuitem"],
+label, select, summary, [tabindex], .sidebar-item,
+[data-slot="button"], [data-slot="tab"] {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* FIX 2: Prevent text selection on sidebar/nav taps (swipe misread as select) */
+.sidebar-item, nav, [role="tablist"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* FIX 3: Stuck :hover on touch devices — reset hover state immediately after tap */
+@media (hover: none) and (pointer: coarse) {
+  /* Buttons: no hover background lingering after tap */
+  button:hover, [role="button"]:hover,
+  [data-slot="button"]:hover {
+    background-color: inherit !important;
+  }
+  /* Nav items: clear active highlight instantly */
+  .sidebar-item:hover {
+    background-color: transparent !important;
+  }
+  /* Tailwind hover utilities: disabled on touch */
+  [class*="hover:"] {
+    transition: none !important;
+  }
+}
+
+/* FIX 4: GPU-accelerate transitions so they don't block touch events */
+.sidebar-item, [data-slot="button"], button,
+[role="tab"], [role="button"] {
+  will-change: transform;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* FIX 5: Prevent iOS momentum scroll from freezing inside panels */
+.sidebar-main, [data-scroll], .overflow-y-auto, .overflow-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 /* ── PWA / Phone: boost text 20% so nothing appears tiny ── */
