@@ -114,8 +114,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#10b981" },
-    { media: "(prefers-color-scheme: dark)",  color: "#059669" },
+    { media: "(prefers-color-scheme: light)", color: "#737301" },
+    { media: "(prefers-color-scheme: dark)",  color: "#5c5c01" },
   ],
   width:        "device-width",
   initialScale: 1,
@@ -132,9 +132,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        {/* Favicon */}
-        <link rel="icon" href="/logo-circle.png" type="image/png" />
-        <link rel="shortcut icon" href="/logo-circle.png" type="image/png" />
+        {/* Favicon — brand logo */}
+        <link rel="icon" href="/mm-logo.png" type="image/png" />
+        <link rel="shortcut icon" href="/mm-logo.png" type="image/png" />
         
         {/* PWA Meta Tags */}
         <meta name="application-name" content="Money Mitra" />
@@ -142,13 +142,13 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Money Mitra" />
-        <meta name="msapplication-TileColor" content="#10b981" />
+        <meta name="msapplication-TileColor" content="#737301" />
         <meta name="msapplication-config" content="/browserconfig.xml" />
-        <meta name="msapplication-TileImage" content="/logo-circle.png" />
+        <meta name="msapplication-TileImage" content="/mm-logo.png" />
         
         {/* Apple Touch Icons */}
-        <link rel="apple-touch-icon" href="/logo-circle.png" />
-        <link rel="apple-touch-icon" sizes="180x180" href="/logo-circle.png" />
+        <link rel="apple-touch-icon" href="/mm-logo.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/mm-logo.png" />
         
         {/* Splash screens for iOS */}
         {/* Performance: preconnect to Google Fonts CDN */}
