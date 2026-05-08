@@ -43,57 +43,30 @@ const hostname = '0.0.0.0';
 
 console.log(`[server] Starting on port ${port} | NODE_ENV: ${process.env.NODE_ENV}`);
 
-// ── Start Next.js ─────────────────────────────────────────────────────────────
-const app    = next({ dev: false, hostname, port, dir: __dirname });
-const handle = app.getRequestHandler();
+// ── Startup jitter: stagger multiple Hostinger instances ─────────────────────
+// MUST run BEFORE app.prepare() which imports db.ts and triggers $connect().
+// Multiple instances spawned simultaneously all hit MySQL at the same moment
+// → connection race → PANIC: timer has gone away.
+// setTimeout (not top-level await — this is CommonJS) staggers each instance.
+const startupJitter = Math.floor(Math.random() * 2500);
+console.log(`[server] Startup jitter: ${startupJitter}ms — staggering DB connect`);
 
-// Build compression middleware (gzip/deflate) — call once, reuse
-const compress = compression({ threshold: 1024 }); // Only compress responses > 1KB
+setTimeout(startApp, startupJitter);
 
-// Rate limit map — module-scope so it persists across requests
-const rateLimitMap = new Map();
+function startApp() {
+  // ── Start Next.js ─────────────────────────────────────────────────────────────
+  const app    = next({ dev: false, hostname, port, dir: __dirname });
+  const handle = app.getRequestHandler();
 
+  // Build compression middleware (gzip/deflate) — call once, reuse
+  const compress = compression({ threshold: 1024 });
 
-app.prepare().then(async () => {
-  // ── CRITICAL: Pre-warm Prisma using @prisma/client (NOT ./src/lib/db which is TS-only) ──
-  // './src/lib/db' is a TypeScript source file — it does NOT exist compiled on Hostinger.
-  // @prisma/client is always available in node_modules after 'prisma generate'.
+  // Rate limit map — module-scope so it persists across requests
+  const rateLimitMap = new Map();
 
-  // FIX: Random jitter 0–2000ms — when Hostinger starts multiple instances simultaneously,
-  // they all try to connect to MySQL at the exact same millisecond → race condition → PANIC.
-  // Staggering startup prevents this collision.
-  const startupJitter = Math.floor(Math.random() * 2000);
-  console.log(`[DB] Startup jitter: ${startupJitter}ms (prevents multi-instance MySQL race)`);
-  await new Promise(r => setTimeout(r, startupJitter));
-
-  let dbClient = null;
-  try {
-    const { PrismaClient } = require('@prisma/client');
-    dbClient = new PrismaClient({ log: [] });
-    await dbClient.$connect();
-    console.log('[DB] ✅ Prisma engine pre-warmed');
-  } catch (dbErr) {
-    const msg = dbErr?.message || '';
-    const isPanic =
-      dbErr?.name === 'PrismaClientRustPanicError' ||
-      msg.includes('PANIC') ||
-      msg.includes('timer has gone away') ||
-      msg.includes('non-recoverable');
-
-    if (isPanic) {
-      // FIX: PANIC = Rust engine is permanently broken. MUST exit so Hostinger
-      // restarts with a clean engine. Continuing with a panicked engine causes
-      // EVERY subsequent API call to also panic → cascading failure.
-      console.error('[DB] 🔴 Prisma PANIC during pre-warm — exiting for clean restart:', msg);
-      process.exit(1);
-    }
-
-    console.warn('[DB] ⚠️ Pre-warm failed (will retry on first query):', msg);
-    await new Promise(r => setTimeout(r, 1500));
-  } finally {
-    // Release the pre-warm connection — each API route manages its own pool
-    if (dbClient) { dbClient.$disconnect().catch(() => {}); dbClient = null; }
-  }
+  app.prepare().then(async () => {
+    // db.ts handles its own $connect() at module import time.
+    // The uncaughtException handler above catches any Prisma PANIC and exits.
 
   const httpServer = createServer(async (req, res) => {
     // ── Fix 4: Gzip compression for all responses ──────────────────────────
@@ -375,3 +348,4 @@ app.prepare().then(async () => {
   console.error('[server] Failed to start:', err);
   process.exit(1);
 });
+} // end startApp()
