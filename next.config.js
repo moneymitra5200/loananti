@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 const withPWAInit = require("next-pwa");
 
 const withPWA = withPWAInit({
@@ -30,9 +30,10 @@ const withPWA = withPWAInit({
     // Static JS/CSS – Stale While Revalidate, 7 days
     {
       urlPattern: /\.(?:js|css)$/i,
-      handler: "StaleWhileRevalidate",
+      handler: "NetworkFirst",
       options: {
         cacheName: "static-resources",
+        networkTimeoutSeconds: 3,
         expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 7 },
       },
     },
