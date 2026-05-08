@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Load Noto Sans with ONLY the ₹ glyph (U+20B9) — ~1KB, browser uses it only for rupee symbol */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&text=₹&display=swap');
 
 /* ══════════════════════════════════════════════════════════
    BRAND COLOR SYSTEM
@@ -210,8 +212,8 @@ label, select, summary, [tabindex], .sidebar-item,
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  /* System fonts first — Segoe UI/Roboto fully support ₹ on all modern OS */
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  /* Noto Sans first for ₹ symbol (U+20B9), system fonts handle all other text */
+  font-family: 'Noto Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
