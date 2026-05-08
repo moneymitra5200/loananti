@@ -10,25 +10,27 @@
  * 6. Socket.io WebSocket-only     ΓåÆ no HTTP polling, zero recurring HTTP overhead
  */
 
+function isPrismaEnginePanic(err) {
+  const msg = (err?.message || String(err || ''));
+  return err?.name === 'PrismaClientRustPanicError' ||
+    err?.name === 'PrismaClientInitializationError' ||
+    msg.includes('PANIC') ||
+    msg.includes('timer has gone away') ||
+    msg.includes('exited with code 101');
+}
 process.on('uncaughtException', (err) => {
-  const msg = err?.message || '';
-  const isPanic = err?.name === 'PrismaClientRustPanicError' ||
-    msg.includes('PANIC') || msg.includes('timer has gone away');
-  if (isPanic) {
-    console.error('[server] ≡ƒö┤ Prisma panic ΓÇö restarting for clean recovery:', msg);
+  if (isPrismaEnginePanic(err)) {
+    console.error('[server] 🔴 Prisma panic — restarting for clean recovery:', err?.message);
     process.exit(1);
   }
-  console.error('[server] Uncaught exception:', msg || err);
+  console.error('[server] Uncaught exception:', err?.message || err);
 });
 process.on('unhandledRejection', (reason) => {
-  const msg = (reason && reason.message) ? reason.message : String(reason);
-  const isPanic = (reason && reason.name === 'PrismaClientRustPanicError') ||
-    msg.includes('PANIC') || msg.includes('timer has gone away');
-  if (isPanic) {
-    console.error('[server] ≡ƒö┤ Prisma panic (rejection) ΓÇö restarting:', msg);
+  if (isPrismaEnginePanic(reason)) {
+    console.error('[server] 🔴 Prisma panic (rejection) — restarting:', reason?.message || reason);
     process.exit(1);
   }
-  console.error('[server] Unhandled rejection:', msg);
+  console.error('[server] Unhandled rejection:', reason?.message || reason);
 });
 
 const { createServer } = require('http');
@@ -208,10 +210,19 @@ app.prepare().then(async () => {
   // Auto penalty:   Midnight IST (18:30 UTC)
   // Cleanup:        2:30 AM IST (21:00 UTC previous day)
 
+  // ── Cron DB helper — reuses the singleton created by db.ts (via globalThis.prisma)
+  // Falls back to @prisma/client if the singleton isn't ready (cold-start cron edge case)
+  function getCronDb() {
+    if (globalThis.prisma) return globalThis.prisma;
+    const { PrismaClient } = require('@prisma/client');
+    const client = new PrismaClient({ log: ['error'] });
+    globalThis.prisma = client;
+    return client;
+  }
+
   async function runOverdueNotify(label) {
     try {
-      const { db } = require('./src/lib/db');
-      const { sendPushNotificationToRoles } = require('./src/lib/push-notification-service');
+      const db = getCronDb();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
@@ -250,7 +261,7 @@ app.prepare().then(async () => {
 
   async function runAutoPenalty() {
     try {
-      const { db } = require('./src/lib/db');
+      const db = getCronDb();
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
@@ -306,7 +317,7 @@ app.prepare().then(async () => {
 
   async function runCleanup() {
     try {
-      const { db } = require('./src/lib/db');
+      const db = getCronDb();
       const sixMonthsAgo  = new Date(Date.now() - 180 * 86400000);
       const thirtyDaysAgo = new Date(Date.now() -  30 * 86400000);
 

@@ -45,6 +45,7 @@ const createPrismaClient = () => {
   });
 };
 
+
 // ── Singleton ──────────────────────────────────────────────────────────────────
 export const db = globalForPrisma.prisma ?? createPrismaClient();
 globalForPrisma.prisma = db;
@@ -67,15 +68,16 @@ function handlePanic(err: any, source: string) {
   const msg: string = err?.message || String(err);
   const isPanic =
     err?.name === 'PrismaClientRustPanicError' ||
+    err?.name === 'PrismaClientInitializationError' ||
     msg.includes('PANIC') ||
     msg.includes('timer has gone away') ||
+    msg.includes('exited with code 101') ||
     msg.includes('non-recoverable');
 
   if (isPanic && !globalForPrisma.prismaRestarting) {
     globalForPrisma.prismaRestarting = true;
-    console.error(`[DB] 🔴 Prisma engine panic (${source}). Forcing restart for clean recovery...`);
-    // Give 100ms for the current request to return an error response, then exit
-    setTimeout(() => process.exit(1), 100);
+    console.error(`[DB] 🔴 Prisma engine panic (${source}). Forcing restart now...`);
+    process.exit(1); // Exit immediately — no delay, engine is permanently broken
   }
 }
 
