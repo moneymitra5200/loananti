@@ -154,6 +154,8 @@ export default function RootLayout({
         {/* Performance: preconnect to Google Fonts CDN */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        {/* Noto Sans — full ₹ rupee symbol support on Android, iOS, Windows */}
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body>
         <QueryProvider>

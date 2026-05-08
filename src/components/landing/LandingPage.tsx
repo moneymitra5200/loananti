@@ -409,7 +409,7 @@ export default function LandingPage() {
                   <p className="text-[10px] sm:text-xs md:text-sm text-gray-500">Min Approval</p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white/50 rounded-xl">
-                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-600">5Cr+</p>
+                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-600">500 Lakh+</p>
                   <p className="text-[10px] sm:text-xs md:text-sm text-gray-500">Loan Amount</p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white/50 rounded-xl">
@@ -432,12 +432,12 @@ export default function LandingPage() {
               </div>
               <div className="text-center">
                 <Wallet className="h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 sm:mb-3 text-emerald-400" />
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">Γé╣{Math.round((stats.totalDisbursed || 5000000000) / 10000000)}Cr+</p>
+                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">Rs.{Math.round((stats.totalDisbursed || 50000000) / 100000)} L+</p>
                 <p className="text-gray-400 text-xs sm:text-sm mt-1">Total Disbursed</p>
               </div>
               <div className="text-center">
                 <Users className="h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 sm:mb-3 text-emerald-400" />
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">{(stats.activeCustomers || 500000).toLocaleString()}+</p>
+                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">{stats.activeCustomers ? Math.round(stats.activeCustomers / 100000) + " Lakh+" : "5 Lakh+"}</p>
                 <p className="text-gray-400 text-xs sm:text-sm mt-1">Happy Customers</p>
               </div>
               <div className="text-center">
@@ -538,7 +538,7 @@ export default function LandingPage() {
                         </div>
                         <div className="flex justify-between items-center py-1 sm:py-2 border-b border-gray-100">
                           <span className="text-gray-500 text-xs sm:text-sm">Loan Amount</span>
-                          <span className="font-semibold text-gray-800 text-xs sm:text-sm">Γé╣{(product.minAmount || 10000).toLocaleString()} - Γé╣{(product.maxAmount >= 10000000 ? `${Math.round(product.maxAmount / 10000000)}Cr` : `${Math.round(product.maxAmount / 100000)}L`)}</span>
+                          <span className="font-semibold text-gray-800 text-xs sm:text-sm">Rs.{(product.minAmount || 10000) >= 100000 ? Math.round((product.minAmount || 10000) / 100000) + "L" : (product.minAmount || 10000).toLocaleString()} - {product.maxAmount >= 10000000 ? Math.round(product.maxAmount / 10000000) + " Cr" : Math.round((product.maxAmount || 500000) / 100000) + " Lakh"}</span>
                         </div>
                         <div className="flex justify-between items-center py-1 sm:py-2">
                           <span className="text-gray-500 text-xs sm:text-sm">Tenure</span>
