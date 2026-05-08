@@ -1,13 +1,13 @@
 /**
- * Hostinger Node.js Startup Server — Production-hardened for Max Processes limit
+ * Hostinger Node.js Startup Server ΓÇö Production-hardened for Max Processes limit
  *
  * KEY FIXES for "Max Processes 120/120" errors:
- * 1. Global 30s request timeout  → frees process slots from slow/hung requests
- * 2. Universal rate limiter       → blocks bots flooding ANY route, not just 6
- * 3. Bot / scanner blocking       → kills WordPress probes & known bad UAs instantly
- * 4. Gzip compression             → smaller payloads = faster responses = freed slots sooner
- * 5. Inline cron (no loopback)    → cron jobs call DB directly, not their own HTTP endpoint
- * 6. Socket.io WebSocket-only     → no HTTP polling, zero recurring HTTP overhead
+ * 1. Global 30s request timeout  ΓåÆ frees process slots from slow/hung requests
+ * 2. Universal rate limiter       ΓåÆ blocks bots flooding ANY route, not just 6
+ * 3. Bot / scanner blocking       ΓåÆ kills WordPress probes & known bad UAs instantly
+ * 4. Gzip compression             ΓåÆ smaller payloads = faster responses = freed slots sooner
+ * 5. Inline cron (no loopback)    ΓåÆ cron jobs call DB directly, not their own HTTP endpoint
+ * 6. Socket.io WebSocket-only     ΓåÆ no HTTP polling, zero recurring HTTP overhead
  */
 
 process.on('uncaughtException', (err) => {
@@ -15,7 +15,7 @@ process.on('uncaughtException', (err) => {
   const isPanic = err?.name === 'PrismaClientRustPanicError' ||
     msg.includes('PANIC') || msg.includes('timer has gone away');
   if (isPanic) {
-    console.error('[server] 🔴 Prisma panic — restarting for clean recovery:', msg);
+    console.error('[server] ≡ƒö┤ Prisma panic ΓÇö restarting for clean recovery:', msg);
     process.exit(1);
   }
   console.error('[server] Uncaught exception:', msg || err);
@@ -25,7 +25,7 @@ process.on('unhandledRejection', (reason) => {
   const isPanic = (reason && reason.name === 'PrismaClientRustPanicError') ||
     msg.includes('PANIC') || msg.includes('timer has gone away');
   if (isPanic) {
-    console.error('[server] 🔴 Prisma panic (rejection) — restarting:', msg);
+    console.error('[server] ≡ƒö┤ Prisma panic (rejection) ΓÇö restarting:', msg);
     process.exit(1);
   }
   console.error('[server] Unhandled rejection:', msg);
@@ -43,36 +43,26 @@ const hostname = '0.0.0.0';
 
 console.log(`[server] Starting on port ${port} | NODE_ENV: ${process.env.NODE_ENV}`);
 
-// ── Startup jitter: stagger multiple Hostinger instances ─────────────────────
-// MUST run BEFORE app.prepare() which imports db.ts and triggers $connect().
-// Multiple instances spawned simultaneously all hit MySQL at the same moment
-// → connection race → PANIC: timer has gone away.
-// setTimeout (not top-level await — this is CommonJS) staggers each instance.
-const startupJitter = Math.floor(Math.random() * 2500);
-console.log(`[server] Startup jitter: ${startupJitter}ms — staggering DB connect`);
+// ΓöÇΓöÇ Start Next.js ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+const app    = next({ dev: false, hostname, port, dir: __dirname });
+const handle = app.getRequestHandler();
 
-setTimeout(startApp, startupJitter);
+// Build compression middleware (gzip/deflate) ΓÇö call once, reuse
+const compress = compression({ threshold: 1024 }); // Only compress responses > 1KB
 
-function startApp() {
-  // ── Start Next.js ─────────────────────────────────────────────────────────────
-  const app    = next({ dev: false, hostname, port, dir: __dirname });
-  const handle = app.getRequestHandler();
+// Rate limit map — module-scope so it persists across requests
+const rateLimitMap = new Map();
 
-  // Build compression middleware (gzip/deflate) — call once, reuse
-  const compress = compression({ threshold: 1024 });
 
-  // Rate limit map — module-scope so it persists across requests
-  const rateLimitMap = new Map();
-
-  app.prepare().then(async () => {
-    // db.ts handles its own $connect() at module import time.
-    // The uncaughtException handler above catches any Prisma PANIC and exits.
+app.prepare().then(async () => {
+  // Prisma connects lazily on first real query — no pre-warm needed.
+  // (Calling $connect() here caused PANIC: timer has gone away on Hostinger)
 
   const httpServer = createServer(async (req, res) => {
-    // ── Fix 4: Gzip compression for all responses ──────────────────────────
+    // ——— Fix 4: Gzip compression for all responses ——————————————————————————
     compress(req, res, () => {});
 
-    // ── Block exploit paths (bad URLs, not users) ──────────────────────────
+    // ΓöÇΓöÇ Block exploit paths (bad URLs, not users) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     const path  = req.url?.split('?')[0] || '/';
     const pathL = path.toLowerCase();
 
@@ -101,9 +91,9 @@ function startApp() {
       return;
     }
 
-    // ── Fix 2: Universal rate limiter (all routes, two tiers) ──────────────
-    // Tier 1: Heavy API routes — strict limit (15 req / 10s)
-    // Tier 2: All other routes  — permissive limit (60 req / 10s)
+    // ΓöÇΓöÇ Fix 2: Universal rate limiter (all routes, two tiers) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    // Tier 1: Heavy API routes ΓÇö strict limit (15 req / 10s)
+    // Tier 2: All other routes  ΓÇö permissive limit (60 req / 10s)
     const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
             || req.socket.remoteAddress
             || 'unknown';
@@ -129,7 +119,7 @@ function startApp() {
       return;
     }
 
-    // ── Fix 1: Global 30-second request timeout ───────────────────────────
+    // ΓöÇΓöÇ Fix 1: Global 30-second request timeout ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     // If ANY request takes >30s it likely has a stuck DB query.
     // Aborting it frees the process slot so the next request can proceed.
     const timeoutHandle = setTimeout(() => {
@@ -162,11 +152,11 @@ function startApp() {
     }
   }, 120_000);
 
-  // ── Fix 6: Socket.io — WebSocket ONLY (no HTTP polling) ──────────────────
+  // ΓöÇΓöÇ Fix 6: Socket.io ΓÇö WebSocket ONLY (no HTTP polling) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   // HTTP polling = one HTTP request every 25s per user = process slot waste
   const io = new Server(httpServer, {
     cors:              { origin: '*', methods: ['GET', 'POST'] },
-    transports:        ['websocket'],   // WebSocket ONLY — no polling fallback
+    transports:        ['websocket'],   // WebSocket ONLY ΓÇö no polling fallback
     pingInterval:      30000,
     pingTimeout:       20000,
     maxHttpBufferSize: 1e6,
@@ -195,24 +185,24 @@ function startApp() {
         if (adapter.sids.has(roomId)) continue;
         if (socketsInRoom.size === 0) { rooms.delete(roomId); cleaned++; }
       }
-      if (cleaned > 0) console.log(`[server] 🧹 Cleaned ${cleaned} empty socket rooms`);
+      if (cleaned > 0) console.log(`[server] ≡ƒº╣ Cleaned ${cleaned} empty socket rooms`);
     } catch { /* non-critical */ }
   }, 30 * 60 * 1000);
 
-  // ── Memory Watchdog — restart before hitting 100% ─────────────────────────
+  // ΓöÇΓöÇ Memory Watchdog ΓÇö restart before hitting 100% ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   setInterval(() => {
     const rss   = process.memoryUsage().rss;
     const rssMb = Math.round(rss / 1024 / 1024);
-    if (rssMb > 100) console.log(`[server] 💾 Memory: ${rssMb}MB RSS`);
+    if (rssMb > 100) console.log(`[server] ≡ƒÆ╛ Memory: ${rssMb}MB RSS`);
     if (rss > 380 * 1024 * 1024) {
-      console.error(`[server] 🔴 Memory ${rssMb}MB > 380MB — restarting`);
+      console.error(`[server] ≡ƒö┤ Memory ${rssMb}MB > 380MB ΓÇö restarting`);
       process.exit(1);
     }
   }, 5 * 60 * 1000);
 
-  // ── Fix 5: Inline cron (direct DB, NO loopback HTTP) ─────────────────────
-  // Old pattern: cron → fetch(APP_URL/api/cron/...) → new HTTP connection → +1 process
-  // New pattern: cron → import DB → query directly → 0 extra processes
+  // ΓöÇΓöÇ Fix 5: Inline cron (direct DB, NO loopback HTTP) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // Old pattern: cron ΓåÆ fetch(APP_URL/api/cron/...) ΓåÆ new HTTP connection ΓåÆ +1 process
+  // New pattern: cron ΓåÆ import DB ΓåÆ query directly ΓåÆ 0 extra processes
   //
   // Overdue notify: 8:00 AM IST, 1:00 PM IST, 7:00 PM IST (UTC+5:30)
   // Auto penalty:   Midnight IST (18:30 UTC)
@@ -245,16 +235,16 @@ function startApp() {
             type: 'EMI_OVERDUE',
             category: 'LOAN',
             priority: 'HIGH',
-            title: '⚠️ Overdue EMI Alert',
+            title: 'ΓÜá∩╕Å Overdue EMI Alert',
             message: `You have an overdue EMI on loan ${emi.loanApplication?.applicationNo}. Please pay immediately to avoid additional penalties.`,
             actionUrl: `/customer/loan/${emi.loanApplicationId}`,
           },
         }).catch(() => {});
         notified++;
       }
-      console.log(`[cron] ✅ ${label} — notified ${notified} customers`);
+      console.log(`[cron] Γ£à ${label} ΓÇö notified ${notified} customers`);
     } catch (err) {
-      console.error(`[cron] ❌ ${label}:`, err.message);
+      console.error(`[cron] Γ¥î ${label}:`, err.message);
     }
   }
 
@@ -302,15 +292,15 @@ function startApp() {
             type: 'SYSTEM',
             category: 'SYSTEM',
             priority: 'LOW',
-            title: '🔄 Auto-Penalty Cron Completed',
+            title: '≡ƒöä Auto-Penalty Cron Completed',
             message: `Penalty cron ran at ${new Date().toLocaleString('en-IN')}. Updated: ${updated} EMIs.`,
           })),
           skipDuplicates: true,
         });
       }
-      console.log(`[cron] ✅ Auto-penalty — updated ${updated} EMIs`);
+      console.log(`[cron] Γ£à Auto-penalty ΓÇö updated ${updated} EMIs`);
     } catch (err) {
-      console.error('[cron] ❌ Auto-penalty:', err.message);
+      console.error('[cron] Γ¥î Auto-penalty:', err.message);
     }
   }
 
@@ -325,27 +315,26 @@ function startApp() {
         db.locationLog.deleteMany({ where: { createdAt: { lt: sixMonthsAgo } } }),
         db.notification.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo }, isRead: true } }),
       ]);
-      console.log(`[cron] 🧹 Cleanup: ${auditDel.count} audit + ${locationDel.count} location + ${notifDel.count} notifications deleted`);
+      console.log(`[cron] ≡ƒº╣ Cleanup: ${auditDel.count} audit + ${locationDel.count} location + ${notifDel.count} notifications deleted`);
     } catch (err) {
-      console.error('[cron] ❌ Cleanup:', err.message);
+      console.error('[cron] Γ¥î Cleanup:', err.message);
     }
   }
 
-  // Schedule (all UTC — IST = UTC+5:30)
-  cron.schedule('30 2  * * *', () => runOverdueNotify('🌅 Morning overdue'),  { timezone: 'UTC' }); // 8:00 AM IST
-  cron.schedule('30 7  * * *', () => runOverdueNotify('☀️ Afternoon overdue'), { timezone: 'UTC' }); // 1:00 PM IST
-  cron.schedule('30 13 * * *', () => runOverdueNotify('🌆 Evening overdue'),   { timezone: 'UTC' }); // 7:00 PM IST
+  // Schedule (all UTC ΓÇö IST = UTC+5:30)
+  cron.schedule('30 2  * * *', () => runOverdueNotify('≡ƒîà Morning overdue'),  { timezone: 'UTC' }); // 8:00 AM IST
+  cron.schedule('30 7  * * *', () => runOverdueNotify('ΓÿÇ∩╕Å Afternoon overdue'), { timezone: 'UTC' }); // 1:00 PM IST
+  cron.schedule('30 13 * * *', () => runOverdueNotify('≡ƒîå Evening overdue'),   { timezone: 'UTC' }); // 7:00 PM IST
   cron.schedule('30 18 * * *', () => runAutoPenalty(),                          { timezone: 'UTC' }); // 12:00 AM IST
   cron.schedule('0  21 * * *', () => runCleanup(),                              { timezone: 'UTC' }); // 2:30 AM IST
 
   httpServer.listen(port, hostname, (err) => {
     if (err) throw err;
-    console.log(`[server] ✅ Ready on http://${hostname}:${port}`);
-    console.log(`[server] ✅ Compression | WebSocket-only | Global timeout | Universal rate limit | Inline cron`);
+    console.log(`[server] Γ£à Ready on http://${hostname}:${port}`);
+    console.log(`[server] Γ£à Compression | WebSocket-only | Global timeout | Universal rate limit | Inline cron`);
   });
 
 }).catch((err) => {
   console.error('[server] Failed to start:', err);
   process.exit(1);
 });
-} // end startApp()
