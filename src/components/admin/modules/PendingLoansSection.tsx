@@ -137,20 +137,20 @@ export function PendingLoansSection({
                         <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="text-left">
                         <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.requestedAmount)}</p>
                         <p className="text-xs text-gray-500">{loan.loanType}</p>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-shrink-0">
                         <Button size="sm" variant="outline" onClick={() => onView(loan)}>
                           <Eye className="h-4 w-4" />
                         </Button>
                         <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => onReject(loan)}>
-                          <XCircle className="h-4 w-4 mr-1" />Reject
+                          <XCircle className="h-4 w-4" /><span className="hidden sm:inline ml-1">Reject</span>
                         </Button>
                         <Button size="sm" className="bg-emerald-500 hover:bg-emerald-600" onClick={() => onApprove(loan)}>
-                          <CheckCircle className="h-4 w-4 mr-1" />Approve
+                          <CheckCircle className="h-4 w-4" /><span className="hidden sm:inline ml-1">Approve</span>
                         </Button>
                       </div>
                     </div>

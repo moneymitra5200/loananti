@@ -132,7 +132,7 @@ export default function DashboardLayout({
   }, [fetchUserCredit]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col">
+    <div className="h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col overflow-hidden">
       {/* Push notification registration + FCM token save */}
       <PushNotificationInit />
       {/* Role-based daily briefing popup */}
@@ -307,7 +307,7 @@ export default function DashboardLayout({
         </div>
       </header>
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Mobile Sidebar */}
         <AnimatePresence>
           {sidebarOpen && (
@@ -338,7 +338,7 @@ export default function DashboardLayout({
         </AnimatePresence>
 
         {/* Desktop Sidebar */}
-        <nav className="hidden lg:flex lg:flex-col lg:w-72 lg:bg-white lg:border-r lg:border-gray-200">
+        <nav className="hidden lg:flex lg:flex-col lg:w-72 lg:bg-white lg:border-r lg:border-gray-200 lg:overflow-y-auto lg:flex-shrink-0">
           <SidebarContent menuItems={menuItems} activeTab={activeTab} onTabChange={onTabChange || (() => {})}
             expandedMenu={expandedMenu} setExpandedMenu={setExpandedMenu} signOut={signOut}
             gradient={gradient} onClose={() => {}} companyName={settings.companyName} companyLogo={settings.companyLogo} userRole={user?.role} />
