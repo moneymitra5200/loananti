@@ -20,10 +20,10 @@ function ExpensesTabComponent({
 }: ExpensesTabProps) {
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Expenses</h1>
-          <p className="text-muted-foreground">Record and manage company expenses</p>
+          <h1 className="text-2xl font-bold">Expenses</h1>
+          <p className="text-muted-foreground text-sm">Record and manage company expenses</p>
         </div>
         <Button onClick={() => setShowExpenseDialog(true)}>
           <Plus className="h-4 w-4 mr-2" /> Record Expense
@@ -31,7 +31,7 @@ function ExpensesTabComponent({
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Total Expenses</p>
@@ -61,7 +61,7 @@ function ExpensesTabComponent({
       {/* Expenses Table */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[400px]">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -101,7 +101,7 @@ function ExpensesTabComponent({
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

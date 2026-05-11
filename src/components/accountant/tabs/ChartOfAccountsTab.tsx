@@ -26,18 +26,18 @@ function ChartOfAccountsTabComponent({
 }: ChartOfAccountsTabProps) {
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Chart of Accounts</h1>
-          <p className="text-muted-foreground">Manage all ledger accounts</p>
+          <h1 className="text-2xl font-bold">Chart of Accounts</h1>
+          <p className="text-muted-foreground text-sm">Manage all ledger accounts</p>
         </div>
-        <Button onClick={() => setShowAccountDialog(true)}>
+        <Button size="sm" onClick={() => setShowAccountDialog(true)}>
           <Plus className="h-4 w-4 mr-2" /> Add Account
         </Button>
       </div>
 
       {/* Account Type Summary */}
-      <div className="grid grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {['ASSET', 'LIABILITY', 'INCOME', 'EXPENSE', 'EQUITY'].map((type) => {
           const typeAccounts = groupedAccounts[type] || [];
           const total = typeAccounts.reduce((sum, acc) => sum + acc.currentBalance, 0);
@@ -56,7 +56,7 @@ function ChartOfAccountsTabComponent({
       {/* Accounts Table */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[400px]">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -107,7 +107,7 @@ function ChartOfAccountsTabComponent({
                   )))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

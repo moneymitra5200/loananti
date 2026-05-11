@@ -21,23 +21,23 @@ function JournalEntriesTabComponent({
 }: JournalEntriesTabProps) {
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-wrap justify-between items-start gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Journal Entries</h1>
-          <p className="text-muted-foreground">All financial transactions with double-entry bookkeeping</p>
+          <h1 className="text-2xl font-bold">Journal Entries</h1>
+          <p className="text-muted-foreground text-sm">All financial transactions with double-entry bookkeeping</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => handleExportReport('journal-entries')}>
+        <div className="flex gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" onClick={() => handleExportReport('journal-entries')}>
             <Download className="h-4 w-4 mr-2" /> Export
           </Button>
-          <Button onClick={() => setShowJournalDialog(true)}>
+          <Button size="sm" onClick={() => setShowJournalDialog(true)}>
             <Plus className="h-4 w-4 mr-2" /> New Entry
           </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">Total Entries</p>
@@ -61,7 +61,7 @@ function JournalEntriesTabComponent({
       {/* Journal Entries Table */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -96,7 +96,7 @@ function JournalEntriesTabComponent({
                 ))}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>
