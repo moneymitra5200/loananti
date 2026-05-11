@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbWithTimeout } from '@/lib/db';
 import { cache, CacheKeys } from '@/lib/cache';
 
 // Permanent loan products configuration
@@ -206,37 +206,29 @@ const PERMANENT_PRODUCTS = [
 // Flag to track if permanent products have been checked
 let permanentProductsChecked = false;
 
-// Ensure permanent products exist in database (run once per server instance)
+// Ensure permanent products exist (fire-and-forget, non-blocking)
 async function ensurePermanentProducts() {
-  // Skip if already checked
-  if (permanentProductsChecked) {
-    return;
-  }
-  
+  if (permanentProductsChecked) return;
+  permanentProductsChecked = true; // set optimistically to avoid parallel runs
   try {
-    // Use Promise.all for parallel queries instead of sequential
-    const existingProducts = await db.cMSService.findMany({
-      where: { isPermanent: true },
-      select: { loanType: true, id: true }
-    });
-    
+    // 5s timeout — don't block the request for this housekeeping task
+    const existingProducts = await dbWithTimeout(
+      () => db.cMSService.findMany({ where: { isPermanent: true }, select: { loanType: true } }),
+      5000
+    );
     const existingTypes = new Set(existingProducts.map(p => p.loanType));
     const missingProducts = PERMANENT_PRODUCTS.filter(p => !existingTypes.has(p.loanType));
-    
-    // Create missing products in parallel
     if (missingProducts.length > 0) {
       await Promise.all(
-        missingProducts.map(product => 
+        missingProducts.map(product =>
           db.cMSService.create({ data: product })
-            .then(() => console.log(`Created permanent product: ${product.title}`))
-            .catch(err => console.error(`Failed to create ${product.title}:`, err))
+            .catch(err => console.error(`[CMS] Failed to seed ${product.title}:`, err.message))
         )
       );
     }
-    
-    permanentProductsChecked = true;
-  } catch (error) {
-    console.error('Error ensuring permanent products:', error);
+  } catch (error: any) {
+    permanentProductsChecked = false; // allow retry next request
+    console.warn('[CMS] ensurePermanentProducts timed out or failed:', error.message);
   }
 }
 
@@ -247,63 +239,63 @@ export async function GET(request: NextRequest) {
     const id = searchParams.get('id');
     const isActive = searchParams.get('isActive');
 
-    // Run ensurePermanentProducts SYNCHRONOUSLY so products always exist before returning
-    await ensurePermanentProducts();
+    // Run seed check fire-and-forget (non-blocking — never delays the response)
+    ensurePermanentProducts().catch(() => {});
 
     if (id) {
-      const product = await db.cMSService.findUnique({
-        where: { id }
-      });
-      if (!product) {
-        return NextResponse.json({ error: 'Product not found' }, { status: 404 });
-      }
+      const product = await dbWithTimeout(
+        () => db.cMSService.findUnique({ where: { id } }),
+        8000
+      );
+      if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
       return NextResponse.json({ product });
     }
 
-    // Cache active products for 5 minutes (this data rarely changes)
     if (isActive === 'true') {
-      const products = await cache.getOrSet(
-        CacheKeys.CMS_SERVICES,
-        () => db.cMSService.findMany({
-          where: { isActive: true },
-          orderBy: { order: 'asc' },
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            icon: true,
-            code: true,
-            loanType: true,
-            isInterestOnly: true,
-            minInterestRate: true,
-            maxInterestRate: true,
-            defaultInterestRate: true,
-            minTenure: true,
-            maxTenure: true,
-            defaultTenure: true,
-            minAmount: true,
-            maxAmount: true,
-            processingFeePercent: true,
-            isActive: true,
-            isPermanent: true,
-            order: true
-          }
-        }),
-        300000
-      );
-      // Fallback: if DB returned empty (e.g. fresh DB, seeding race), return in-memory constants
-      if (!products || products.length === 0) {
-        return NextResponse.json({ products: PERMANENT_PRODUCTS.map((p, i) => ({ ...p, id: `temp_${i}` })) });
+      const cached = cache.get(CacheKeys.CMS_SERVICES);
+      if (cached) return NextResponse.json({ products: cached });
+
+      let products: any[];
+      try {
+        products = await dbWithTimeout(
+          () => db.cMSService.findMany({
+            where: { isActive: true },
+            orderBy: { order: 'asc' },
+            select: {
+              id: true, title: true, description: true, icon: true,
+              code: true, loanType: true, isInterestOnly: true,
+              minInterestRate: true, maxInterestRate: true, defaultInterestRate: true,
+              minTenure: true, maxTenure: true, defaultTenure: true,
+              minAmount: true, maxAmount: true, processingFeePercent: true,
+              isActive: true, isPermanent: true, order: true
+            }
+          }),
+          8000
+        );
+      } catch {
+        // DB timeout/error — serve in-memory constants instantly
+        products = PERMANENT_PRODUCTS.map((p, i) => ({ ...p, id: `perm_${i}` }));
       }
+      if (!products || products.length === 0) {
+        products = PERMANENT_PRODUCTS.map((p, i) => ({ ...p, id: `perm_${i}` }));
+      }
+      cache.set(CacheKeys.CMS_SERVICES, products, 300000);
       return NextResponse.json({ products });
     }
 
-    const products = await db.cMSService.findMany({
-      orderBy: { order: 'asc' }
-    });
-
+    const products = await dbWithTimeout(
+      () => db.cMSService.findMany({ orderBy: { order: 'asc' } }),
+      8000
+    );
     return NextResponse.json({ products });
-  } catch (error) {
+  } catch (error: any) {
+    // Final fallback: return permanent products from memory so the page loads
+    if (error.message?.includes('DB_TIMEOUT') || error.message?.includes('EAGAIN')) {
+      return NextResponse.json(
+        { products: PERMANENT_PRODUCTS.map((p, i) => ({ ...p, id: `perm_${i}` })) },
+        { status: 200 }
+      );
+    }
     return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
   }
 }

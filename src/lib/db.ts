@@ -26,15 +26,19 @@ const buildDatabaseUrl = () => {
   const name = process.env.DB_NAME;
   const port = process.env.DB_PORT || '3306';
 
+  // Tight timeouts: hanging queries (30-120s) exhaust IOPS + process slots.
+  // connect_timeout=8  → fail fast if DB is unreachable at connect time
+  // pool_timeout=8     → fail fast if no connection available in pool
+  // socket_timeout=20  → kill any query that hasn't responded in 20s
   if (host && user && pass && name) {
     const encodedPass = encodeURIComponent(pass);
-    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=2&connect_timeout=15&pool_timeout=15&socket_timeout=60`;
+    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=2&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
   }
 
   const base = process.env.DATABASE_URL || '';
   if (base.includes('connection_limit')) return base;
   const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}connection_limit=2&connect_timeout=15&pool_timeout=15`;
+  return `${base}${sep}connection_limit=2&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
 };
 
 const createPrismaClient = () => {
@@ -170,4 +174,36 @@ export async function dbWithRetry<T>(
 
 export function handlePrismaError(err: any): void {
   handlePanic(err, 'route handler');
+}
+
+/**
+ * Hard deadline wrapper — races a DB query against a wall-clock timeout.
+ * If the query hasn't resolved within `ms` (default 8000ms), throws immediately
+ * so the request returns 503 instead of hanging for 30-120 seconds.
+ *
+ * This is the primary fix for Hostinger IOPS/process exhaustion:
+ *   hanging requests pile up → fill process table → EAGAIN on spawn.
+ *
+ * @example
+ *   const data = await dbWithTimeout(() => db.company.findMany(), 8000);
+ */
+export async function dbWithTimeout<T>(
+  fn: () => Promise<T>,
+  ms = 8000
+): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`DB_TIMEOUT: query exceeded ${ms}ms`)), ms)
+  );
+  return Promise.race([fn(), timeout]);
+}
+
+/**
+ * Combination: timeout + retry on connection errors.
+ * Use this for the slowest/most critical endpoints.
+ */
+export async function dbSafe<T>(
+  fn: () => Promise<T>,
+  { timeoutMs = 8000, retries = 2 }: { timeoutMs?: number; retries?: number } = {}
+): Promise<T> {
+  return dbWithRetry(() => dbWithTimeout(fn, timeoutMs), retries, 500);
 }

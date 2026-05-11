@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbWithTimeout } from '@/lib/db';
 import { cache, CacheKeys } from '@/lib/cache';
 
 export async function GET(request: NextRequest) {
@@ -8,57 +8,45 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type');
 
     if (type === 'all') {
-      // Use cache for landing page data (5 minutes - this data rarely changes)
+      // All 6 queries have individual 8s timeouts — if one hangs, others still succeed
       const [services, banners, testimonials, loanStats, customerCount, companyCount] = await Promise.all([
-        cache.getOrSet(CacheKeys.CMS_SERVICES, () => 
-          db.cMSService.findMany({ 
-            where: { isActive: true }, 
+        cache.getOrSet(CacheKeys.CMS_SERVICES, () =>
+          dbWithTimeout(() => db.cMSService.findMany({
+            where: { isActive: true },
             orderBy: { order: 'asc' },
             select: {
-              id: true,
-              title: true,
-              description: true,
-              icon: true,
-              loanType: true,
-              minInterestRate: true,
-              maxInterestRate: true,
-              defaultInterestRate: true,
-              minTenure: true,
-              maxTenure: true,
-              defaultTenure: true,
-              minAmount: true,
-              maxAmount: true,
-              processingFeePercent: true,
-              isActive: true
+              id: true, title: true, description: true, icon: true,
+              loanType: true, minInterestRate: true, maxInterestRate: true,
+              defaultInterestRate: true, minTenure: true, maxTenure: true,
+              defaultTenure: true, minAmount: true, maxAmount: true,
+              processingFeePercent: true, isActive: true
             }
-          }),
-        300000),
+          }), 8000).catch(() => []),
+          300000),
         cache.getOrSet(CacheKeys.CMS_BANNERS, () =>
-          db.cMSBanner.findMany({ 
-            where: { isActive: true }, 
+          dbWithTimeout(() => db.cMSBanner.findMany({
+            where: { isActive: true },
             orderBy: { order: 'asc' },
             select: { id: true, title: true, subtitle: true, imageUrl: true, linkUrl: true, buttonText: true }
-          }),
-        300000),
+          }), 8000).catch(() => []),
+          300000),
         cache.getOrSet(CacheKeys.CMS_TESTIMONIALS, () =>
-          db.cMSTestimonial.findMany({ 
-            where: { isActive: true }, 
+          dbWithTimeout(() => db.cMSTestimonial.findMany({
+            where: { isActive: true },
             orderBy: { order: 'asc' },
             select: { id: true, customerName: true, designation: true, content: true, rating: true, imageUrl: true }
-          }),
-        300000),
+          }), 8000).catch(() => []),
+          300000),
         cache.getOrSet(CacheKeys.LOAN_STATS, () =>
-          db.loanApplication.aggregate({
-            _count: { id: true },
-            _sum: { requestedAmount: true }
-          }),
-        300000),
+          dbWithTimeout(() => db.loanApplication.aggregate({ _count: { id: true }, _sum: { requestedAmount: true } }), 8000)
+            .catch(() => ({ _count: { id: 0 }, _sum: { requestedAmount: 0 } })),
+          300000),
         cache.getOrSet(CacheKeys.USER_COUNT, () =>
-          db.user.count({ where: { role: 'CUSTOMER' } }),
-        300000),
+          dbWithTimeout(() => db.user.count({ where: { role: 'CUSTOMER' } }), 8000).catch(() => 0),
+          300000),
         cache.getOrSet(CacheKeys.COMPANY_COUNT, () =>
-          db.company.count(),
-        300000)
+          dbWithTimeout(() => db.company.count(), 8000).catch(() => 0),
+          300000)
       ]);
 
       return NextResponse.json({
@@ -66,19 +54,18 @@ export async function GET(request: NextRequest) {
         banners,
         testimonials,
         stats: {
-          totalLoans: loanStats._count.id,
-          totalDisbursed: loanStats._sum.requestedAmount || 0,
+          totalLoans: (loanStats as any)._count?.id ?? 0,
+          totalDisbursed: (loanStats as any)._sum?.requestedAmount ?? 0,
           activeCustomers: customerCount,
           companies: companyCount
         }
       });
     }
 
-    const services = await db.cMSService.findMany({
-      where: { isActive: true },
-      orderBy: { order: 'asc' }
-    });
-
+    const services = await dbWithTimeout(
+      () => db.cMSService.findMany({ where: { isActive: true }, orderBy: { order: 'asc' } }),
+      8000
+    );
     return NextResponse.json({ services });
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch CMS data' }, { status: 500 });

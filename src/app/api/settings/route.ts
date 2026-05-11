@@ -1,33 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbWithTimeout } from '@/lib/db';
 import { cache, CacheKeys } from '@/lib/cache';
 
 export async function GET() {
   try {
-    // Use cache for settings (cache for 5 minutes - settings rarely change)
-    const settings = await cache.getOrSet(
-      CacheKeys.systemSettings(),
-      async () => {
-        const result = await db.systemSetting.findMany({
-          select: { key: true, value: true }
-        });
-        return result;
-      },
-      300000 // 5 minutes cache
-    );
-
-    const settingsObj: Record<string, string> = {};
-    for (const setting of settings) {
-      settingsObj[setting.key] = setting.value;
+    // Serve from cache instantly if available (settings rarely change)
+    const cached = cache.get(CacheKeys.systemSettings());
+    if (cached) {
+      const settingsObj: Record<string, string> = {};
+      for (const s of cached as any[]) settingsObj[s.key] = s.value;
+      settingsObj['companyLogo'] = '/mm-logo.png';
+      return NextResponse.json({ settings: settingsObj, cached: true }, {
+        headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' },
+      });
     }
 
+    // Hard 6s timeout — settings must not block the app from loading
+    let settings: { key: string; value: string }[];
+    try {
+      settings = await dbWithTimeout(
+        () => db.systemSetting.findMany({ select: { key: true, value: true } }),
+        6000
+      );
+      cache.set(CacheKeys.systemSettings(), settings, 300000);
+    } catch {
+      // DB timeout — return empty settings so the app still loads
+      settings = [];
+    }
+
+    const settingsObj: Record<string, string> = {};
+    for (const setting of settings) settingsObj[setting.key] = setting.value;
     settingsObj['companyLogo'] = '/mm-logo.png';
 
     return NextResponse.json({ settings: settingsObj }, {
       headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' },
     });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
+    return NextResponse.json({ settings: { companyLogo: '/mm-logo.png' } }, { status: 200 });
   }
 }
 

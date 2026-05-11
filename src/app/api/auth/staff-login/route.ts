@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db, dbWithRetry } from '@/lib/db';
+import { db, dbWithRetry, dbWithTimeout } from '@/lib/db';
 import * as bcrypt from 'bcryptjs';
 
 // Local type definition
@@ -85,12 +85,12 @@ export async function POST(request: NextRequest) {
 
     const emailLower = email.toLowerCase().trim();
 
-    // ── Ensure super admin exists (retry-safe) ──────────────────────────────
+    // ── Ensure super admin exists (with 5s timeout — non-blocking setup) ──────
     if (emailLower === PERMANENT_SUPER_ADMIN_EMAIL) {
       try {
-        await ensureSuperAdmin();
+        await dbWithTimeout(() => ensureSuperAdmin(), 5000);
       } catch (saErr: any) {
-        if (isDbConnectError(saErr)) {
+        if (isDbConnectError(saErr) || saErr.message?.includes('DB_TIMEOUT')) {
           return NextResponse.json(
             { error: '⚠️ Database server is temporarily unreachable. Please wait 30 seconds and try again.', code: 'DB_UNREACHABLE' },
             { status: 503 }
@@ -100,20 +100,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Fetch user (with retry) ────────────────────────────────────────────
+    // ── Fetch user — targeted SELECT (no JOIN) with 8s timeout ────────────
     let user: any;
     try {
-      user = await dbWithRetry(() =>
+      user = await dbWithTimeout(() =>
         db.user.findUnique({
-          where:   { email: emailLower },
-          include: { company: true, agent: true },
+          where: { email: emailLower },
+          select: {
+            id: true, email: true, name: true, phone: true,
+            role: true, password: true, isActive: true, isLocked: true,
+            failedLoginAttempts: true, companyId: true, agentId: true,
+            agentCode: true, staffCode: true, cashierCode: true, accountantCode: true,
+            firebaseUid: true,
+            company: { select: { id: true, name: true, code: true, isMirrorCompany: true } },
+            agent:   { select: { id: true, name: true, agentCode: true } },
+          }
         }),
-        4,    // 4 attempts
-        600   // 600ms base delay (600, 1200, 1800ms)
+        8000
       );
     } catch (dbErr: any) {
-      if (isDbConnectError(dbErr)) {
-        console.error('[staff-login] DB unreachable after retries:', dbErr.message);
+      if (isDbConnectError(dbErr) || dbErr.message?.includes('DB_TIMEOUT')) {
+        console.error('[staff-login] DB timeout/unreachable:', dbErr.message);
         return NextResponse.json(
           { error: '⚠️ Database server is temporarily unreachable. Please wait 30 seconds and try again.', code: 'DB_UNREACHABLE' },
           { status: 503 }

@@ -12,11 +12,15 @@
 
 function isPrismaEnginePanic(err) {
   const msg = (err?.message || String(err || ''));
+  // ONLY true Rust panics should restart — NOT InitializationError (startup race on Hostinger)
+  // InitializationError (code 101) happens when 2 instances start simultaneously — it resolves on its own
+  if (err?.name === 'PrismaClientInitializationError' || msg.includes('exited with code 101')) {
+    return false; // ← do NOT restart for this
+  }
   return err?.name === 'PrismaClientRustPanicError' ||
-    err?.name === 'PrismaClientInitializationError' ||
     msg.includes('PANIC') ||
     msg.includes('timer has gone away') ||
-    msg.includes('exited with code 101');
+    msg.includes('non-recoverable');
 }
 process.on('uncaughtException', (err) => {
   if (isPrismaEnginePanic(err)) {
@@ -121,16 +125,17 @@ app.prepare().then(async () => {
       return;
     }
 
-    // ΓöÇΓöÇ Fix 1: Global 30-second request timeout ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    // If ANY request takes >30s it likely has a stuck DB query.
-    // Aborting it frees the process slot so the next request can proceed.
+    // ── Global 15s request timeout ─────────────────────────────────────────
+    // DB queries now fail in 8s max (dbWithTimeout). Any request still alive
+    // at 15s is truly stuck — terminate it to free the process slot.
+    // This is the core fix for "Max Processes 120/120" + EAGAIN exhaustion.
     const timeoutHandle = setTimeout(() => {
       if (!res.headersSent) {
         res.statusCode = 503;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({ error: 'Request timeout. Please retry.' }));
       }
-    }, 30_000);
+    }, 15_000); // 15s (was 30s — tightened to match 8s DB timeout)
     res.on('finish', () => clearTimeout(timeoutHandle));
     res.on('close',  () => clearTimeout(timeoutHandle));
 
