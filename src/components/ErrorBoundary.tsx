@@ -33,7 +33,7 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('[ErrorBoundary]', error, errorInfo);
 
     // AUTO-RECOVERY: ChunkLoadError = old SW cache serving stale JS after new deploy
-    // Clear all caches and hard-reload so new chunks are fetched from server
+    // Guard: only attempt auto-reload ONCE per session to prevent infinite loops
     const isChunkError =
       error?.name?.includes('ChunkLoad') ||
       error?.message?.includes('ChunkLoad') ||
@@ -41,7 +41,16 @@ export default class ErrorBoundary extends Component<Props, State> {
       error?.message?.includes('Failed to fetch dynamically imported module');
 
     if (isChunkError) {
-      console.warn('[ErrorBoundary] ChunkLoadError detected — clearing SW cache and reloading...');
+      const alreadyReloaded = sessionStorage.getItem('chunk_reload_attempted');
+      if (alreadyReloaded) {
+        // Already tried reloading — stop the loop, show the error screen
+        console.warn('[ErrorBoundary] ChunkLoadError reload already attempted, stopping loop.');
+        return;
+      }
+
+      console.warn('[ErrorBoundary] ChunkLoadError detected — clearing SW cache and reloading (once)...');
+      sessionStorage.setItem('chunk_reload_attempted', '1');
+
       const win = typeof window !== 'undefined' ? window : null;
       if (win && 'caches' in win) {
         (win as Window).caches.keys()
@@ -59,7 +68,13 @@ export default class ErrorBoundary extends Component<Props, State> {
   };
 
   render() {
-    if (!this.state.hasError) return this.props.children;
+    if (!this.state.hasError) {
+      // Clear the reload guard on successful render
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('chunk_reload_attempted');
+      }
+      return this.props.children;
+    }
     if (this.props.fallback) return this.props.fallback;
 
     return (

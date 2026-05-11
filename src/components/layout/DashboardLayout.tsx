@@ -320,12 +320,13 @@ export default function DashboardLayout({
                 onClick={() => setSidebarOpen(false)}
                 onTouchStart={() => setSidebarOpen(false)}
               />
-              {/* Sidebar panel — z-[60] above backdrop */}
+              {/* Sidebar panel — z-[60] above backdrop, full-height, scrollable */}
               <motion.nav
                 variants={{ initial: { x: -280 }, animate: { x: 0 }, exit: { x: -280 } }}
                 initial="initial" animate="animate" exit="exit"
                 transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
-                className="fixed top-0 left-0 h-full w-72 bg-white z-[60] shadow-2xl lg:hidden"
+                className="fixed top-0 left-0 h-screen w-72 bg-white z-[60] shadow-2xl lg:hidden flex flex-col overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
               >
                 <SidebarContent menuItems={menuItems} activeTab={activeTab}
                   onTabChange={(tab) => { onTabChange?.(tab); setSidebarOpen(false); }}
@@ -407,7 +408,10 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
         </Button>
       </div>
       
-      <ScrollArea className="flex-1 p-3">
+      <div
+        className="flex-1 overflow-y-auto overscroll-contain p-3"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         <div className="space-y-1">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -431,7 +435,7 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
             );
           })}
         </div>
-      </ScrollArea>
+      </div>
       <div className="p-3 border-t border-gray-100 space-y-2">
         {/* Settings only for SUPER_ADMIN */}
         {userRole === 'SUPER_ADMIN' && (
