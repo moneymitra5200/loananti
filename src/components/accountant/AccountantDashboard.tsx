@@ -35,6 +35,7 @@ import PersonalLedgerTab from '@/components/accountant/tabs/PersonalLedgerTab';
 import TradDayBookSection from '@/components/accountant/modules/TradDayBookSection';
 import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
 import JournalEntriesSection from '@/components/accountant/modules/JournalEntriesSection';
+import CapitalWithdrawDialog from '@/components/accounting/CapitalWithdrawDialog';
 
 // ============================================
 // TYPES
@@ -2563,6 +2564,7 @@ export default function UnifiedAccountantDashboard() {
   const [showBorrowDialog, setShowBorrowDialog] = useState(false);
   const [showRepayDialog, setShowRepayDialog] = useState(false);
   const [showCapitalDialog, setShowCapitalDialog] = useState(false);
+  const [showWithdrawCapitalDialog, setShowWithdrawCapitalDialog] = useState(false);
   const [bankAccountsList, setBankAccountsList] = useState<BankAccount[]>([]);
 
   // Company
@@ -2824,8 +2826,11 @@ export default function UnifiedAccountantDashboard() {
                 <Button size="sm" onClick={() => setShowRepayDialog(true)} className="h-8 bg-blue-500/80 hover:bg-blue-400 text-white text-xs px-2" title="Repay Borrowing">
                   <ArrowUpRight className="h-3.5 w-3.5 mr-1" /> Repay
                 </Button>
-                <Button size="sm" onClick={() => setShowCapitalDialog(true)} className="h-8 bg-purple-500/80 hover:bg-purple-400 text-white text-xs px-2" title="Add Capital">
+                <Button size="sm" onClick={() => setShowCapitalDialog(true)} className="h-8 bg-purple-500/80 hover:bg-purple-400 text-white text-xs px-2" title="Add Owner Capital">
                   <PiggyBank className="h-3.5 w-3.5 mr-1" /> Capital
+                </Button>
+                <Button size="sm" onClick={() => setShowWithdrawCapitalDialog(true)} className="h-8 bg-orange-500/80 hover:bg-orange-400 text-white text-xs px-2" title="Withdraw Owner Capital">
+                  <ArrowDownRight className="h-3.5 w-3.5 mr-1" /> Withdraw
                 </Button>
               </div>
 
@@ -2959,6 +2964,15 @@ export default function UnifiedAccountantDashboard() {
         companyId={selectedCompanyId}
         userId={user?.id || 'system'}
         bankAccounts={bankAccountsList}
+        onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
+      />
+      <CapitalWithdrawDialog
+        open={showWithdrawCapitalDialog}
+        onClose={() => setShowWithdrawCapitalDialog(false)}
+        companyId={selectedCompanyId}
+        companyName={selectedCompany?.name}
+        bankAccounts={bankAccountsList}
+        createdById={user?.id || 'system'}
         onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
       />
     </div>
