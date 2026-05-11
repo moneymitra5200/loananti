@@ -1,9 +1,15 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '@prisma/client';
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+// $extends changes the return type; use ReturnType so the singleton matches.
+// (TypeScript resolves typeof in type positions even with forward references)
+type ExtendedPrismaClient = ReturnType<typeof createPrismaClient>;
+
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
+  prisma: ExtendedPrismaClient | undefined;
   prismaRestarting: boolean;
-}
+};
 
 /**
  * HOSTINGER PERSISTENT NODE.JS SERVER — SINGLETON + PANIC RECOVERY
@@ -15,9 +21,11 @@ const globalForPrisma = globalThis as unknown as {
  * Fix strategy:
  * 1. Global singleton    → Only ONE Prisma client ever exists
  * 2. Panic = exit(1)     → Hostinger auto-restarts with a fresh clean engine
- * 3. connection_limit=1  → Only 1 DB connection at a time (Hostinger limit)
- * 4. No retry on panic   → Retrying a panicked client makes things WORSE
+ * 3. connection_limit=2  → Limits concurrent DB connections (Hostinger shared DB)
+ * 4. $extends timeout    → EVERY query capped at 8s — protects ALL 126+ routes
  */
+
+const GLOBAL_QUERY_TIMEOUT_MS = 8_000; // 8s hard cap per query
 
 const buildDatabaseUrl = () => {
   const host = process.env.DB_HOST;
@@ -45,6 +53,24 @@ const createPrismaClient = () => {
   return new PrismaClient({
     log: [{ level: 'error', emit: 'stdout' }],
     datasources: { db: { url: buildDatabaseUrl() } },
+  }).$extends({
+    // ── GLOBAL 8s QUERY TIMEOUT ────────────────────────────────────────────
+    // Applied to EVERY db.* call across ALL 126+ route files automatically.
+    // Eliminates hanging requests that hold process slots for 30-120 seconds,
+    // which is the primary cause of Hostinger IOPS/max-process exhaustion.
+    query: {
+      $allModels: {
+        async $allOperations({ model, operation, args, query }) {
+          const timeoutErr = new Error(
+            `DB_TIMEOUT: ${model}.${operation} exceeded ${GLOBAL_QUERY_TIMEOUT_MS}ms`
+          );
+          const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(timeoutErr), GLOBAL_QUERY_TIMEOUT_MS)
+          );
+          return Promise.race([query(args), timeout]);
+        },
+      },
+    },
   });
 };
 
