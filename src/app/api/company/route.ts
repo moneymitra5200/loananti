@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbWithTimeout } from '@/lib/db';
 import { cache, CacheKeys, CacheTTL } from '@/lib/cache';
 
 export async function GET(request: NextRequest) {
@@ -8,10 +8,9 @@ export async function GET(request: NextRequest) {
     const isActive = searchParams.get('isActive');
     const noCache = searchParams.get('noCache');
 
-    // Generate cache key
     const cacheKey = isActive ? `companies:active` : CacheKeys.companiesList();
 
-    // Check cache first (skip if noCache is true)
+    // Serve from cache instantly if available
     if (noCache !== 'true') {
       const cachedCompanies = cache.get(cacheKey);
       if (cachedCompanies) {
@@ -20,11 +19,8 @@ export async function GET(request: NextRequest) {
     }
 
     const where: any = {};
-    if (isActive === 'true') {
-      where.isActive = true;
-    }
+    if (isActive === 'true') where.isActive = true;
 
-    // Full select — includes newer fields like accountingType
     const fullSelect = {
       id: true, name: true, code: true, isActive: true,
       defaultInterestRate: true, defaultInterestType: true,
@@ -36,7 +32,6 @@ export async function GET(request: NextRequest) {
       gstNumber: true, panNumber: true, ownerName: true, ownerPhone: true,
     };
 
-    // Safe fallback select — excludes fields that may not exist in older production schema
     const safeSelect = {
       id: true, name: true, code: true, isActive: true,
       defaultInterestRate: true, defaultInterestType: true,
@@ -50,14 +45,22 @@ export async function GET(request: NextRequest) {
 
     let companies: any[];
     try {
-      companies = await db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: fullSelect });
-    } catch (selectError) {
-      // Fallback: schema may be older on production — retry without accountingType
-      console.warn('[Company GET] Full select failed, using safe fallback:', selectError);
-      companies = await db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: safeSelect });
+      // 8s hard timeout — prevents this from hanging 30-120s
+      companies = await dbWithTimeout(
+        () => db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: fullSelect }),
+        8000
+      );
+    } catch (selectError: any) {
+      if (selectError.message?.includes('DB_TIMEOUT')) throw selectError;
+      // Schema fallback: retry without accountingType (older production schema)
+      console.warn('[Company GET] Full select failed, using safe fallback:', selectError.message);
+      companies = await dbWithTimeout(
+        () => db.company.findMany({ where, orderBy: { createdAt: 'desc' }, select: safeSelect }),
+        8000
+      );
     }
 
-    // Deduplicate by code (in case of database issues)
+    // Deduplicate by code
     const seenCodes = new Set<string>();
     const deduplicatedCompanies = companies.filter(company => {
       if (seenCodes.has(company.code)) return false;
@@ -67,16 +70,19 @@ export async function GET(request: NextRequest) {
 
     const formattedCompanies = deduplicatedCompanies.map(c => ({
       ...c,
-      accountingType: (c as any).accountingType ?? 'FULL', // default if field missing
+      accountingType: (c as any).accountingType ?? 'FULL',
       loanCount: 0
     }));
 
-    // Cache the result
     cache.set(cacheKey, formattedCompanies, CacheTTL.LONG);
 
     return NextResponse.json({ companies: formattedCompanies });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching companies:', error);
+    // On DB timeout, return empty list so dashboard still loads
+    if (error.message?.includes('DB_TIMEOUT')) {
+      return NextResponse.json({ companies: [], timedOut: true }, { status: 200 });
+    }
     return NextResponse.json({ error: 'Failed to fetch companies', details: error instanceof Error ? error.message : 'Unknown' }, { status: 500 });
   }
 }
