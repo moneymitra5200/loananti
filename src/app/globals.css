@@ -693,3 +693,75 @@ table [role="button"] {
 
 /* end of globals.css */
 
+/* ══════════════════════════════════════════════════════════
+   GLOBAL MOBILE TABLE SCROLL FIX
+   ALL tables inside cards automatically get horizontal
+   scroll on mobile — fixes every table at once.
+══════════════════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  [data-slot="card-content"] {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    min-width: 520px;
+  }
+  [data-radix-dialog-content] table,
+  [data-slot="dialog-content"] table {
+    min-width: 100%;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════
+   GLOBAL GRID RESPONSIVE — fixes hardcoded grid-cols-3/4/5/6
+══════════════════════════════════════════════════════════ */
+@media (max-width: 640px) {
+  .grid-cols-3:not([class*="sm\\:grid-cols"]):not([class*="md\\:grid-cols"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .grid-cols-4:not([class*="sm\\:grid-cols"]):not([class*="md\\:grid-cols"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .grid-cols-5:not([class*="sm\\:grid-cols"]):not([class*="md\\:grid-cols"]),
+  .grid-cols-6:not([class*="sm\\:grid-cols"]):not([class*="md\\:grid-cols"]) {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  /* TabsList with many tabs → horizontal scroll strip */
+  [role="tablist"].grid {
+    display: flex !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 4px;
+    padding-bottom: 4px;
+  }
+  [role="tablist"].grid::-webkit-scrollbar { display: none; }
+  [role="tablist"].grid [role="tab"] {
+    flex-shrink: 0;
+    font-size: 0.75rem !important;
+    padding: 6px 10px !important;
+    white-space: nowrap;
+  }
+
+  /* Page titles: smaller on mobile */
+  h1.text-3xl { font-size: 1.4rem !important; }
+
+  /* Card padding: tighter on mobile */
+  [data-slot="card-content"] { padding: 12px !important; }
+}
+
+/* ══════════════════════════════════════════════════════════
+   iOS MOMENTUM SCROLL — ALL scroll containers
+══════════════════════════════════════════════════════════ */
+.overflow-y-auto, .overflow-auto, .overflow-x-auto,
+[data-radix-scroll-area-viewport] {
+  -webkit-overflow-scrolling: touch !important;
+  overscroll-behavior: contain;
+}
+
+/* Pull-to-refresh: let the app control overscroll */
+html { overscroll-behavior-y: none; }
+
+
