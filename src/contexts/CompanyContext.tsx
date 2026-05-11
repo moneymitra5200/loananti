@@ -26,11 +26,16 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const refreshCompanies = useCallback(async () => {
+  // Session-level memory cache so multiple mounts don't all hit the API
+  const refreshCompanies = useCallback(async (forceRefresh = false) => {
     try {
       setLoading(true);
-      // Use noCache=true to ensure fresh data after deletions
-      const response = await fetch('/api/company?isActive=true&noCache=true');
+      // Only bypass cache on explicit refresh (e.g. after delete/create)
+      // Normal page loads use cached data to avoid hammering the server
+      const url = forceRefresh
+        ? '/api/company?isActive=true&noCache=true'
+        : '/api/company?isActive=true';
+      const response = await fetch(url);
       const data = await response.json();
       if (data.companies) {
         setCompanies(data.companies.map((c: Company) => ({
@@ -51,7 +56,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refreshCompanies();
+    refreshCompanies(false); // use cache on mount
   }, [refreshCompanies]);
 
   const selectedCompany = selectedCompanyId === 'all' 

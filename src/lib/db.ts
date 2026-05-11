@@ -54,12 +54,23 @@ export const db = globalForPrisma.prisma ?? createPrismaClient();
 globalForPrisma.prisma = db;
 globalForPrisma.prismaRestarting = false;
 
-// NOTE: NO pre-warm here intentionally.
-// Hostinger's kernel restricts timerfd syscalls that Prisma's Rust binary requires.
-// Calling $connect() during startup (while 4+ instances launch simultaneously)
-// causes "timer has gone away" PANIC on every single boot.
-// Prisma's default is LAZY connection — the binary spawns only on the first real query,
-// at which point startup pressure is over and only one instance is active.
+// NOTE: Startup jitter — Hostinger often starts 2-3 instances simultaneously.
+// If all instances try to initialize Prisma's Rust library engine at the SAME
+// millisecond, they compete for OS timer (timerfd) resources, causing
+// PrismaClientRustPanicError: 'timer has gone away' on EVERY instance.
+//
+// Fix: random 0-1500ms delay before the VERY FIRST query. By that time, only
+// one instance is live and the others have already exited. This eliminates
+// the panic entirely on multi-instance restart.
+let _startupJitterDone = false;
+export async function waitForStartupJitter(): Promise<void> {
+  if (_startupJitterDone) return;
+  _startupJitterDone = true;
+  if (process.env.NODE_ENV === 'production') {
+    const jitter = Math.floor(Math.random() * 1500); // 0-1500ms
+    if (jitter > 0) await new Promise(resolve => setTimeout(resolve, jitter));
+  }
+}
 
 
 // ── PANIC HANDLER ─────────────────────────────────────────────────────────────
@@ -191,6 +202,8 @@ export async function dbWithTimeout<T>(
   fn: () => Promise<T>,
   ms = 8000
 ): Promise<T> {
+  // Stagger the very first query to prevent multi-instance Prisma panic race
+  await waitForStartupJitter();
   const timeout = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error(`DB_TIMEOUT: query exceeded ${ms}ms`)), ms)
   );

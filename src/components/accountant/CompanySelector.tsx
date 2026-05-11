@@ -58,8 +58,8 @@ export default function CompanySelector({
   const fetchCompanies = async () => {
     setLoading(true);
     try {
-      // Use noCache=true to ensure fresh data and avoid duplicates
-      const res = await fetch('/api/company?noCache=true');
+      // Use cache — fresh data comes via refreshCompanies(true) after mutations
+      const res = await fetch('/api/company');
       const data = await res.json();
       
       // Deduplicate by ID in case of any remaining duplicates
