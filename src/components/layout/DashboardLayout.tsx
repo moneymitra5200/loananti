@@ -421,11 +421,20 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
             return (
               <div key={item.id}>
                 <motion.button
-                  onClick={() => { if (hasChildren) { setExpandedMenu(isExpanded ? null : item.id); } else { onTabChange(item.id); } }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all relative group ${isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
-                  whileHover={{ x: 2 }} whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    if (hasChildren) {
+                      setExpandedMenu(isExpanded ? null : item.id);
+                      // On mobile: close sidebar after expanding so user sees content
+                      onClose();
+                    } else {
+                      onTabChange(item.id);
+                      // onClose is already called by the parent's onTabChange wrapper on mobile
+                    }
+                  }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all relative group touch-manipulation ${isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
+                  whileTap={{ scale: 0.97 }}
                 >
-                  <Icon className={`h-5 w-5 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                  <Icon className={`h-5 w-5 flex-shrink-0 ${isActive ? 'text-emerald-600' : 'text-gray-400 group-hover:text-gray-500'}`} />
                   <span className="flex-1 text-sm">{item.label}</span>
                   {item.count !== undefined && item.count > 0 && (
                     <Badge className={`h-5 min-w-5 px-1.5 text-xs ${isActive ? 'bg-emerald-500' : 'bg-gray-200 text-gray-700'}`}>{item.count}</Badge>
@@ -439,12 +448,15 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
       <div className="p-3 border-t border-gray-100 space-y-2">
         {/* Settings only for SUPER_ADMIN */}
         {userRole === 'SUPER_ADMIN' && (
-          <button onClick={() => onTabChange('settings')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm transition-all ${activeTab === 'settings' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}>
+          <button
+            onClick={() => { onTabChange('settings'); onClose(); }}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left text-sm transition-all touch-manipulation ${activeTab === 'settings' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}>
             <Settings className="h-5 w-5 text-gray-400" />Settings
           </button>
         )}
-        <button onClick={signOut} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm text-red-600 hover:bg-red-50 transition-all">
+        <button
+          onClick={() => { onClose(); signOut(); }}
+          className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left text-sm text-red-600 hover:bg-red-50 transition-all touch-manipulation">
           <LogOut className="h-5 w-5" />Sign Out
         </button>
       </div>
