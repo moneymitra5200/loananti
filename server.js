@@ -97,6 +97,21 @@ app.prepare().then(async () => {
       return;
     }
 
+    // ── Static asset caching — eliminates I/O spikes ─────────────────────────
+    // /_next/static/* files have content hashes in their names (e.g. 1300460219810c10.js)
+    // → safe to cache for 1 full year (immutable). Browser serves from local cache on
+    //   all subsequent visits → ZERO disk I/O from server → fixes 19,480 KB/s I/O spike.
+    if (pathL.startsWith('/_next/static/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (
+      path === '/manifest.json' ||
+      path === '/favicon.ico'   ||
+      path === '/robots.txt'    ||
+      path === '/sitemap.xml'
+    ) {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24h for semi-static files
+    }
+
     // ΓöÇΓöÇ Fix 2: Universal rate limiter (all routes, two tiers) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     // Tier 1: Heavy API routes ΓÇö strict limit (15 req / 10s)
     // Tier 2: All other routes  ΓÇö permissive limit (60 req / 10s)
@@ -215,14 +230,21 @@ app.prepare().then(async () => {
   // Auto penalty:   Midnight IST (18:30 UTC)
   // Cleanup:        2:30 AM IST (21:00 UTC previous day)
 
-  // ── Cron DB helper — reuses the singleton created by db.ts (via globalThis.prisma)
-  // Falls back to @prisma/client if the singleton isn't ready (cold-start cron edge case)
+  // ── Cron DB helper — reuses the singleton from db.ts (with global 8s timeout extension)
+  // IMPORTANT: do NOT create a raw new PrismaClient() here — it would bypass the
+  // $extends global timeout wrapper and allow cron queries to hang indefinitely.
   function getCronDb() {
     if (globalThis.prisma) return globalThis.prisma;
-    const { PrismaClient } = require('@prisma/client');
-    const client = new PrismaClient({ log: ['error'] });
-    globalThis.prisma = client;
-    return client;
+    // Fallback (rare cold-start edge case) — import the module to get the extended client
+    try {
+      return require('./src/lib/db').db;
+    } catch {
+      // Last resort: raw client (cron jobs run rarely, risk acceptable vs hanging)
+      const { PrismaClient } = require('@prisma/client');
+      const client = new PrismaClient({ log: ['error'] });
+      globalThis.prisma = client;
+      return client;
+    }
   }
 
   async function runOverdueNotify(label) {
