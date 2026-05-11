@@ -366,10 +366,32 @@ app.prepare().then(async () => {
   cron.schedule('30 18 * * *', () => runAutoPenalty(),                          { timezone: 'UTC' }); // 12:00 AM IST
   cron.schedule('0  21 * * *', () => runCleanup(),                              { timezone: 'UTC' }); // 2:30 AM IST
 
+
+  // ── Pre-listen startup jitter ──────────────────────────────────────────────
+  // PROBLEM: Hostinger starts 3-4 instances simultaneously on every deploy.
+  // Without this fix:
+  //   T+0ms: all 4 instances become ready
+  //   T+0ms: all 4 receive first HTTP request
+  //   T+0ms: all 4 try to initialize Prisma's Rust library engine simultaneously
+  //   T+0ms: timerfd resource contention on Hostinger's shared kernel → PANIC on ALL
+  //
+  // WITH this fix:
+  //   Each instance binds port at a different random time (0 to 2500ms)
+  //   Hostinger only routes traffic to a listening instance
+  //   → Each instance gets its first request (and Prisma engine init) at a
+  //     different time → zero race condition → zero startup panic
+  if (process.env.NODE_ENV === 'production') {
+    const jitter = Math.floor(Math.random() * 2500); // 0-2500ms per instance
+    if (jitter > 0) {
+      console.log(`[server] Pre-listen jitter: ${jitter}ms — staggering Prisma engine init`);
+      await new Promise(resolve => setTimeout(resolve, jitter));
+    }
+  }
+
   httpServer.listen(port, hostname, (err) => {
     if (err) throw err;
-    console.log(`[server] Γ£à Ready on http://${hostname}:${port}`);
-    console.log(`[server] Γ£à Compression | WebSocket-only | Global timeout | Universal rate limit | Inline cron`);
+    console.log(`[server] ✓ Ready on http://${hostname}:${port}`);
+    console.log(`[server] ✓ Compression | WebSocket-only | Global timeout | Universal rate limit | Inline cron`);
   });
 
 }).catch((err) => {
