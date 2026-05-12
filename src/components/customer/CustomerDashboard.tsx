@@ -1859,7 +1859,10 @@ export default function CustomerDashboard() {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
-              <button key={item.id} onClick={() => setActiveTab(item.id)}
+              <motion.button 
+                key={item.id} 
+                onClick={() => setActiveTab(item.id)}
+                whileTap={{ scale: 0.92 }}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-all ${
                   isActive
                     ? 'text-emerald-600 bg-emerald-50 border-t-2 border-emerald-500 shadow-[0_-4px_12px_-4px_rgba(16,185,129,0.15)]'
@@ -1867,7 +1870,7 @@ export default function CustomerDashboard() {
                 }`}>
                 <Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
                 <span className={`text-[11px] font-medium leading-tight ${isActive ? 'text-emerald-700' : ''}`}>{item.label}</span>
-              </button>
+              </motion.button>
             );
           })}
         </div>

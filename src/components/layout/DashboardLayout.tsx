@@ -55,14 +55,14 @@ export default function DashboardLayout({
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   // Ref to block re-open during the 250ms exit animation (fixes stuck drawer bug)
-  const isClosingRef = React.useRef(false);
+  const isClosingRef = useRef(false);
 
-  const openSidebar = React.useCallback(() => {
+  const openSidebar = useCallback(() => {
     if (isClosingRef.current) return; // still animating out — ignore tap
     setSidebarOpen(true);
   }, []);
 
-  const closeSidebar = React.useCallback(() => {
+  const closeSidebar = useCallback(() => {
     isClosingRef.current = true;
     setSidebarOpen(false);
     // Release lock after exit animation completes (tween 0.25s + 50ms buffer)
