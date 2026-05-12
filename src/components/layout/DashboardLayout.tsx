@@ -420,15 +420,17 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
             const isExpanded = expandedMenu === item.id;
             return (
               <div key={item.id}>
-                <motion.button
+              <motion.button
                   onClick={() => {
                     if (hasChildren) {
                       setExpandedMenu(isExpanded ? null : item.id);
-                      // On mobile: close sidebar after expanding so user sees content
                       onClose();
                     } else {
+                      // Explicitly close FIRST, then change tab
+                      // — avoids race condition on mobile where onTabChange
+                      //   re-renders the parent before setSidebarOpen fires
+                      onClose();
                       onTabChange(item.id);
-                      // onClose is already called by the parent's onTabChange wrapper on mobile
                     }
                   }}
                   className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all relative group touch-manipulation ${isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}

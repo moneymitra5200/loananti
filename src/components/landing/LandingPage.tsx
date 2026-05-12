@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -48,7 +48,7 @@ function EMICalculator() {
             <div>
               <div className="flex justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700">Loan Amount</label>
-                <span className="text-sm font-bold text-emerald-600">Γé╣{principal.toLocaleString()}</span>
+                <span className="text-sm font-bold text-emerald-600">₹{principal.toLocaleString('en-IN')}</span>
               </div>
               <input
                 type="range"
@@ -60,8 +60,8 @@ function EMICalculator() {
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>Γé╣10,000</span>
-                <span>Γé╣1,00,00,000</span>
+                <span>₹10,000</span>
+                <span>₹1,00,00,000</span>
               </div>
             </div>
 
@@ -108,21 +108,21 @@ function EMICalculator() {
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-2xl p-4 sm:p-6 flex flex-col justify-center">
             <div className="text-center mb-6 md:mb-8">
               <p className="text-gray-600 mb-2 text-sm">Your Monthly EMI</p>
-              <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-emerald-600">Γé╣{calculations.emi.toLocaleString()}</p>
+              <p className="text-3xl sm:text-4xl md:text-5xl font-bold text-emerald-600">₹{calculations.emi.toLocaleString('en-IN')}</p>
             </div>
 
             <div className="space-y-3 sm:space-y-4">
               <div className="flex justify-between items-center p-3 sm:p-4 bg-white rounded-xl shadow-sm">
                 <span className="text-gray-600 text-sm sm:text-base">Principal Amount</span>
-                <span className="font-bold text-gray-800 text-sm sm:text-base">Γé╣{principal.toLocaleString()}</span>
+                <span className="font-bold text-gray-800 text-sm sm:text-base">₹{principal.toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between items-center p-3 sm:p-4 bg-white rounded-xl shadow-sm">
                 <span className="text-gray-600 text-sm sm:text-base">Total Interest</span>
-                <span className="font-bold text-teal-600 text-sm sm:text-base">Γé╣{calculations.totalInterest.toLocaleString()}</span>
+                <span className="font-bold text-teal-600 text-sm sm:text-base">₹{calculations.totalInterest.toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between items-center p-3 sm:p-4 bg-emerald-600 text-white rounded-xl">
                 <span className="font-medium text-sm sm:text-base">Total Amount Payable</span>
-                <span className="font-bold text-sm sm:text-base">Γé╣{calculations.totalAmount.toLocaleString()}</span>
+                <span className="font-bold text-sm sm:text-base">₹{calculations.totalAmount.toLocaleString('en-IN')}</span>
               </div>
             </div>
           </div>
@@ -175,12 +175,15 @@ function StaffCarousel({ staffList }: { staffList: any[] }) {
   );
 }
 
+// Module-level cache so staff is only fetched once per browser session
+let _staffCache: any[] | null = null;
+
 export default function LandingPage() {
   const { settings } = useSettings();
   const [stats, setStats] = useState({ totalLoans: 0, totalDisbursed: 0, activeCustomers: 0, companies: 0 });
   const [services, setServices] = useState<any[]>([]);
   const [authView, setAuthView] = useState<AuthView>('landing');
-  const [staffList, setStaffList] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>(_staffCache || []);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [contactForm, setContactForm] = useState({ name: '', email: '', phone: '', message: '' });
   const [formSubmitted, setFormSubmitted] = useState(false);
@@ -202,6 +205,7 @@ export default function LandingPage() {
 
     const fetchData = async () => {
       try {
+        // Products + stats run in parallel
         const [productsRes, statsRes] = await Promise.all([
           fetch('/api/cms/product?isActive=true', { signal: controller.signal }),
           fetch('/api/cms/service?type=all', { signal: controller.signal })
@@ -215,7 +219,20 @@ export default function LandingPage() {
         setServices(productsData.products || []);
         setStats(statsData.stats || { totalLoans: 0, totalDisbursed: 0, activeCustomers: 0, companies: 0 });
 
-        // Staff NOT fetched on landing page - saves 3 DB queries per visit
+        // Staff — fetch only if not already cached this session
+        if (!_staffCache) {
+          try {
+            const staffRes = await fetch('/api/user?role=AGENT&limit=20', { signal: controller.signal });
+            if (staffRes.ok && isMounted) {
+              const staffData = await staffRes.json();
+              const list = staffData.users || [];
+              _staffCache = list;
+              setStaffList(list);
+            }
+          } catch {
+            // Non-critical — team section just shows empty placeholder
+          }
+        }
       } catch (error) {
         const err = error as Error;
         if (isMounted && err.name !== 'AbortError' && !err.message.includes('unmounted')) {
