@@ -151,6 +151,40 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ============================================================
+    // EQUITY OVERRIDE: Sync Owner's Capital chartOfAccount from
+    // EquityEntry table (the source of truth for capital).
+    // ============================================================
+    const capitalAccounts = accounts.filter(a =>
+      a.accountCode === '3001' || a.accountCode === '3002'
+    );
+
+    if (capitalAccounts.length > 0) {
+      const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
+      const netCapital = equityEntries.reduce((s, e) =>
+        e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0
+      );
+
+      // Use the highest-code capital account as the sync target
+      const target = capitalAccounts.sort((a, b) => a.accountCode.localeCompare(b.accountCode)).pop()!;
+      if (netCapital > 0 && Math.abs(netCapital - target.currentBalance) > 0.01) {
+        await db.chartOfAccount.update({
+          where: { id: target.id },
+          data: { currentBalance: netCapital }
+        });
+        updates.push({
+          accountId: target.id,
+          accountCode: target.accountCode,
+          accountName: target.accountName + ' [EQUITY SYNC]',
+          oldBalance: target.currentBalance,
+          newBalance: netCapital,
+          totalDebit: 0,
+          totalCredit: 0
+        });
+        console.log(`[Recalculate] Equity sync ${target.accountCode}: ${target.currentBalance} → ${netCapital} (from EquityEntry table)`);
+      }
+    }
+
     console.log(`[Recalculate] Updated ${updates.length} accounts`);
 
     return NextResponse.json({
@@ -169,6 +203,7 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 }
+
 
 /**
  * GET /api/accounting/recalculate-balances

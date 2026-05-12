@@ -164,13 +164,41 @@ export async function GET(request: NextRequest) {
     }
 
     // ─── OWNER'S CAPITAL ───────────────────────────────────────────────────────
-    // add-equity writes JournalEntryLine on the Owner's Capital ChartOfAccount.
-    // Two-step query: first find all JournalEntryLine accountIds for this company,
-    // then find entries in that id set within the date range.
+    // Capital can be recorded via:
+    //   1. EquityEntry table (direct investment/withdrawal — most common)
+    //   2. JournalEntryLine on account 3001/3002 (via add-equity flow)
+    // We merge both to get the complete picture.
     else if (account === 'CAPITAL') {
       accountName = "Owner's Capital"; accountCode = '3002'; accountType = 'EQUITY';
 
-      // Step 1: find all Owner's Capital accounts for this company (3001 or 3002)
+      type Ev = { date: Date; particulars: string; ref: string; dr: number; cr: number };
+      const events: Ev[] = [];
+
+      // ── Source 1: EquityEntry table ──────────────────────────────────────────
+      const allEquityEntries = await db.equityEntry.findMany({
+        where: { companyId },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      for (const e of allEquityEntries) {
+        const entryDate = (e as any).entryDate ? new Date((e as any).entryDate) : new Date(e.createdAt);
+        const isWithdrawal = e.entryType === 'WITHDRAWAL';
+        if (entryDate < periodStart) {
+          // Before period → contributes to opening balance
+          opening += isWithdrawal ? -(e.amount || 0) : (e.amount || 0);
+        } else if (entryDate <= periodEnd) {
+          // Within period → show as transaction
+          events.push({
+            date: entryDate,
+            particulars: (e as any).description || (isWithdrawal ? 'Capital Withdrawal' : 'Capital Investment'),
+            ref: (e as any).referenceNo || (isWithdrawal ? 'WITHDRAWAL' : 'INVESTMENT'),
+            dr: isWithdrawal ? (e.amount || 0) : 0,
+            cr: isWithdrawal ? 0 : (e.amount || 0),
+          });
+        }
+      }
+
+      // ── Source 2: JournalEntryLine on 3001/3002 (add-equity flow) ────────────
       const capitalAccounts = await db.chartOfAccount.findMany({
         where: { companyId, accountCode: { in: ['3001', '3002'] } },
         select: { id: true }
@@ -178,63 +206,73 @@ export async function GET(request: NextRequest) {
       const capitalAccountIds = capitalAccounts.map(a => a.id);
 
       if (capitalAccountIds.length > 0) {
-        // Step 2a: opening balance — journal entries BEFORE period
-        const priorJournalIds = await db.journalEntry.findMany({
+        // Opening from prior journal entries
+        const priorJournals = await db.journalEntry.findMany({
           where: { companyId, entryDate: { lt: periodStart } },
           select: { id: true }
         });
-        const priorIds = priorJournalIds.map(j => j.id);
-        if (priorIds.length > 0) {
+        if (priorJournals.length > 0) {
+          const priorIds = priorJournals.map(j => j.id);
           const priorLines = await db.journalEntryLine.findMany({
             where: { journalEntryId: { in: priorIds }, accountId: { in: capitalAccountIds } },
             select: { creditAmount: true, debitAmount: true }
           });
-          for (const l of priorLines) opening += l.creditAmount - l.debitAmount;
+          // Only add if EquityEntry didn't already capture these (avoid double-count)
+          // Use a simple heuristic: if journalLines sum >> equityEntry sum, journal wins
+          const journalPriorSum = priorLines.reduce((s, l) => s + l.creditAmount - l.debitAmount, 0);
+          if (Math.abs(journalPriorSum) > Math.abs(opening) * 1.5) {
+            // journal has more data — reset and use journal only
+            opening = journalPriorSum;
+            events.length = 0; // also clear equity entry events
+          }
         }
 
-        // Step 2b: period journal entries
+        // Period journal entries
         const periodJournals = await db.journalEntry.findMany({
           where: { companyId, entryDate: { gte: periodStart, lte: periodEnd } },
           orderBy: { entryDate: 'asc' },
           select: { id: true, entryDate: true, narration: true, entryNumber: true }
         });
-        const periodJournalIds = periodJournals.map(j => j.id);
         const journalMap = new Map(periodJournals.map(j => [j.id, j]));
 
-        if (periodJournalIds.length > 0) {
+        if (periodJournals.length > 0) {
+          const periodIds = periodJournals.map(j => j.id);
           const periodLines = await db.journalEntryLine.findMany({
-            where: { journalEntryId: { in: periodJournalIds }, accountId: { in: capitalAccountIds } },
+            where: { journalEntryId: { in: periodIds }, accountId: { in: capitalAccountIds } },
             select: { journalEntryId: true, debitAmount: true, creditAmount: true }
           });
-
-          // Sort by journal entry date
-          periodLines.sort((a, b) => {
-            const da = journalMap.get(a.journalEntryId)?.entryDate ?? new Date(0);
-            const db2 = journalMap.get(b.journalEntryId)?.entryDate ?? new Date(0);
-            return da.getTime() - db2.getTime();
-          });
-
-          let bal = opening;
           for (const l of periodLines) {
             const je = journalMap.get(l.journalEntryId)!;
-            const dr = l.debitAmount;
-            const cr = l.creditAmount;
-            bal += cr - dr;
-            totDr += dr; totCr += cr;
-            txns.push({
-              date: je.entryDate.toISOString(),
-              particulars: je.narration || 'Capital Entry',
-              referenceNo: je.entryNumber,
-              debit: dr,
-              credit: cr,
-              balance: bal
-            });
+            // Avoid duplicating entries already in events from EquityEntry
+            const alreadyHave = events.some(ev =>
+              Math.abs(ev.date.getTime() - je.entryDate.getTime()) < 86400000 &&
+              Math.abs((ev.cr - ev.dr) - (l.creditAmount - l.debitAmount)) < 1
+            );
+            if (!alreadyHave && (l.creditAmount > 0 || l.debitAmount > 0)) {
+              events.push({
+                date: je.entryDate,
+                particulars: je.narration || 'Capital Entry',
+                ref: je.entryNumber,
+                dr: l.debitAmount,
+                cr: l.creditAmount,
+              });
+            }
           }
         }
+      }
+
+      // Sort all events by date and build ledger rows
+      events.sort((a, b) => a.date.getTime() - b.date.getTime());
+      let bal = opening;
+      for (const ev of events) {
+        bal += ev.cr - ev.dr;
+        totDr += ev.dr; totCr += ev.cr;
+        txns.push({ date: ev.date.toISOString(), particulars: ev.particulars, referenceNo: ev.ref, debit: ev.dr, credit: ev.cr, balance: bal });
       }
     }
 
     // ─── EXPENSES ──────────────────────────────────────────────────────────────
+
     else if (account === 'EXPENSES') {
       accountName = 'All Expenses'; accountCode = '5000'; accountType = 'EXPENSE';
       const expenses = await db.expense.findMany({ where: { companyId, paymentDate: { gte: periodStart, lte: periodEnd } }, orderBy: { paymentDate: 'asc' } });

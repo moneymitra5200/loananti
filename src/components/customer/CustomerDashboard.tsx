@@ -899,20 +899,20 @@ export default function CustomerDashboard() {
 
   const getStatusBadge = (status: string) => {
     const config: Record<string, { className: string; label: string }> = {
-      SUBMITTED: { className: 'bg-blue-100 text-blue-700', label: 'Submitted' },
-      SA_APPROVED: { className: 'bg-emerald-100 text-emerald-700', label: 'SA Approved' },
-      COMPANY_APPROVED: { className: 'bg-teal-100 text-teal-700', label: 'Company Approved' },
-      AGENT_APPROVED_STAGE1: { className: 'bg-cyan-100 text-cyan-700', label: 'Agent Approved' },
-      LOAN_FORM_COMPLETED: { className: 'bg-indigo-100 text-indigo-700', label: 'Verification Complete' },
-      SESSION_CREATED: { className: 'bg-amber-100 text-amber-700', label: 'Sanction Created' },
-      CUSTOMER_SESSION_APPROVED: { className: 'bg-green-100 text-green-700', label: 'Awaiting Disbursement' },
-      FINAL_APPROVED: { className: 'bg-green-100 text-green-700', label: 'Final Approved' },
-      ACTIVE: { className: 'bg-green-100 text-green-700', label: 'Active' },
-      CLOSED: { className: 'bg-gray-100 text-gray-700', label: 'Closed' },
-      REJECTED_BY_SA: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
-      REJECTED_BY_COMPANY: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
-      REJECTED_FINAL: { className: 'bg-red-100 text-red-700', label: 'Rejected' },
-      SESSION_REJECTED: { className: 'bg-red-100 text-red-700', label: 'Sanction Rejected' },
+      SUBMITTED:                  { className: 'bg-teal-100 text-teal-700',    label: 'Submitted' },
+      SA_APPROVED:                { className: 'bg-emerald-100 text-emerald-700', label: 'SA Approved' },
+      COMPANY_APPROVED:           { className: 'bg-emerald-100 text-emerald-700', label: 'Company Approved' },
+      AGENT_APPROVED_STAGE1:      { className: 'bg-teal-100 text-teal-700',    label: 'Agent Approved' },
+      LOAN_FORM_COMPLETED:        { className: 'bg-emerald-100 text-emerald-700', label: 'Verification Complete' },
+      SESSION_CREATED:            { className: 'bg-teal-100 text-teal-800',    label: 'Sanction Ready' },
+      CUSTOMER_SESSION_APPROVED:  { className: 'bg-emerald-100 text-emerald-700', label: 'Awaiting Disbursement' },
+      FINAL_APPROVED:             { className: 'bg-emerald-100 text-emerald-700', label: 'Final Approved' },
+      ACTIVE:                     { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
+      CLOSED:                     { className: 'bg-gray-100 text-gray-700',    label: 'Closed' },
+      REJECTED_BY_SA:             { className: 'bg-red-100 text-red-700',      label: 'Rejected' },
+      REJECTED_BY_COMPANY:        { className: 'bg-red-100 text-red-700',      label: 'Rejected' },
+      REJECTED_FINAL:             { className: 'bg-red-100 text-red-700',      label: 'Rejected' },
+      SESSION_REJECTED:           { className: 'bg-red-100 text-red-700',      label: 'Sanction Rejected' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
     return <Badge className={c.className}>{c.label}</Badge>;
@@ -920,10 +920,11 @@ export default function CustomerDashboard() {
 
   const getEMIStatusBadge = (status: string) => {
     const config: Record<string, { className: string; label: string }> = {
-      PENDING: { className: 'bg-yellow-100 text-yellow-700', label: 'Pending' },
-      PAID: { className: 'bg-green-100 text-green-700', label: 'Paid' },
-      OVERDUE: { className: 'bg-red-100 text-red-700', label: 'Overdue' },
-      PARTIALLY_PAID: { className: 'bg-orange-100 text-orange-700', label: 'Partial' },
+      PENDING:        { className: 'bg-teal-100 text-teal-700',    label: 'Pending' },
+      PAID:           { className: 'bg-emerald-100 text-emerald-700', label: 'Paid' },
+      OVERDUE:        { className: 'bg-red-100 text-red-700',      label: 'Overdue' },
+      PARTIALLY_PAID: { className: 'bg-teal-50 text-teal-600',     label: 'Partial' },
+      INTEREST_ONLY_PAID: { className: 'bg-emerald-50 text-emerald-600', label: 'Interest Paid' },
     };
     const c = config[status] || { className: 'bg-gray-100 text-gray-700', label: status };
     return <Badge className={c.className}>{c.label}</Badge>;
@@ -1851,17 +1852,21 @@ export default function CustomerDashboard() {
         {renderContent()}
       </main>
 
-      {/* Bottom Navigation */}
+      {/* Bottom Navigation — flex row so all items sit in one straight line */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 shadow-lg">
-        <div className="grid grid-cols-4 h-16">
+        <div className="flex items-stretch h-16">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
               <button key={item.id} onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center justify-center gap-1 transition-all ${isActive ? 'text-emerald-600 bg-emerald-50' : 'text-gray-500 hover:text-gray-700'}`}>
-                <Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''}`} />
-                <span className={`text-xs font-medium ${isActive ? 'text-emerald-600' : ''}`}>{item.label}</span>
+                className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-all ${
+                  isActive
+                    ? 'text-emerald-600 bg-emerald-50 border-t-2 border-emerald-500'
+                    : 'text-gray-500 hover:text-emerald-600 border-t-2 border-transparent'
+                }`}>
+                <Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
+                <span className={`text-[11px] font-medium leading-tight ${isActive ? 'text-emerald-700' : ''}`}>{item.label}</span>
               </button>
             );
           })}

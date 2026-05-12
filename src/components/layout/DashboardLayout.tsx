@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, ReactNode, useEffect, useCallback } from 'react';
+import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
 import { Button } from '@/components/ui/button';
@@ -53,14 +54,24 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  // Ref to block re-open during the 250ms exit animation (fixes stuck drawer bug)
+  const isClosingRef = React.useRef(false);
+
+  const openSidebar = React.useCallback(() => {
+    if (isClosingRef.current) return; // still animating out — ignore tap
+    setSidebarOpen(true);
+  }, []);
+
+  const closeSidebar = React.useCallback(() => {
+    isClosingRef.current = true;
+    setSidebarOpen(false);
+    // Release lock after exit animation completes (tween 0.25s + 50ms buffer)
+    setTimeout(() => { isClosingRef.current = false; }, 320);
+  }, []);
 
   // Lock body scroll when mobile sidebar is open
   useEffect(() => {
-    if (sidebarOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    document.body.style.overflow = sidebarOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [sidebarOpen]);
 
@@ -141,7 +152,7 @@ export default function DashboardLayout({
       <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <div className="flex items-center justify-between px-4 lg:px-6 py-3">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={openSidebar}>
               <Menu className="h-6 w-6" />
             </Button>
             {displayLogo ? (
@@ -308,33 +319,37 @@ export default function DashboardLayout({
       </header>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Mobile Sidebar */}
-        <AnimatePresence>
+        {/* Mobile Sidebar — key on AnimatePresence forces a clean mount/unmount cycle */}
+        <AnimatePresence mode="wait">
           {sidebarOpen && (
-            <>
-              {/* Backdrop — z-50 so it sits above the sticky header (z-40) */}
+            <React.Fragment key="mobile-sidebar">
+              {/* Backdrop */}
               <motion.div
                 variants={{ initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } }}
                 initial="initial" animate="animate" exit="exit"
+                transition={{ duration: 0.2 }}
                 className="fixed inset-0 bg-black/50 z-50 lg:hidden"
-                onClick={() => setSidebarOpen(false)}
-                onTouchStart={() => setSidebarOpen(false)}
+                // Use closeSidebar (with lock) so rapid taps don't re-open mid-animation
+                onClick={closeSidebar}
+                onTouchEnd={(e) => { e.preventDefault(); closeSidebar(); }}
+                style={{ touchAction: 'none' }}
               />
-              {/* Sidebar panel — z-[60] above backdrop, full-height, scrollable */}
+              {/* Sidebar panel */}
               <motion.nav
                 variants={{ initial: { x: -280 }, animate: { x: 0 }, exit: { x: -280 } }}
                 initial="initial" animate="animate" exit="exit"
                 transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
                 className="fixed top-0 left-0 h-screen w-72 bg-white z-[60] shadow-2xl lg:hidden flex flex-col overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
               >
                 <SidebarContent menuItems={menuItems} activeTab={activeTab}
                   onTabChange={(tab) => { onTabChange?.(tab); }}
                   expandedMenu={expandedMenu} setExpandedMenu={setExpandedMenu} signOut={signOut}
-                  gradient={gradient} onClose={() => setSidebarOpen(false)}
+                  gradient={gradient} onClose={closeSidebar}
                   companyName={settings.companyName} companyLogo={settings.companyLogo} userRole={user?.role} />
               </motion.nav>
-            </>
+            </React.Fragment>
           )}
         </AnimatePresence>
 
