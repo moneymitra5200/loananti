@@ -367,52 +367,71 @@ app.prepare().then(async () => {
   cron.schedule('0  21 * * *', () => runCleanup(),                              { timezone: 'UTC' }); // 2:30 AM IST
 
 
-  // ── Phase 1: Jitter sleep — stagger instance startup across 0–5000ms ───────
+  // ── Phase 1: Jitter sleep — stagger instance startup across 0–8000ms ────────
   // Hostinger spawns 3–4 Node instances simultaneously. Each gets a random
   // delay so their Prisma engine inits don't all fire at the same millisecond.
+  // 8s spread ensures even the 4th instance has >2s gap from the first.
   if (process.env.NODE_ENV === 'production') {
-    const jitter = Math.floor(Math.random() * 5000); // 0–5s spread
+    const jitter = Math.floor(Math.random() * 8000); // 0–8s spread
     console.log(`[server] Pre-listen jitter: ${jitter}ms — staggering Prisma engine init`);
     await new Promise(resolve => setTimeout(resolve, jitter));
   }
 
-  // ── Phase 2: Prisma warmup BEFORE port bind ──────────────────────────────
-  // Root cause of "PANIC: timer has gone away":
-  //   The Prisma Rust engine (.so) initializes on the VERY FIRST query.
-  //   When that first query arrives via HTTP (milliseconds after listen()),
-  //   other instances are also getting their first requests simultaneously.
-  //   Multiple concurrent Tokio runtimes competing for Linux timerfd → PANIC.
+  // ── Phase 2: Prisma warmup BEFORE port bind ───────────────────────────────
+  // CRITICAL INSIGHT: Once a Prisma Rust engine panics, that client instance
+  // is PERMANENTLY DEAD. `libraryStarted` stays false forever. Retrying the
+  // same client just queues more panicking requests.
   //
-  // Fix: initialize Prisma HERE, before listen(), so by the time any external
-  // request arrives the engine is already warm. Retry up to 3× if it panics
-  // (another instance may be initializing; waiting 2–4s gives them room).
+  // Correct approach:
+  //   1. Create a FRESH PrismaClient on every retry attempt
+  //   2. If all retries fail → process.exit(1) so Hostinger restarts this
+  //      instance fresh, with a new jitter window, when other instances
+  //      have finished their own engine initialization.
+  //   3. Never open the port if the engine is broken — serving 500s is worse
+  //      than a brief restart delay.
   if (process.env.NODE_ENV === 'production') {
-    const { db: warmupDb } = (() => {
-      try { return require('./src/lib/db'); }
-      catch {
-        const { PrismaClient } = require('@prisma/client');
-        const c = new PrismaClient({ log: ['error'] });
-        return { db: c };
-      }
-    })();
+    const { PrismaClient } = require('@prisma/client');
+    let warmupOk = false;
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      // Fresh client each time — panicked clients cannot recover
+      const freshClient = new PrismaClient({ log: [] });
       try {
-        await warmupDb.$queryRaw`SELECT 1 AS warmup`;
+        await freshClient.$queryRaw`SELECT 1 AS warmup`;
         console.log(`[server] ✓ Prisma engine warm (attempt ${attempt})`);
-        break; // success — proceed to listen()
+        warmupOk = true;
+        // Keep this client alive as the global singleton so routes reuse it
+        if (!globalThis.prisma) globalThis.prisma = freshClient;
+        break;
       } catch (warmErr) {
         const msg = warmErr?.message || String(warmErr);
+        // Disconnect dead client so it releases any partial handles
+        try { await freshClient.$disconnect(); } catch { /* ignore */ }
+
         if (msg.includes('timer has gone away') || msg.includes('PANIC')) {
-          const backoff = attempt * 3000; // 3s → 6s → 9s
-          console.warn(`[server] ⚠ Prisma warmup panic (attempt ${attempt}) — waiting ${backoff}ms`);
-          await new Promise(r => setTimeout(r, backoff));
+          if (attempt < 4) {
+            const backoff = attempt * 4000; // 4s → 8s → 12s
+            console.warn(`[server] ⚠ Prisma warmup panic (attempt ${attempt}/${4}) — waiting ${backoff}ms for other instances to finish init`);
+            await new Promise(r => setTimeout(r, backoff));
+          } else {
+            // All retries exhausted — exit so process manager restarts us
+            // with a new jitter. Better to restart than serve broken responses.
+            console.error(`[server] ✗ Prisma engine failed all ${4} warmup attempts — restarting process`);
+            process.exit(1);
+          }
         } else {
-          // Non-panic error (connection refused, auth, etc.) — log and continue
-          console.warn(`[server] ⚠ Prisma warmup failed (attempt ${attempt}): ${msg}`);
+          // Non-panic error (DB auth, network, etc.) — log but still start
+          // so at least static pages and healthcheck work
+          console.warn(`[server] ⚠ Prisma warmup non-panic error (attempt ${attempt}): ${msg.slice(0, 200)}`);
+          warmupOk = true; // don't exit — maybe DB is briefly unavailable
           break;
         }
       }
+    }
+
+    if (!warmupOk) {
+      console.error('[server] ✗ Prisma warmup aborted — not opening port');
+      process.exit(1);
     }
   }
 
