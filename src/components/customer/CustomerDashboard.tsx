@@ -1862,7 +1862,7 @@ export default function CustomerDashboard() {
               <button key={item.id} onClick={() => setActiveTab(item.id)}
                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 transition-all ${
                   isActive
-                    ? 'text-emerald-600 bg-emerald-50 border-t-2 border-emerald-500'
+                    ? 'text-emerald-600 bg-emerald-50 border-t-2 border-emerald-500 shadow-[0_-4px_12px_-4px_rgba(16,185,129,0.15)]'
                     : 'text-gray-500 hover:text-emerald-600 border-t-2 border-transparent'
                 }`}>
                 <Icon className={`h-5 w-5 ${isActive ? 'scale-110' : ''} transition-transform`} />
