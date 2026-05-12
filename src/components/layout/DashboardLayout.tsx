@@ -329,7 +329,7 @@ export default function DashboardLayout({
                 onClick={(e) => e.stopPropagation()}
               >
                 <SidebarContent menuItems={menuItems} activeTab={activeTab}
-                  onTabChange={(tab) => { onTabChange?.(tab); setSidebarOpen(false); }}
+                  onTabChange={(tab) => { onTabChange?.(tab); }}
                   expandedMenu={expandedMenu} setExpandedMenu={setExpandedMenu} signOut={signOut}
                   gradient={gradient} onClose={() => setSidebarOpen(false)}
                   companyName={settings.companyName} companyLogo={settings.companyLogo} userRole={user?.role} />
@@ -422,15 +422,14 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
               <div key={item.id}>
               <motion.button
                   onClick={() => {
+                    // Single-shot close: close first (synchronous state set),
+                    // then tab change in next microtask so state has flushed.
+                    // This eliminates the double-fire / stuck drawer bug.
+                    onClose();
                     if (hasChildren) {
                       setExpandedMenu(isExpanded ? null : item.id);
-                      onClose();
                     } else {
-                      // Explicitly close FIRST, then change tab
-                      // — avoids race condition on mobile where onTabChange
-                      //   re-renders the parent before setSidebarOpen fires
-                      onClose();
-                      onTabChange(item.id);
+                      setTimeout(() => onTabChange(item.id), 10);
                     }
                   }}
                   className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left transition-all relative group touch-manipulation ${isActive ? 'bg-emerald-50 text-emerald-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
@@ -451,13 +450,13 @@ function SidebarContent({ menuItems, activeTab, onTabChange, expandedMenu, setEx
         {/* Settings only for SUPER_ADMIN */}
         {userRole === 'SUPER_ADMIN' && (
           <button
-            onClick={() => { onTabChange('settings'); onClose(); }}
+            onClick={() => { onClose(); setTimeout(() => onTabChange('settings'), 10); }}
             className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left text-sm transition-all touch-manipulation ${activeTab === 'settings' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50'}`}>
             <Settings className="h-5 w-5 text-gray-400" />Settings
           </button>
         )}
         <button
-          onClick={() => { onClose(); signOut(); }}
+          onClick={() => { onClose(); setTimeout(() => signOut(), 10); }}
           className="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-left text-sm text-red-600 hover:bg-red-50 transition-all touch-manipulation">
           <LogOut className="h-5 w-5" />Sign Out
         </button>
