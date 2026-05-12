@@ -367,24 +367,52 @@ app.prepare().then(async () => {
   cron.schedule('0  21 * * *', () => runCleanup(),                              { timezone: 'UTC' }); // 2:30 AM IST
 
 
-  // ── Pre-listen startup jitter ──────────────────────────────────────────────
-  // PROBLEM: Hostinger starts 3-4 instances simultaneously on every deploy.
-  // Without this fix:
-  //   T+0ms: all 4 instances become ready
-  //   T+0ms: all 4 receive first HTTP request
-  //   T+0ms: all 4 try to initialize Prisma's Rust library engine simultaneously
-  //   T+0ms: timerfd resource contention on Hostinger's shared kernel → PANIC on ALL
-  //
-  // WITH this fix:
-  //   Each instance binds port at a different random time (0 to 2500ms)
-  //   Hostinger only routes traffic to a listening instance
-  //   → Each instance gets its first request (and Prisma engine init) at a
-  //     different time → zero race condition → zero startup panic
+  // ── Phase 1: Jitter sleep — stagger instance startup across 0–5000ms ───────
+  // Hostinger spawns 3–4 Node instances simultaneously. Each gets a random
+  // delay so their Prisma engine inits don't all fire at the same millisecond.
   if (process.env.NODE_ENV === 'production') {
-    const jitter = Math.floor(Math.random() * 2500); // 0-2500ms per instance
-    if (jitter > 0) {
-      console.log(`[server] Pre-listen jitter: ${jitter}ms — staggering Prisma engine init`);
-      await new Promise(resolve => setTimeout(resolve, jitter));
+    const jitter = Math.floor(Math.random() * 5000); // 0–5s spread
+    console.log(`[server] Pre-listen jitter: ${jitter}ms — staggering Prisma engine init`);
+    await new Promise(resolve => setTimeout(resolve, jitter));
+  }
+
+  // ── Phase 2: Prisma warmup BEFORE port bind ──────────────────────────────
+  // Root cause of "PANIC: timer has gone away":
+  //   The Prisma Rust engine (.so) initializes on the VERY FIRST query.
+  //   When that first query arrives via HTTP (milliseconds after listen()),
+  //   other instances are also getting their first requests simultaneously.
+  //   Multiple concurrent Tokio runtimes competing for Linux timerfd → PANIC.
+  //
+  // Fix: initialize Prisma HERE, before listen(), so by the time any external
+  // request arrives the engine is already warm. Retry up to 3× if it panics
+  // (another instance may be initializing; waiting 2–4s gives them room).
+  if (process.env.NODE_ENV === 'production') {
+    const { db: warmupDb } = (() => {
+      try { return require('./src/lib/db'); }
+      catch {
+        const { PrismaClient } = require('@prisma/client');
+        const c = new PrismaClient({ log: ['error'] });
+        return { db: c };
+      }
+    })();
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await warmupDb.$queryRaw`SELECT 1 AS warmup`;
+        console.log(`[server] ✓ Prisma engine warm (attempt ${attempt})`);
+        break; // success — proceed to listen()
+      } catch (warmErr) {
+        const msg = warmErr?.message || String(warmErr);
+        if (msg.includes('timer has gone away') || msg.includes('PANIC')) {
+          const backoff = attempt * 3000; // 3s → 6s → 9s
+          console.warn(`[server] ⚠ Prisma warmup panic (attempt ${attempt}) — waiting ${backoff}ms`);
+          await new Promise(r => setTimeout(r, backoff));
+        } else {
+          // Non-panic error (connection refused, auth, etc.) — log and continue
+          console.warn(`[server] ⚠ Prisma warmup failed (attempt ${attempt}): ${msg}`);
+          break;
+        }
+      }
     }
   }
 
