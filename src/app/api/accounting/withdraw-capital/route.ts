@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { AccountType } from '@prisma/client';
 
 /**
  * POST /api/accounting/withdraw-capital
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
     const entryDate = date ? new Date(date) : new Date();
 
     // ── Helper: get or auto-create a chartOfAccount row ───────────────────────
-    const getOrCreateAccount = async (code: string, name: string, type: string) => {
+    const getOrCreateAccount = async (code: string, name: string, type: AccountType) => {
       let acc = await db.chartOfAccount.findFirst({
         where: { companyId, accountCode: code },
         select: { id: true, accountCode: true, accountType: true, currentBalance: true }
