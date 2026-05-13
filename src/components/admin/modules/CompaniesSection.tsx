@@ -63,19 +63,23 @@ function CompaniesSection({
     setDeleteDialog(prev => ({ ...prev, loading: true }));
 
     try {
-      const userResponse = await fetch(`/api/user/${deleteDialog.company.id}`, {
-        method: 'DELETE'
-      });
-      
-      const userData = await userResponse.json();
-      
-      if (!userResponse.ok) {
-        throw new Error(userData.error || 'Failed to delete company');
+      // Orphaned companies have a synthetic id like 'orphan-{companyId}'
+      // For these, delete via the company API directly (no user account exists)
+      const isOrphan = deleteDialog.company.id.startsWith('orphan-');
+      const companyId = deleteDialog.company.companyId;
+
+      let response: Response;
+      if (isOrphan && companyId) {
+        response = await fetch(`/api/company?id=${companyId}`, { method: 'DELETE' });
+      } else {
+        response = await fetch(`/api/user/${deleteDialog.company.id}`, { method: 'DELETE' });
       }
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete company');
 
       toast.success('Company permanently deleted from database');
       setDeleteDialog({ open: false, company: null, loading: false });
-      
       await refreshCompanies();
       onRefresh();
     } catch (error) {

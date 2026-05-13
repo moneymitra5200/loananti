@@ -1160,7 +1160,21 @@ export default function SuperAdminDashboard() {
   const highRiskLoans = loans.filter(l => (l.riskScore || 0) >= 50);
 
   // Users by role
-  const companyUsers = users.filter(u => u.role === 'COMPANY');
+  // Build companyUsers from ALL companies in DB, enriched with any linked user account.
+  // Orphaned companies (created by reset / without login) also appear here.
+  const companyUsersByCompanyId = new Map(users.filter(u => u.role === 'COMPANY').map(u => [u.companyId, u]));
+  const companyUsers = companies.map((company: any) => {
+    const linkedUser = companyUsersByCompanyId.get(company.id);
+    return {
+      id: linkedUser?.id ?? `orphan-${company.id}`,
+      name: company.name,
+      email: linkedUser?.email ?? '(no login account)',
+      role: 'COMPANY',
+      isActive: company.isActive,
+      companyId: company.id,
+      companyObj: { id: company.id, name: company.name, code: company.code },
+    };
+  });
   const agents = users.filter(u => u.role === 'AGENT');
   const staff = users.filter(u => u.role === 'STAFF');
   const cashiers = users.filter(u => u.role === 'CASHIER');
