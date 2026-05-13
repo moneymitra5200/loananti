@@ -37,20 +37,31 @@ async function getNextLoanSequence(): Promise<number> {
   }
 }
 
-// Generate loan number for ORIGINAL loan: Company Code + Product Code + Customer Name
+// Generate loan number for ORIGINAL loan: Company Code + Product Code + Customer Name + Unique Suffix
+// Format: C3-PERSONAL-JOHNDOE-001 (suffix increments if the base already exists)
 async function generateOriginalLoanNumber(
   companyCode: string,
   loanType: string,
   customerName: string
 ): Promise<string> {
-  // Clean customer name - remove special characters and spaces, take first 15 chars
+  // Clean customer name — strip special chars, uppercase, max 15 chars
   const cleanName = customerName
     .replace(/[^a-zA-Z0-9]/g, '')
     .toUpperCase()
     .slice(0, 15);
 
-  return `${companyCode}-${loanType.toUpperCase()}-${cleanName}`;
+  const base = `${companyCode}-${loanType.toUpperCase()}-${cleanName}`;
+
+  // Count how many loans already start with this base prefix
+  // so we can append a unique zero-padded suffix (001, 002, ...)
+  const existing = await db.offlineLoan.count({
+    where: { loanNumber: { startsWith: base } }
+  });
+
+  const suffix = (existing + 1).toString().padStart(3, '0');
+  return `${base}-${suffix}`;
 }
+
 
 // Generate loan number for MIRROR loan: Company Code + Product Code + Global Sequence (00001)
 async function generateMirrorLoanNumber(
