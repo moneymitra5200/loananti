@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
       }
       
       try {
-        createdCompany = await db.company.create({
+        createdCompany = await dbWithRetry(() => db.company.create({
           data: {
             name,
             code: companyCode,
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
             defaultInterestType: defaultInterestType || 'FLAT',
             isActive: true
           }
-        });
+        }));
         userCompanyId = createdCompany.id;
         // Initialize chart of accounts so accounting portal works immediately
         try {
@@ -176,9 +176,9 @@ export async function POST(request: NextRequest) {
     // Validate that company exists if companyId is provided (not for roles that are ecosystem-wide)
     const ecosystemWideRoles = ['AGENT', 'CASHIER', 'ACCOUNTANT'];
     if (userCompanyId && role !== 'COMPANY' && !ecosystemWideRoles.includes(role)) {
-      const companyExists = await db.company.findUnique({
+      const companyExists = await dbWithRetry(() => db.company.findUnique({
         where: { id: userCompanyId }
-      });
+      }));
       if (!companyExists) {
         return NextResponse.json({ error: 'Selected company does not exist' }, { status: 400 });
       }
@@ -186,9 +186,9 @@ export async function POST(request: NextRequest) {
 
     // Validate that agent exists if agentId is provided
     if (cleanAgentId && role === 'STAFF') {
-      const agentExists = await db.user.findUnique({
+      const agentExists = await dbWithRetry(() => db.user.findUnique({
         where: { id: cleanAgentId, role: 'AGENT' } as any
-      });
+      }));
       if (!agentExists) {
         return NextResponse.json({ error: 'Selected agent does not exist' }, { status: 400 });
       }
@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
     
     let user;
     try {
-      user = await db.user.create({
+      user = await dbWithRetry(() => db.user.create({
         data: {
           name,
           email,
@@ -227,8 +227,22 @@ export async function POST(request: NextRequest) {
           company: true,
           agent: true
         }
-      });
+      }));
     } catch (userCreateError) {
+      // CLEANUP: If user creation failed (e.g. timeout, DB panic, unique constraint on email)
+      // but we successfully created a Company above, we MUST delete that orphaned company
+      // so the user can safely retry without hitting "Company code already exists".
+      if (createdCompany && createdCompany.id) {
+        try {
+          console.log(`[User API] User creation failed, rolling back orphaned company: ${createdCompany.id}`);
+          // Delete accounting data first if any
+          await db.chartOfAccount.deleteMany({ where: { companyId: createdCompany.id } });
+          await db.company.delete({ where: { id: createdCompany.id } });
+        } catch (rollbackError) {
+          console.error('[User API] Failed to rollback orphaned company:', rollbackError);
+        }
+      }
+
       if (userCreateError instanceof Error) {
         if (userCreateError.message.includes('Unique constraint'))
           return NextResponse.json({ error: 'Email already exists. Please use a different email.' }, { status: 400 });
@@ -237,6 +251,7 @@ export async function POST(request: NextRequest) {
       }
       throw userCreateError;
     }
+
 
     await db.auditLog.create({
       data: {
