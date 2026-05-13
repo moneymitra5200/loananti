@@ -23,7 +23,7 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap, Edit, BookCheck, User, QrCode, Upload, X
+  Wrench, Zap, Edit, BookCheck, User, QrCode, Upload, X, Activity
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -36,6 +36,7 @@ import TradDayBookSection from '@/components/accountant/modules/TradDayBookSecti
 import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapitalDialog } from '@/components/accountant/modules/ManualEntryDialogs';
 import JournalEntriesSection from '@/components/accountant/modules/JournalEntriesSection';
 import CapitalWithdrawDialog from '@/components/accounting/CapitalWithdrawDialog';
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 
 // ============================================
 // TYPES
@@ -2631,6 +2632,7 @@ export default function UnifiedAccountantDashboard() {
         { id: 'trial-balance',    label: 'Trial Balance',    icon: BarChart3 },
         { id: 'profit-loss',      label: 'Profit & Loss',    icon: TrendingUp },
         { id: 'balance-sheet',    label: 'Balance Sheet',    icon: FileSpreadsheet },
+        { id: 'audit',            label: 'Audit Log',        icon: Activity },
       ];
 
   // Debug log for company type detection
@@ -2738,6 +2740,13 @@ export default function UnifiedAccountantDashboard() {
           <AccountantExpenseSection
             userId={user?.id || ''}
             companyId={selectedCompanyId || undefined}
+          />
+        );
+      case 'audit':
+        return (
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole={user?.role || 'ACCOUNTANT'}
           />
         );
       default:

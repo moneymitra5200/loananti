@@ -1,4 +1,5 @@
 'use client';
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 
 import { useState, useEffect, useCallback } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
@@ -829,54 +830,10 @@ export default function CashierDashboard() {
 
       case 'audit':
         return (
-          <Card className="bg-white shadow-sm border-0">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-purple-600" />Audit Logs
-              </CardTitle>
-              <CardDescription>Record of all disbursement activities</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {allDisbursed.length === 0 ? (
-                <div className="text-center py-12 text-gray-500">
-                  <Activity className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>No audit logs available</p>
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto">
-                  {allDisbursed.map((loan, index) => (
-                    <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.03 }}
-                      className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-all bg-white">
-                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
-                              <Badge className="bg-green-100 text-green-700">Disbursed</Badge>
-                            </div>
-                            <p className="text-sm text-gray-500">{loan.customer?.name}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-6">
-                          <div className="text-right">
-                            <p className="font-bold text-lg text-gray-900">{formatCurrency(loan.disbursedAmount || loan.sessionForm?.approvedAmount || loan.requestedAmount)}</p>
-                            <p className="text-xs text-gray-500">Mode: {loan.disbursementMode || 'N/A'}</p>
-                          </div>
-                          <div className="text-right text-sm text-gray-500">
-                            <p className="font-medium">{loan.disbursedAt ? formatDate(loan.disbursedAt) : 'N/A'}</p>
-                            <p className="text-xs">Ref: {loan.disbursementRef || 'N/A'}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole={user?.role || 'CASHIER'}
+          />
         );
 
       case 'activeLoans':

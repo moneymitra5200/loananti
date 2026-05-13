@@ -525,7 +525,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'agents', label: 'Agent Management', icon: Users },
     { id: 'personalCredits', label: 'My Credits', icon: IndianRupee },
     { id: 'portfolio', label: 'Portfolio', icon: PieChart },
-    { id: 'risk', label: 'Risk Analysis', icon: Target }
+    { id: 'risk', label: 'Risk Analysis', icon: Target },
+    { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],
   AGENT: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -541,7 +542,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'calculator', label: 'EMI Calculator', icon: Calculator },
     { id: 'messages', label: 'Messages', icon: MessageCircle },
-    { id: 'performance', label: 'Performance', icon: TrendingUp }
+    { id: 'performance', label: 'Performance', icon: TrendingUp },
+    { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],
   STAFF: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
@@ -551,7 +553,8 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'messages', label: 'Messages', icon: MessageCircle },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 }
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'audit', label: 'Audit Logs', icon: Activity }
   ],
   CASHIER: [
     { id: 'dashboard', label: 'Dashboard', icon: Home },

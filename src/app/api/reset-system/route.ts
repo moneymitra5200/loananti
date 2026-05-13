@@ -139,7 +139,8 @@ export async function POST(request: NextRequest) {
     stats.offlineLoans        = (await db.offlineLoan.deleteMany({})).count;
 
     // ========================================
-    // PHASE 8: Delete CUSTOMER Users Only (STAFF roles NEVER deleted)
+    // PHASE 8: Delete CUSTOMER Users Only
+    // STAFF / COMPANY / AGENT roles NEVER deleted — they keep their accounts + company assignments
     // ========================================
 
     const customerIds = await db.user.findMany({
@@ -157,41 +158,52 @@ export async function POST(request: NextRequest) {
       stats.customers = 0;
     }
 
-    // Reset STAFF user credits — NEVER delete staff users
+    // Reset credits ONLY — do NOT reset companyId or agentId (companies survive reset)
     const resetStaff = await db.user.updateMany({
       where: { role: { not: 'CUSTOMER' } },
-      data: {
-        companyCredit: 0,
-        personalCredit: 0,
-        credit: 0,
-        companyId: null,
-        agentId: null,
-      },
+      data: { companyCredit: 0, personalCredit: 0, credit: 0 },
     });
     stats.staffReset = resetStaff.count;
 
     // ========================================
-    // PHASE 9: Accounting Portal - Full Reset
+    // PHASE 9: Accounting Portal — wipe transactional data only
+    // Companies themselves are PRESERVED — they keep their name, code, and ID
     // ========================================
 
-    stats.chartOfAccounts         = (await db.chartOfAccount.deleteMany({})).count;
-    stats.financialYears          = (await db.financialYear.deleteMany({})).count;
-    stats.gstConfigs              = (await db.gSTConfig.deleteMany({})).count;
-    stats.cashBookEntries         = (await db.cashBookEntry.deleteMany({})).count;
-    stats.cashBooks               = (await db.cashBook.deleteMany({})).count;
-    stats.accountingSettings      = (await db.accountingSettings.deleteMany({})).count;
+    stats.chartOfAccounts           = (await db.chartOfAccount.deleteMany({})).count;
+    stats.financialYears            = (await db.financialYear.deleteMany({})).count;
+    stats.gstConfigs                = (await db.gSTConfig.deleteMany({})).count;
+    stats.cashBookEntries           = (await db.cashBookEntry.deleteMany({})).count;
+    stats.cashBooks                 = (await db.cashBook.deleteMany({})).count;
+    stats.accountingSettings        = (await db.accountingSettings.deleteMany({})).count;
     stats.companyAccountingSettings = (await db.companyAccountingSettings.deleteMany({})).count;
-    stats.assetDepreciationLogs   = (await db.assetDepreciationLog.deleteMany({})).count;
-    stats.fixedAssets             = (await db.fixedAsset.deleteMany({})).count;
-    stats.ledgers                 = (await db.ledger.deleteMany({})).count;
-    stats.reportsCache            = (await db.reportsCache.deleteMany({})).count;
-    stats.loanSequence            = (await db.loanSequence.deleteMany({})).count;
+    stats.assetDepreciationLogs     = (await db.assetDepreciationLog.deleteMany({})).count;
+    stats.fixedAssets               = (await db.fixedAsset.deleteMany({})).count;
+    stats.ledgers                   = (await db.ledger.deleteMany({})).count;
+    stats.reportsCache              = (await db.reportsCache.deleteMany({})).count;
+    stats.loanSequence              = (await db.loanSequence.deleteMany({})).count;
+
+    // Reset company financial balances to zero (but do NOT delete the company records)
+    await db.company.updateMany({ data: { companyCredit: 0, myCash: 0 } });
+
+    // Re-initialize Chart of Accounts for all surviving companies so the accounting portal works
+    try {
+      const { AccountingService } = await import('@/lib/accounting-service');
+      const allCompanies = await db.company.findMany({ select: { id: true } });
+      for (const company of allCompanies) {
+        const svc = new AccountingService(company.id);
+        await svc.initializeChartOfAccounts().catch(() => {});
+      }
+      stats.coaReinitialized = allCompanies.length;
+    } catch {
+      stats.coaReinitError = 'COA re-init had errors (non-fatal)';
+    }
 
     // ========================================
     // PHASE 10: Bank Accounts
     // ========================================
 
-    stats.bankAccounts            = (await db.bankAccount.deleteMany({})).count;
+    stats.bankAccounts = (await db.bankAccount.deleteMany({})).count;
 
     // ========================================
     // PHASE 11: CMS and Configuration
@@ -218,9 +230,7 @@ export async function POST(request: NextRequest) {
       if (fs.existsSync(qrDir)) {
         const qrFiles = fs.readdirSync(qrDir);
         qrFiles.forEach((file: string) => {
-          if (file.endsWith('.png') || file.endsWith('.svg')) {
-            fs.unlinkSync(path.join(qrDir, file));
-          }
+          if (file.endsWith('.png') || file.endsWith('.svg')) fs.unlinkSync(path.join(qrDir, file));
         });
         stats.qrCodes = qrFiles.length;
       }
@@ -242,7 +252,7 @@ export async function POST(request: NextRequest) {
       stats.fileDeletionError = 'Some files could not be deleted';
     }
 
-    // Contact Enquiries (DB table — separate from Enquiry model)
+    // Contact Enquiries
     stats.contactEnquiries = (await db.contactEnquiry.deleteMany({})).count;
 
     // ========================================
@@ -250,42 +260,6 @@ export async function POST(request: NextRequest) {
     // ========================================
 
     stats.userPreferences = (await db.userPreference.deleteMany({})).count;
-
-    // ========================================
-    // PHASE 13: Companies — delete all, recreate placeholders
-    // User will rename them via the Companies section after reset
-    // ========================================
-
-    stats.companies = (await db.company.deleteMany({})).count;
-
-    // ========================================
-    // PHASE 14: Re-create 3 placeholder companies
-    // ========================================
-
-    try {
-      const { AccountingService } = await import('@/lib/accounting-service');
-
-      const placeholders = [
-        { name: 'Company 1', code: 'C1', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
-        { name: 'Company 2', code: 'C2', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
-        { name: 'Company 3', code: 'C3', isMirrorCompany: false, enableMirrorLoan: true,  defaultInterestType: 'FLAT',     isActive: true },
-      ];
-
-      const created: { id: string }[] = [];
-      for (const cfg of placeholders) {
-        const company = await db.company.create({ data: cfg });
-        created.push(company);
-      }
-
-      for (const company of created) {
-        const accountingService = new AccountingService(company.id);
-        await accountingService.initializeChartOfAccounts();
-      }
-
-      stats.recreatedCompanies = created.length;
-    } catch {
-      stats.companyRecreationError = 'Failed to re-create placeholder companies';
-    }
 
     const durationMs  = Date.now() - startTime;
     const durationSec = (durationMs / 1000).toFixed(1);
@@ -295,11 +269,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'System reset completed - all data cleared and re-initialized',
-      stats: {
-        duration: `${durationSec} seconds`,
-        ...stats,
-      },
+      message: 'System reset completed — all transactional data cleared. Companies are preserved.',
+      stats: { duration: `${durationSec} seconds`, ...stats },
       deleted: stats,
     });
 

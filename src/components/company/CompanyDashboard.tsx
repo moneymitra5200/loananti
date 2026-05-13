@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Building2, FileText, CheckCircle, XCircle, Clock, Users, Wallet, AlertTriangle, Eye, TrendingUp, DollarSign, BarChart3, UserCheck, UserPlus, Target, X, Loader2, Calendar, IndianRupee, ArrowLeft, PartyPopper, Sparkles, Landmark, Trash2 } from 'lucide-react';
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -1230,6 +1231,14 @@ export default function CompanyDashboard() {
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             companyId={getCompanyId()}
             mirrorEnabled={hasBankAccess}
+          />
+        );
+
+      case 'audit':
+        return (
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole={user?.role || 'COMPANY'}
           />
         );
 

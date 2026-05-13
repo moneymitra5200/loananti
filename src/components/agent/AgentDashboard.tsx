@@ -41,6 +41,7 @@ import { EMICalculatorSection, PerformanceSection, DashboardSection } from './mo
 // Imported dialogs
 import { ApprovalDialog, SanctionDialog, StaffDialog, LoanDetailsDialog, BulkApprovalDialog } from './dialogs';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 
 export default function AgentDashboard() {
   const { user } = useAuth();
@@ -907,6 +908,14 @@ export default function AgentDashboard() {
             setSelectedLoanId={setSelectedLoanId}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             agentId={user?.id}
+          />
+        );
+
+      case 'audit':
+        return (
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole={user?.role || 'AGENT'}
           />
         );
 

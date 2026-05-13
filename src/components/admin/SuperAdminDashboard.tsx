@@ -34,6 +34,7 @@ import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 // Lazy load heavy components
 const AuditLogViewer = lazy(() => import('@/components/audit/AuditLogViewer'));
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 const LocationHistoryViewer = lazy(() => import('@/components/admin/LocationHistoryViewer'));
 const EMICollectionSection = lazy(() => import('@/components/emi/EMICollectionSection'));
 import EmiTodayReport from '@/components/admin/modules/EmiTodayReport';
@@ -1529,7 +1530,13 @@ export default function SuperAdminDashboard() {
         return <SuperAdminMyCredit />;
 
       case 'audit':
-        return <AuditLogViewer />;
+        return (
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole="SUPER_ADMIN"
+            isAdmin={true}
+          />
+        );
 
       case 'locationHistory':
         return <LocationHistoryViewer />;

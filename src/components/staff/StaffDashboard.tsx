@@ -20,6 +20,7 @@ import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { LoanFormStepContent } from '@/components/staff/modules';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
@@ -789,6 +790,13 @@ export default function StaffDashboard() {
             setSelectedLoanId={setSelectedLoanId}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             createdById={user?.id}
+          />
+        );
+      case 'audit':
+        return (
+          <RoleAuditPanel
+            userId={user?.id}
+            userRole={user?.role || 'STAFF'}
           />
         );
       case 'dashboard':
