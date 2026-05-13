@@ -2591,10 +2591,19 @@ export default function UnifiedAccountantDashboard() {
         const res = await fetch('/api/company');
         if (res.ok) {
           const data = await res.json();
-          const companiesList = data.companies || [];
-          setCompanies(companiesList);
-          if (companiesList.length > 0) {
-            setSelectedCompanyId(companiesList[0].id);
+          const allCompanies = data.companies || [];
+
+          // Only MIRROR companies (isMirrorCompany === true) have accounting books.
+          // The original lending company (isMirrorCompany: false / Company 3) does NOT
+          // have double-entry accounting — it uses a simple cash book only and should
+          // NOT appear in the Accounting portal at all.
+          const accountingCompanies = allCompanies.filter(
+            (c: any) => c.isMirrorCompany === true
+          );
+
+          setCompanies(accountingCompanies);
+          if (accountingCompanies.length > 0) {
+            setSelectedCompanyId(accountingCompanies[0].id);
           }
         }
       } catch (error) {
