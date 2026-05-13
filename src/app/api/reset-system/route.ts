@@ -253,58 +253,49 @@ export async function POST(request: NextRequest) {
 
     // ========================================
     // PHASE 13: Companies
+    // (Save names/config FIRST so we can restore them after recreation)
     // ========================================
+
+    // Save company configs before wiping — preserves real company names
+    const savedCompanies = await db.company.findMany({
+      select: { name: true, code: true, isMirrorCompany: true, enableMirrorLoan: true, defaultInterestType: true, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
     stats.companies = (await db.company.deleteMany({})).count;
 
     // ========================================
-    // PHASE 14: Re-create Default Companies & Initialize Chart of Accounts
+    // PHASE 14: Re-create Companies & Initialize Chart of Accounts
     // ========================================
 
     try {
       const { AccountingService } = await import('@/lib/accounting-service');
 
-      const company1 = await db.company.create({
-        data: {
-          name: 'company 1',
-          code: 'C1',
-          isActive: true,
-          isMirrorCompany: true,
-          enableMirrorLoan: false,
-          defaultInterestType: 'REDUCING',
-        },
-      });
+      // Use saved company configs if available, otherwise fall back to defaults
+      const defaults = [
+        { name: 'Mirror Finance 1', code: 'C1', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
+        { name: 'Mirror Finance 2', code: 'C2', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
+        { name: 'Primary Finance',  code: 'C3', isMirrorCompany: false, enableMirrorLoan: true,  defaultInterestType: 'FLAT',     isActive: true },
+      ];
 
-      const company2 = await db.company.create({
-        data: {
-          name: 'company 2',
-          code: 'C2',
-          isActive: true,
-          isMirrorCompany: true,
-          enableMirrorLoan: false,
-          defaultInterestType: 'REDUCING',
-        },
-      });
+      const configs = savedCompanies.length >= 3
+        ? savedCompanies.slice(0, 3)
+        : defaults;
 
-      const company3 = await db.company.create({
-        data: {
-          name: 'company 3',
-          code: 'C3',
-          isActive: true,
-          isMirrorCompany: false,
-          enableMirrorLoan: true,
-          defaultInterestType: 'FLAT',
-        },
-      });
+      const created: { id: string }[] = [];
+      for (const cfg of configs) {
+        const company = await db.company.create({ data: cfg });
+        created.push(company);
+      }
 
-      for (const company of [company1, company2, company3]) {
+      for (const company of created) {
         const accountingService = new AccountingService(company.id);
         await accountingService.initializeChartOfAccounts();
       }
 
-      stats.recreatedCompanies = 3;
+      stats.recreatedCompanies = created.length;
     } catch {
-      stats.companyRecreationError = 'Failed to re-create default companies';
+      stats.companyRecreationError = 'Failed to re-create companies';
     }
 
     const durationMs  = Date.now() - startTime;

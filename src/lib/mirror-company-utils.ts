@@ -66,29 +66,12 @@ export function identifyCompanyType(company: CompanyIdentification): CompanyType
  * Returns only companies with isMirrorCompany = true
  */
 export function getMirrorCompanies<T extends CompanyIdentification>(companies: T[]): (T & MirrorCompanyConfig)[] {
-  console.log('[getMirrorCompanies] Input companies:', companies.map(c => ({ 
-    id: c.id, 
-    name: c.name, 
-    code: c.code, 
-    isMirrorCompany: c.isMirrorCompany 
-  })));
-  
-  // Filter companies that are marked as mirror companies
   const mirrorCompanies = companies.filter(c => c.isMirrorCompany === true);
-  
-  const result = mirrorCompanies.map(company => ({
+  return mirrorCompanies.map(company => ({
     ...company,
     companyType: 'MIRROR_COMPANY' as CompanyType,
-    displayName: `${company.name} (${company.code || 'N/A'})`
+    displayName: company.code ? `${company.name} (${company.code})` : company.name,
   }));
-  
-  console.log('[getMirrorCompanies] Output mirror companies:', result.map(c => ({
-    name: c.name,
-    code: c.code,
-    displayName: c.displayName
-  })));
-  
-  return result;
 }
 
 /**
