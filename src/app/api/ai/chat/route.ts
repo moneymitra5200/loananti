@@ -1,56 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Fetch real customer context from database
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Customer context from DB ─────────────────────────────────────────────────
 async function getCustomerContext(customerId: string) {
   try {
-    // Get customer's active loans with EMI schedules
-    const loans = await db.loanApplication.findMany({
-      where: { customerId, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
-      include: {
-        emiSchedules: {
-          orderBy: { installmentNumber: 'asc' },
+    const [loans, allLoans, customer] = await Promise.all([
+      db.loanApplication.findMany({
+        where: { customerId, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
+        include: {
+          emiSchedules: { orderBy: { installmentNumber: 'asc' } },
+          payments: { orderBy: { createdAt: 'desc' }, take: 5 },
+          company: { select: { name: true } },
         },
-        payments: {
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
-        company: { select: { name: true } },
-      },
-      take: 5,
-    });
+        take: 5,
+      }),
+      db.loanApplication.findMany({
+        where: { customerId },
+        select: { id: true, applicationNo: true, status: true, loanAmount: true, disbursedAt: true, loanType: true },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+      db.user.findUnique({
+        where: { id: customerId },
+        select: { name: true, phone: true, email: true, createdAt: true },
+      }),
+    ]);
 
-    const allLoans = await db.loanApplication.findMany({
-      where: { customerId },
-      select: { id: true, applicationNo: true, status: true, loanAmount: true, disbursedAt: true },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    });
-
-    const customer = await db.user.findUnique({
-      where: { id: customerId },
-      select: { name: true, phone: true, email: true },
-    });
-
-    // Process EMI data
     const loanContexts = loans.map(loan => {
       const emis = loan.emiSchedules || [];
       const pending = emis.filter((e: any) => e.paymentStatus === 'PENDING');
       const overdue = emis.filter((e: any) => e.paymentStatus === 'OVERDUE');
-      const paid = emis.filter((e: any) => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
-
-      const nextEmi = pending.sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
+      const paid = emis.filter((e: any) => ['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus));
+      const nextEmi = [...pending].sort((a: any, b: any) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
       const overdueAmount = overdue.reduce((s: number, e: any) => s + Number(e.totalAmount || 0), 0);
       const paidAmount = paid.reduce((s: number, e: any) => s + Number(e.paidAmount || 0), 0);
       const outstandingPrincipal = (emis as any[]).find((e: any) => e.paymentStatus !== 'PAID')?.outstandingPrincipal || 0;
+      const daysUntilNextEmi = nextEmi
+        ? Math.ceil((new Date(nextEmi.dueDate).getTime() - Date.now()) / 86400000)
+        : null;
 
       return {
         applicationNo: loan.applicationNo,
         loanAmount: Number(loan.loanAmount),
         company: loan.company?.name || 'MoneyMitra',
         status: loan.status,
+        loanType: (loan as any).loanType || 'PERSONAL',
         totalEMIs: emis.length,
         paidEMIs: paid.length,
         pendingEMIs: pending.length,
@@ -58,13 +52,14 @@ async function getCustomerContext(customerId: string) {
         overdueAmount,
         paidAmount,
         outstandingPrincipal: Number(outstandingPrincipal),
+        daysUntilNextEmi,
         nextEmi: nextEmi ? {
           installmentNumber: nextEmi.installmentNumber,
           dueDate: new Date(nextEmi.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
           amount: Number(nextEmi.totalAmount),
           status: nextEmi.paymentStatus,
         } : null,
-        recentPayments: (loan.payments || []).map(p => ({
+        recentPayments: (loan.payments || []).map((p: any) => ({
           amount: Number(p.amount),
           date: new Date(p.createdAt).toLocaleDateString('en-IN'),
           mode: p.paymentMode,
@@ -72,219 +67,276 @@ async function getCustomerContext(customerId: string) {
       };
     });
 
-    const customerName = customer?.name || '';
-    return { customerName, loanContexts, allLoans };
-  } catch (err) {
-    console.error('[AI Chat] Failed to fetch customer context:', err);
-    return { customer: null, loanContexts: [], allLoans: [] };
+    return { customerName: customer?.name || '', customerPhone: customer?.phone || '', loanContexts, allLoans };
+  } catch {
+    return { customerName: '', customerPhone: '', loanContexts: [], allLoans: [] };
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Smart AI response engine using real customer data
-// ─────────────────────────────────────────────────────────────────────────────
-function generateIntelligentResponse(
-  message: string,
-  customerName: string,
-  ctx: { loanContexts: any[]; allLoans: any[] }
-): { response: string; intent: string } {
-  const msg = message.toLowerCase();
-  const loans = ctx.loanContexts;
-  const name = customerName || 'there';
+// ─── Smart suggestions based on context ──────────────────────────────────────
+function getSmartSuggestions(loans: ReturnType<typeof getCustomerContext> extends Promise<infer T> ? any : any): string[] {
+  const suggestions: string[] = [];
+  if (!loans || loans.length === 0) {
+    suggestions.push('📝 How do I apply for a loan?');
+    suggestions.push('💼 What loan products are available?');
+    suggestions.push('📋 What documents do I need?');
+    return suggestions;
+  }
+  const hasOverdue = loans.some((l: any) => l.overdueEMIs > 0);
+  const hasUpcoming = loans.some((l: any) => l.daysUntilNextEmi !== null && l.daysUntilNextEmi >= 0 && l.daysUntilNextEmi <= 7);
+  const nearlyPaid = loans.some((l: any) => l.paidEMIs > 0 && l.pendingEMIs <= 3);
 
-  // ── Greeting ────────────────────────────────────────────────────────────
-  if (/^(hi|hello|hey|namaste|hii|helo)\b/.test(msg)) {
-    const hasLoans = loans.length > 0;
+  if (hasOverdue) suggestions.push('⚠️ How to clear my overdue EMIs?');
+  if (hasUpcoming) suggestions.push('📅 When is my next EMI due?');
+  if (nearlyPaid) suggestions.push('🏁 How to close my loan early?');
+  suggestions.push('💰 What is my outstanding balance?');
+  suggestions.push('📄 Show my payment history');
+  if (loans.every((l: any) => l.overdueEMIs === 0)) suggestions.push('📈 Can I get a top-up or new loan?');
+  return suggestions.slice(0, 4);
+}
+
+// ─── Response engine ──────────────────────────────────────────────────────────
+function buildResponse(
+  message: string,
+  name: string,
+  ctx: { loanContexts: any[]; allLoans: any[] }
+): { response: string; intent: string; suggestions: string[] } {
+  const msg = message.toLowerCase().trim();
+  const loans = ctx.loanContexts;
+  const firstName = name.split(' ')[0] || 'there';
+  const inr = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+  const sugg = getSmartSuggestions(loans);
+
+  // ── Greeting ──────────────────────────────────────────────────────────────
+  if (/^(hi|hello|hey|namaste|hii|helo|good morning|good evening|good afternoon|hy)\b/.test(msg)) {
     const hasOverdue = loans.some(l => l.overdueEMIs > 0);
-    let greeting = `👋 Hello ${name}! I'm **MitraBot**, your personal AI Loan Assistant.\n\n`;
-    if (hasLoans) {
-      if (hasOverdue) {
-        greeting += `⚠️ You have **overdue EMIs** on your loan. Please check the details below.\n\n`;
-      }
-      greeting += `You have **${loans.length} active loan(s)**. I can help you with:\n`;
-    } else {
-      greeting += `I can help you with:\n`;
+    const nextDue = loans.find(l => l.daysUntilNextEmi !== null && l.daysUntilNextEmi >= 0);
+
+    let reply = `Hello ${firstName}! 😊 Welcome to MoneyMitra — I'm **Mitra**, your personal loan assistant.\n\n`;
+
+    if (hasOverdue) {
+      reply += `⚠️ **Heads up!** You have overdue EMIs that need attention. Let's sort that out quickly.\n\n`;
+    } else if (nextDue && nextDue.daysUntilNextEmi !== null && nextDue.daysUntilNextEmi <= 5) {
+      reply += `📅 **Reminder:** Your next EMI of ${inr(nextDue.nextEmi?.amount || 0)} is due in **${nextDue.daysUntilNextEmi} day(s)**.\n\n`;
+    } else if (loans.length > 0) {
+      reply += `✅ You have **${loans.length} active loan(s)** and everything looks good!\n\n`;
     }
-    greeting += `📅 EMI due dates & payment status\n💰 Outstanding balance & penalties\n🏦 Loan details & history\n📝 New loan eligibility & suggestions\n📞 Support & escalation\n\nWhat would you like to know? 😊`;
-    return { response: greeting, intent: 'GREETING' };
+
+    reply += `How can I help you today? Here are some things I can do:\n• Check your EMI status & dues\n• Show outstanding balance\n• Guide you on payments\n• Suggest loans you qualify for\n• Help with foreclosure & top-ups\n\nJust ask me anything! 🙏`;
+    return { response: reply, intent: 'GREETING', suggestions: sugg };
   }
 
-  // ── EMI Due / Next EMI ─────────────────────────────────────────────────
-  if (msg.includes('emi') || msg.includes('due') || msg.includes('next payment') || msg.includes('installment')) {
+  // ── EMI / Due Dates ───────────────────────────────────────────────────────
+  if (/emi|due|next pay|installment|kab hai|payment date|kab bharna|kitni emi/.test(msg)) {
     if (loans.length === 0) {
-      return { response: `📅 You don't have any active loans with pending EMIs right now.\n\nIf you'd like to apply for a new loan, I can guide you! Just ask "How do I apply for a loan?" 😊`, intent: 'EMI_STATUS' };
+      return { response: `You don't have any active loans right now, ${firstName}! 😊\n\nIf you'd like to apply for a loan, I can guide you through the process. Want to know what you might be eligible for?`, intent: 'EMI_STATUS', suggestions: sugg };
     }
-    let response = `📅 **Your EMI Status:**\n\n`;
+    let reply = `📅 **Your EMI Status, ${firstName}:**\n\n`;
     loans.forEach((loan, i) => {
-      response += `**Loan ${i + 1}: ${loan.applicationNo}** (${loan.company})\n`;
-      response += `• Loan Amount: ₹${loan.loanAmount.toLocaleString('en-IN')}\n`;
-      response += `• Progress: ${loan.paidEMIs}/${loan.totalEMIs} EMIs paid\n`;
+      reply += `**Loan ${i + 1} — ${loan.applicationNo}** (${loan.company})\n`;
+      reply += `• Loan Amount: ${inr(loan.loanAmount)}\n`;
+      reply += `• Progress: ${loan.paidEMIs} of ${loan.totalEMIs} EMIs paid `;
+      reply += `(${Math.round((loan.paidEMIs / loan.totalEMIs) * 100)}% complete)\n`;
+
       if (loan.nextEmi) {
         const isOverdue = loan.nextEmi.status === 'OVERDUE';
-        response += `• ${isOverdue ? '⚠️ **OVERDUE**' : '📅 Next EMI'}: ₹${loan.nextEmi.amount.toLocaleString('en-IN')} due on **${loan.nextEmi.dueDate}**\n`;
+        const daysText = loan.daysUntilNextEmi !== null
+          ? (loan.daysUntilNextEmi < 0 ? `**${Math.abs(loan.daysUntilNextEmi)} days overdue**` : `in ${loan.daysUntilNextEmi} day(s)`)
+          : '';
+        reply += `• ${isOverdue ? '🔴 OVERDUE' : '📅 Next EMI'}: ${inr(loan.nextEmi.amount)} on **${loan.nextEmi.dueDate}** ${daysText}\n`;
       } else if (loan.paidEMIs === loan.totalEMIs) {
-        response += `• ✅ All EMIs paid — Loan closed!\n`;
+        reply += `• ✅ All EMIs completed — Loan fully paid off!\n`;
       }
       if (loan.overdueEMIs > 0) {
-        response += `• ⚠️ ${loan.overdueEMIs} overdue EMI(s) — Total overdue: ₹${loan.overdueAmount.toLocaleString('en-IN')}\n`;
+        reply += `• ⚠️ ${loan.overdueEMIs} overdue EMI(s) — Total: ${inr(loan.overdueAmount)}\n`;
+        reply += `  → Please clear ASAP to avoid penalty charges.\n`;
       }
-      response += '\n';
+      reply += '\n';
     });
-    response += `💡 Please pay on time to avoid late fees. Contact your branch or cashier to make a payment.`;
-    return { response, intent: 'EMI_STATUS' };
+    reply += `💡 **Tip:** Pay a few days early to avoid last-minute issues and keep your credit record clean!`;
+    return { response: reply, intent: 'EMI_STATUS', suggestions: sugg };
   }
 
-  // ── Outstanding Balance ─────────────────────────────────────────────────
-  if (msg.includes('balance') || msg.includes('outstanding') || msg.includes('remaining') || msg.includes('kitna bacha') || msg.includes('how much left')) {
+  // ── Outstanding Balance ───────────────────────────────────────────────────
+  if (/balance|outstanding|remaining|kitna bacha|how much left|total due|baki/.test(msg)) {
     if (loans.length === 0) {
-      return { response: `💰 You don't have any active loans right now.\n\nWould you like to apply for a new loan? I can help with that! 😊`, intent: 'LOAN_BALANCE' };
+      return { response: `You have no active loans right now, ${firstName}. Your slate is clean! 😊\n\nWant to explore new loan options?`, intent: 'LOAN_BALANCE', suggestions: sugg };
     }
-    let response = `💰 **Your Outstanding Balance:**\n\n`;
+    let reply = `💰 **Your Outstanding Balance, ${firstName}:**\n\n`;
     let grandTotal = 0;
     loans.forEach((loan, i) => {
-      response += `**${loan.applicationNo}** — Outstanding: ₹${loan.outstandingPrincipal.toLocaleString('en-IN')}\n`;
-      response += `  • Paid so far: ₹${loan.paidAmount.toLocaleString('en-IN')}\n`;
-      response += `  • ${loan.pendingEMIs} EMI(s) remaining\n\n`;
+      reply += `**${i + 1}. ${loan.applicationNo}**\n`;
+      reply += `• Outstanding Principal: **${inr(loan.outstandingPrincipal)}**\n`;
+      reply += `• Total Paid So Far: ${inr(loan.paidAmount)}\n`;
+      reply += `• Remaining EMIs: ${loan.pendingEMIs}\n\n`;
       grandTotal += loan.outstandingPrincipal;
     });
     if (loans.length > 1) {
-      response += `**Total Outstanding (all loans): ₹${grandTotal.toLocaleString('en-IN')}**\n\n`;
+      reply += `**📊 Grand Total Outstanding: ${inr(grandTotal)}**\n\n`;
     }
-    response += `💡 You can close your loan early by paying the outstanding amount. Ask me about "loan foreclosure" for details!`;
-    return { response, intent: 'LOAN_BALANCE' };
+    reply += `💡 **Hint:** You can save on interest by paying extra towards principal. Ask me about "loan foreclosure" to see how much you'd save!`;
+    return { response: reply, intent: 'LOAN_BALANCE', suggestions: sugg };
   }
 
-  // ── Overdue / Penalty ───────────────────────────────────────────────────
-  if (msg.includes('overdue') || msg.includes('penalty') || msg.includes('late') || msg.includes('fine') || msg.includes('default')) {
+  // ── Overdue / Penalty ─────────────────────────────────────────────────────
+  if (/overdue|penalty|late|fine|default|penal|charge/.test(msg)) {
     const overdueLoans = loans.filter(l => l.overdueEMIs > 0);
     if (overdueLoans.length === 0) {
-      return { response: `✅ Great news, ${name}! You have **no overdue EMIs** on any of your loans.\n\nKeep up the good work! Timely payments help maintain your credit score. 🌟`, intent: 'PENALTY_INFO' };
+      return {
+        response: `✅ Great news, ${firstName}! You have **no overdue EMIs** at all.\n\nYou're a responsible borrower — this reflects positively on your credit profile. Keep it up! 🌟\n\n💡 **Hint:** Good repayment history makes you eligible for **higher loan amounts** and **lower interest rates** in the future!`,
+        intent: 'PENALTY_INFO', suggestions: sugg
+      };
     }
-    let response = `⚠️ **Overdue EMI Alert:**\n\n`;
+    let reply = `⚠️ **Overdue Alert for ${firstName}:**\n\n`;
     overdueLoans.forEach(loan => {
-      response += `**${loan.applicationNo}**\n`;
-      response += `• Overdue EMIs: ${loan.overdueEMIs}\n`;
-      response += `• Total Overdue Amount: ₹${loan.overdueAmount.toLocaleString('en-IN')}\n\n`;
+      reply += `📌 **${loan.applicationNo}**\n`;
+      reply += `• Overdue EMIs: ${loan.overdueEMIs}\n`;
+      reply += `• Overdue Amount: **${inr(loan.overdueAmount)}**\n\n`;
     });
-    response += `**Important:** Late payments attract penalty charges. Please contact your branch or cashier immediately to clear overdue EMIs and avoid further charges.\n\n📞 Need help? Ask me to "connect with support".`;
-    return { response, intent: 'PENALTY_INFO' };
+    reply += `⚡ **What to do now:**\n1. Contact your cashier or branch immediately\n2. Make the payment in cash, UPI, or bank transfer\n3. Penalties increase every day — act today!\n\n📞 Ask me to "raise a support ticket" if you need help.`;
+    return { response: reply, intent: 'PENALTY_INFO', suggestions: sugg };
   }
 
-  // ── Payment History ─────────────────────────────────────────────────────
-  if (msg.includes('payment history') || msg.includes('paid') || msg.includes('receipt') || msg.includes('transaction')) {
+  // ── Payment History ───────────────────────────────────────────────────────
+  if (/payment history|paid|receipt|transaction|history|purana payment/.test(msg)) {
     if (loans.length === 0) {
-      return { response: `📄 No payment history found. You don't have any active loans.\n\nWould you like to apply for a loan? 😊`, intent: 'PAYMENT_HISTORY' };
+      return { response: `No payment history yet, ${firstName}. You don't have any active loans.\n\nWould you like to apply for one? I can tell you what you might qualify for! 😊`, intent: 'PAYMENT_HISTORY', suggestions: sugg };
     }
-    let response = `📄 **Recent Payment History:**\n\n`;
+    let reply = `📄 **Recent Payments, ${firstName}:**\n\n`;
+    let hasAny = false;
     loans.forEach(loan => {
       if (loan.recentPayments.length > 0) {
-        response += `**${loan.applicationNo}:**\n`;
+        hasAny = true;
+        reply += `**${loan.applicationNo}** (${loan.paidEMIs}/${loan.totalEMIs} EMIs done):\n`;
         loan.recentPayments.forEach((p: any) => {
-          response += `  • ₹${p.amount.toLocaleString('en-IN')} on ${p.date} via ${p.mode}\n`;
+          reply += `  ✅ ${inr(p.amount)} — ${p.date} via ${p.mode}\n`;
         });
-        response += '\n';
+        reply += '\n';
       }
     });
-    response += `📊 **Summary:**\n`;
+    if (!hasAny) reply += `No recent payments recorded yet.\n`;
+    reply += `📊 **Summary:**\n`;
     loans.forEach(loan => {
-      response += `• ${loan.applicationNo}: ${loan.paidEMIs}/${loan.totalEMIs} EMIs paid (₹${loan.paidAmount.toLocaleString('en-IN')} total paid)\n`;
+      reply += `• ${loan.applicationNo}: ${inr(loan.paidAmount)} paid (${loan.paidEMIs} EMIs)\n`;
     });
-    return { response, intent: 'PAYMENT_HISTORY' };
+    return { response: reply, intent: 'PAYMENT_HISTORY', suggestions: sugg };
   }
 
-  // ── Loan Status / Details ───────────────────────────────────────────────
-  if (msg.includes('loan status') || msg.includes('my loan') || msg.includes('loan detail') || msg.includes('application')) {
+  // ── Loan Status ───────────────────────────────────────────────────────────
+  if (/loan status|my loan|application|loan detail|sanction|approved|rejected/.test(msg)) {
     if (ctx.allLoans.length === 0) {
-      return { response: `📋 You don't have any loan applications yet.\n\nWould you like to apply for a loan? Just ask "How do I apply?" and I'll guide you step by step! 🚀`, intent: 'LOAN_STATUS' };
+      return { response: `You don't have any loan applications yet, ${firstName}.\n\n🚀 Ready to apply? I can guide you through the entire process — documents needed, eligibility, and more. Just ask!`, intent: 'LOAN_STATUS', suggestions: sugg };
     }
-    let response = `📋 **Your Loan Summary:**\n\n`;
-    ctx.allLoans.forEach(loan => {
-      const statusIcon: Record<string, string> = {
-        DISBURSED: '✅', ACTIVE: '🟢', CLOSED: '🏁', OVERDUE: '⚠️',
-        PENDING: '⏳', APPROVED: '👍', REJECTED_BY_SA: '❌', FINAL_APPROVED: '✅',
-      };
-      response += `${statusIcon[loan.status] || '📄'} **${loan.applicationNo}** — ₹${Number(loan.loanAmount).toLocaleString('en-IN')} — **${loan.status}**\n`;
+    const icons: Record<string, string> = { DISBURSED: '✅', ACTIVE: '🟢', CLOSED: '🏁', OVERDUE: '🔴', PENDING: '⏳', SUBMITTED: '📤', APPROVED: '👍', REJECTED_BY_SA: '❌', FINAL_APPROVED: '✅', CUSTOMER_SESSION_APPROVED: '🔄' };
+    let reply = `📋 **Your Loan Applications, ${firstName}:**\n\n`;
+    ctx.allLoans.forEach((loan: any) => {
+      reply += `${icons[loan.status] || '📄'} **${loan.applicationNo}** — ${inr(Number(loan.loanAmount))} — **${loan.status.replace(/_/g, ' ')}**\n`;
     });
-    return { response, intent: 'LOAN_STATUS' };
+    reply += `\n💡 **Hint:** Ask me about any specific loan for detailed EMI schedule, payment options, or foreclosure quote!`;
+    return { response: reply, intent: 'LOAN_STATUS', suggestions: sugg };
   }
 
-  // ── Foreclosure / Close Loan ────────────────────────────────────────────
-  if (msg.includes('foreclose') || msg.includes('close loan') || msg.includes('prepay') || msg.includes('full payment') || msg.includes('close my loan')) {
+  // ── Foreclosure / Close Loan ──────────────────────────────────────────────
+  if (/foreclose|close loan|prepay|full payment|close my loan|banda karna/.test(msg)) {
     if (loans.length === 0) {
-      return { response: `You don't have any active loans to foreclose.\n\nWould you like to apply for a new loan? 😊`, intent: 'FORECLOSURE' };
+      return { response: `You don't have any active loans to foreclose right now, ${firstName}. 😊\n\nWant to apply for a new loan instead?`, intent: 'FORECLOSURE', suggestions: sugg };
     }
-    let response = `🏁 **Loan Foreclosure Information:**\n\nYou can close your loan early by paying the outstanding balance.\n\n`;
+    let reply = `🏁 **Loan Foreclosure Guide, ${firstName}:**\n\nClosing your loan early saves you interest! Here's what you owe:\n\n`;
     loans.forEach(loan => {
-      response += `**${loan.applicationNo}:**\n`;
-      response += `• Outstanding Principal: ₹${loan.outstandingPrincipal.toLocaleString('en-IN')}\n`;
-      response += `• Remaining EMIs: ${loan.pendingEMIs}\n\n`;
+      const saved = Math.round(loan.pendingEMIs * (loan.nextEmi?.amount || 0) - loan.outstandingPrincipal);
+      reply += `**${loan.applicationNo}**\n• Outstanding: **${inr(loan.outstandingPrincipal)}**\n• Remaining EMIs: ${loan.pendingEMIs}\n`;
+      if (saved > 0) reply += `• 💡 You'd save approx. **${inr(saved)}** in interest by closing now!\n`;
+      reply += '\n';
     });
-    response += `**How to Foreclose:**\n1. Visit your branch or contact your cashier\n2. Request foreclosure statement\n3. Pay the outstanding amount\n4. Receive a No Dues Certificate\n\n💡 Foreclosure saves you on future interest payments!`;
-    return { response, intent: 'FORECLOSURE' };
+    reply += `**Steps to foreclose:**\n1. Visit your branch or contact your cashier\n2. Ask for the foreclosure statement\n3. Pay the outstanding principal\n4. Get your **No Dues Certificate** 🎉\n\n⚠️ Some loans may have a foreclosure fee — ask your cashier.`;
+    return { response: reply, intent: 'FORECLOSURE', suggestions: sugg };
   }
 
-  // ── New Loan / Apply / Suggest ──────────────────────────────────────────
-  if (msg.includes('apply') || msg.includes('new loan') || msg.includes('loan lena') || msg.includes('suggest') || msg.includes('eligib') || msg.includes('qualify')) {
-    const hasGoodHistory = loans.every(l => l.overdueEMIs === 0);
-    let response = `📝 **Loan Suggestions for You:**\n\n`;
+  // ── New Loan / Apply / Suggest ────────────────────────────────────────────
+  if (/apply|new loan|loan lena|suggest|eligib|qualify|top.?up|top up|loan chahiye|loan milega/.test(msg)) {
+    const goodHistory = loans.length > 0 && loans.every(l => l.overdueEMIs === 0);
+    let reply = `📝 **Loan Options for You, ${firstName}:**\n\n`;
 
-    if (hasGoodHistory && loans.length > 0) {
-      response += `✅ Based on your **good repayment history**, you may be eligible for:\n\n`;
-    } else {
-      response += `Here are the loan products available:\n\n`;
+    if (goodHistory) {
+      reply += `🌟 Based on your **excellent repayment record**, you're likely eligible for **preferential rates!**\n\n`;
     }
 
-    response += `💼 **Personal Loan**\n• Amount: ₹50,000 – ₹10,00,000\n• Rate: 14% – 24% p.a.\n• Tenure: 6 – 60 months\n• Purpose: Medical, education, travel, etc.\n\n`;
-    response += `🏠 **Business Loan**\n• Amount: ₹1,00,000 – ₹50,00,000\n• Rate: 12% – 20% p.a.\n• Tenure: 12 – 84 months\n• Purpose: Business expansion, working capital\n\n`;
-    response += `🥇 **Gold Loan**\n• Amount: Up to 75% of gold value\n• Rate: 8% – 16% p.a.\n• Instant approval!\n\n`;
+    reply += `💼 **Personal Loan** — ₹50K to ₹10L | 14–24% p.a. | 6–60 months\n`;
+    reply += `   Best for: medical emergencies, travel, education, weddings\n\n`;
+    reply += `🏢 **Business Loan** — ₹1L to ₹50L | 12–20% p.a. | 12–84 months\n`;
+    reply += `   Best for: working capital, expansion, equipment\n\n`;
+    reply += `🥇 **Gold Loan** — Up to 75% of gold value | 8–16% p.a. | Instant!\n`;
+    reply += `   Best for: quick cash needs with gold as collateral\n\n`;
+    reply += `🚗 **Vehicle Loan** — ₹50K to ₹20L | 10–18% p.a. | 12–60 months\n\n`;
 
-    response += `**Documents Required:**\n• PAN Card + Aadhaar Card\n• Income proof (salary slip / ITR)\n• Bank statement (6 months)\n• Address proof\n\n`;
-    response += `**How to Apply:**\n1. Contact your MoneyMitra agent\n2. Or visit our branch with documents\n3. Get approval in 24-48 hours! 🚀\n\nWant me to tell you more about any specific loan type?`;
-    return { response, intent: 'LOAN_SUGGESTION' };
+    if (loans.length > 0) {
+      const activeLoan = loans[0];
+      if (activeLoan.paidEMIs >= Math.floor(activeLoan.totalEMIs / 2)) {
+        reply += `✨ **Top-Up Loan:** Since you've paid over 50% of your loan, you may qualify for a **top-up on ${activeLoan.applicationNo}**! Ask your agent.\n\n`;
+      }
+    }
+
+    reply += `**Documents Needed:**\n• PAN + Aadhaar\n• Income proof (salary slip / ITR)\n• 6-month bank statement\n• Address proof\n\n`;
+    reply += `**How to Apply:** Contact your MoneyMitra agent or visit the branch. Approval in 24–48 hours! 🚀`;
+    return { response: reply, intent: 'LOAN_SUGGESTION', suggestions: sugg };
   }
 
-  // ── Support / Help ──────────────────────────────────────────────────────
-  if (msg.includes('support') || msg.includes('help') || msg.includes('contact') || msg.includes('human') || msg.includes('agent') || msg.includes('problem')) {
+  // ── How to Pay ────────────────────────────────────────────────────────────
+  if (/how to pay|payment mode|pay online|pay emi|kaise pay|payment karna|upi|online pay/.test(msg)) {
     return {
-      response: `📞 **Need Help?**\n\nI can assist with most queries, but if you need to speak with our team:\n\n🎫 **Create a Support Ticket:**\nGo to "Support" in your dashboard → "New Ticket"\n\n📱 **Call Us:**\nContact your assigned agent or visit your nearest branch.\n\n💬 **For urgent issues:**\n• Visit your branch in person\n• Call during business hours (9 AM – 6 PM)\n\nI'm also here 24/7! What else can I help you with? 😊`,
-      intent: 'SUPPORT',
+      response: `💳 **How to Pay Your EMI, ${firstName}:**\n\n**Through the App/Dashboard:**\n1. Go to "My Loans"\n2. Select your loan → "Pay EMI"\n3. Choose payment mode → Done! ✅\n\n**Payment Modes Accepted:**\n• 💵 Cash (at branch)\n• 📱 UPI — Google Pay, PhonePe, Paytm\n• 🏦 Net Banking / NEFT / RTGS\n• 💳 Debit/Credit Card\n• 📝 Cheque\n\n**At Branch:**\nWalk in with cash or cheque — your cashier will record it instantly.\n\n💡 **Tip:** Always save your payment receipt for reference!`,
+      intent: 'PAYMENT_HELP', suggestions: sugg
     };
   }
 
-  // ── How to Pay ──────────────────────────────────────────────────────────
-  if (msg.includes('how to pay') || msg.includes('payment mode') || msg.includes('pay online') || msg.includes('pay emi') || msg.includes('kaise pay')) {
+  // ── Interest Rates ────────────────────────────────────────────────────────
+  if (/interest|rate|byaj|percent|sood|emi amount|how much emi/.test(msg)) {
+    const goodPayer = loans.length > 0 && loans.every(l => l.overdueEMIs === 0);
+    let reply = `📊 **Interest Rates at MoneyMitra, ${firstName}:**\n\n`;
+    reply += `| Loan Type | Rate (p.a.) |\n|-----------|-------------|\n`;
+    reply += `| Personal Loan | 14% – 24% |\n`;
+    reply += `| Business Loan | 12% – 20% |\n`;
+    reply += `| Gold Loan | 8% – 16% |\n`;
+    reply += `| Vehicle Loan | 10% – 18% |\n\n`;
+    reply += `**Your rate depends on:** credit history, loan amount, tenure & income.\n\n`;
+    if (goodPayer) reply += `🌟 **Great news!** Your clean repayment record puts you in line for **lower rates** on your next loan!\n\n`;
+    reply += `💡 Use our EMI calculator to estimate your monthly payment before applying.`;
+    return { response: reply, intent: 'INTEREST_RATES', suggestions: sugg };
+  }
+
+  // ── Support ───────────────────────────────────────────────────────────────
+  if (/support|help|contact|human|agent|problem|complaint|issue|manager|escalate/.test(msg)) {
     return {
-      response: `💳 **How to Pay Your EMI:**\n\n**Via App/Dashboard:**\n1. Login → Go to "My Loans"\n2. Select your loan\n3. Click "Pay EMI"\n4. Choose payment mode & pay!\n\n**Payment Modes Accepted:**\n• 💵 Cash (at branch)\n• 📱 UPI (Google Pay, PhonePe, Paytm)\n• 🏦 Net Banking / Bank Transfer\n• 💳 Debit/Credit Card\n• 📝 Cheque\n\n**Via Cashier:**\nVisit your nearest branch with cash or cheque. Your cashier will record the payment immediately.\n\n⚡ Payment reflects instantly in your account!`,
-      intent: 'PAYMENT_HELP',
+      response: `📞 **I'm here, ${firstName}! Let me connect you:**\n\n🎫 **Raise a Support Ticket:**\nDashboard → Support → New Ticket\nOur team responds within 2–4 hours.\n\n📱 **Talk to your Agent:**\nContact your assigned MoneyMitra agent directly.\n\n🏢 **Branch Visit:**\nVisit during business hours: **9 AM – 6 PM, Mon–Sat**\n\n💬 **I'm available 24/7** for instant answers!\n\nWhat's the issue? Tell me and I'll either solve it or get the right person involved. 🙏`,
+      intent: 'SUPPORT', suggestions: sugg
     };
   }
 
-  // ── Interest Rate ───────────────────────────────────────────────────────
-  if (msg.includes('interest') || msg.includes('rate') || msg.includes('byaj') || msg.includes('percent')) {
+  // ── Thanks ────────────────────────────────────────────────────────────────
+  if (/thank|thanks|shukriya|dhanyavad|great|helpful|good|nice|perfect|bahut acha/.test(msg)) {
     return {
-      response: `📊 **Interest Rates at MoneyMitra:**\n\n| Loan Type | Rate (p.a.) |\n|-----------|-------------|\n| Personal Loan | 14% – 24% |\n| Business Loan | 12% – 20% |\n| Gold Loan | 8% – 16% |\n| Vehicle Loan | 10% – 18% |\n| Home Loan | 9% – 14% |\n\n**Your rate depends on:**\n• Credit score\n• Loan amount & tenure\n• Income & repayment history\n\n💡 Customers with **good repayment history** (like you!) may qualify for **lower rates** on their next loan!\n\nWant to know your exact rate? Talk to our agent. 😊`,
-      intent: 'INTEREST_RATES',
+      response: `You're very welcome, ${firstName}! 😊🙏\n\nIt's my pleasure to assist you. I'm here anytime you need — whether it's checking your EMI, understanding your loan, or just a question.\n\nHave a wonderful day! Take care. 🌟`,
+      intent: 'THANKS', suggestions: sugg
     };
   }
 
-  // ── Thank you ───────────────────────────────────────────────────────────
-  if (/thank|thanks|shukriya|dhanyavad|great|helpful/.test(msg)) {
-    return {
-      response: `You're welcome, ${name}! 😊 I'm glad I could help!\n\nFeel free to ask me anything anytime — I'm available 24/7. Have a great day! 🌟`,
-      intent: 'THANKS',
-    };
+  // ── Default with smart hints ──────────────────────────────────────────────
+  const hasLoans = loans.length > 0;
+  let reply = `I'm Mitra, your MoneyMitra assistant! 😊 Let me help you with that.\n\n`;
+
+  if (hasLoans) {
+    const upcoming = loans.find(l => l.daysUntilNextEmi !== null && l.daysUntilNextEmi >= 0 && l.daysUntilNextEmi <= 5);
+    const overdueLoan = loans.find(l => l.overdueEMIs > 0);
+
+    if (overdueLoan) reply += `⚠️ **Quick Note:** You have overdue EMIs on ${overdueLoan.applicationNo} — clear them soon to avoid penalties!\n\n`;
+    else if (upcoming) reply += `📅 **Reminder:** EMI of ${inr(upcoming.nextEmi?.amount || 0)} due in ${upcoming.daysUntilNextEmi} day(s).\n\n`;
   }
 
-  // ── Default ─────────────────────────────────────────────────────────────
-  return {
-    response: `I understand you're asking about: *"${message}"*\n\nI can help you with:\n📅 **EMI status & due dates**\n💰 **Outstanding balance & penalties**\n📋 **Loan details & history**\n💳 **How to make payments**\n📝 **New loan suggestions & eligibility**\n🏁 **Loan foreclosure**\n📞 **Support & escalation**\n\nTry asking:\n• "When is my next EMI due?"\n• "What is my outstanding balance?"\n• "Do I have any overdue payments?"\n• "Suggest a loan for me"\n\nOr type your question and I'll do my best to help! 🤖`,
-    intent: 'GENERAL',
-  };
+  reply += `Here's what I can help with:\n📅 EMI status & due dates\n💰 Outstanding balance\n📄 Payment history\n📝 New loan eligibility\n🏁 Loan foreclosure\n💳 Payment methods\n📞 Support & escalation\n\nTry asking: *"When is my next EMI?"* or *"What is my balance?"* 😊`;
+  return { response: reply, intent: 'GENERAL', suggestions: sugg };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST — Handle chat messages
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── POST ─────────────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -294,53 +346,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Fetch real customer context from DB
     const ctx = await getCustomerContext(customerId);
-
     const resolvedName = customerName || ctx.customerName || '';
+    const { response: aiResponse, intent, suggestions } = buildResponse(message, resolvedName, ctx);
 
-
-    // Generate intelligent response using real data
-    const { response: aiResponse, intent } = generateIntelligentResponse(
-      message,
-      resolvedName,
-      ctx,
-    );
-
-    // Save chat history
     let savedChatId: string | undefined;
     try {
       const saved = await db.aIChatHistory.create({
-        data: { customerId, sessionId, userMessage: message, aiResponse, intent }
+        data: { customerId, sessionId, userMessage: message, aiResponse, intent },
       });
       savedChatId = saved.id;
-    } catch (dbError) {
-      console.log('[AI Chat] Could not save history:', dbError);
-    }
+    } catch { /* non-critical */ }
 
-    return NextResponse.json({ success: true, response: aiResponse, intent, chatId: savedChatId });
+    return NextResponse.json({ success: true, response: aiResponse, intent, suggestions, chatId: savedChatId });
   } catch (error) {
-    console.error('[AI Chat] Error:', error);
     return NextResponse.json({
       error: 'Failed to process your message. Please try again.',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 });
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET — Fetch chat history
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── GET ──────────────────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
     const sessionId = searchParams.get('sessionId');
-
-    if (!customerId) {
-      return NextResponse.json({ error: 'customerId is required' }, { status: 400 });
-    }
-
+    if (!customerId) return NextResponse.json({ error: 'customerId is required' }, { status: 400 });
     try {
       const history = await db.aIChatHistory.findMany({
         where: { customerId, ...(sessionId ? { sessionId } : {}) },
@@ -352,7 +385,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, history: [] });
     }
   } catch (error) {
-    console.error('[AI Chat] History fetch error:', error);
     return NextResponse.json({ error: 'Failed to fetch chat history' }, { status: 500 });
   }
 }

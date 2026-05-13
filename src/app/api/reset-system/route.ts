@@ -5,174 +5,159 @@ import fs from 'fs';
 import path from 'path';
 
 export async function POST(request: NextRequest) {
+  const startTime = Date.now();
   try {
     const body = await request.json();
     const { confirmReset } = body;
 
-    if (!confirmReset || confirmReset !== 'RESET_ALL_DATA') {
-      return NextResponse.json({ 
-        error: 'Confirmation required. Please send confirmReset: "RESET_ALL_DATA"' 
+    // Accept both 'RESET_SYSTEM' (from UI dialog) and 'RESET_ALL_DATA' (legacy/API)
+    if (!confirmReset || (confirmReset !== 'RESET_SYSTEM' && confirmReset !== 'RESET_ALL_DATA')) {
+      return NextResponse.json({
+        error: 'Confirmation required. Please send confirmReset: "RESET_SYSTEM"',
       }, { status: 400 });
     }
 
-    console.log('[RESET] Starting full system reset...');
-
     const stats: Record<string, number | string> = {};
 
-    // Delete all data in the correct order (respecting foreign key constraints)
-    
     // ========================================
-    // PHASE 1: Independent tables
+    // PHASE 1: Independent / log tables
     // ========================================
-    
-    // Delete Workflow Logs
-    stats.workflowLogs = (await db.workflowLog.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.workflowLogs} workflow logs`);
 
-    // Delete Audit Logs
-    stats.auditLogs = (await db.auditLog.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.auditLogs} audit logs`);
+    stats.workflowLogs        = (await db.workflowLog.deleteMany({})).count;
+    stats.auditLogs           = (await db.auditLog.deleteMany({})).count;
+    stats.actionLogs          = (await db.actionLog.deleteMany({})).count;
+    stats.locationLogs        = (await db.locationLog.deleteMany({})).count;
 
-    // Delete Action Logs
-    stats.actionLogs = (await db.actionLog.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.actionLogs} action logs`);
+    // Validator — ValidationFixLog → ValidationIssue → ValidationRule → runs/settings
+    stats.validationFixLogs   = (await db.validationFixLog.deleteMany({})).count;
+    stats.validationIssues    = (await db.validationIssue.deleteMany({})).count;
+    stats.validationRules     = (await db.validationRule.deleteMany({})).count;
+    stats.validatorRuns       = (await db.validatorRun.deleteMany({})).count;
+    await db.validatorSettings.deleteMany({}).catch(() => {});
 
-    // Delete Location Logs
-    stats.locationLogs = (await db.locationLog.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.locationLogs} location logs`);
+    // Misc standalone tables
+    stats.aiChatHistory       = (await db.aIChatHistory.deleteMany({})).count;
+    stats.messages            = (await db.message.deleteMany({})).count;
+    stats.enquiries           = (await db.enquiry.deleteMany({})).count;
+    stats.receiptTemplates    = (await db.receiptTemplate.deleteMany({})).count;
 
     // ========================================
     // PHASE 2: Notifications and Communication
     // ========================================
-    
-    stats.notifications = (await db.notification.deleteMany({})).count;
-    stats.reminders = (await db.reminder.deleteMany({})).count;
-    stats.notificationSettings = (await db.notificationSetting.deleteMany({})).count;
+
+    stats.notifications         = (await db.notification.deleteMany({})).count;
+    stats.reminders             = (await db.reminder.deleteMany({})).count;
+    stats.notificationSettings  = (await db.notificationSetting.deleteMany({})).count;
     stats.notificationTemplates = (await db.notificationTemplate.deleteMany({})).count;
-    
-    // Chatbot
-    stats.chatbotMessages = (await db.chatbotMessage.deleteMany({})).count;
-    stats.chatbotSessions = (await db.chatbotSession.deleteMany({})).count;
-    
-    // Live Chat
-    stats.liveChatMessages = (await db.liveChatMessage.deleteMany({})).count;
-    stats.liveChatSessions = (await db.liveChatSession.deleteMany({})).count;
-    
-    // Support Tickets
-    stats.ticketActivities = (await db.ticketActivity.deleteMany({})).count;
-    stats.ticketMessages = (await db.ticketMessage.deleteMany({})).count;
-    stats.supportTickets = (await db.supportTicket.deleteMany({})).count;
-    
-    console.log(`[RESET] Deleted notifications and communication data`);
+    stats.chatbotMessages       = (await db.chatbotMessage.deleteMany({})).count;
+    stats.chatbotSessions       = (await db.chatbotSession.deleteMany({})).count;
+    stats.liveChatMessages      = (await db.liveChatMessage.deleteMany({})).count;
+    stats.liveChatSessions      = (await db.liveChatSession.deleteMany({})).count;
+    stats.ticketActivities      = (await db.ticketActivity.deleteMany({})).count;
+    stats.ticketMessages        = (await db.ticketMessage.deleteMany({})).count;
+    stats.supportTickets        = (await db.supportTicket.deleteMany({})).count;
 
     // ========================================
-    // PHASE 3: Transactions
+    // PHASE 3: Transactions & Accounting Entries
     // ========================================
-    
-    stats.journalEntryLines = (await db.journalEntryLine.deleteMany({})).count;
-    stats.journalEntries = (await db.journalEntry.deleteMany({})).count;
-    stats.bankTransactions = (await db.bankTransaction.deleteMany({})).count;
-    stats.expenses = (await db.expense.deleteMany({})).count;
-    stats.ledgerBalances = (await db.ledgerBalance.deleteMany({})).count;
-    stats.cashierSettlements = (await db.cashierSettlement.deleteMany({})).count;
-    stats.dailyCollections = (await db.dailyCollection.deleteMany({})).count;
-    stats.creditTransactions = (await db.creditTransaction.deleteMany({})).count;
+
+    // Daybook & AccountHead reference JournalEntry — delete first
+    stats.daybookEntries      = (await db.daybookEntry.deleteMany({})).count;
+    stats.accountHeads        = (await db.accountHead.deleteMany({})).count;
+
+    // Equity / Borrow / Invest entries may reference JournalEntry
+    stats.equityEntries       = (await db.equityEntry.deleteMany({})).count;
+    stats.borrowedMoney       = (await db.borrowedMoney.deleteMany({})).count;
+    stats.investMoney         = (await db.investMoney.deleteMany({})).count;
+
+    stats.journalEntryLines     = (await db.journalEntryLine.deleteMany({})).count;
+    stats.journalEntries        = (await db.journalEntry.deleteMany({})).count;
+    stats.bankTransactions      = (await db.bankTransaction.deleteMany({})).count;
+    stats.expenses              = (await db.expense.deleteMany({})).count;
+    stats.ledgerBalances        = (await db.ledgerBalance.deleteMany({})).count;
+    stats.cashierSettlements    = (await db.cashierSettlement.deleteMany({})).count;
+    stats.dailyCollections      = (await db.dailyCollection.deleteMany({})).count;
+    stats.creditTransactions    = (await db.creditTransaction.deleteMany({})).count;
     stats.interestPaymentHistory = (await db.interestPaymentHistory.deleteMany({})).count;
-    console.log(`[RESET] Deleted transaction data`);
 
     // ========================================
     // PHASE 4: Loan-dependent tables
     // ========================================
-    
-    // EMI related
-    stats.emiReminderLogs = (await db.eMIReminderLog.deleteMany({})).count;
-    stats.emiPaymentSettings = (await db.eMIPaymentSetting.deleteMany({})).count;
-    stats.payments = (await db.payment.deleteMany({})).count;
-    stats.emiSchedules = (await db.eMISchedule.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.emiSchedules} EMI schedules`);
-    
-    // Loan child tables
-    stats.loanTopUps = (await db.loanTopUp.deleteMany({})).count;
-    stats.foreclosureRequests = (await db.foreclosureRequest.deleteMany({})).count;
+
+    stats.emiReminderLogs       = (await db.eMIReminderLog.deleteMany({})).count;
+    stats.emiPaymentSettings    = (await db.eMIPaymentSetting.deleteMany({})).count;
+    stats.payments              = (await db.payment.deleteMany({})).count;
+    stats.emiSchedules          = (await db.eMISchedule.deleteMany({})).count;
+    stats.loanTopUps            = (await db.loanTopUp.deleteMany({})).count;
+    stats.foreclosureRequests   = (await db.foreclosureRequest.deleteMany({})).count;
     stats.emiDateChangeRequests = (await db.eMIDateChangeRequest.deleteMany({})).count;
-    stats.counterOffers = (await db.counterOffer.deleteMany({})).count;
-    stats.documentRequests = (await db.documentRequest.deleteMany({})).count;
-    stats.loanRestructures = (await db.loanRestructure.deleteMany({})).count;
-    stats.npaTrackings = (await db.nPATracking.deleteMany({})).count;
-    stats.fraudAlerts = (await db.fraudAlert.deleteMany({})).count;
-    stats.appointments = (await db.appointment.deleteMany({})).count;
-    stats.loanAgreements = (await db.loanAgreement.deleteMany({})).count;
+    stats.counterOffers         = (await db.counterOffer.deleteMany({})).count;
+    stats.documentRequests      = (await db.documentRequest.deleteMany({})).count;
+    stats.loanRestructures      = (await db.loanRestructure.deleteMany({})).count;
+    stats.npaTrackings          = (await db.nPATracking.deleteMany({})).count;
+    stats.fraudAlerts           = (await db.fraudAlert.deleteMany({})).count;
+    stats.appointments          = (await db.appointment.deleteMany({})).count;
+    stats.loanAgreements        = (await db.loanAgreement.deleteMany({})).count;
     stats.loanProgressTimelines = (await db.loanProgressTimeline.deleteMany({})).count;
     stats.applicationFingerprints = (await db.applicationFingerprint.deleteMany({})).count;
-    stats.creditRiskScores = (await db.creditRiskScore.deleteMany({})).count;
-    stats.preApprovedOffers = (await db.preApprovedOffer.deleteMany({})).count;
-    stats.referrals = (await db.referral.deleteMany({})).count;
-    stats.paymentRequests = (await db.paymentRequest.deleteMany({})).count;
+    stats.creditRiskScores      = (await db.creditRiskScore.deleteMany({})).count;
+    stats.preApprovedOffers     = (await db.preApprovedOffer.deleteMany({})).count;
+    stats.referrals             = (await db.referral.deleteMany({})).count;
+    stats.paymentRequests       = (await db.paymentRequest.deleteMany({})).count;
     stats.secondaryPaymentPages = (await db.secondaryPaymentPage.deleteMany({})).count;
-    stats.secureDocuments = (await db.secureDocument.deleteMany({})).count;
-    
-    // Agent/Commission
-    stats.commissionSlabs = (await db.commissionSlab.deleteMany({})).count;
-    stats.agentPerformances = (await db.agentPerformance.deleteMany({})).count;
-    
-    // Grace Period
-    stats.gracePeriodConfigs = (await db.gracePeriodConfig.deleteMany({})).count;
-    
-    // Mirror Loans
-    stats.mirrorLoanMappings = (await db.mirrorLoanMapping.deleteMany({})).count;
-    stats.pendingMirrorLoans = (await db.pendingMirrorLoan.deleteMany({})).count;
-    console.log(`[RESET] Deleted loan-dependent data`);
+    stats.secureDocuments       = (await db.secureDocument.deleteMany({})).count;
+    stats.commissionSlabs       = (await db.commissionSlab.deleteMany({})).count;
+    stats.agentPerformances     = (await db.agentPerformance.deleteMany({})).count;
+    stats.gracePeriodConfigs    = (await db.gracePeriodConfig.deleteMany({})).count;
+    stats.mirrorLoanMappings    = (await db.mirrorLoanMapping.deleteMany({})).count;
+    stats.pendingMirrorLoans    = (await db.pendingMirrorLoan.deleteMany({})).count;
+
+    // InterestOnlyPayment → InterestOnlyLoan (before LoanApplication)
+    stats.interestOnlyPayments  = (await db.interestOnlyPayment.deleteMany({})).count;
+    stats.interestOnlyLoans     = (await db.interestOnlyLoan.deleteMany({})).count;
 
     // ========================================
     // PHASE 5: Session and Form data
     // ========================================
-    
-    stats.sessionForms = (await db.sessionForm.deleteMany({})).count;
-    stats.loanForms = (await db.loanForm.deleteMany({})).count;
-    stats.goldLoanDetails = (await db.goldLoanDetail.deleteMany({})).count;
-    stats.vehicleLoanDetails = (await db.vehicleLoanDetail.deleteMany({})).count;
-    console.log(`[RESET] Deleted session/form data`);
+
+    stats.sessionForms        = (await db.sessionForm.deleteMany({})).count;
+    stats.loanForms           = (await db.loanForm.deleteMany({})).count;
+    stats.goldLoanDetails     = (await db.goldLoanDetail.deleteMany({})).count;
+    stats.vehicleLoanDetails  = (await db.vehicleLoanDetail.deleteMany({})).count;
 
     // ========================================
     // PHASE 6: Loan Applications
     // ========================================
-    
-    stats.loanApplications = (await db.loanApplication.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.loanApplications} loan applications`);
+
+    stats.loanApplications    = (await db.loanApplication.deleteMany({})).count;
 
     // ========================================
     // PHASE 7: Offline Loans
     // ========================================
-    
-    stats.offlineLoanEMIs = (await db.offlineLoanEMI.deleteMany({})).count;
-    stats.offlineLoans = (await db.offlineLoan.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.offlineLoans} offline loans`);
+
+    stats.offlineLoanEMIs     = (await db.offlineLoanEMI.deleteMany({})).count;
+    stats.offlineLoans        = (await db.offlineLoan.deleteMany({})).count;
 
     // ========================================
     // PHASE 8: Delete CUSTOMER Users Only (STAFF roles NEVER deleted)
     // ========================================
-    
-    // Get only CUSTOMER role user IDs - STAFF roles are preserved
+
     const customerIds = await db.user.findMany({
       where: { role: 'CUSTOMER' },
-      select: { id: true }
+      select: { id: true },
     }).then(users => users.map(u => u.id));
 
     if (customerIds.length > 0) {
-      // Delete customer-related data
       await db.deviceFingerprint.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
       await db.blacklist.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
       await db.userSession.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
       await db.userPreference.deleteMany({ where: { userId: { in: customerIds } } }).catch(() => {});
-      
-      // Delete CUSTOMER users only - STAFF roles are NEVER deleted
       stats.customers = (await db.user.deleteMany({ where: { role: 'CUSTOMER' } })).count;
-      console.log(`[RESET] Deleted ${stats.customers} CUSTOMER users (STAFF roles preserved)`);
     } else {
-      console.log(`[RESET] No CUSTOMER users to delete`);
+      stats.customers = 0;
     }
-    
-    // Reset STAFF user credits but NEVER delete them
+
+    // Reset STAFF user credits — NEVER delete staff users
     const resetStaff = await db.user.updateMany({
       where: { role: { not: 'CUSTOMER' } },
       data: {
@@ -181,92 +166,55 @@ export async function POST(request: NextRequest) {
         credit: 0,
         companyId: null,
         agentId: null,
-      }
+      },
     });
     stats.staffReset = resetStaff.count;
-    console.log(`[RESET] Reset ${stats.staffReset} STAFF users (NEVER deleted)`);
 
     // ========================================
     // PHASE 9: Accounting Portal - Full Reset
     // ========================================
-    
-    // Chart of Accounts (after LedgerBalance)
-    stats.chartOfAccounts = (await db.chartOfAccount.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.chartOfAccounts} chart accounts`);
 
-    // Financial Years
-    stats.financialYears = (await db.financialYear.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.financialYears} financial years`);
-
-    // GST Configs
-    stats.gstConfigs = (await db.gSTConfig.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.gstConfigs} GST configs`);
-
-    // Cash Book
-    stats.cashBookEntries = (await db.cashBookEntry.deleteMany({})).count;
-    stats.cashBooks = (await db.cashBook.deleteMany({})).count;
-    console.log(`[RESET] Deleted cash book data`);
-
-    // Accounting Settings
-    stats.accountingSettings = (await db.accountingSettings.deleteMany({})).count;
+    stats.chartOfAccounts         = (await db.chartOfAccount.deleteMany({})).count;
+    stats.financialYears          = (await db.financialYear.deleteMany({})).count;
+    stats.gstConfigs              = (await db.gSTConfig.deleteMany({})).count;
+    stats.cashBookEntries         = (await db.cashBookEntry.deleteMany({})).count;
+    stats.cashBooks               = (await db.cashBook.deleteMany({})).count;
+    stats.accountingSettings      = (await db.accountingSettings.deleteMany({})).count;
     stats.companyAccountingSettings = (await db.companyAccountingSettings.deleteMany({})).count;
-    console.log(`[RESET] Deleted accounting settings`);
-
-    // Fixed Assets
-    stats.assetDepreciationLogs = (await db.assetDepreciationLog.deleteMany({})).count;
-    stats.fixedAssets = (await db.fixedAsset.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.fixedAssets} fixed assets`);
-
-    // Ledgers
-    stats.ledgers = (await db.ledger.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.ledgers} ledgers`);
-
-    // Reports Cache
-    stats.reportsCache = (await db.reportsCache.deleteMany({})).count;
-
-    // Loan Sequence
-    stats.loanSequence = (await db.loanSequence.deleteMany({})).count;
-    console.log(`[RESET] Deleted loan sequences`);
+    stats.assetDepreciationLogs   = (await db.assetDepreciationLog.deleteMany({})).count;
+    stats.fixedAssets             = (await db.fixedAsset.deleteMany({})).count;
+    stats.ledgers                 = (await db.ledger.deleteMany({})).count;
+    stats.reportsCache            = (await db.reportsCache.deleteMany({})).count;
+    stats.loanSequence            = (await db.loanSequence.deleteMany({})).count;
 
     // ========================================
     // PHASE 10: Bank Accounts
     // ========================================
-    
-    stats.bankAccounts = (await db.bankAccount.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.bankAccounts} bank accounts`);
+
+    stats.bankAccounts            = (await db.bankAccount.deleteMany({})).count;
 
     // ========================================
     // PHASE 11: CMS and Configuration
     // ========================================
-    
-    // CMS
-    stats.cmsServices = (await db.cMSService.deleteMany({})).count;
-    stats.cmsBanners = (await db.cMSBanner.deleteMany({})).count;
-    stats.cmsTestimonials = (await db.cMSTestimonial.deleteMany({})).count;
-    
-    // Form Config
-    stats.formConfigs = (await db.formConfig.deleteMany({})).count;
-    
-    // Payment Settings
-    stats.paymentOptionSettings = (await db.paymentOptionSettings.deleteMany({})).count;
-    stats.companyPaymentSettings = (await db.companyPaymentSettings.deleteMany({})).count;
-    stats.companyPaymentPages = (await db.companyPaymentPage.deleteMany({})).count;
-    
-    // Uploaded Files (Documents, Photos, QR Codes, etc.)
-    stats.uploadedFiles = (await db.uploadedFile.deleteMany({})).count;
-    console.log(`[RESET] Deleted CMS and configuration data`);
-    
+
+    stats.cmsServices             = (await db.cMSService.deleteMany({})).count;
+    stats.cmsBanners              = (await db.cMSBanner.deleteMany({})).count;
+    stats.cmsTestimonials         = (await db.cMSTestimonial.deleteMany({})).count;
+    stats.formConfigs             = (await db.formConfig.deleteMany({})).count;
+    stats.paymentOptionSettings   = (await db.paymentOptionSettings.deleteMany({})).count;
+    stats.companyPaymentSettings  = (await db.companyPaymentSettings.deleteMany({})).count;
+    stats.companyPaymentPages     = (await db.companyPaymentPage.deleteMany({})).count;
+    stats.uploadedFiles           = (await db.uploadedFile.deleteMany({})).count;
+
     // ========================================
-    // PHASE 11.5: QR Codes and Documents Cleanup
+    // PHASE 11.5: File System Cleanup
     // ========================================
-    
-    // Delete all QR codes from the QR code directory
+
     try {
-      const qrDir = path.join(process.cwd(), 'public', 'qrcodes');
-      const docDir = path.join(process.cwd(), 'public', 'documents');
+      const qrDir     = path.join(process.cwd(), 'public', 'qrcodes');
+      const docDir    = path.join(process.cwd(), 'public', 'documents');
       const uploadDir = path.join(process.cwd(), 'upload');
-      
-      // Delete QR codes
+
       if (fs.existsSync(qrDir)) {
         const qrFiles = fs.readdirSync(qrDir);
         qrFiles.forEach((file: string) => {
@@ -275,60 +223,47 @@ export async function POST(request: NextRequest) {
           }
         });
         stats.qrCodes = qrFiles.length;
-        console.log(`[RESET] Deleted ${qrFiles.length} QR codes`);
       }
-      
-      // Delete documents
+
       if (fs.existsSync(docDir)) {
         const docFiles = fs.readdirSync(docDir);
-        docFiles.forEach((file: string) => {
-          fs.unlinkSync(path.join(docDir, file));
-        });
+        docFiles.forEach((file: string) => fs.unlinkSync(path.join(docDir, file)));
         stats.documents = docFiles.length;
-        console.log(`[RESET] Deleted ${docFiles.length} documents`);
       }
-      
-      // Delete uploaded files
+
       if (fs.existsSync(uploadDir)) {
         const uploadFiles = fs.readdirSync(uploadDir);
         uploadFiles.forEach((file: string) => {
-          if (file !== '.gitkeep') {
-            fs.unlinkSync(path.join(uploadDir, file));
-          }
+          if (file !== '.gitkeep') fs.unlinkSync(path.join(uploadDir, file));
         });
         stats.uploads = uploadFiles.length;
-        console.log(`[RESET] Deleted ${uploadFiles.length} uploaded files`);
       }
-    } catch (fsError) {
-      console.error('[RESET] Error deleting files:', fsError);
+    } catch {
       stats.fileDeletionError = 'Some files could not be deleted';
     }
-    
-    // Contact Enquiries
+
+    // Contact Enquiries (DB table — separate from Enquiry model)
     stats.contactEnquiries = (await db.contactEnquiry.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.contactEnquiries} contact enquiries`);
 
     // ========================================
-    // PHASE 12: User Preferences
+    // PHASE 12: Remaining User Preferences (staff)
     // ========================================
-    
+
     stats.userPreferences = (await db.userPreference.deleteMany({})).count;
 
     // ========================================
-    // PHASE 13: Companies (keep users!)
+    // PHASE 13: Companies
     // ========================================
-    
+
     stats.companies = (await db.company.deleteMany({})).count;
-    console.log(`[RESET] Deleted ${stats.companies} companies (users preserved)`);
 
     // ========================================
     // PHASE 14: Re-create Default Companies & Initialize Chart of Accounts
     // ========================================
-    
+
     try {
       const { AccountingService } = await import('@/lib/accounting-service');
-      
-      // Create default companies
+
       const company1 = await db.company.create({
         data: {
           name: 'company 1',
@@ -337,9 +272,9 @@ export async function POST(request: NextRequest) {
           isMirrorCompany: true,
           enableMirrorLoan: false,
           defaultInterestType: 'REDUCING',
-        }
+        },
       });
-      
+
       const company2 = await db.company.create({
         data: {
           name: 'company 2',
@@ -348,52 +283,50 @@ export async function POST(request: NextRequest) {
           isMirrorCompany: true,
           enableMirrorLoan: false,
           defaultInterestType: 'REDUCING',
-        }
+        },
       });
-      
+
       const company3 = await db.company.create({
         data: {
           name: 'company 3',
           code: 'C3',
           isActive: true,
-          isMirrorCompany: false, // Original company - cash only
+          isMirrorCompany: false,
           enableMirrorLoan: true,
           defaultInterestType: 'FLAT',
-        }
+        },
       });
-      
-      console.log('[RESET] Created default companies: C1, C2, C3');
-      
-      // Initialize Chart of Accounts for each company
+
       for (const company of [company1, company2, company3]) {
         const accountingService = new AccountingService(company.id);
         await accountingService.initializeChartOfAccounts();
-        console.log(`[RESET] Initialized Chart of Accounts for ${company.name}`);
       }
-      
+
       stats.recreatedCompanies = 3;
-    } catch (initError) {
-      console.error('[RESET] Failed to re-create companies:', initError);
+    } catch {
       stats.companyRecreationError = 'Failed to re-create default companies';
     }
 
-    console.log('[RESET] System reset completed successfully!');
+    const durationMs  = Date.now() - startTime;
+    const durationSec = (durationMs / 1000).toFixed(1);
 
-    // Clear ALL in-memory cache so stale data is never served
+    // Clear ALL in-memory cache
     cache.clear();
-    console.log('[RESET] In-memory cache cleared');
 
     return NextResponse.json({
       success: true,
-      message: 'System reset completed - ALL accounting portal sections cleared and re-initialized',
-      deleted: stats
+      message: 'System reset completed - all data cleared and re-initialized',
+      stats: {
+        duration: `${durationSec} seconds`,
+        ...stats,
+      },
+      deleted: stats,
     });
 
   } catch (error) {
-    console.error('[RESET] Error during system reset:', error);
     return NextResponse.json({
       error: 'Failed to reset system',
-      details: (error as Error).message
+      details: (error as Error).message,
     }, { status: 500 });
   }
 }

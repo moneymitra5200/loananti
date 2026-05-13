@@ -686,6 +686,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/accounting/withdraw-capital/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/accounting/withdraw-capital">> = Specific
+  const handler = {} as typeof import("../../src/app/api/accounting/withdraw-capital/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/action-log/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/action-log">> = Specific
@@ -1617,6 +1626,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/system-settings">> = Specific
   const handler = {} as typeof import("../../src/app/api/system-settings/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/system/reset/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/system/reset">> = Specific
+  const handler = {} as typeof import("../../src/app/api/system/reset/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check

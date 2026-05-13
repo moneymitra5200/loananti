@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, ReactNode, useEffect, useCallback } from 'react';
+import { useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';

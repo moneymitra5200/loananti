@@ -561,6 +561,12 @@
       "namedRegex": "^/api/accounting/trial\\-balance(?:/)?$"
     },
     {
+      "page": "/api/accounting/withdraw-capital",
+      "regex": "^/api/accounting/withdraw\\-capital(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/accounting/withdraw\\-capital(?:/)?$"
+    },
+    {
       "page": "/api/action-log",
       "regex": "^/api/action\\-log(?:/)?$",
       "routeKeys": {},
@@ -1165,6 +1171,12 @@
       "regex": "^/api/stats(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/stats(?:/)?$"
+    },
+    {
+      "page": "/api/system/reset",
+      "regex": "^/api/system/reset(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/system/reset(?:/)?$"
     },
     {
       "page": "/api/system-settings",
