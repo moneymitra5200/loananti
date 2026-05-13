@@ -811,7 +811,7 @@ export async function POST(request: NextRequest) {
       // ============ INTEREST ONLY LOAN - Create FIRST Interest EMI ============
       // Same logic as online loan: Create one EMI for monthly interest
       // Due date: 5th of next month
-      const dueDate = new Date(disbursementDate);
+      const dueDate = requiredDate(disbursementDate, 'disbursementDate');
       dueDate.setMonth(dueDate.getMonth() + 1);
       dueDate.setDate(5);
       dueDate.setHours(0, 0, 0, 0);
@@ -838,7 +838,7 @@ export async function POST(request: NextRequest) {
       // Create EMI schedules with proper due dates (5th of each month, same as online loan)
       const emis = emiSchedule.map((item, index) => {
         // Set due date to 5th of each month (same as online loan)
-        const dueDate = new Date(startDate);
+        const dueDate = requiredDate(startDate, 'startDate');
         dueDate.setMonth(dueDate.getMonth() + index + 1);
         dueDate.setDate(5);
         dueDate.setHours(0, 0, 0, 0);
@@ -886,9 +886,10 @@ export async function POST(request: NextRequest) {
         }
 
 
-        // Determine mirror type and rate based on company
-        // Company 1 = 15% Reducing, Company 2 = 24% Reducing
-        const isCompany1 = mirrorCompany.code === 'C1' || mirrorCompany.id.includes('1');
+        // Determine mirror type based ONLY on company code — never on the UUID
+        // which almost always contains the digit '1' and would misclassify everything.
+        const mirrorCodeUpper = (mirrorCompany.code || '').toUpperCase();
+        const isCompany1 = mirrorCodeUpper === 'C1' || mirrorCodeUpper.startsWith('C1');
         const mirrorType = isCompany1
           ? 'COMPANY_1_15_PERCENT'
           : 'COMPANY_2_SAME_RATE';
@@ -955,7 +956,7 @@ export async function POST(request: NextRequest) {
             customerCity,
             customerState,
             customerPincode,
-            customerDOB: customerDOB ? new Date(customerDOB) : null,
+            customerDOB: safeDate(customerDOB, 'customerDOB'),
             customerOccupation,
             customerMonthlyIncome,
             reference1Name,
@@ -972,10 +973,10 @@ export async function POST(request: NextRequest) {
             tenure: mirrorTenure,
             emiAmount: calculatedEmiAmount, // Same EMI as original
             processingFee: 0, // No processing fee for mirror
-            disbursementDate: new Date(disbursementDate),
+            disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
             disbursementMode: 'BANK_TRANSFER',
             status: 'ACTIVE',
-            startDate: new Date(startDate),
+            startDate: requiredDate(startDate, 'startDate'),
             notes: `Mirror loan for ${loanNumber}`,
             internalNotes: `Mirror of ${loanNumber} from ${company?.name || 'Company 3'}`,
             displayColor, // Same color as original
@@ -990,7 +991,7 @@ export async function POST(request: NextRequest) {
 
         // CREATE EMI SCHEDULE FOR MIRROR LOAN
         const mirrorEmis = mirrorSchedule.map((item, index) => {
-          const dueDate = new Date(startDate);
+          const dueDate = requiredDate(startDate, 'startDate');
           dueDate.setMonth(dueDate.getMonth() + index + 1);
           dueDate.setDate(5);
           dueDate.setHours(0, 0, 0, 0);
