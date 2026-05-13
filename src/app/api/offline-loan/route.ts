@@ -9,6 +9,33 @@ import { notifyEvent } from '@/lib/event-notify';
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
 
+// ── Date safety helpers ────────────────────────────────────────────────────
+// Prevents Prisma crash when frontend sends a malformed / out-of-range date
+// (e.g. year 42334 from a bad date-picker value).
+const MIN_YEAR = 1900;
+const MAX_YEAR = 2100;
+
+function safeDate(value: unknown, fieldName = 'date'): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  const d = new Date(value as string);
+  if (isNaN(d.getTime())) {
+    console.warn(`[safeDate] "${fieldName}" produced Invalid Date from: ${value}`);
+    return null;
+  }
+  const y = d.getFullYear();
+  if (y < MIN_YEAR || y > MAX_YEAR) {
+    console.warn(`[safeDate] "${fieldName}" year ${y} is out of range (${MIN_YEAR}-${MAX_YEAR}). Value: ${value}`);
+    return null;
+  }
+  return d;
+}
+
+function requiredDate(value: unknown, fieldName: string): Date {
+  const d = safeDate(value, fieldName);
+  if (!d) throw new Error(`Invalid or missing date for field "${fieldName}". Received: ${value}`);
+  return d;
+}
+
 // Get or create the global loan sequence
 async function getNextLoanSequence(): Promise<number> {
   try {
@@ -704,7 +731,7 @@ export async function POST(request: NextRequest) {
         interestRate,
         tenure || 12,
         actualInterestType,
-        new Date(startDate)
+        requiredDate(startDate, 'startDate')
       );
       calculatedEmiAmount = emiCalculation.emi;
       emiSchedule = emiCalculation.schedule;
@@ -740,7 +767,7 @@ export async function POST(request: NextRequest) {
         customerCity,
         customerState,
         customerPincode,
-        customerDOB: customerDOB ? new Date(customerDOB) : null,
+        customerDOB: safeDate(customerDOB, 'customerDOB'),
         customerOccupation,
         customerMonthlyIncome,
         reference1Name,
@@ -757,11 +784,11 @@ export async function POST(request: NextRequest) {
         tenure: isInterestOnlyLoan ? 0 : (tenure || 0),
         emiAmount: calculatedEmiAmount,
         processingFee: processingFee || 0,
-        disbursementDate: new Date(disbursementDate),
+        disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
         disbursementMode,
         disbursementRef,
         status: isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE',
-        startDate: new Date(startDate),
+        startDate: requiredDate(startDate, 'startDate'),
         notes,
         internalNotes,
         bankAccountId: bankAccountId || null,
@@ -769,7 +796,7 @@ export async function POST(request: NextRequest) {
         secondaryPaymentPageId: secondaryPaymentPageId || null,
         // Interest Only Loan fields
         isInterestOnlyLoan,
-        interestOnlyStartDate: isInterestOnlyLoan ? new Date(disbursementDate) : null,
+        interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
         interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
         partialPaymentEnabled: !isInterestOnlyLoan,
         // Location
