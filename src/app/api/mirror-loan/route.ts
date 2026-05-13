@@ -152,32 +152,20 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'mirror-companies') {
-      // Get all active companies
       const companies = await db.company.findMany({
-        where: { 
-          isActive: true,
-        },
+        where: { isActive: true },
         select: {
           id: true,
           name: true,
           code: true,
+          isMirrorCompany: true,   // REQUIRED: getMirrorCompanies() filters on this field
           defaultInterestRate: true,
           createdAt: true,
         },
         orderBy: { createdAt: 'asc' }
       });
 
-      console.log('[Mirror Companies API] Fetched companies from DB:', companies.map(c => ({ id: c.id, name: c.name, code: c.code })));
-
-      // Use shared utility to identify mirror companies
       const mirrorCompanies = getMirrorCompanies(companies);
-
-      console.log('[Mirror Companies API] Returning mirror companies:', mirrorCompanies.map(c => ({ 
-        name: c.name, 
-        code: c.code, 
-        displayName: c.displayName 
-      })));
-
       return NextResponse.json({ success: true, companies: mirrorCompanies });
     }
 
@@ -555,14 +543,11 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      console.log(`[Mirror Loan] Auto-created mapping for loan ${loan.applicationNo}`);
-
       return NextResponse.json({ success: true, mapping: newMapping, existed: false });
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
   } catch (error) {
-    console.error('Mirror loan API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -699,7 +684,6 @@ export async function POST(request: NextRequest) {
       message: 'Mirror loan mapping created. Loan remains with original company.'
     });
   } catch (error) {
-    console.error('Create mirror loan error:', error);
     return NextResponse.json({ error: 'Failed to create mirror loan' }, { status: 500 });
   }
 }
@@ -717,8 +701,6 @@ export async function PUT(request: NextRequest) {
       if (!mappingId) {
         return NextResponse.json({ error: 'Mapping ID is required' }, { status: 400 });
       }
-      
-      console.log(`[Mirror Loan] Updating extra EMI payment page for mapping ${mappingId} to ${extraEMIPaymentPageId || 'default'}`);
       
       // Get the mapping
       const mapping = await db.mirrorLoanMapping.findUnique({
@@ -766,8 +748,6 @@ export async function PUT(request: NextRequest) {
           }
         });
       }
-      
-      console.log(`[Mirror Loan] Updated ${extraEMISettings.length} extra EMI payment settings`);
       
       return NextResponse.json({
         success: true,
