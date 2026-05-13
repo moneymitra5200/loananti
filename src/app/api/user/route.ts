@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, dbWithRetry } from '@/lib/db';
+import { cache, CacheKeys, CacheTTL, invalidateUserCache } from '@/lib/cache';
 import bcrypt from 'bcryptjs';
 import { generateCode } from '@/utils/helpers';
-import { cache, CacheKeys, CacheTTL, invalidateUserCache } from '@/lib/cache';
+
+
 
 export async function GET(request: NextRequest) {
   try {
@@ -89,19 +91,14 @@ export async function POST(request: NextRequest) {
     const cleanCompanyId = rolesWithoutCompany.includes(role) ? null : (companyId && companyId.trim() !== '' ? companyId : null);
     const cleanAgentId = agentId && agentId.trim() !== '' ? agentId : null;
 
-    console.log('[User API] Creating user:', { name, email, role, companyId: cleanCompanyId, agentId: cleanAgentId });
-
     if (!name || !email || !password || !role) {
-      console.log('[User API] Missing required fields');
       return NextResponse.json({ error: 'Missing required fields: name, email, password, role' }, { status: 400 });
     }
 
-    const existingUser = await db.user.findUnique({
-      where: { email }
-    });
+    // Wrap in dbWithRetry so transient Prisma warmup panics are retried
+    const existingUser = await dbWithRetry(() => db.user.findUnique({ where: { email } }));
 
     if (existingUser) {
-      console.log('[User API] User already exists:', email);
       return NextResponse.json({ error: 'User with this email already exists' }, { status: 400 });
     }
 
@@ -117,59 +114,19 @@ export async function POST(request: NextRequest) {
       let companyCode: string;
       
       if (code && code.trim()) {
-        // User provided a code - use it exactly as provided
         companyCode = code.trim().toUpperCase();
-        console.log('[User API] Using user-provided code:', companyCode);
-        
-        // Check if this code already exists
-        const existingCompany = await db.company.findUnique({
-          where: { code: companyCode }
-        });
-        
+        const existingCompany = await db.company.findUnique({ where: { code: companyCode } });
         if (existingCompany) {
-          return NextResponse.json({ 
-            error: `Company code "${companyCode}" already exists. Please use a different code.`,
-            field: 'code'
-          }, { status: 400 });
+          return NextResponse.json({ error: `Company code "${companyCode}" already exists. Please use a different code.`, field: 'code' }, { status: 400 });
         }
       } else {
-        // No code provided - auto-generate unique code
         companyCode = generateCode('COMP');
-        let attempts = 0;
-        const maxAttempts = 5;
-        
-        // Check if code exists and regenerate if needed
-        while (attempts < maxAttempts) {
-          const existingCompany = await db.company.findUnique({
-            where: { code: companyCode }
-          });
-          
-          if (!existingCompany) {
-            break; // Code is unique
-          }
-          
-          // Code exists, generate new one
-          attempts++;
-          companyCode = generateCode('COMP');
-          console.log(`[User API] Code collision, regenerating (attempt ${attempts}):`, companyCode);
-          
-          if (attempts >= maxAttempts) {
-            // If still colliding after max attempts, add extra randomness
-            companyCode = `COMP${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-          }
+        for (let i = 0; i < 5; i++) {
+          const exists = await db.company.findUnique({ where: { code: companyCode } });
+          if (!exists) break;
+          companyCode = i < 4 ? generateCode('COMP') : `COMP${Date.now()}${Math.random().toString(36).substring(2,8).toUpperCase()}`;
         }
-        console.log('[User API] Auto-generated unique code:', companyCode);
       }
-      
-      console.log('[User API] Creating company with code:', companyCode);
-      console.log('[User API] Company data:', {
-        name,
-        code: companyCode,
-        email,
-        isMirrorCompany,
-        mirrorInterestRate,
-        mirrorInterestType
-      });
       
       try {
         createdCompany = await db.company.create({
@@ -201,18 +158,16 @@ export async function POST(request: NextRequest) {
           }
         });
         userCompanyId = createdCompany.id;
-        console.log('[User API] Company created successfully:', createdCompany.id);
+        // Initialize chart of accounts so accounting portal works immediately
+        try {
+          const { AccountingService } = await import('@/lib/accounting-service');
+          const accountingService = new AccountingService(createdCompany.id);
+          await accountingService.initializeChartOfAccounts();
+        } catch { /* non-fatal — company still created */ }
       } catch (companyError) {
-        console.error('[User API] Error creating company:', companyError);
-        if (companyError instanceof Error) {
-          console.error('[User API] Company error message:', companyError.message);
-          // Check for unique constraint violation
-          if (companyError.message.includes('Unique constraint') || companyError.message.includes('code')) {
-            return NextResponse.json({ 
-              error: 'Company code already exists. Please try again.',
-              details: companyError.message 
-            }, { status: 400 });
-          }
+        if (companyError instanceof Error &&
+            (companyError.message.includes('Unique constraint') || companyError.message.includes('code'))) {
+          return NextResponse.json({ error: 'Company code already exists. Please try again.' }, { status: 400 });
         }
         throw companyError;
       }
@@ -246,14 +201,6 @@ export async function POST(request: NextRequest) {
       ACCOUNTANT: generateCode('ACC')
     };
 
-    console.log('[User API] Creating user record with role:', role);
-    console.log('[User API] User data:', {
-      name,
-      email,
-      role,
-      companyId: userCompanyId,
-      agentId: role === 'STAFF' ? cleanAgentId : null
-    });
     
     let user;
     try {
@@ -282,27 +229,14 @@ export async function POST(request: NextRequest) {
         }
       });
     } catch (userCreateError) {
-      console.error('[User API] Error creating user record:', userCreateError);
       if (userCreateError instanceof Error) {
-        console.error('[User API] User create error message:', userCreateError.message);
-        // Check for common errors
-        if (userCreateError.message.includes('Unique constraint')) {
-          return NextResponse.json({ 
-            error: 'Email or code already exists. Please use a different email.',
-            details: userCreateError.message 
-          }, { status: 400 });
-        }
-        if (userCreateError.message.includes('foreign key')) {
-          return NextResponse.json({ 
-            error: 'Invalid company or agent reference.',
-            details: userCreateError.message 
-          }, { status: 400 });
-        }
+        if (userCreateError.message.includes('Unique constraint'))
+          return NextResponse.json({ error: 'Email already exists. Please use a different email.' }, { status: 400 });
+        if (userCreateError.message.includes('foreign key'))
+          return NextResponse.json({ error: 'Invalid company or agent reference.' }, { status: 400 });
       }
       throw userCreateError;
     }
-
-    console.log('[User API] User created successfully:', user.id);
 
     await db.auditLog.create({
       data: {
@@ -397,54 +331,30 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
-    console.log('[User DELETE] Starting permanent delete for user:', id);
-
-    if (!id) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
-    }
+    if (!id) return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
 
     const user = await db.user.findUnique({ where: { id } });
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
-    if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
-
-    // Protect permanent super admin from deletion
     const PERMANENT_SUPER_ADMIN_EMAILS = ['moneymitra@gmail.com'];
     if (PERMANENT_SUPER_ADMIN_EMAILS.includes(user.email)) {
-      return NextResponse.json({ 
-        error: 'Cannot delete the permanent Super Admin account. This account is protected.',
-        isProtected: true 
-      }, { status: 403 });
+      return NextResponse.json({ error: 'Cannot delete the permanent Super Admin account.', isProtected: true }, { status: 403 });
     }
 
-    // For COMPANY role users, we need to handle company deletion separately
-    // This is called from CompaniesSection which handles company deletion first
-    
-    // Check for critical related records that prevent deletion
     const [loanApplications, sessionForms, payments] = await Promise.all([
       db.loanApplication.count({ where: { customerId: id } }),
       db.sessionForm.count({ where: { agentId: id } }),
       db.payment.count({ where: { customerId: id } }),
     ]);
 
-    console.log('[User DELETE] Related records:', { loanApplications, sessionForms, payments });
-
-    // These are critical - cannot delete if user has these
     if (loanApplications > 0 || sessionForms > 0 || payments > 0) {
       const relatedInfo: string[] = [];
       if (loanApplications > 0) relatedInfo.push(`${loanApplications} loan application(s)`);
       if (sessionForms > 0) relatedInfo.push(`${sessionForms} session form(s)`);
       if (payments > 0) relatedInfo.push(`${payments} payment(s)`);
-
-      return NextResponse.json({ 
-        error: `Cannot delete user. They have related records: ${relatedInfo.join(', ')}. Please remove or reassign these records first.`,
-        hasRelations: true 
-      }, { status: 400 });
+      return NextResponse.json({ error: `Cannot delete user. They have: ${relatedInfo.join(', ')}.`, hasRelations: true }, { status: 400 });
     }
 
-    // Delete non-critical related records (audit logs, notifications, etc.) - PERMANENT DELETE
-    console.log('[User DELETE] Deleting related records...');
     await Promise.all([
       db.auditLog.deleteMany({ where: { userId: id } }),
       db.notification.deleteMany({ where: { userId: id } }),
@@ -456,22 +366,37 @@ export async function DELETE(request: NextRequest) {
       db.blacklist.deleteMany({ where: { userId: id } }),
     ]);
 
-    // PERMANENT DELETE - Hard delete the user from database
-    console.log('[User DELETE] Permanently deleting user:', id);
     await db.user.delete({ where: { id } });
 
-    // Clear ALL caches to ensure fresh data
+    // If this was a COMPANY user, also delete the orphaned Company record
+    // (prevents 'Company code already exists' when re-creating with same code)
+    if (user.role === 'COMPANY' && user.companyId) {
+      try {
+        await Promise.all([
+          db.ledgerBalance.deleteMany({ where: { account: { companyId: user.companyId } } }),
+          db.journalEntryLine.deleteMany({ where: { account: { companyId: user.companyId } } }),
+          db.chartOfAccount.deleteMany({ where: { companyId: user.companyId } }),
+          db.journalEntry.deleteMany({ where: { companyId: user.companyId } }),
+          db.ledgerBalance.deleteMany({ where: { financialYear: { companyId: user.companyId } } }),
+          db.financialYear.deleteMany({ where: { companyId: user.companyId } }),
+          db.bankAccount.deleteMany({ where: { companyId: user.companyId } }),
+          db.ledger.deleteMany({ where: { companyId: user.companyId } }),
+          db.expense.deleteMany({ where: { companyId: user.companyId } }),
+          db.gSTConfig.deleteMany({ where: { companyId: user.companyId } }),
+          db.commissionSlab.deleteMany({ where: { companyId: user.companyId } }),
+          db.gracePeriodConfig.deleteMany({ where: { companyId: user.companyId } }),
+          db.preApprovedOffer.deleteMany({ where: { companyId: user.companyId } }),
+          db.agentPerformance.deleteMany({ where: { companyId: user.companyId } }),
+        ]);
+        await db.company.delete({ where: { id: user.companyId } }).catch(() => {/* already deleted */});
+      } catch { /* non-fatal */ }
+    }
+
     invalidateUserCache(id);
     cache.deletePattern('companies:');
     cache.deletePattern('users:');
 
-    console.log('[User DELETE] User permanently deleted successfully');
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'User permanently deleted from database',
-      deletedUserId: id 
-    });
+    return NextResponse.json({ success: true, message: 'User permanently deleted', deletedUserId: id });
   } catch (error) {
     console.error('[User DELETE] Error deleting user:', error);
     
