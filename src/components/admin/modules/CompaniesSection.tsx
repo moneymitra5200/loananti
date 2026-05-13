@@ -59,19 +59,10 @@ function CompaniesSection({
 
   const handleDeleteConfirm = async () => {
     if (!deleteDialog.company) return;
-    
-    const companyId = deleteDialog.company.companyId || deleteDialog.company.companyObj?.id;
-    if (!companyId) {
-      toast.error('Company ID not found');
-      return;
-    }
 
     setDeleteDialog(prev => ({ ...prev, loading: true }));
 
     try {
-      console.log('[CompaniesSection] Starting permanent delete for company:', companyId);
-      
-      // Delete via the user API which now handles cascade delete
       const userResponse = await fetch(`/api/user/${deleteDialog.company.id}`, {
         method: 'DELETE'
       });
@@ -85,11 +76,9 @@ function CompaniesSection({
       toast.success('Company permanently deleted from database');
       setDeleteDialog({ open: false, company: null, loading: false });
       
-      // Refresh both local data and CompanyContext
       await refreshCompanies();
       onRefresh();
     } catch (error) {
-      console.error('[CompaniesSection] Delete error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to delete company');
       setDeleteDialog(prev => ({ ...prev, loading: false }));
     }
@@ -99,14 +88,10 @@ function CompaniesSection({
     setDeleteAllDialog(prev => ({ ...prev, loading: true }));
 
     try {
-      // Use the comprehensive delete-all API that handles cascade deletion properly
       const response = await fetch('/api/company/delete-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          confirmDelete: 'DELETE_ALL_COMPANIES',
-          userId: 'admin'
-        })
+        body: JSON.stringify({ confirmDelete: 'DELETE_ALL_COMPANIES', userId: 'admin' })
       });
 
       const data = await response.json();
@@ -116,18 +101,13 @@ function CompaniesSection({
       }
 
       const deletedCount = data.deletedCount || data.deletedCompanies || 0;
-      toast.success(`Successfully deleted ${deletedCount} companies and all related data from database`);
+      toast.success(`Successfully deleted ${deletedCount} companies and all related data`);
       setDeleteAllDialog({ open: false, loading: false });
-      
-      // Clear all caches and stores
-      setCompanies([]);  // Clear companies store
-      clearCache();      // Clear cache timestamp
-      
-      // Refresh both local data and CompanyContext to update all UI components
+      setCompanies([]);
+      clearCache();
       await refreshCompanies();
       onRefresh();
     } catch (error) {
-      console.error('[CompaniesSection] Delete all error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to delete all companies');
       setDeleteAllDialog(prev => ({ ...prev, loading: false }));
     }

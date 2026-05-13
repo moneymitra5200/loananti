@@ -988,6 +988,36 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
 
   const selectedProduct = loanProducts.find(p => p.id === formData.productId);
 
+  // ── Balance validation helpers ─────────────────────────────────────────────
+  const loanAmountNum = parseFloat(formData.loanAmount || '0') || 0;
+  const selectedBankAccount = bankAccounts.find(b => b.id === formData.bankAccountId);
+  const cashAvailable = cashbookBalance ?? 0;
+
+  // Split-payment balance checks
+  const splitBankInsufficient = useSplitPayment && bankAmount > 0 && selectedBankAccount
+    ? selectedBankAccount.currentBalance < bankAmount
+    : false;
+  const splitCashInsufficient = useSplitPayment && cashAmount > 0
+    ? cashAvailable < cashAmount
+    : false;
+  const splitTotalMismatch = useSplitPayment && loanAmountNum > 0
+    ? Math.abs(bankAmount + cashAmount - loanAmountNum) > 0.01
+    : false;
+
+  // Single-payment balance check
+  const singleSourceSelected = paymentSources.find(s => s.id === formData.bankAccountId);
+  const singleInsufficient = !useSplitPayment && singleSourceSelected
+    ? singleSourceSelected.currentBalance < loanAmountNum
+    : false;
+
+  const canCreate =
+    !!formData.companyId &&
+    !submitting &&
+    !splitBankInsufficient &&
+    !splitCashInsufficient &&
+    !splitTotalMismatch &&
+    !singleInsufficient;
+
   return (
     <>
       <Button onClick={() => setOpen(true)} className="bg-gradient-to-r from-emerald-500 to-teal-500">
@@ -1747,14 +1777,29 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                                 setCashAmount(newCash);
                                 setBankAmount(loanAmountNum - newCash);
                               }}
-                              className="mt-1"
+                              className={`mt-1 ${splitCashInsufficient ? 'border-red-500 bg-red-50' : ''}`}
                               placeholder="Amount from cash"
                             />
-                            <p className="text-xs text-emerald-600 mt-2">
+                            <p className={`text-xs mt-2 ${splitCashInsufficient ? 'text-red-600 font-semibold' : 'text-emerald-600'}`}>
                               Available: {cashbookBalance !== null ? formatCurrency(cashbookBalance) : '₹0'}
                             </p>
+                            {splitCashInsufficient && (
+                              <p className="text-xs text-red-600 mt-1">
+                                ⚠️ Need {formatCurrency(cashAmount)}, only {formatCurrency(cashAvailable)} available
+                              </p>
+                            )}
                           </div>
                         </div>
+
+                        {/* Split bank insufficient alert */}
+                        {splitBankInsufficient && (
+                          <Alert className="bg-red-50 border-red-200">
+                            <AlertCircle className="h-4 w-4 text-red-600" />
+                            <AlertDescription className="text-red-700 text-sm">
+                              ⚠️ Insufficient bank balance — need {formatCurrency(bankAmount)}, available {formatCurrency(selectedBankAccount?.currentBalance ?? 0)}
+                            </AlertDescription>
+                          </Alert>
+                        )}
 
                         {/* Split Summary */}
                         {formData.loanAmount && (
@@ -1952,7 +1997,19 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             {/* Actions */}
             <div className="flex gap-3 pt-4 border-t">
               <Button variant="outline" className="flex-1" onClick={() => { setOpen(false); resetForm(); }}><X className="h-4 w-4 mr-2" /> Cancel</Button>
-              <Button className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500" onClick={handleSubmit} disabled={submitting || !formData.companyId}>
+              <Button
+                className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 disabled:opacity-50"
+                onClick={handleSubmit}
+                disabled={!canCreate}
+                title={
+                  !formData.companyId ? 'Select a company first' :
+                  splitCashInsufficient ? `Insufficient cash balance (available: ${formatCurrency(cashAvailable)})` :
+                  splitBankInsufficient ? `Insufficient bank balance` :
+                  splitTotalMismatch ? 'Split total does not match loan amount' :
+                  singleInsufficient ? `Insufficient balance (available: ${formatCurrency(singleSourceSelected?.currentBalance ?? 0)})` :
+                  undefined
+                }
+              >
                 <Save className="h-4 w-4 mr-2" /> {submitting ? 'Creating...' : 'Create Loan'}
               </Button>
             </div>

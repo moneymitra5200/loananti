@@ -252,38 +252,27 @@ export async function POST(request: NextRequest) {
     stats.userPreferences = (await db.userPreference.deleteMany({})).count;
 
     // ========================================
-    // PHASE 13: Companies
-    // (Save names/config FIRST so we can restore them after recreation)
+    // PHASE 13: Companies — delete all, recreate placeholders
+    // User will rename them via the Companies section after reset
     // ========================================
-
-    // Save company configs before wiping — preserves real company names
-    const savedCompanies = await db.company.findMany({
-      select: { name: true, code: true, isMirrorCompany: true, enableMirrorLoan: true, defaultInterestType: true, isActive: true },
-      orderBy: { createdAt: 'asc' },
-    });
 
     stats.companies = (await db.company.deleteMany({})).count;
 
     // ========================================
-    // PHASE 14: Re-create Companies & Initialize Chart of Accounts
+    // PHASE 14: Re-create 3 placeholder companies
     // ========================================
 
     try {
       const { AccountingService } = await import('@/lib/accounting-service');
 
-      // Use saved company configs if available, otherwise fall back to defaults
-      const defaults = [
-        { name: 'Mirror Finance 1', code: 'C1', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
-        { name: 'Mirror Finance 2', code: 'C2', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
-        { name: 'Primary Finance',  code: 'C3', isMirrorCompany: false, enableMirrorLoan: true,  defaultInterestType: 'FLAT',     isActive: true },
+      const placeholders = [
+        { name: 'Company 1', code: 'C1', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
+        { name: 'Company 2', code: 'C2', isMirrorCompany: true,  enableMirrorLoan: false, defaultInterestType: 'REDUCING', isActive: true },
+        { name: 'Company 3', code: 'C3', isMirrorCompany: false, enableMirrorLoan: true,  defaultInterestType: 'FLAT',     isActive: true },
       ];
 
-      const configs = savedCompanies.length >= 3
-        ? savedCompanies.slice(0, 3)
-        : defaults;
-
       const created: { id: string }[] = [];
-      for (const cfg of configs) {
+      for (const cfg of placeholders) {
         const company = await db.company.create({ data: cfg });
         created.push(company);
       }
@@ -295,7 +284,7 @@ export async function POST(request: NextRequest) {
 
       stats.recreatedCompanies = created.length;
     } catch {
-      stats.companyRecreationError = 'Failed to re-create companies';
+      stats.companyRecreationError = 'Failed to re-create placeholder companies';
     }
 
     const durationMs  = Date.now() - startTime;
