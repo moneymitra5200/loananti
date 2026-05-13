@@ -6,6 +6,7 @@ import NotificationService from '@/lib/notification-service';
 import { emitReportInvalidate } from '@/lib/socket-emit';
 import { invalidateLoanCache, invalidatePaymentCache } from '@/lib/cache';
 import { notifyEvent } from '@/lib/event-notify';
+import { fireAudit } from '@/lib/audit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -1836,6 +1837,15 @@ export async function POST(request: NextRequest) {
       data: { loanId, emiId, type: 'EMI_PAYMENT', actionUrl: '/?section=emi-collection' },
       actionUrl: '/?section=emi-collection',
     });
+
+    // ── Audit Log (fire-and-forget) ────────────────────────────────────────────
+    fireAudit(
+      paidBy,
+      'PAY',
+      'EMI_PAYMENT',
+      `EMI #${emi.installmentNumber} paid for loan ${emi.loanApplication?.applicationNo || loanId} | Type: ${paymentType} | Amount: ₹${paidAmount.toFixed(2)} (P:₹${paidPrincipal.toFixed(2)} + I:₹${paidInterest.toFixed(2)}) | Mode: ${paymentMode} | Status: ${newEmiStatus}`,
+      { loanApplicationId: loanId, newValue: { paidAmount, paidPrincipal, paidInterest, paymentType, paymentMode, newEmiStatus }, ipAddress: request.headers.get('x-forwarded-for') || undefined }
+    );
 
     return NextResponse.json({
 

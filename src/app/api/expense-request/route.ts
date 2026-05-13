@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
 import { notifyEvent } from '@/lib/event-notify';
+import { fireAudit } from '@/lib/audit';
 
 // Expense type → account code mapping (must match DEFAULT_CHART_OF_ACCOUNTS in accounting-service.ts)
 const EXPENSE_ACCOUNT_CODES: Record<string, string> = {
@@ -217,6 +218,7 @@ export async function POST(request: NextRequest) {
         actionUrl: '/?section=expense',
       });
 
+      fireAudit(userId, 'CREATE', 'EXPENSE', `Cashier submitted expense request: "${description}" — ₹${amount} (${expenseType || 'MISC'}) — pending approval`);
       return NextResponse.json({ success: true, expense, message: 'Expense request submitted for Super Admin approval' });
     }
 
@@ -280,6 +282,7 @@ export async function POST(request: NextRequest) {
         actionUrl: '/accountant/expense',
       });
 
+      fireAudit(userId, 'CREATE', 'EXPENSE', `${role} posted expense directly: "${description}" — ₹${amount} (${expenseType || 'MISC'}) via ${paymentSource || 'CASH'}`);
       return NextResponse.json({
         success: true,
         expense: result.expense,
@@ -343,6 +346,7 @@ export async function PUT(request: NextRequest) {
         });
       }
 
+      fireAudit(adminId, 'REJECT', 'EXPENSE', `Expense request rejected: "${expense.description}" — ₹${expense.amount} (Reason: ${rejectionReason || 'No reason'})`);
       return NextResponse.json({ success: true, message: 'Expense request rejected' });
     }
 
@@ -419,6 +423,7 @@ export async function PUT(request: NextRequest) {
         notifyUserIds,
       });
 
+      fireAudit(adminId, 'APPROVE', 'EXPENSE', `Expense approved & posted: "${expense.description}" — ₹${expense.amount} (${expense.expenseNumber}) via ${bankAccount ? bankAccount.bankName + ' Bank' : 'Cash Book'}`);
       return NextResponse.json({
         success: true,
         message: `Expense approved & posted to ${bankAccount ? bankAccount.bankName + ' Bank' : 'Cash Book'}`,

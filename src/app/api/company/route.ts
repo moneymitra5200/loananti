@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, dbWithTimeout } from '@/lib/db';
+import { fireAudit } from '@/lib/audit';
 import { cache, CacheKeys, CacheTTL } from '@/lib/cache';
 
 export async function GET(request: NextRequest) {
@@ -171,6 +172,8 @@ export async function POST(request: NextRequest) {
     // Invalidate company cache
     cache.deletePattern('companies:');
 
+    fireAudit('system', 'CREATE', 'COMPANY', `Company created: "${company.name}" (Code: ${company.code}, isMirrorCompany: ${company.isMirrorCompany})`);
+
     return NextResponse.json({ success: true, company });
   } catch (error) {
     console.error('Error creating company:', error);
@@ -195,6 +198,8 @@ export async function PUT(request: NextRequest) {
     // Invalidate company cache
     cache.deletePattern('companies:');
     cache.delete(CacheKeys.company(id));
+
+    fireAudit('system', 'UPDATE', 'COMPANY', `Company updated: ID ${id}`, { newValue: updateData });
 
     return NextResponse.json({ success: true, company });
   } catch (error) {

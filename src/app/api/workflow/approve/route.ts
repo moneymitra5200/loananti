@@ -5,6 +5,7 @@ import { invalidateLoanCache } from '@/lib/cache';
 import NotificationService from '@/lib/notification-service';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 import { sendPushNotificationToRole, sendPushNotificationToUser } from '@/lib/push-notification-service';
+import { fireAudit } from '@/lib/audit';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type LoanStatus = 'SUBMITTED' | 'SA_APPROVED' | 'COMPANY_APPROVED' | 'AGENT_APPROVED_STAGE1' | 'LOAN_FORM_COMPLETED' | 'SESSION_CREATED' | 'CUSTOMER_SESSION_APPROVED' | 'FINAL_APPROVED' | 'ACTIVE' | 'ACTIVE_INTEREST_ONLY' | 'REJECTED_BY_SA' | 'REJECTED_BY_COMPANY' | 'REJECTED_FINAL' | 'SESSION_REJECTED' | 'CANCELLED' | 'CLOSED' | 'DISBURSED';
@@ -745,6 +746,29 @@ async function processSingleApproval({
         ipAddress: request.headers.get('x-forwarded-for') || 'unknown'
       }
     });
+
+    // ── Audit Log (fire-and-forget, never blocks) ────────────────────────────
+    // Map normalized action → readable verb
+    const auditActionMap: Record<string, string> = {
+      approve: 'APPROVE', reject: 'REJECT', disburse: 'DISBURSE',
+      agent_direct_approve: 'APPROVE', fast_approve: 'APPROVE',
+      approve_session: 'APPROVE', reject_session: 'REJECT',
+      create_session: 'CREATE', complete_form: 'UPDATE',
+      send_back: 'UPDATE'
+    };
+    const auditVerb = auditActionMap[normalizedAction] || normalizedAction.toUpperCase();
+    const auditDesc = `[${role}] ${normalizedAction.replace(/_/g,' ')} loan ${loan.applicationNo}: ${currentStatus} → ${nextStatus}${
+      remarks ? ` (Remarks: ${remarks})` : ''
+    }${
+      disbursementData?.amount ? ` — Amount: ₹${disbursementData.amount.toLocaleString('en-IN')}` : ''
+    }`;
+    fireAudit(
+      userId || 'system',
+      auditVerb,
+      'LOAN',
+      auditDesc,
+      { loanApplicationId: loanId, oldValue: { status: currentStatus }, newValue: { status: nextStatus, ...(disbursementData ? { disbursedAmount: disbursementData.amount } : {}) }, ipAddress: request.headers.get('x-forwarded-for') || undefined }
+    );
     
     // ============ MIRROR LOAN REJECTION/CANCELLATION SYNC ============
     // If original loan is rejected/cancelled, also reject/cancel the mirror loan
