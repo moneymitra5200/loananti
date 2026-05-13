@@ -133,6 +133,15 @@ export async function POST(request: NextRequest) {
     // Generate code if not provided
     const companyCode = code || `COMP-${Date.now().toString(36).toUpperCase()}`;
 
+    // isMirrorCompany MUST be explicitly set to true to enable accounting.
+    // Default is FALSE — original/lending companies must NOT get accounting access.
+    // Hard rule: any company whose code ends in '3' (e.g. C3) is always the original.
+    const codeUpper = companyCode.toUpperCase();
+    const resolvedIsMirror =
+      codeUpper.endsWith('3') || codeUpper === 'C3'
+        ? false                          // force original
+        : isMirrorCompany === true;      // only true when EXPLICITLY sent as true
+
     const company = await db.company.create({
       data: {
         name,
@@ -156,8 +165,8 @@ export async function POST(request: NextRequest) {
         defaultInterestRate: defaultInterestRate || 12,
         defaultInterestType: defaultInterestType || 'FLAT',
         isActive: isActive ?? true,
-        // Mirror settings
-        isMirrorCompany: isMirrorCompany ?? true,
+        // Mirror settings — use resolved value
+        isMirrorCompany: resolvedIsMirror,
         mirrorInterestRate: mirrorInterestRate || null,
         mirrorInterestType: mirrorInterestType || 'REDUCING',
         enableMirrorLoan: enableMirrorLoan ?? false,

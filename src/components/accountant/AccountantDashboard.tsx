@@ -2583,23 +2583,30 @@ export default function UnifiedAccountantDashboard() {
       .catch(() => {});
   }, [selectedCompanyId]);
 
-  // Fetch Companies
+  // Fetch Companies — and auto-fix any badly-flagged original companies on first load
   useEffect(() => {
     const fetchCompanies = async () => {
       setCompaniesLoading(true);
       try {
-        const res = await fetch('/api/company');
+        // Step 1: Run the data-correction API silently (idempotent, safe to call every time)
+        // This corrects any company whose code ends in '3' but has isMirrorCompany=true in DB
+        fetch('/api/company/fix-mirror', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+          .catch(() => {}); // fire-and-forget, never block the UI
+
+        // Step 2: Fetch fresh companies (noCache to get corrected values)
+        const res = await fetch('/api/company?noCache=true');
         if (res.ok) {
           const data = await res.json();
           const allCompanies = data.companies || [];
 
-          // Only MIRROR companies (isMirrorCompany === true) have accounting books.
-          // The original lending company (isMirrorCompany: false / Company 3) does NOT
-          // have double-entry accounting — it uses a simple cash book only and should
-          // NOT appear in the Accounting portal at all.
-          const accountingCompanies = allCompanies.filter(
-            (c: any) => c.isMirrorCompany === true
-          );
+          // Double-safety filter:
+          // 1. isMirrorCompany must be true (DB field)
+          // 2. Company code must NOT end in '3' (C3 = original company, never accounting)
+          const accountingCompanies = allCompanies.filter((c: any) => {
+            const codeUpper = (c.code || '').toUpperCase();
+            const isCodeOriginal = codeUpper.endsWith('3') || codeUpper === 'C3';
+            return c.isMirrorCompany === true && !isCodeOriginal;
+          });
 
           setCompanies(accountingCompanies);
           if (accountingCompanies.length > 0) {
@@ -2615,6 +2622,7 @@ export default function UnifiedAccountantDashboard() {
     };
     fetchCompanies();
   }, []);
+
 
   // Reset to day-book when company changes
   useEffect(() => {
