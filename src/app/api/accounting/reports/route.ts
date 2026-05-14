@@ -177,125 +177,121 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
 async function getBalanceSheet(companyId: string | null) {
   const where = companyId ? { companyId, isActive: true } : { isActive: true };
 
-  // ── 1. CASH IN HAND (from CashBook table — source of truth) ─────────────────
+  // ── 1. CASH IN HAND (CashBook table) ─────────────────────────────────────────
   const cashBook = companyId
-    ? await db.cashBook.findUnique({ where: { companyId }, select: { currentBalance: true, openingBalance: true } })
+    ? await db.cashBook.findUnique({ where: { companyId }, select: { currentBalance: true } })
     : null;
   const cashInHand = cashBook?.currentBalance || 0;
 
-  // ── 2. BANK BALANCES (from BankAccount table — source of truth) ──────────────
+  // ── 2. BANK BALANCES (BankAccount table = source of truth) ───────────────────
   const bankAccountsData = companyId
     ? await db.bankAccount.findMany({ where: { companyId, isActive: true } })
     : await db.bankAccount.findMany({ where: { isActive: true } });
-  const actualBankTotal = bankAccountsData.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+  const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
-  // ── 3. LOANS GIVEN (outstanding principal from actual loan tables) ────────────
-  // Online loans
-  const onlineLoanAgg = await db.loanApplication.aggregate({
-    where: companyId
-      ? { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } }
-      : { status: { in: ['ACTIVE', 'DISBURSED'] } },
-    _sum: { disbursedAmount: true }
-  });
+  // ── 3. LOANS GIVEN (active outstanding) ──────────────────────────────────────
+  const [onlineLoanAgg, offlineLoanAgg] = await Promise.all([
+    db.loanApplication.aggregate({
+      where: companyId
+        ? { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } }
+        : { status: { in: ['ACTIVE', 'DISBURSED'] } },
+      _sum: { disbursedAmount: true }
+    }),
+    db.offlineLoan.aggregate({
+      where: companyId
+        ? { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false }
+        : { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false },
+      _sum: { loanAmount: true }
+    })
+  ]);
   const onlineLoansOutstanding = onlineLoanAgg._sum.disbursedAmount || 0;
-
-  // Offline loans — use sum of outstanding principal from EMI schedules (unpaid principal)
-  const offlineLoanAgg = await db.offlineLoan.aggregate({
-    where: companyId
-      ? { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false }
-      : { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false },
-    _sum: { loanAmount: true }
-  });
   const offlineLoansOutstanding = offlineLoanAgg._sum.loanAmount || 0;
-  const totalLoansGiven = onlineLoansOutstanding + offlineLoansOutstanding;
 
-  // ── 4. INTEREST RECEIVABLE (from ChartOfAccount 1301 / 1300 series) ──────────
+  // ── 4. INTEREST RECEIVABLE (ChartOfAccount 13xx) ─────────────────────────────
   const interestReceivableAcct = await db.chartOfAccount.findFirst({
     where: { ...(companyId ? { companyId } : {}), accountCode: { startsWith: '13' }, isActive: true },
     orderBy: { accountCode: 'asc' }
   });
   const interestReceivable = Math.max(0, interestReceivableAcct?.currentBalance || 0);
 
-  // ── 5. OTHER ASSETS (ChartOfAccount ASSET, excluding bank/cash/loan/interest) ─
+  // ── 5. FIXED/OTHER ASSETS from ChartOfAccount ────────────────────────────────
+  // Skip 11xx (cash/bank), 12xx (loans), 13xx (receivables), 14xx (alt bank codes)
+  const ASSET_SKIP_PREFIXES = ['11', '12', '13', '14'];
   const allAssetAccounts = await db.chartOfAccount.findMany({
     where: { ...where, accountType: 'ASSET' },
-    orderBy: { accountCode: 'asc' },
+    orderBy: { accountCode: 'asc' }
   });
+  const otherAssets = allAssetAccounts.filter(a =>
+    !ASSET_SKIP_PREFIXES.some(p => a.accountCode.startsWith(p))
+  );
 
-  const SKIP_PREFIXES = ['110', '111', '120', '121', '130']; // bank, cash, loans, interest — handled above
-  const otherAssets = allAssetAccounts.filter(a => {
-    const code = a.accountCode;
-    return !SKIP_PREFIXES.some(p => code.startsWith(p));
-  });
-
-  // ── BUILD ASSETS LIST ─────────────────────────────────────────────────────────
+  // ── BUILD ASSETS ──────────────────────────────────────────────────────────────
   const assets: any[] = [
-    // Section: Current Assets
-    { accountCode: 'CA', accountName: '── Current Assets ──', amount: 0, isSection: true },
-    { accountCode: '1101', accountName: 'Cash in Hand', amount: cashInHand, isHead: false },
+    { accountCode: 'SEC_CA', accountName: '── Current Assets ──', amount: 0, isSection: true },
+    { accountCode: '1101', accountName: 'Cash in Hand', amount: cashInHand },
     {
-      accountCode: '1102', accountName: 'Bank Accounts',
-      amount: actualBankTotal, isHead: true,
+      accountCode: '1102', accountName: 'Bank Accounts', amount: actualBankTotal, isHead: true,
       subAccounts: bankAccountsData.map(b => ({
         accountCode: b.id,
-        accountName: `${b.bankName} – ${b.accountNumber?.slice(-4) || 'XXXX'}`,
-        amount: b.currentBalance || 0, isSubHead: true,
+        accountName: `${b.bankName} \u2013 ${b.accountNumber?.slice(-4) || 'XXXX'}`,
+        amount: b.currentBalance || 0, isSubHead: true
       }))
     },
-    // Section: Loans Portfolio
-    { accountCode: 'LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
-    ...(onlineLoansOutstanding > 0 ? [{
-      accountCode: '1201', accountName: 'Online Loans Given (Active)',
-      amount: onlineLoansOutstanding, isHead: false
-    }] : []),
-    ...(offlineLoansOutstanding > 0 ? [{
-      accountCode: '1210', accountName: 'Offline Loans Given (Active)',
-      amount: offlineLoansOutstanding, isHead: false
-    }] : []),
-    // Section: Receivables
+    { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
+    ...(onlineLoansOutstanding > 0 ? [{ accountCode: '1201', accountName: 'Online Loans Given (Active)', amount: onlineLoansOutstanding }] : []),
+    ...(offlineLoansOutstanding > 0 ? [{ accountCode: '1210', accountName: 'Offline Loans Given (Active)', amount: offlineLoansOutstanding }] : []),
+    ...(onlineLoansOutstanding === 0 && offlineLoansOutstanding === 0 ? [{ accountCode: 'NL', accountName: 'No Active Loans', amount: 0 }] : []),
     ...(interestReceivable > 0 ? [
-      { accountCode: 'REC', accountName: '── Receivables ──', amount: 0, isSection: true },
-      { accountCode: '1301', accountName: 'Interest Receivable', amount: interestReceivable, isHead: false }
+      { accountCode: 'SEC_REC', accountName: '── Receivables ──', amount: 0, isSection: true },
+      { accountCode: '1301', accountName: 'Interest Receivable', amount: interestReceivable }
     ] : []),
-    // Section: Other Assets
     ...(otherAssets.length > 0 ? [
-      { accountCode: 'OA', accountName: '── Other Assets ──', amount: 0, isSection: true },
-      ...otherAssets.map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0, isHead: false }))
+      { accountCode: 'SEC_FA', accountName: '── Fixed Assets ──', amount: 0, isSection: true },
+      ...otherAssets.map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0 }))
     ] : []),
   ];
 
-  // ── 6. LIABILITIES ───────────────────────────────────────────────────────────
+  // ── 6. LIABILITIES ────────────────────────────────────────────────────────────
   const liabilityAccounts = await db.chartOfAccount.findMany({
     where: { ...where, accountType: 'LIABILITY' },
-    orderBy: { accountCode: 'asc' },
+    orderBy: { accountCode: 'asc' }
   });
 
-  const liabilities: any[] = liabilityAccounts.map(a => ({
-    accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0
-  }));
+  // Standard heads always shown (even at zero)
+  const stdLiabHeads = [
+    { code: '2101', name: 'Bank Loans' },
+    { code: '2110', name: 'Investor Capital' },
+    { code: '2120', name: 'Borrowed Funds' },
+    { code: '2201', name: 'Accounts Payable' },
+    { code: '2301', name: 'GST Payable' },
+    { code: '2302', name: 'TDS Payable' },
+    { code: '2401', name: 'Agent Commission Payable' },
+  ];
 
-  // Add BorrowedMoney table (source of truth for borrowings)
-  if (companyId) {
-    const borrowedRows = await db.borrowedMoney.findMany({ where: { companyId } });
-    const borrowedBalance = borrowedRows.reduce((s, b) => s + ((b.amount || 0) - (b.amountRepaid || 0)), 0);
-    if (borrowedBalance > 0.01) {
-      const existingLiab = liabilities.reduce((s, l) => s + (l.amount || 0), 0);
-      if (existingLiab < borrowedBalance * 0.5) {
-        liabilities.length = 0;
-        liabilities.push({
-          accountCode: '2120', accountName: 'Borrowed Funds (Outstanding)',
-          amount: borrowedBalance,
-        });
-      }
+  const liabilities: any[] = stdLiabHeads.map(std => {
+    const acct = liabilityAccounts.find(a => a.accountCode === std.code);
+    return { accountCode: std.code, accountName: std.name, amount: Math.abs(acct?.currentBalance || 0) };
+  });
+
+  // Add any extra liability accounts not in standard list
+  for (const acct of liabilityAccounts) {
+    if (!stdLiabHeads.find(s => s.code === acct.accountCode)) {
+      liabilities.push({ accountCode: acct.accountCode, accountName: acct.accountName, amount: Math.abs(acct.currentBalance || 0) });
     }
   }
 
-  // Always show all liability heads even at zero (so user knows what exists)
-  if (liabilities.length === 0) {
-    liabilities.push({ accountCode: '2100', accountName: 'External Liabilities', amount: 0 });
+  // BorrowedMoney table — always override 2120 with actual outstanding
+  if (companyId) {
+    const borrowedRows = await db.borrowedMoney.findMany({ where: { companyId } });
+    const borrowedNet = borrowedRows.reduce((s, b) => s + ((b.amount || 0) - (b.amountRepaid || 0)), 0);
+    if (borrowedNet > 0.01) {
+      const idx = liabilities.findIndex(l => l.accountCode === '2120');
+      if (idx >= 0) liabilities[idx].amount = Math.max(liabilities[idx].amount, borrowedNet);
+      else liabilities.push({ accountCode: '2120', accountName: 'Borrowed Funds (Outstanding)', amount: borrowedNet });
+    }
   }
 
-  // ── 7. EQUITY ────────────────────────────────────────────────────────────────
+  // ── 7. EQUITY ─────────────────────────────────────────────────────────────────
   const equity: any[] = [];
 
   if (companyId) {
@@ -305,73 +301,54 @@ async function getBalanceSheet(companyId: string | null) {
     );
     equity.push({ accountCode: '3002', accountName: "Owner's Capital (Invested)", amount: ownerCapital });
 
-    // Retained Earnings from ChartOfAccount
-    const retainedAcct = await db.chartOfAccount.findFirst({
-      where: { companyId, accountCode: '3003', isActive: true }
-    });
-    if (retainedAcct && (retainedAcct.currentBalance || 0) !== 0) {
-      equity.push({ accountCode: '3003', accountName: 'Retained Earnings (Prior Years)', amount: retainedAcct.currentBalance || 0 });
+    const retainedAcct = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3003', isActive: true } });
+    const retainedAmt = retainedAcct?.currentBalance || 0;
+    if (retainedAmt !== 0) {
+      equity.push({ accountCode: '3003', accountName: 'Retained Earnings (Prior Years)', amount: retainedAmt });
     }
   } else {
-    const equityAccounts = await db.chartOfAccount.findMany({
-      where: { ...where, accountType: 'EQUITY' },
-      orderBy: { accountCode: 'asc' },
-    });
-    equityAccounts.forEach(a => {
-      equity.push({ accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0 });
-    });
+    const eqAccounts = await db.chartOfAccount.findMany({ where: { ...where, accountType: 'EQUITY' }, orderBy: { accountCode: 'asc' } });
+    eqAccounts.forEach(a => equity.push({ accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0 }));
   }
 
-  // Current Year Profit (computed from journal lines — same as P&L)
-  const jWhere: Record<string, unknown> = { isApproved: true, isReversed: false };
-  if (companyId) jWhere.companyId = companyId;
-
+  // Current Year P&L from ChartOfAccount income/expense balances
   const [incAccts, expAccts] = await Promise.all([
-    db.chartOfAccount.findMany({ where: { ...where, accountType: 'INCOME' }, include: { journalLines: { where: { journalEntry: jWhere }, select: { debitAmount: true, creditAmount: true } } } }),
-    db.chartOfAccount.findMany({ where: { ...where, accountType: 'EXPENSE' }, include: { journalLines: { where: { journalEntry: jWhere }, select: { debitAmount: true, creditAmount: true } } } }),
+    db.chartOfAccount.findMany({ where: { ...where, accountType: 'INCOME' } }),
+    db.chartOfAccount.findMany({ where: { ...where, accountType: 'EXPENSE' } })
   ]);
-
-  const journalIncome = (incAccts as any[]).reduce((sum, acc) => {
-    const cr = acc.journalLines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
-    const dr = acc.journalLines.reduce((s: number, l: any) => s + (l.debitAmount || 0), 0);
-    return sum + ((cr - dr) !== 0 ? (cr - dr) : (acc.currentBalance || 0));
-  }, 0);
-  const journalExpenses = (expAccts as any[]).reduce((sum, acc) => {
-    const dr = acc.journalLines.reduce((s: number, l: any) => s + (l.debitAmount || 0), 0);
-    const cr = acc.journalLines.reduce((s: number, l: any) => s + (l.creditAmount || 0), 0);
-    return sum + ((dr - cr) !== 0 ? (dr - cr) : (acc.currentBalance || 0));
-  }, 0);
+  const totalIncome = incAccts.reduce((s, a) => s + (a.currentBalance || 0), 0);
+  const totalExpenses = expAccts.reduce((s, a) => s + (a.currentBalance || 0), 0);
 
   let cashbookIncome = 0;
   if (companyId) {
     const cbEntries = await db.cashBookEntry.findMany({
-      where: { cashBook: { companyId }, entryType: 'CREDIT', referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME'] } },
+      where: {
+        cashBook: { companyId },
+        entryType: 'CREDIT',
+        referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME'] }
+      },
       select: { amount: true }
     });
     cashbookIncome = cbEntries.reduce((s, e) => s + (e.amount || 0), 0);
   }
-
-  const currentYearProfit = Math.max(journalIncome, cashbookIncome) - journalExpenses;
+  const currentYearProfit = Math.max(totalIncome, cashbookIncome) - totalExpenses;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
 
-  // ── TOTALS ───────────────────────────────────────────────────────────────────
-  // Assets total: skip section headers (isSection: true) and zero-amount items
-  const totalAssets = assets.filter(a => !a.isSection).reduce((sum, a) => sum + (a.amount || 0), 0);
-  const totalLiabilities = liabilities.reduce((sum, a) => sum + (a.amount || 0), 0);
-  const totalEquity = equity.reduce((sum, a) => sum + (a.amount || 0), 0);
+  // ── TOTALS ────────────────────────────────────────────────────────────────────
+  const totalAssets = assets.filter(a => !a.isSection).reduce((s, a) => s + (a.amount || 0), 0);
+  const totalLiabilities = liabilities.reduce((s, a) => s + (a.amount || 0), 0);
+  const totalEquity = equity.reduce((s, a) => s + (a.amount || 0), 0);
 
   return NextResponse.json({
-    assets,
-    liabilities,
-    equity,
-    totalAssets,
-    totalLiabilities,
-    totalEquity,
+    assets, liabilities, equity,
+    totalAssets, totalLiabilities, totalEquity,
+    summary: { totalIncome, totalExpenses, currentYearProfit },
     balanceCheck: {
       assets: totalAssets,
       liabilitiesAndEquity: totalLiabilities + totalEquity,
       isBalanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 1,
-    },
+      difference: Math.abs(totalAssets - (totalLiabilities + totalEquity))
+    }
   });
 }
 

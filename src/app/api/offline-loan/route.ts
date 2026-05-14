@@ -3275,6 +3275,7 @@ export async function PUT(request: NextRequest) {
               installmentNumber: emi.installmentNumber,
               userId,
               customerId: emi.offlineLoan.customerId || undefined,
+              customerName: emi.offlineLoan.customerName || undefined,
               mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || undefined,
               mirrorPrincipal: isMirrorLoan ? mirrorPrincipalAmount : undefined,
               mirrorInterest: isMirrorLoan ? mirrorInterestAmount : undefined,

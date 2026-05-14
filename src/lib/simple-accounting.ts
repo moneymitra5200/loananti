@@ -276,6 +276,7 @@ export interface EMIPaymentAccountingParams {
   
   // Customer
   customerId?: string;
+  customerName?: string;
   
   // Mirror loan info (if applicable)
   mirrorLoanId?: string;
@@ -347,7 +348,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     journalEntryId?: string;
   } = {};
 
-  const description = `EMI #${installmentNumber} Payment - ${loanNumber} - ${paymentType} (P: ₹${principalComponent}, I: ₹${interestComponent})`;
+  const customerLabel = params.customerName || loanNumber;
+  const description = `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`;
 
   // ============================================
   // MIRROR LOAN PAYMENT - SIMPLE LOGIC
@@ -396,7 +398,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           companyId: mirrorCompanyId,
           entryType: 'CREDIT',
           amount: mirrorCashPortion,
-          description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} [SPLIT: Cash ₹${mirrorCashPortion} + Online ₹${mirrorOnlinePortion}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: paymentId,
           createdById: userId
@@ -408,7 +410,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           companyId: mirrorCompanyId,
           transactionType: 'CREDIT',
           amount: mirrorOnlinePortion,
-          description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} [SPLIT: Cash ₹${mirrorCashPortion} + Online ₹${mirrorOnlinePortion}]${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: `${paymentId}-SPLIT-ONLINE`,
           createdById: userId
@@ -424,7 +426,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           companyId: mirrorCompanyId,
           transactionType: 'CREDIT',
           amount: recordAmount,
-          description: `MIRROR EMI RECEIPT (Online) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: paymentId,
           createdById: userId
@@ -435,7 +437,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           companyId: mirrorCompanyId,
           entryType: 'CREDIT',
           amount: recordAmount,
-          description: `MIRROR EMI RECEIPT (Cash) - ${loanNumber} - EMI #${installmentNumber} (P:₹${recordPrincipal} + I:₹${recordInterest})${paymentType === 'PARTIAL' ? ' [PARTIAL]' : ''}`,
+          description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: paymentId,
           createdById: userId
@@ -576,7 +578,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             entryDate: now,
             referenceType: 'MIRROR_EMI_PAYMENT',
             referenceId: paymentId,
-            narration: `MIRROR LOAN EMI #${installmentNumber} - ${loanNumber} - ₹${recordAmount} (P:₹${recordPrincipal} + I:₹${recordInterest}) [${modeLabel}]${partialSuffix}`,
+            narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
             totalDebit:  recordAmount,
             totalCredit: recordInterest + recordPrincipal,
             isAutoEntry: true,
@@ -669,7 +671,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         entryDate: new Date(),
         referenceType: 'EMI_PAYMENT',
         referenceId: paymentId,
-        narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Personal Credit)`,
+        narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
         lines: [
           { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0, loanId, customerId, narration: 'Cash received for EMI' },
           ...personalCreditLines,
@@ -776,7 +778,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       entryDate: new Date(),
       referenceType: 'EMI_PAYMENT',
       referenceId: paymentId,
-      narration: `EMI Payment - ${loanNumber} #${installmentNumber} (Company Credit - ${modeLabel})`,
+      narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
       lines: [...debitLines, ...companyCreditLines],
       createdById: userId,
       paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
