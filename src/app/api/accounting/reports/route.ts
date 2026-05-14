@@ -231,8 +231,9 @@ async function getBalanceSheet(companyId: string | null) {
     : await db.bankAccount.findMany({ where: { isActive: true } });
   const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
-  // ── 3. LOANS GIVEN (active outstanding) ──────────────────────────────────────
-  const [onlineLoanAgg, offlineLoanAgg] = await Promise.all([
+  // ── 3. LOANS GIVEN (active outstanding principal) ───────────────────────────
+  const [onlineLoanAgg, offlineLoanAgg, onlinePaidAgg, offlinePaidAgg] = await Promise.all([
+    // Total Disbursed
     db.loanApplication.aggregate({
       where: companyId
         ? { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } }
@@ -244,10 +245,24 @@ async function getBalanceSheet(companyId: string | null) {
         ? { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false }
         : { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false },
       _sum: { loanAmount: true }
+    }),
+    // Total Principal Repaid
+    db.eMISchedule.aggregate({
+      where: companyId
+        ? { loanApplication: { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } } }
+        : { loanApplication: { status: { in: ['ACTIVE', 'DISBURSED'] } } },
+      _sum: { paidPrincipal: true }
+    }),
+    db.offlineLoanEMI.aggregate({
+      where: companyId
+        ? { offlineLoan: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false } }
+        : { offlineLoan: { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false } },
+      _sum: { paidPrincipal: true }
     })
   ]);
-  const onlineLoansOutstanding = onlineLoanAgg._sum.disbursedAmount || 0;
-  const offlineLoansOutstanding = offlineLoanAgg._sum.loanAmount || 0;
+
+  const onlineLoansOutstanding = (onlineLoanAgg._sum.disbursedAmount || 0) - (onlinePaidAgg._sum.paidPrincipal || 0);
+  const offlineLoansOutstanding = (offlineLoanAgg._sum.loanAmount || 0) - (offlinePaidAgg._sum.paidPrincipal || 0);
 
   // ── 4. INTEREST RECEIVABLE (ChartOfAccount 13xx) ─────────────────────────────
   const interestReceivableAcct = await db.chartOfAccount.findFirst({
