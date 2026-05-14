@@ -2320,7 +2320,13 @@ export default function OfflineLoanDetailPanel({
                     type="button"
                     variant={paymentType === 'PARTIAL' ? 'default' : 'outline'}
                     className={paymentType === 'PARTIAL' ? 'bg-orange-500 hover:bg-orange-600' : ''}
-                    onClick={() => setPaymentType('PARTIAL')}
+                    onClick={() => {
+                      setPaymentType('PARTIAL');
+                      // Reset to 0 so user enters their own partial amount
+                      setPaymentAmount(0);
+                      setSplitCashPayment('');
+                      setSplitOnlinePayment('');
+                    }}
                   >
                     <Receipt className="h-4 w-4 mr-1" />
                     Partial
@@ -2678,7 +2684,13 @@ export default function OfflineLoanDetailPanel({
                       {/* SPLIT Option */}
                       <button
                         type="button"
-                        onClick={() => setPaymentMode('SPLIT')}
+                        onClick={() => {
+                          setPaymentMode('SPLIT');
+                          if (paymentAmount > 0) {
+                            setSplitCashPayment(String(paymentAmount));
+                            setSplitOnlinePayment('0');
+                          }
+                        }}
                         className={`p-3 rounded-lg border-2 text-left transition-all ${
                           paymentMode === 'SPLIT'
                             ? 'border-purple-500 bg-purple-100'
@@ -2703,13 +2715,23 @@ export default function OfflineLoanDetailPanel({
                           <div>
                             <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
                             <Input type="number" value={splitCashPayment}
-                              onChange={(e) => setSplitCashPayment(e.target.value)}
+                              onChange={(e) => {
+                                const cash = parseFloat(e.target.value) || 0;
+                                setSplitCashPayment(e.target.value);
+                                const rem = paymentAmount - cash;
+                                if (paymentAmount > 0 && rem >= 0) setSplitOnlinePayment(String(Math.round(rem * 100) / 100));
+                              }}
                               placeholder="e.g. 500" />
                           </div>
                           <div>
                             <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
                             <Input type="number" value={splitOnlinePayment}
-                              onChange={(e) => setSplitOnlinePayment(e.target.value)}
+                              onChange={(e) => {
+                                const online = parseFloat(e.target.value) || 0;
+                                setSplitOnlinePayment(e.target.value);
+                                const rem = paymentAmount - online;
+                                if (paymentAmount > 0 && rem >= 0) setSplitCashPayment(String(Math.round(rem * 100) / 100));
+                              }}
                               placeholder="e.g. 700" />
                           </div>
                         </div>
@@ -2802,7 +2824,15 @@ export default function OfflineLoanDetailPanel({
                     {/* SPLIT Option */}
                     <button
                       type="button"
-                      onClick={() => setPaymentMode('SPLIT')}
+                      onClick={() => {
+                        setPaymentMode('SPLIT');
+                        // Auto-fill: cash = full paymentAmount, online = 0
+                        // User just adjusts one side — the other auto-complements
+                        if (paymentAmount > 0) {
+                          setSplitCashPayment(String(paymentAmount));
+                          setSplitOnlinePayment('0');
+                        }
+                      }}
                       className={`p-3 rounded-lg border-2 text-left transition-all ${
                         paymentMode === 'SPLIT' 
                           ? 'border-purple-500 bg-purple-100' 
@@ -2827,17 +2857,33 @@ export default function OfflineLoanDetailPanel({
                         <div>
                           <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
                           <Input type="number" value={splitCashPayment}
-                            onChange={(e) => setSplitCashPayment(e.target.value)}
+                            onChange={(e) => {
+                              const cash = parseFloat(e.target.value) || 0;
+                              setSplitCashPayment(e.target.value);
+                              // Auto-complement: online = total - cash
+                              const remaining = paymentAmount - cash;
+                              if (paymentAmount > 0 && remaining >= 0) {
+                                setSplitOnlinePayment(String(Math.round(remaining * 100) / 100));
+                              }
+                            }}
                             placeholder="e.g. 500" />
                         </div>
                         <div>
                           <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
                           <Input type="number" value={splitOnlinePayment}
-                            onChange={(e) => setSplitOnlinePayment(e.target.value)}
+                            onChange={(e) => {
+                              const online = parseFloat(e.target.value) || 0;
+                              setSplitOnlinePayment(e.target.value);
+                              // Auto-complement: cash = total - online
+                              const remaining = paymentAmount - online;
+                              if (paymentAmount > 0 && remaining >= 0) {
+                                setSplitCashPayment(String(Math.round(remaining * 100) / 100));
+                              }
+                            }}
                             placeholder="e.g. 700" />
                         </div>
                       </div>
-                      {/* BUG-5 fix: always show total, guard NaN with || 0 */}
+                      {/* Total vs paymentAmount check */}
                       {(() => {
                         const sc = parseFloat(splitCashPayment) || 0;
                         const so = parseFloat(splitOnlinePayment) || 0;
