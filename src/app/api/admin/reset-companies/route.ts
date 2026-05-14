@@ -255,3 +255,8 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 }
+// GET handler — lets you trigger the reset directly from a browser URL
+// Usage: GET /api/admin/reset-companies?secret=RESET_COMPANIES_2024
+export async function GET(request: NextRequest) {
+  return POST(request);
+}
