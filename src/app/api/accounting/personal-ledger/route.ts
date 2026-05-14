@@ -145,11 +145,25 @@ async function listCustomersForCompany(companyId: string | null) {
   const mirrorMappings = loanIdsFromLines.length > 0
     ? await db.mirrorLoanMapping.findMany({
         where: { originalLoanId: { in: loanIdsFromLines } }, // includes offline mirrors too
-        select: { originalLoanId: true, mirrorCompanyId: true }
+        select: { originalLoanId: true, mirrorCompanyId: true, mirrorLoanId: true }
       })
     : [];
   const mirroredLoanIds    = new Set(mirrorMappings.map(m => m.originalLoanId));
   const mirrorCompanyOfLoan = new Map(mirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+
+  // 4b. Build REVERSE map: mirrorLoanId → originalLoanId
+  // This handles the case where a mirror loan record (e.g. C1-PERSONAL-00001) has its own
+  // journal entries with loanId = C1_MIRROR_LOAN_ID, causing duplicate customer rows.
+  const reverseMirrorMappings = loanIdsFromLines.length > 0
+    ? await db.mirrorLoanMapping.findMany({
+        where: { mirrorLoanId: { in: loanIdsFromLines } },
+        select: { mirrorLoanId: true, originalLoanId: true }
+      })
+    : [];
+  // mirrorLoanId → originalLoanId
+  const mirrorToOriginalId = new Map(
+    reverseMirrorMappings.filter(m => m.mirrorLoanId).map(m => [m.mirrorLoanId!, m.originalLoanId])
+  );
 
   // 5. Build customer name map from loanId
   const onlineLoans = loanIdsFromLines.length > 0
@@ -185,6 +199,17 @@ async function listCustomersForCompany(companyId: string | null) {
     }
   }
 
+  // Propagate customer from original loan to mirror loan record (de-dupe)
+  // If a mirror loan ID has its own journal entries but no linked customer, redirect it
+  // to the original loan's customer so they merge into one row in byCustomer.
+  for (const [mirrorId, originalId] of mirrorToOriginalId) {
+    if (!loanToCustomer.has(mirrorId) || loanToCustomer.get(mirrorId)?.id.startsWith('offline_')) {
+      // Mirror loan has no customer or only a synthetic one — use original's customer
+      const origCustomer = loanToCustomer.get(originalId);
+      if (origCustomer) loanToCustomer.set(mirrorId, origCustomer);
+    }
+  }
+
   // 6. Also build customer map for lines that have customerId but no loanId
   const customerIdsFromLines = [...new Set(lines.filter(l => !l.loanId && l.customerId).map(l => l.customerId!) )];
   const customersById = customerIdsFromLines.length > 0
@@ -213,17 +238,22 @@ async function listCustomersForCompany(companyId: string | null) {
       }
     }
 
-    // Get customer info
+    // Get customer info — if this line belongs to a mirror loan record, redirect to original loan
     let customer: { id: string; name: string; phone: string; email: string } | undefined;
-    if (line.loanId) {
-      customer = loanToCustomer.get(line.loanId);
+    const effectiveLoanId = line.loanId && mirrorToOriginalId.has(line.loanId)
+      ? mirrorToOriginalId.get(line.loanId)!  // use original loan's customer
+      : line.loanId;
+    if (effectiveLoanId) {
+      customer = loanToCustomer.get(effectiveLoanId);
+      // Fallback: try the raw loanId too (in case only the mirror loanId has a customer entry)
+      if (!customer && line.loanId) customer = loanToCustomer.get(line.loanId);
     } else if (line.customerId) {
       const c = customerMap.get(line.customerId);
       if (c) customer = { id: c.id, name: c.name || 'Unknown', phone: c.phone || '', email: c.email || '' };
     }
     if (!customer) continue;
 
-    const isMirror = line.loanId ? mirroredLoanIds.has(line.loanId) : false;
+    const isMirror = line.loanId ? (mirroredLoanIds.has(line.loanId) || mirrorToOriginalId.has(line.loanId)) : false;
 
     if (!byCustomer.has(customer.id)) {
       byCustomer.set(customer.id, {
