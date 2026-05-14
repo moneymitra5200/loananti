@@ -72,10 +72,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    // Cache 5 min — balance sheet only changes when journal entries are made
+    // Cache key (kept for write, but skip read so EquityEntry is always fresh)
     const cacheKey = `accountant:balance-sheet:${companyId}:${year || 'current'}`;
-    const cached = cache.get<object>(cacheKey);
-    if (cached) return NextResponse.json(cached);
+    // Note: cache read disabled — Owner's Capital must always be fresh from EquityEntry table
 
     // Get company details
     const company = await db.company.findUnique({
@@ -175,10 +174,24 @@ export async function GET(request: NextRequest) {
     // ============================================
 
     // Equity Accounts
-    const openingBalanceEquity = getAccountBalance(ACCOUNT_CODES.OPENING_BALANCE_EQUITY);
-    const ownersCapital = getAccountBalance(ACCOUNT_CODES.OWNERS_CAPITAL);
-    const retainedEarnings = getAccountBalance(ACCOUNT_CODES.RETAINED_EARNINGS);
-    const currentYearProfit = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
+    // ─── Owner's Capital: READ FROM EquityEntry table (source of truth) ─────
+    // ChartOfAccount.currentBalance for 3002 may be stale if Fix-Imbalance
+    // hasn't run yet.  EquityEntry is ALWAYS written when capital is added.
+    const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
+    const ownersCapitalFromEquity = equityEntries.reduce(
+      (s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0),
+      0
+    );
+
+    // Also check ChartOfAccount balances for 3001-3004 as a fallback
+    const coaCapital3002 = getAccountBalance(ACCOUNT_CODES.OWNERS_CAPITAL);
+    const coaCapital3001 = getAccountBalance(ACCOUNT_CODES.OPENING_BALANCE_EQUITY);
+
+    // Use EquityEntry if it has data, otherwise fall back to CoA
+    const ownersCapital       = ownersCapitalFromEquity > 0 ? ownersCapitalFromEquity : coaCapital3002;
+    const openingBalanceEquity = coaCapital3001;
+    const retainedEarnings    = getAccountBalance(ACCOUNT_CODES.RETAINED_EARNINGS);
+    const currentYearProfit   = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
 
     // Calculate total income and expenses for P&L
     const incomeAccounts = accounts.filter(a => a.accountType === 'INCOME');
@@ -352,6 +365,7 @@ export async function GET(request: NextRequest) {
         totalEquity: ownersCapital + openingBalanceEquity + retainedEarnings + profitLoss,
         totalLiabilities: bankLoans + investorCapital + borrowedFunds,
         totalAssets: rightTotal, profitLoss, totalIncome, totalExpenses,
+        equitySource: ownersCapitalFromEquity > 0 ? 'EquityEntry' : 'ChartOfAccount',
         isBalanced: Math.abs(leftTotal - rightTotal) < 0.01,
         difference: Math.abs(leftTotal - rightTotal)
       },
