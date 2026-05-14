@@ -889,32 +889,50 @@ export default function CashierDashboard() {
                 <AnimatePresence>
                   {parallelLoans.map((loan: any) => {
                     const mapping = mirrorMappings[loan.id];
-                    const mirrorLoanData = mapping?.mirrorLoan ? {
-                      id: mapping.mirrorLoan.id,
-                      identifier: mapping.mirrorLoan.identifier || mapping.mirrorLoan.applicationNo,
-                      applicationNo: mapping.mirrorLoan.applicationNo,
-                      customer: mapping.mirrorLoan.customer,
-                      customerName: mapping.mirrorLoan.customer?.name,
-                      customerPhone: mapping.mirrorLoan.customer?.phone,
-                      approvedAmount: mapping.mirrorLoan.approvedAmount || mapping.mirrorLoan.sessionForm?.approvedAmount || 0,
-                      interestRate: mapping.mirrorInterestRate || mapping.mirrorLoan.interestRate || 0,
-                      tenure: mapping.mirrorTenure || mapping.mirrorLoan.tenure || 0,
-                      emiAmount: mapping.originalEMIAmount || mapping.mirrorLoan.emiAmount || 0,
-                      status: mapping.mirrorLoan.status || 'ACTIVE',
-                      loanType: mapping.mirrorLoan.loanType,
-                      company: mapping.mirrorCompany,
-                      createdAt: mapping.mirrorLoan.createdAt || new Date().toISOString(),
-                      disbursementDate: mapping.mirrorLoan.disbursementDate,
+
+                    // Resolve mirror loan source: online loans use `mirrorLoan`, offline use `offlineMirrorLoan`
+                    const mirrorSource = mapping?.mirrorLoan || mapping?.offlineMirrorLoan || null;
+                    // Fallback customer: offline originals store customerName on the original record
+                    const fallbackCustomerName = mapping?.offlineOriginalLoan?.customerName
+                      || mapping?.mirrorLoan?.customer?.name
+                      || loan.customerName
+                      || loan.customer?.name;
+
+                    const mirrorLoanData = mirrorSource ? {
+                      id: mirrorSource.id,
+                      loanNumber: mirrorSource.loanNumber || mirrorSource.applicationNo,
+                      identifier: mirrorSource.loanNumber || mirrorSource.applicationNo || mirrorSource.identifier,
+                      applicationNo: mirrorSource.applicationNo || mirrorSource.loanNumber,
+                      customer: mirrorSource.customer || (fallbackCustomerName ? { name: fallbackCustomerName } : undefined),
+                      customerName: mirrorSource.customerName || mirrorSource.customer?.name || fallbackCustomerName,
+                      customerPhone: mirrorSource.customerPhone || mirrorSource.customer?.phone,
+                      loanAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
+                      approvedAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
+                      interestRate: mapping?.mirrorInterestRate || mirrorSource.interestRate || 0,
+                      tenure: mapping?.mirrorTenure || mirrorSource.tenure || 0,
+                      emiAmount: mapping?.originalEMIAmount || mirrorSource.emiAmount || 0,
+                      status: mirrorSource.status || 'ACTIVE',
+                      loanType: mirrorSource.loanType || (mirrorSource.loanNumber ? 'OFFLINE' : 'ONLINE'),
+                      company: mirrorSource.company || mapping?.mirrorCompany,
+                      createdAt: mirrorSource.createdAt || new Date().toISOString(),
+                      disbursementDate: mirrorSource.disbursementDate,
                     } : null;
+
+                    // ID of mirror loan for opening detail panel
+                    const mirrorLoanId = mirrorSource?.id || mapping?.mirrorLoanId;
 
                     return (
                       <ParallelLoanView
                         key={loan.id}
                         originalLoan={{
                           id: loan.id,
-                          identifier: loan.identifier,
+                          loanNumber: loan.loanNumber || loan.identifier,
+                          identifier: loan.identifier || loan.loanNumber,
                           customer: loan.customer,
-                          approvedAmount: loan.approvedAmount,
+                          customerName: loan.customerName,
+                          customerPhone: loan.customerPhone,
+                          loanAmount: loan.loanAmount || loan.approvedAmount,
+                          approvedAmount: loan.approvedAmount || loan.loanAmount,
                           interestRate: loan.interestRate,
                           tenure: loan.tenure,
                           emiAmount: loan.emiAmount,
@@ -923,6 +941,7 @@ export default function CashierDashboard() {
                           company: loan.company,
                           createdAt: loan.createdAt ? new Date(loan.createdAt).toISOString() : new Date().toISOString(),
                           disbursementDate: loan.disbursementDate ? new Date(loan.disbursementDate).toISOString() : undefined,
+                          summary: loan.summary,
                         }}
                         mirrorLoan={mirrorLoanData}
                         mirrorMapping={mapping ? {
@@ -935,18 +954,39 @@ export default function CashierDashboard() {
                           mirrorCompanyId: mapping.mirrorCompanyId,
                           originalCompanyId: mapping.originalCompanyId,
                         } : null}
-                        onViewOriginal={() => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}
-                        onViewMirror={() => {
-                          // For mirror loan: open detail panel with mirror loan id if available
-                          const mirrorId = mapping?.mirrorLoanId;
-                          if (mirrorId) {
-                            setSelectedLoan({ id: mirrorId } as any);
+                        onViewOriginal={() => {
+                          if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
+                            setSelectedOfflineLoanId(loan.id);
+                            setShowOfflineLoanPanel(true);
                           } else {
                             setSelectedLoan(loan);
+                            setShowLoanDetailPanel(true);
                           }
-                          setShowLoanDetailPanel(true);
                         }}
-                        onPayEmi={(l) => { setSelectedLoan(loan); setShowLoanDetailPanel(true); }}
+                        onViewMirror={() => {
+                          if (mirrorLoanId) {
+                            // Check if it's an offline loan mirror
+                            if (mapping?.isOfflineLoan || mapping?.offlineMirrorLoan) {
+                              setSelectedOfflineLoanId(mirrorLoanId);
+                              setShowOfflineLoanPanel(true);
+                            } else {
+                              setSelectedLoan({ id: mirrorLoanId } as any);
+                              setShowLoanDetailPanel(true);
+                            }
+                          } else {
+                            setSelectedLoan(loan);
+                            setShowLoanDetailPanel(true);
+                          }
+                        }}
+                        onPayEmi={() => {
+                          if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
+                            setSelectedOfflineLoanId(loan.id);
+                            setShowOfflineLoanPanel(true);
+                          } else {
+                            setSelectedLoan(loan);
+                            setShowLoanDetailPanel(true);
+                          }
+                        }}
                         showPayButton={true}
                         showEmiProgress={true}
                       />
