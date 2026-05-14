@@ -9,8 +9,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Search, RefreshCw, User, Phone, IndianRupee,
-  CheckCircle, BookOpen, ArrowLeft, TrendingDown, AlertTriangle, Building2
+  CheckCircle, BookOpen, ArrowLeft, TrendingDown, AlertTriangle, Building2,
+  Download, FileSpreadsheet, FileImage, FileText, Printer, ChevronDown
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { exportPersonalLedgerCSV, exportAsPDF, exportAsImage, exportAsWord, printToPDF } from '@/utils/accountingExport';
 
 
 import { toast } from '@/hooks/use-toast';
@@ -313,11 +319,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     return (
       <div className="space-y-4">
         {/* Header */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <Button variant="outline" size="sm" onClick={() => setSelectedLoan(null)}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to Loans
           </Button>
-          <div>
+          <div className="flex-1">
             <h2 className="text-xl font-bold text-gray-900">
               Loan Statement — {selectedCustomer.name}
             </h2>
@@ -326,6 +332,41 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               {selectedLoan.isMirror && <Badge className="text-xs bg-purple-100 text-purple-700">Mirror Loan</Badge>}
             </p>
           </div>
+          {/* Export */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" size="sm">
+                <Download className="h-4 w-4 mr-2" /> Export <ChevronDown className="h-4 w-4 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel>Download Ledger As</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => exportPersonalLedgerCSV(
+                selectedLoan.rows.map(r => ({
+                  date: r.date, narration: r.description, referenceNo: r.referenceType,
+                  debit: r.totalPayment || 0, credit: 0
+                })),
+                `${selectedCustomer.name}_${selectedLoan.loanNumber}`,
+                selectedCompanyIds[0] || ''
+              )}>
+                <FileSpreadsheet className="h-4 w-4 mr-2 text-green-600" /> Excel / CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAsPDF('personal-ledger-stmt', `Ledger_${selectedCustomer.name}`, `Loan Statement — ${selectedCustomer.name}`)}>
+                <FileText className="h-4 w-4 mr-2 text-red-600" /> PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAsImage('personal-ledger-stmt', `Ledger_${selectedCustomer.name}`)}>
+                <FileImage className="h-4 w-4 mr-2 text-blue-600" /> Image (PNG)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportAsWord('personal-ledger-stmt', `Ledger_${selectedCustomer.name}`, `Loan Statement — ${selectedCustomer.name}`)}>
+                <FileText className="h-4 w-4 mr-2 text-indigo-600" /> Word (.doc)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => printToPDF('personal-ledger-stmt', `Loan Statement — ${selectedCustomer.name}`)}>
+                <Printer className="h-4 w-4 mr-2" /> Print
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Summary cards */}
@@ -357,7 +398,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         </div>
 
         {/* Statement Table */}
-        <Card className="border shadow-sm overflow-hidden">
+        <Card className="border shadow-sm overflow-hidden" id="personal-ledger-stmt">
           <CardHeader className="bg-gradient-to-r from-slate-800 to-slate-700 text-white py-3">
             <CardTitle className="text-base flex items-center gap-2">
               <BookOpen className="h-4 w-4" />
