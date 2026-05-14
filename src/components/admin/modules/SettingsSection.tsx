@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Settings, Building2, AlertTriangle, Save, RefreshCw } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
+import ReceiptSettingsCard from './ReceiptSettingsCard';
 
 interface SettingsData {
   companyName: string;
@@ -151,6 +152,9 @@ function SettingsSection({
           </div>
         </CardContent>
       </Card>
+
+      {/* Receipt Default Settings */}
+      <ReceiptSettingsCard />
 
       {/* System Reset Section */}
       <Card className="bg-white shadow-sm border-0 border-l-4 border-l-red-500">

@@ -28,11 +28,20 @@ interface ReceiptData {
   penaltyWaived?: number;
   totalAmount: number;
   paymentMode: string;
+  paymentReference?: string;
   referenceNo: string;
   balanceDue: number;
   companyName: string;
   companyCode: string;
+  // Payment type flags
   isInterestOnly?: boolean;
+  isPrincipalOnly?: boolean;
+  isPartialPayment?: boolean;
+  isSplitPayment?: boolean;
+  splitCashAmount?: number;
+  splitOnlineAmount?: number;
+  remainingDue?: number;
+  isMirrorLoan?: boolean;
 }
 
 interface ReceiptDialogProps {
@@ -140,11 +149,18 @@ export default function ReceiptDialog({ open, onOpenChange, receiptData }: Recei
               penaltyWaived={receiptData.penaltyWaived}
               totalAmount={receiptData.totalAmount}
               paymentMode={receiptData.paymentMode}
+              paymentReference={receiptData.paymentReference}
               referenceNo={receiptData.referenceNo}
               balanceDue={receiptData.balanceDue}
               companyName={receiptData.companyName}
               companyCode={receiptData.companyCode}
               isInterestOnly={receiptData.isInterestOnly}
+              isPrincipalOnly={receiptData.isPrincipalOnly}
+              isPartialPayment={receiptData.isPartialPayment}
+              isSplitPayment={receiptData.isSplitPayment}
+              splitCashAmount={receiptData.splitCashAmount}
+              splitOnlineAmount={receiptData.splitOnlineAmount}
+              remainingDue={receiptData.remainingDue}
             />
           </div>
         </div>

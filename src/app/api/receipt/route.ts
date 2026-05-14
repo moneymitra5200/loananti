@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
         receiptNo: receiptNo,
         date: offlineEmi.paidDate?.toISOString() || new Date().toISOString(),
         customerName: loan.customerName || '',
-        // Use reference1Name as father/husband name if available (common convention for offline loans)
         fatherName: (loan as any).reference1Name || '',
         phone: loan.customerPhone || '',
         address: loan.customerAddress || '',
@@ -95,17 +94,34 @@ export async function GET(request: NextRequest) {
         totalEmis: totalEmis,
         dueDate: offlineEmi.dueDate?.toISOString() || '',
         paymentDate: offlineEmi.paidDate?.toISOString() || new Date().toISOString(),
-        principalAmount: offlineEmi.paidPrincipal || offlineEmi.principalAmount || 0,
-        interestAmount: offlineEmi.paidInterest || offlineEmi.interestAmount || 0,
+        // Use paidPrincipal/paidInterest for all modes (they always reflect the actual collected amount)
+        principalAmount: offlineEmi.paymentStatus === 'INTEREST_ONLY_PAID'
+          ? 0
+          : (offlineEmi as any).paidPrincipal || offlineEmi.principalAmount || 0,
+        interestAmount: (offlineEmi as any).paidInterest || offlineEmi.interestAmount || 0,
         totalAmount: offlineEmi.paidAmount || offlineEmi.totalAmount || 0,
-        paymentMode: offlineEmi.paymentMode || 'CASH',
-        referenceNo: loan.loanNumber || '',
-        balanceDue: balanceDue,
+        paymentMode: (offlineEmi as any).paymentMode || 'CASH',
+        paymentReference: (offlineEmi as any).paymentReference || '',
+        referenceNo: (offlineEmi as any).paymentReference || loan.loanNumber || '',
+        balanceDue: Math.max(0, balanceDue),
         companyName: company?.name || 'Money Mitra',
         companyCode: companyCode,
+        // Payment type flags
         isInterestOnly: offlineEmi.paymentStatus === 'INTEREST_ONLY_PAID',
+        isPrincipalOnly: (offlineEmi as any).isPrincipalOnly === true,
+        isPartialPayment: offlineEmi.paymentStatus === 'PARTIALLY_PAID',
         isMirrorLoan: isMirrorLoan,
-        isPartialPayment: offlineEmi.paymentStatus === 'PARTIALLY_PAID'
+        // Split payment breakdown
+        isSplitPayment: (offlineEmi as any).isSplitPayment === true,
+        splitCashAmount: (offlineEmi as any).splitCashAmount || 0,
+        splitOnlineAmount: (offlineEmi as any).splitOnlineAmount || 0,
+        // Penalty
+        penaltyAmount: (offlineEmi as any).penaltyAmount || 0,
+        penaltyWaived: (offlineEmi as any).penaltyWaiver || 0,
+        // Remaining due on partial payment
+        remainingDue: offlineEmi.paymentStatus === 'PARTIALLY_PAID'
+          ? Math.max(0, (offlineEmi.totalAmount || 0) - (offlineEmi.paidAmount || 0))
+          : 0,
       };
 
       console.log(`[Receipt API] Generated offline receipt: ${receiptNo} for EMI #${offlineEmi.installmentNumber}`);
@@ -404,7 +420,6 @@ export async function GET(request: NextRequest) {
     const receiptData = {
       receiptNo: payment.receiptNumber || `RCP-${company?.code || 'MM'}-1`,
       date: payment.createdAt.toISOString(),
-      // Use firstName/lastName from LoanApplication first, fallback to customer.name
       customerName: (`${loan?.firstName || ''} ${loan?.lastName || ''}`).trim() || customer?.name || '',
       fatherName: fatherName || (loan as any)?.fatherName || '',
       phone: customer?.phone || loan?.phone || '',
@@ -424,11 +439,23 @@ export async function GET(request: NextRequest) {
       penaltyWaived: waivedAmount,
       totalAmount: finalTotal,
       paymentMode: payment.paymentMode || emi?.paymentMode || 'CASH',
+      paymentReference: payment.utrNumber || payment.transactionId || '',
       referenceNo: payment.utrNumber || payment.transactionId || loan?.applicationNo || '',
       balanceDue: Math.max(0, balanceDue),
       companyName: company?.name || 'Money Mitra',
       companyCode: company?.code || 'MM',
+      // Payment type flags
       isInterestOnly: payment.paymentType === 'INTEREST_ONLY' || emi?.paymentStatus === 'INTEREST_ONLY_PAID',
+      isPrincipalOnly: payment.paymentType === 'PRINCIPAL_ONLY',
+      isPartialPayment: emi?.paymentStatus === 'PARTIALLY_PAID',
+      // Split payment
+      isSplitPayment: (payment as any).isSplitPayment === true,
+      splitCashAmount: (payment as any).splitCashAmount || 0,
+      splitOnlineAmount: (payment as any).splitOnlineAmount || 0,
+      // Remaining due on partial
+      remainingDue: emi?.paymentStatus === 'PARTIALLY_PAID'
+        ? Math.max(0, (emi.totalAmount || 0) - (emi.paidAmount || 0))
+        : 0,
     };
 
     return NextResponse.json({
