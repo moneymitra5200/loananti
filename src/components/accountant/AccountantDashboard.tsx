@@ -961,7 +961,7 @@ function BankSection({
                           className="w-20 h-20 rounded border object-cover"
                           onError={(e) => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.classList.remove('hidden'); }}
                         />
-                        <span className="hidden text-xs text-amber-500">âš  QR not found â€” please re-upload</span>
+                        <span className="hidden text-xs text-amber-500">⚠️ QR not found — please re-upload</span>
                       </div>
                     )}
                   </div>
@@ -972,7 +972,7 @@ function BankSection({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Bank Transactions â€” Passbook</CardTitle>
+              <CardTitle className="text-lg">Bank Transactions — Passbook</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-96">
@@ -1008,14 +1008,14 @@ function BankSection({
                                   {txn.transactionType === 'CREDIT' ? (
                                     <span className="font-semibold text-emerald-600">+{formatCurrency(txn.amount)}</span>
                                   ) : (
-                                    <span className="text-gray-300">â€”</span>
+                                    <span className="text-gray-300">—</span>
                                   )}
                                 </TableCell>
                                 <TableCell className="text-right">
                                   {txn.transactionType === 'DEBIT' ? (
                                     <span className="font-semibold text-red-600">{formatCurrency(txn.amount)}</span>
                                   ) : (
-                                    <span className="text-gray-300">â€”</span>
+                                    <span className="text-gray-300">—</span>
                                   )}
                                 </TableCell>
                                 <TableCell className={`text-right font-bold ${(txn.balanceAfter || 0) < 0 ? 'text-red-600' : 'text-blue-700'}`}>
@@ -1353,7 +1353,7 @@ function BankSection({
                 <li>Debit: Bank Account (money IN)</li>
                 <li>Credit: Liability Account (money OWED)</li>
               </ul>
-              <p className="mt-2 text-orange-600 font-medium">âš ï¸ This is NOT income - you must repay this!</p>
+              <p className="mt-2 text-orange-600 font-medium">⚠️ï¸ This is NOT income - you must repay this!</p>
             </div>
             
             <div className="space-y-2">
@@ -1959,8 +1959,8 @@ function TrialBalanceSection({
                       <TableHead className="w-24">Code</TableHead>
                       <TableHead className="min-w-[200px]">Account Name</TableHead>
                       <TableHead className="w-32">Type</TableHead>
-                      <TableHead className="text-right w-40">Debit (â‚¹)</TableHead>
-                      <TableHead className="text-right w-40">Credit (â‚¹)</TableHead>
+                      <TableHead className="text-right w-40">Debit (₹)</TableHead>
+                      <TableHead className="text-right w-40">Credit (₹)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2401,7 +2401,7 @@ function BalanceSheetSection({
                           rows.push(
                             <TableRow key={`sub-${idx}-${si}`} className="bg-slate-50/50">
                               <TableCell className="pl-8 text-sm text-gray-600">
-                                â†³ {sub.accountName}
+                                ↳ {sub.accountName}
                               </TableCell>
                               <TableCell className={`text-right text-sm ${sub.amount < 0 ? 'text-red-500' : 'text-slate-600'}`}>
                                 {formatCurrency(sub.amount)}
@@ -2415,7 +2415,7 @@ function BalanceSheetSection({
                   ) : (
                     <TableRow>
                       <TableCell className="text-gray-500">No assets recorded</TableCell>
-                      <TableCell className="text-right">â‚¹0.00</TableCell>
+                      <TableCell className="text-right">₹0.00</TableCell>
                     </TableRow>
                   )}
                   <TableRow className="bg-blue-50 font-bold">
@@ -2451,7 +2451,7 @@ function BalanceSheetSection({
                   ) : (
                     <TableRow>
                       <TableCell className="text-gray-500">No liabilities</TableCell>
-                      <TableCell className="text-right">â‚¹0.00</TableCell>
+                      <TableCell className="text-right">₹0.00</TableCell>
                     </TableRow>
                   )}
                   <TableRow className="bg-red-50">
@@ -2722,7 +2722,7 @@ export default function UnifiedAccountantDashboard() {
     }
   }, [companyType, activeSection]);
 
-  // Auto-Fix removed â€” idempotency guards now prevent all duplicate entries at the source
+  // Auto-Fix removed — idempotency guards now prevent all duplicate entries at the source
 
 
 

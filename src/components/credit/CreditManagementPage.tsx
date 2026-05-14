@@ -134,7 +134,7 @@ export default function CreditManagementPage() {
   const [filterRole, setFilterRole] = useState('all');
   const [filterCreditType, setFilterCreditType] = useState('all');
 
-  // Credit Requests (settlement requests from roles â†’ SA)
+  // Credit Requests (settlement requests from roles → SA)
   const [creditRequests, setCreditRequests] = useState<any[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [processingRequest, setProcessingRequest] = useState<string | null>(null);
@@ -158,7 +158,7 @@ export default function CreditManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        toast({ title: 'âœ… Settlement Approved', description: 'Credit deducted from role and added to your account.' });
+        toast({ title: '✅ Settlement Approved', description: 'Credit deducted from role and added to your account.' });
         fetchCreditRequests();
         fetchData(true);
       } else {
@@ -359,7 +359,7 @@ export default function CreditManagementPage() {
     if (amount > availableCredit) {
       toast({
         title: 'Insufficient Credit',
-        description: `Available ${deductCreditType.toLowerCase()} credit: â‚¹${availableCredit}`,
+        description: `Available ${deductCreditType.toLowerCase()} credit: ₹${availableCredit}`,
         variant: 'destructive'
       });
       return;
@@ -392,7 +392,7 @@ export default function CreditManagementPage() {
       if (data.success) {
         toast({
           title: 'Credit Deducted',
-          description: `â‚¹${amount} deducted from ${selectedUser.name}'s ${deductCreditType.toLowerCase()} credit. The amount has been added to your credit.`
+          description: `₹${amount} deducted from ${selectedUser.name}'s ${deductCreditType.toLowerCase()} credit. The amount has been added to your credit.`
         });
         setShowDeductDialog(false);
         setSelectedUser(null);
@@ -1280,7 +1280,7 @@ export default function CreditManagementPage() {
                                     <Badge className="bg-red-100 text-red-700">{pendingEMIs} Pending</Badge>
                                   )}
                                 </div>
-                                <p className="text-sm text-gray-600">{loan.customer?.name} â€¢ {loan.customer?.phone}</p>
+                                <p className="text-sm text-gray-600">{loan.customer?.name} • {loan.customer?.phone}</p>
                                 <p className="text-xs text-gray-500">{loan.customer?.email}</p>
                               </div>
                             </div>
@@ -1324,7 +1324,7 @@ export default function CreditManagementPage() {
           </Card>
         </TabsContent>
 
-        {/* â”€â”€ Credit Requests Tab â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* -- Credit Requests Tab ----------------------------- */}
         <TabsContent value="requests" className="mt-4">
           <Card>
             <CardHeader>
@@ -1336,7 +1336,7 @@ export default function CreditManagementPage() {
                   </CardTitle>
                   <CardDescription>
                     Roles request settlement when they need to hand over collected money.
-                    Approve after receiving the cash â€” credit transfers to your account.
+                    Approve after receiving the cash — credit transfers to your account.
                   </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={fetchCreditRequests} disabled={loadingRequests}>
@@ -1367,7 +1367,7 @@ export default function CreditManagementPage() {
                             statusGroup === 'COMPLETED' ? 'text-green-600' : 'text-red-500'
                           }`}>
                             {statusGroup === 'PENDING' ? 'â³ Pending Approval' :
-                             statusGroup === 'COMPLETED' ? 'âœ… Completed' : 'âŒ Rejected'}
+                             statusGroup === 'COMPLETED' ? '✅ Completed' : 'âŒ Rejected'}
                           </p>
                           {creditRequests.filter((r: any) => r.status === statusGroup).map((req: any) => (
                             <motion.div
@@ -1393,7 +1393,7 @@ export default function CreditManagementPage() {
                                 </div>
                                 <div>
                                   <p className="font-semibold text-gray-800">{req.user?.name || req.cashier?.name || 'Unknown'}</p>
-                                  <p className="text-xs text-gray-500">{req.user?.role || req.cashier?.role} â€¢ {req.settlementNumber}</p>
+                                  <p className="text-xs text-gray-500">{req.user?.role || req.cashier?.role} • {req.settlementNumber}</p>
                                   <p className="text-xs text-gray-400">{formatDate(req.createdAt)}</p>
                                   {req.remarks && <p className="text-xs text-gray-500 italic mt-0.5">&quot;{req.remarks}&quot;</p>}
                                 </div>

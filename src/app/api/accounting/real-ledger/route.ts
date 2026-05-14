@@ -114,35 +114,196 @@ export async function GET(request: NextRequest) {
 
     // ─── PROCESSING FEE ────────────────────────────────────────────────────────
     else if (account === 'PROCESSING') {
-      accountName = 'Processing Fee Income'; accountCode = '4003'; accountType = 'INCOME';
+      accountName = 'Processing Fee Income'; accountCode = '4121'; accountType = 'INCOME';
+      
+      const accounts = await db.chartOfAccount.findMany({
+        where: { companyId, accountCode: { in: ['4121', '4003'] } },
+        select: { id: true }
+      });
+      const accountIds = accounts.map(a => a.id);
+
+      if (accountIds.length > 0) {
+        // Opening balance
+        const priorJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { lt: periodStart }, isApproved: true, isReversed: false },
+          select: { id: true }
+        });
+        if (priorJournals.length > 0) {
+          const priorLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: priorJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { creditAmount: true, debitAmount: true }
+          });
+          opening = priorLines.reduce((s, l) => s + l.creditAmount - l.debitAmount, 0);
+        }
+
+        // Period transactions
+        const periodJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { gte: periodStart, lte: periodEnd }, isApproved: true, isReversed: false },
+          orderBy: { entryDate: 'asc' },
+          select: { id: true, entryDate: true, narration: true, entryNumber: true, referenceType: true }
+        });
+
+        if (periodJournals.length > 0) {
+          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const periodLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
+          });
+
+          for (const l of periodLines) {
+            const je = journalMap.get(l.journalEntryId)!;
+            txns.push({
+              date: je.entryDate.toISOString(),
+              particulars: l.narration || je.narration || 'Processing Fee',
+              referenceNo: je.entryNumber,
+              debit: l.debitAmount,
+              credit: l.creditAmount,
+              balance: 0 // Will be calculated below
+            });
+            totDr += l.debitAmount;
+            totCr += l.creditAmount;
+          }
+        }
+      }
+      
+      // Fallback: also check CashBookEntry for old records without Journal Entries
       const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
-        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: 'PROCESSING_FEE', entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
-        let bal = 0;
-        for (const e of entries) { bal += e.amount; totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'PROCESSING FEE', debit: 0, credit: e.amount, balance: bal }); }
+        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['PROCESSING_FEE', 'PROCESSING_FEE_COLLECTION'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
+        for (const e of entries) {
+          // Avoid duplicate if journal already exists (heuristic)
+          const alreadyExists = txns.some(t => Math.abs(new Date(t.date).getTime() - e.entryDate.getTime()) < 86400000 && t.credit === e.amount);
+          if (!alreadyExists) {
+            totCr += e.amount;
+            txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'PROCESSING FEE', debit: 0, credit: e.amount, balance: 0 });
+          }
+        }
+      }
+
+      txns.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      let bal = opening;
+      for (const t of txns) {
+        bal += t.credit - t.debit;
+        t.balance = bal;
       }
     }
 
     // ─── PENALTY ───────────────────────────────────────────────────────────────
     else if (account === 'PENALTY') {
-      accountName = 'Penalty / Late Fee Income'; accountCode = '4004'; accountType = 'INCOME';
+      accountName = 'Penalty / Late Fee Income'; accountCode = '4125'; accountType = 'INCOME';
+      
+      const accounts = await db.chartOfAccount.findMany({
+        where: { companyId, accountCode: { in: ['4125', '4004', '4122'] } },
+        select: { id: true }
+      });
+      const accountIds = accounts.map(a => a.id);
+
+      if (accountIds.length > 0) {
+        // Opening balance
+        const priorJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { lt: periodStart }, isApproved: true, isReversed: false },
+          select: { id: true }
+        });
+        if (priorJournals.length > 0) {
+          const priorLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: priorJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { creditAmount: true, debitAmount: true }
+          });
+          opening = priorLines.reduce((s, l) => s + l.creditAmount - l.debitAmount, 0);
+        }
+
+        // Period transactions
+        const periodJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { gte: periodStart, lte: periodEnd }, isApproved: true, isReversed: false },
+          orderBy: { entryDate: 'asc' },
+          select: { id: true, entryDate: true, narration: true, entryNumber: true }
+        });
+
+        if (periodJournals.length > 0) {
+          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const periodLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
+          });
+
+          for (const l of periodLines) {
+            const je = journalMap.get(l.journalEntryId)!;
+            txns.push({ date: je.entryDate.toISOString(), particulars: l.narration || je.narration || 'Penalty Income', referenceNo: je.entryNumber, debit: l.debitAmount, credit: l.creditAmount, balance: 0 });
+            totDr += l.debitAmount; totCr += l.creditAmount;
+          }
+        }
+      }
+
       const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
-        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['PENALTY_INCOME', 'PENALTY'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
-        let bal = 0;
-        for (const e of entries) { bal += e.amount; totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'PENALTY', debit: 0, credit: e.amount, balance: bal }); }
+        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['PENALTY_INCOME', 'PENALTY', 'PENALTY_COLLECTION', 'LATE_FEE_COLLECTION'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
+        for (const e of entries) {
+          const alreadyExists = txns.some(t => Math.abs(new Date(t.date).getTime() - e.entryDate.getTime()) < 86400000 && t.credit === e.amount);
+          if (!alreadyExists) { totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'PENALTY', debit: 0, credit: e.amount, balance: 0 }); }
+        }
       }
+      txns.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      let bal = opening;
+      for (const t of txns) { bal += t.credit - t.debit; t.balance = bal; }
     }
 
     // ─── MIRROR INTEREST ───────────────────────────────────────────────────────
     else if (account === 'MIRROR') {
-      accountName = 'Loan Interest Income'; accountCode = '4005'; accountType = 'INCOME';
+      accountName = 'Loan Interest Income'; accountCode = '4110'; accountType = 'INCOME';
+      
+      const accounts = await db.chartOfAccount.findMany({
+        where: { companyId, accountCode: { in: ['4110', '4005'] } },
+        select: { id: true }
+      });
+      const accountIds = accounts.map(a => a.id);
+
+      if (accountIds.length > 0) {
+        // Opening balance
+        const priorJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { lt: periodStart }, isApproved: true, isReversed: false },
+          select: { id: true }
+        });
+        if (priorJournals.length > 0) {
+          const priorLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: priorJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { creditAmount: true, debitAmount: true }
+          });
+          opening = priorLines.reduce((s, l) => s + l.creditAmount - l.debitAmount, 0);
+        }
+
+        // Period transactions
+        const periodJournals = await db.journalEntry.findMany({
+          where: { companyId, entryDate: { gte: periodStart, lte: periodEnd }, isApproved: true, isReversed: false },
+          orderBy: { entryDate: 'asc' },
+          select: { id: true, entryDate: true, narration: true, entryNumber: true }
+        });
+
+        if (periodJournals.length > 0) {
+          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const periodLines = await db.journalEntryLine.findMany({
+            where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
+            select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
+          });
+
+          for (const l of periodLines) {
+            const je = journalMap.get(l.journalEntryId)!;
+            txns.push({ date: je.entryDate.toISOString(), particulars: l.narration || je.narration || 'Interest Income', referenceNo: je.entryNumber, debit: l.debitAmount, credit: l.creditAmount, balance: 0 });
+            totDr += l.debitAmount; totCr += l.creditAmount;
+          }
+        }
+      }
+
       const cashBook = await db.cashBook.findUnique({ where: { companyId } });
       if (cashBook) {
-        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['MIRROR_INTEREST_INCOME', 'MIRROR_EMI_PAYMENT', 'INTEREST_ONLY_PAYMENT'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
-        let bal = 0;
-        for (const e of entries) { bal += e.amount; totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'INTEREST', debit: 0, credit: e.amount, balance: bal }); }
+        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cashBook.id, referenceType: { in: ['MIRROR_INTEREST_INCOME', 'MIRROR_EMI_PAYMENT', 'INTEREST_ONLY_PAYMENT', 'INTEREST_COLLECTION'] }, entryType: 'CREDIT', entryDate: { gte: periodStart, lte: periodEnd } }, orderBy: { entryDate: 'asc' } });
+        for (const e of entries) {
+          const alreadyExists = txns.some(t => Math.abs(new Date(t.date).getTime() - e.entryDate.getTime()) < 86400000 && t.credit === e.amount);
+          if (!alreadyExists) { totCr += e.amount; txns.push({ date: e.entryDate.toISOString(), particulars: e.description, referenceNo: 'INTEREST', debit: 0, credit: e.amount, balance: 0 }); }
+        }
       }
+      txns.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      let bal = opening;
+      for (const t of txns) { bal += t.credit - t.debit; t.balance = bal; }
     }
 
     // ─── BORROWED FUNDS ────────────────────────────────────────────────────────
