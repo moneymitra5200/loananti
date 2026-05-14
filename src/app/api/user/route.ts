@@ -189,8 +189,8 @@ export async function POST(request: NextRequest) {
 
     // Validate that agent exists if agentId is provided
     if (cleanAgentId && role === 'STAFF') {
-      const agentExists = await dbWithRetry(() => db.user.findUnique({
-        where: { id: cleanAgentId, role: 'AGENT' } as any
+      const agentExists = await dbWithRetry(() => db.user.findFirst({
+        where: { id: cleanAgentId, role: 'AGENT' }
       }));
       if (!agentExists) {
         return NextResponse.json({ error: 'Selected agent does not exist' }, { status: 400 });
