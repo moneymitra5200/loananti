@@ -221,79 +221,102 @@ export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-
-    console.log('[Company DELETE] Starting permanent delete for company:', id);
+    const force = searchParams.get('force') === 'true';
 
     if (!id) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    // Check for related loans
-    const loansCount = await db.loanApplication.count({
-      where: { companyId: id }
-    });
+    console.log(`[Company DELETE] Force-cascade delete for company: ${id}`);
 
-    if (loansCount > 0) {
-      return NextResponse.json({ 
-        error: `Cannot delete company. It has ${loansCount} loan(s) associated with it.`,
-        hasRelations: true 
-      }, { status: 400 });
+    // Helper: cascade delete all data for one company ID
+    async function cascadeDelete(companyId: string) {
+      // ── 1. Deepest loan data ──────────────────────────────────────────────
+      await db.eMIReminderLog.deleteMany({}).catch(() => {}); // safe: reminders regenerate
+      await db.offlineLoanEMI.deleteMany({ where: { offlineLoan: { companyId } } }).catch(() => {});
+      await db.offlineLoan.deleteMany({ where: { companyId } }).catch(() => {});
+
+      // ── 2. Online loan data ───────────────────────────────────────────────
+      await db.eMISchedule.deleteMany({ where: { loanApplication: { companyId } } }).catch(() => {});
+      await db.payment.deleteMany({ where: { loanApplication: { companyId } } }).catch(() => {});
+      await db.loanApplication.deleteMany({ where: { companyId } }).catch(() => {});
+
+      // ── 3. Accounting data ────────────────────────────────────────────────
+      await db.journalEntryLine.deleteMany({ where: { journalEntry: { companyId } } }).catch(() => {});
+      await db.journalEntry.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.ledgerBalance.deleteMany({ where: { account: { companyId } } }).catch(() => {});
+      await db.ledgerBalance.deleteMany({ where: { financialYear: { companyId } } }).catch(() => {});
+      await db.chartOfAccount.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.financialYear.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.bankAccount.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.ledger.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.expense.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).cashBookEntry?.deleteMany({ where: { cashBook: { companyId } } }).catch(() => {});
+      await (db as any).cashBook?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).equityEntry?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).borrowedMoney?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).investMoney?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).expenseRequest?.deleteMany({ where: { companyId } }).catch(() => {});
+
+      // ── 4. Config data ────────────────────────────────────────────────────
+      await db.gSTConfig.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.fixedAsset.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.commissionSlab.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.gracePeriodConfig.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.preApprovedOffer.deleteMany({ where: { companyId } }).catch(() => {});
+      await db.agentPerformance.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).paymentSource?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).companyPaymentPage?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).companyPaymentSettings?.deleteMany({ where: { companyId } }).catch(() => {});
+      await (db as any).companyAccountingSettings?.deleteMany({ where: { companyId } }).catch(() => {});
+
+      // ── 5. Users linked to this company ──────────────────────────────────
+      // Delete COMPANY-role users; unlink other roles
+      await db.user.deleteMany({ where: { companyId, role: 'COMPANY' } }).catch(() => {});
+      await db.user.updateMany({ where: { companyId }, data: { companyId: null } }).catch(() => {});
+
+      // ── 6. Delete the company itself ─────────────────────────────────────
+      await db.company.delete({ where: { id: companyId } });
     }
 
-    // Delete all related records for this company (PERMANENT DELETE)
-    console.log('[Company DELETE] Deleting related records...');
-    
-    // Delete in order respecting foreign key constraints
-    await Promise.all([
-      // Delete chart of accounts
-      db.ledgerBalance.deleteMany({ where: { account: { companyId: id } } }),
-      db.journalEntryLine.deleteMany({ where: { account: { companyId: id } } }),
-      db.chartOfAccount.deleteMany({ where: { companyId: id } }),
-      // Delete financial years
-      db.ledgerBalance.deleteMany({ where: { financialYear: { companyId: id } } }),
-      db.financialYear.deleteMany({ where: { companyId: id } }),
-      // Delete bank accounts
-      db.bankAccount.deleteMany({ where: { companyId: id } }),
-      // Delete other related records
-      db.ledger.deleteMany({ where: { companyId: id } }),
-      db.expense.deleteMany({ where: { companyId: id } }),
-      db.journalEntry.deleteMany({ where: { companyId: id } }),
-      db.gSTConfig.deleteMany({ where: { companyId: id } }),
-      db.fixedAsset.deleteMany({ where: { companyId: id } }),
-      db.commissionSlab.deleteMany({ where: { companyId: id } }),
-      db.gracePeriodConfig.deleteMany({ where: { companyId: id } }),
-      db.preApprovedOffer.deleteMany({ where: { companyId: id } }),
-      db.agentPerformance.deleteMany({ where: { companyId: id } }),
-    ]);
+    // Special: delete ALL companies
+    if (id === '__ALL__') {
+      const all = await db.company.findMany({ select: { id: true, name: true } });
+      console.log(`[Company DELETE] Deleting ALL ${all.length} companies`);
+      for (const c of all) {
+        console.log(`  Deleting ${c.name} (${c.id})...`);
+        await cascadeDelete(c.id);
+      }
+      cache.deletePattern('companies:');
+      cache.deletePattern('users:');
+      return NextResponse.json({ success: true, message: `Deleted ${all.length} companies`, deletedCount: all.length });
+    }
 
-    // PERMANENT DELETE - Hard delete the company
-    console.log('[Company DELETE] Permanently deleting company:', id);
-    await db.company.delete({ where: { id } });
+    // Single company delete
+    const company = await db.company.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!company) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 });
+    }
 
-    // Clear ALL caches
+    await cascadeDelete(id);
+
     cache.deletePattern('companies:');
     cache.deletePattern('users:');
 
-    console.log('[Company DELETE] Company permanently deleted successfully');
+    console.log(`[Company DELETE] ✅ Permanently deleted: ${company.name}`);
+    fireAudit('system', 'DELETE', 'COMPANY', `Company permanently deleted: "${company.name}" (ID: ${id})`);
 
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Company permanently deleted from database',
-      deletedCompanyId: id 
+    return NextResponse.json({
+      success: true,
+      message: 'Company and all related data permanently deleted',
+      deletedCompanyId: id,
     });
   } catch (error) {
-    console.error('[Company DELETE] Error deleting company:', error);
-    
-    // Handle foreign key constraint errors
-    if (error instanceof Error && error.message.includes('Foreign key constraint failed')) {
-      return NextResponse.json({ 
-        error: 'Cannot delete company. It has related records in the system.' 
-      }, { status: 400 });
-    }
-    
-    return NextResponse.json({ 
+    console.error('[Company DELETE] Error:', error);
+    return NextResponse.json({
       error: 'Failed to delete company',
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
 }
+

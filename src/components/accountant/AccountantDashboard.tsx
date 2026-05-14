@@ -135,10 +135,14 @@ const formatDateShort = (date: Date | string) => {
 };
 
 // Company type rule (simple and definitive):
-//   isMirrorCompany === true  → COMPANY_1_2 → full accounting suite (MoneyMitra, Keshardeep…)
-//   isMirrorCompany !== true  → COMPANY_3   → Day Book + Cash Book ONLY (PD Lagani, any non-mirror company)
+//   isMirrorCompany === true AND code NOT ending in '3' → COMPANY_1_2 → full accounting suite
+//   isMirrorCompany === false OR code ends in '3'       → COMPANY_3   → Day Book + Cash Book ONLY
+//   Hard rule: code ending in '3' (C3, COMP3, etc.) is ALWAYS the original/lending company.
 const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_3' => {
   if (!company) return 'COMPANY_1_2';
+  const codeUpper = (company.code || '').toUpperCase();
+  // Hard rule by code — overrides DB field (in case fix-mirror hasn't run yet)
+  if (codeUpper.endsWith('3') || codeUpper === 'C3') return 'COMPANY_3';
   return company.isMirrorCompany === true ? 'COMPANY_1_2' : 'COMPANY_3';
 };
 
@@ -2583,34 +2587,26 @@ export default function UnifiedAccountantDashboard() {
       .catch(() => {});
   }, [selectedCompanyId]);
 
-  // Fetch Companies — and auto-fix any badly-flagged original companies on first load
+  // Fetch Companies — on load, silently fix any badly-flagged original companies
   useEffect(() => {
     const fetchCompanies = async () => {
       setCompaniesLoading(true);
       try {
-        // Step 1: Run the data-correction API silently (idempotent, safe to call every time)
-        // This corrects any company whose code ends in '3' but has isMirrorCompany=true in DB
+        // Step 1: Silently fix DB: set isMirrorCompany=false for any C3-type company
         fetch('/api/company/fix-mirror', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-          .catch(() => {}); // fire-and-forget, never block the UI
+          .catch(() => {}); // fire-and-forget
 
-        // Step 2: Fetch fresh companies (noCache to get corrected values)
+        // Step 2: Fetch ALL active companies (noCache to pick up DB corrections)
+        // We show ALL companies in the dropdown — original companies just get a
+        // restricted menu (Day Book + Cash Book only) via getCompanyType().
         const res = await fetch('/api/company?noCache=true');
         if (res.ok) {
           const data = await res.json();
-          const allCompanies = data.companies || [];
+          const allCompanies = (data.companies || []).filter((c: any) => c.isActive !== false);
 
-          // Double-safety filter:
-          // 1. isMirrorCompany must be true (DB field)
-          // 2. Company code must NOT end in '3' (C3 = original company, never accounting)
-          const accountingCompanies = allCompanies.filter((c: any) => {
-            const codeUpper = (c.code || '').toUpperCase();
-            const isCodeOriginal = codeUpper.endsWith('3') || codeUpper === 'C3';
-            return c.isMirrorCompany === true && !isCodeOriginal;
-          });
-
-          setCompanies(accountingCompanies);
-          if (accountingCompanies.length > 0) {
-            setSelectedCompanyId(accountingCompanies[0].id);
+          setCompanies(allCompanies);
+          if (allCompanies.length > 0) {
+            setSelectedCompanyId(allCompanies[0].id);
           }
         }
       } catch (error) {
@@ -2622,6 +2618,7 @@ export default function UnifiedAccountantDashboard() {
     };
     fetchCompanies();
   }, []);
+
 
 
   // Reset to day-book when company changes
