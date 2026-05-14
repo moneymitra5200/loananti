@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
       }),
       db.cashBookEntry.findMany({
         where: {
-          companyId,
+          cashBook: { companyId },
           ...(Object.keys(dateFilter).length > 0 ? { entryDate: dateFilter } : {})
         },
         select: { entryType: true, amount: true, referenceType: true },

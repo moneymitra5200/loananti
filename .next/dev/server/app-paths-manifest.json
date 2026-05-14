@@ -1,8 +1,0 @@
-{
-  "/api/cms/product/route": "app/api/cms/product/route.js",
-  "/api/cms/service/route": "app/api/cms/service/route.js",
-  "/api/company/route": "app/api/company/route.js",
-  "/api/health/route": "app/api/health/route.js",
-  "/api/settings/route": "app/api/settings/route.js",
-  "/page": "app/page.js"
-}
