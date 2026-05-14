@@ -231,10 +231,17 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
   // ── Payment type handler ───────────────────────────────────────────────────
   const handlePaymentTypeChange = (type: 'FULL' | 'PARTIAL' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY') => {
     setPaymentType(type);
-    if (type === 'FULL') setAmount(remaining);
-    else if (type === 'INTEREST_ONLY') setAmount(remainingInterest);
-    else if (type === 'PRINCIPAL_ONLY') setAmount(remainingPrincipal);
-    else setAmount(Math.floor(remaining / 2));
+    let newAmt = 0;
+    if (type === 'FULL') newAmt = remaining;
+    else if (type === 'INTEREST_ONLY') newAmt = remainingInterest;
+    else if (type === 'PRINCIPAL_ONLY') newAmt = remainingPrincipal;
+    else newAmt = 0; // PARTIAL: let user enter their own amount
+    setAmount(newAmt);
+    // Reset split when payment type changes
+    if (isSplitMode) {
+      setSplitCashAmount(String(newAmt));
+      setSplitOnlineAmount('0');
+    }
   };
 
   // ── Proof upload ───────────────────────────────────────────────────────────
@@ -621,7 +628,12 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
                   <p className="text-xs text-gray-500">Cashbook</p>
                 </button>
                 {/* SPLIT */}
-                <button type="button" onClick={() => setPaymentMode('SPLIT')}
+                <button type="button" onClick={() => {
+                  setPaymentMode('SPLIT');
+                  // Auto-initialize: all cash by default
+                  setSplitCashAmount(String(amount));
+                  setSplitOnlineAmount('0');
+                }}
                   className={`p-3 rounded-lg border-2 text-left transition-all ${paymentMode === 'SPLIT' ? 'border-purple-500 bg-purple-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                   <div className="flex items-center gap-2 mb-1">
                     <SplitSquareHorizontal className={`h-4 w-4 ${paymentMode === 'SPLIT' ? 'text-purple-600' : 'text-gray-400'}`} />
@@ -634,23 +646,33 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               {/* Split inputs */}
               {isSplitMode && (
                 <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
-                  <p className="text-xs font-medium text-purple-700">Split Part Cash + Part Online (penalty included)</p>
+                  <p className="text-xs font-medium text-purple-700">Enter either Cash or Online — the other fills automatically</p>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
                       <Input type="number" value={splitCashAmount}
-                        onChange={(e) => setSplitCashAmount(e.target.value)}
+                        onChange={(e) => {
+                          const cash = parseFloat(e.target.value) || 0;
+                          setSplitCashAmount(e.target.value);
+                          const online = Math.max(0, Math.round((amount - cash) * 100) / 100);
+                          setSplitOnlineAmount(String(online));
+                        }}
                         placeholder="e.g. 500" />
                     </div>
                     <div>
                       <Label className="text-xs text-gray-600">Online Amount (₹)</Label>
                       <Input type="number" value={splitOnlineAmount}
-                        onChange={(e) => setSplitOnlineAmount(e.target.value)}
+                        onChange={(e) => {
+                          const online = parseFloat(e.target.value) || 0;
+                          setSplitOnlineAmount(e.target.value);
+                          const cash = Math.max(0, Math.round((amount - online) * 100) / 100);
+                          setSplitCashAmount(String(cash));
+                        }}
                         placeholder="e.g. 700" />
                     </div>
                   </div>
                   <p className={`text-xs font-medium ${Math.abs(splitTotal - amount) > 1 ? 'text-red-500' : 'text-green-600'}`}>
-                    Total: ₹{fmt(splitTotal)} {Math.abs(splitTotal - amount) > 1 ? `⚠ Doesn't match ₹${fmt(amount)}` : '✓'}
+                    Total: ₹{fmt(splitTotal)} {Math.abs(splitTotal - amount) > 1 ? `⚠ Doesn't match ₹${fmt(amount)}` : '✓ Matches'}
                   </p>
                 </div>
               )}
@@ -666,9 +688,26 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
 
           {/* ── PAYMENT AMOUNT ── */}
           <div>
-            <Label>Payment Amount (₹) *</Label>
-            <Input type="number" value={amount}
-              onChange={(e) => setAmount(parseFloat(e.target.value) || 0)} />
+            <Label>Payment Amount (₹) *{paymentType === 'PARTIAL' && <span className="text-orange-500 ml-1 text-xs">— Enter the partial amount you are collecting now</span>}</Label>
+            <Input type="number" value={amount || ''}
+              placeholder={paymentType === 'PARTIAL' ? 'Enter partial amount...' : String(remaining)}
+              onChange={(e) => {
+                const newAmt = parseFloat(e.target.value) || 0;
+                setAmount(newAmt);
+                // Recalculate split when amount changes
+                if (isSplitMode) {
+                  const cash = parseFloat(splitCashAmount) || 0;
+                  if (cash <= newAmt) {
+                    setSplitOnlineAmount(String(Math.max(0, Math.round((newAmt - cash) * 100) / 100)));
+                  } else {
+                    setSplitCashAmount(String(newAmt));
+                    setSplitOnlineAmount('0');
+                  }
+                }
+              }} />
+            {paymentType === 'PARTIAL' && amount > 0 && (
+              <p className="text-xs text-orange-600 mt-1">Remaining after this: ₹{fmt(Math.max(0, remaining - amount))}</p>
+            )}
           </div>
 
           {/* ── PENALTY UI - ALWAYS visible, ACTIVE only after EMI due date ── */}
