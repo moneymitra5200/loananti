@@ -317,7 +317,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             </h3>
             <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="col-span-2">
+                <div className="col-span-full sm:col-span-2">
                   <p className="text-xs text-gray-500">Full Name</p>
                   <p className="font-medium text-lg">{getApplicantName()}</p>
                 </div>
@@ -356,7 +356,7 @@ export default function LoanApplicationForm({ loanData, companyLogo }: LoanAppli
             </h3>
             <div className="border border-gray-200 rounded-b-lg p-3 md:p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="col-span-3">
+                <div className="col-span-full">
                   <p className="text-xs text-gray-500">Full Address</p>
                   <p className="font-medium">{loanData.address || 'N/A'}</p>
                 </div>

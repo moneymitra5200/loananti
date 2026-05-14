@@ -38,7 +38,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onNotification,
     onDashboardRefresh,
     onCreditUpdated,
-    pollInterval = 0,  // DISABLED — socket push handles all updates, no polling needed
+    pollInterval = 30_000, // 30s polling — safety net for mobile/PWA where WebSocket may drop
   } = options;
 
   const callbacksRef = useRef({
@@ -152,12 +152,18 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   }, [userId, pollInterval]);
 
   // ─── Visibility change restart ───────────────────────────────────────────────
-  // Only refresh when tab becomes visible AND enough time has passed since last refresh.
-  // Previously fired on EVERY tab-focus, causing constant re-fetches.
+  // Refresh immediately when tab/app becomes visible again.
+  // Throttled to 15s minimum so rapid tab-switches don't spam requests.
   useEffect(() => {
     if (!userId) return;
 
-    const VISIBILITY_REFRESH_THROTTLE_MS = 120_000; // 2 minutes minimum between tab-switch refreshes
+    const VISIBILITY_REFRESH_THROTTLE_MS = 15_000; // 15 seconds — fast enough for mobile PWA
+
+    // Refresh immediately on first mount (catches stale data after background/reopen)
+    const mountTimer = setTimeout(() => {
+      callbacksRef.current.onDashboardRefresh?.();
+      lastRefreshRef.current = Date.now();
+    }, 1500); // small delay so initial fetch completes first
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -170,7 +176,10 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      clearTimeout(mountTimer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [userId]);
 
   const requestRefresh = useCallback(() => {

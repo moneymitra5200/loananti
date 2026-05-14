@@ -143,7 +143,15 @@ html {
   scroll-behavior: smooth;
   /* FIX: Prevents rubber-band overscroll that causes layout shifts */
   overscroll-behavior: none;
+  /* FIX: No horizontal scroll on any page */
+  overflow-x: hidden;
 }
+
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 
 /* ══════════════════════════════════════════════════════════
    MOBILE TOUCH FIXES — prevents "stuck section bar" on phone
