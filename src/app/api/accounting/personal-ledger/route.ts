@@ -141,10 +141,10 @@ async function listCustomersForCompany(companyId: string | null) {
     return listCustomersFallback(companyId);
   }
 
-  // 4. Get mirror mappings to apply mirror rule
+  // 4. Get mirror mappings to apply mirror rule (BOTH online AND offline)
   const mirrorMappings = loanIdsFromLines.length > 0
     ? await db.mirrorLoanMapping.findMany({
-        where: { originalLoanId: { in: loanIdsFromLines }, isOfflineLoan: false },
+        where: { originalLoanId: { in: loanIdsFromLines } }, // includes offline mirrors too
         select: { originalLoanId: true, mirrorCompanyId: true }
       })
     : [];
@@ -161,7 +161,13 @@ async function listCustomersForCompany(companyId: string | null) {
   const offlineLoans = loanIdsFromLines.length > 0
     ? await db.offlineLoan.findMany({
         where: { id: { in: loanIdsFromLines } },
-        select: { id: true, customer: { select: { id: true, name: true, phone: true, email: true } } }
+        select: {
+          id: true,
+          customerName: true,
+          customerPhone: true,
+          customerEmail: true,
+          customer: { select: { id: true, name: true, phone: true, email: true } }
+        }
       })
     : [];
 
@@ -170,7 +176,13 @@ async function listCustomersForCompany(companyId: string | null) {
     if (l.customer) loanToCustomer.set(l.id, { id: l.customer.id, name: l.customer.name || 'Unknown', phone: l.customer.phone || '', email: l.customer.email || '' });
   }
   for (const l of offlineLoans) {
-    if (l.customer) loanToCustomer.set(l.id, { id: l.customer.id, name: l.customer.name || 'Unknown', phone: l.customer.phone || '', email: l.customer.email || '' });
+    if (l.customer) {
+      loanToCustomer.set(l.id, { id: l.customer.id, name: l.customer.name || (l as any).customerName || 'Unknown', phone: l.customer.phone || (l as any).customerPhone || '', email: l.customer.email || '' });
+    } else if ((l as any).customerName) {
+      // Offline loan without a linked User account — use customerName as synthetic customer
+      const syntheticId = `offline_${l.id}`;
+      loanToCustomer.set(l.id, { id: syntheticId, name: (l as any).customerName, phone: (l as any).customerPhone || '', email: (l as any).customerEmail || '' });
+    }
   }
 
   // 6. Also build customer map for lines that have customerId but no loanId
@@ -492,13 +504,32 @@ async function listCustomersFallback(companyId: string | null) {
 // PERSONAL LEDGER for one customer — posted from Journal Entries
 // ─────────────────────────────────────────────────────────────────────────────
 async function getPersonalLedger(customerId: string, companyId: string | null) {
-  const customer = await db.user.findUnique({
-    where: { id: customerId },
-    select: { id: true, name: true, phone: true, email: true, address: true }
-  });
+  // Handle synthetic IDs for offline loans without linked user accounts
+  // Format: 'offline_{loanId}'
+  const isSyntheticId = customerId.startsWith('offline_');
+  const syntheticLoanId = isSyntheticId ? customerId.replace('offline_', '') : null;
+
+  let customer: { id: string; name: string | null; phone: string | null; email: string | null; address?: string | null } | null = null;
+
+  if (isSyntheticId && syntheticLoanId) {
+    // Fetch customer info directly from the offline loan
+    const offlineLoan = await db.offlineLoan.findUnique({
+      where: { id: syntheticLoanId },
+      select: { customerName: true, customerPhone: true, customerEmail: true }
+    });
+    if (offlineLoan) {
+      customer = { id: customerId, name: offlineLoan.customerName || 'Unknown', phone: offlineLoan.customerPhone || '', email: offlineLoan.customerEmail || '' };
+    }
+  } else {
+    customer = await db.user.findUnique({
+      where: { id: customerId },
+      select: { id: true, name: true, phone: true, email: true, address: true }
+    });
+  }
 
   // Get all loans for this customer
-  const allOnlineLoans = await db.loanApplication.findMany({
+  // For synthetic IDs (offline loans without linked user): fetch the specific loan directly
+  const allOnlineLoans = isSyntheticId ? [] : await db.loanApplication.findMany({
     where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } },
     select: {
       id: true, applicationNo: true, status: true, companyId: true,
@@ -507,14 +538,25 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       company: { select: { id: true, name: true } },
     }
   });
-  const allOfflineLoans = await db.offlineLoan.findMany({
-    where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
-    select: {
-      id: true, loanNumber: true, status: true, companyId: true,
-      loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-      company: { select: { id: true, name: true } },
-    }
-  });
+  const allOfflineLoans = isSyntheticId && syntheticLoanId
+    ? await db.offlineLoan.findMany({
+        where: { id: syntheticLoanId },
+        select: {
+          id: true, loanNumber: true, status: true, companyId: true,
+          loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+          customerName: true, customerPhone: true, customerEmail: true,
+          company: { select: { id: true, name: true } },
+        }
+      })
+    : await db.offlineLoan.findMany({
+        where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
+        select: {
+          id: true, loanNumber: true, status: true, companyId: true,
+          loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+          customerName: true, customerPhone: true, customerEmail: true,
+          company: { select: { id: true, name: true } },
+        }
+      });
 
   // Mirror rule: which online loans are mirrored ORIGINALS?
   const onlineLoanIds = allOnlineLoans.map(l => l.id);
