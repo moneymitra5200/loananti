@@ -33,11 +33,11 @@ interface Notification {
 }
 
 const CATEGORY_CONFIG: Record<string, { icon: React.ElementType; color: string; bgColor: string }> = {
-  EMI: { icon: Clock, color: 'text-orange-500', bgColor: 'bg-orange-100' },
-  LOAN: { icon: FileText, color: 'text-blue-500', bgColor: 'bg-blue-100' },
-  PAYMENT: { icon: CreditCard, color: 'text-green-500', bgColor: 'bg-green-100' },
-  CREDIT: { icon: Wallet, color: 'text-purple-500', bgColor: 'bg-purple-100' },
-  SYSTEM: { icon: Info, color: 'text-gray-500', bgColor: 'bg-gray-100' },
+  EMI:     { icon: Clock,     color: 'text-orange-500', bgColor: 'bg-orange-100' },
+  LOAN:    { icon: FileText,  color: 'text-blue-500',   bgColor: 'bg-blue-100'   },
+  PAYMENT: { icon: CreditCard,color: 'text-green-500',  bgColor: 'bg-green-100'  },
+  CREDIT:  { icon: Wallet,    color: 'text-purple-500', bgColor: 'bg-purple-100' },
+  SYSTEM:  { icon: Settings,  color: 'text-indigo-500', bgColor: 'bg-indigo-100' },
 };
 
 const PRIORITY_CONFIG: Record<string, { badge: string; color: string }> = {
@@ -192,16 +192,10 @@ export default function NotificationBell() {
 
     if (!notification.actionUrl) return;
 
-    // Only /customer/loan/[id] is a real page route.
-    // All other URLs (/agent/application/, /cashier/loans, etc.) are dashboard tabs,
-    // not separate pages — navigating to them causes 404.
-    if (notification.actionUrl.startsWith('/customer/loan/')) {
-      router.push(notification.actionUrl);
-      return;
-    }
-
-    // For staff/admin notifications: just close the panel.
-    // The notification title already tells them what happened.
+    // Navigate to the actionUrl for ALL roles.
+    // Dashboard tab URLs use ?tab= query param which the dashboard reads on mount.
+    // Full page routes (/customer/loan/[id]) also work directly.
+    router.push(notification.actionUrl);
   };
 
 
@@ -240,13 +234,13 @@ export default function NotificationBell() {
   });
 
   const categoryCounts = {
-    all: notifications.length,
-    unread: notifications.filter(n => !n.isRead).length,
-    EMI: notifications.filter(n => n.category === 'EMI').length,
-    LOAN: notifications.filter(n => n.category === 'LOAN').length,
+    all:     notifications.length,
+    unread:  notifications.filter(n => !n.isRead).length,
+    EMI:     notifications.filter(n => n.category === 'EMI').length,
+    LOAN:    notifications.filter(n => n.category === 'LOAN').length,
     PAYMENT: notifications.filter(n => n.category === 'PAYMENT').length,
-    CREDIT: notifications.filter(n => n.category === 'CREDIT').length,
-    SYSTEM: notifications.filter(n => n.category === 'SYSTEM').length,
+    CREDIT:  notifications.filter(n => n.category === 'CREDIT').length,
+    SYSTEM:  notifications.filter(n => n.category === 'SYSTEM').length,
   };
 
   return (
@@ -312,12 +306,13 @@ export default function NotificationBell() {
           <ScrollArea className="w-full">
             <div className="flex p-2 gap-1">
               {[
-                { key: 'all', label: 'All', count: categoryCounts.all },
-                { key: 'unread', label: 'Unread', count: categoryCounts.unread },
-                { key: 'EMI', label: 'EMI', count: categoryCounts.EMI },
-                { key: 'LOAN', label: 'Loan', count: categoryCounts.LOAN },
+                { key: 'all',     label: 'All',     count: categoryCounts.all     },
+                { key: 'unread',  label: 'Unread',  count: categoryCounts.unread  },
+                { key: 'EMI',     label: 'EMI',     count: categoryCounts.EMI     },
+                { key: 'LOAN',    label: 'Loan',    count: categoryCounts.LOAN    },
                 { key: 'PAYMENT', label: 'Payment', count: categoryCounts.PAYMENT },
-                { key: 'CREDIT', label: 'Credit', count: categoryCounts.CREDIT },
+                { key: 'CREDIT',  label: 'Credit',  count: categoryCounts.CREDIT  },
+                { key: 'SYSTEM',  label: 'System',  count: categoryCounts.SYSTEM  },
               ].map(tab => (
                 <Button
                   key={tab.key}

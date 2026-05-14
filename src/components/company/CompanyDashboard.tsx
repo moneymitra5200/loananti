@@ -69,7 +69,7 @@ export default function CompanyDashboard() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const section = new URLSearchParams(window.location.search).get('section');
-    if (section) { setActiveTab(section); window.history.replaceState({}, '', '/'); }
+    if (section) { setActiveTab(section); window.history.replaceState({}, '', window.location.pathname); }
   }, []);
 
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);

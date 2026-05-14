@@ -2646,6 +2646,17 @@ export default function UnifiedAccountantDashboard() {
     setActiveSection('day-book');
   }, [selectedCompanyId]);
 
+  // Deep link: notification click -> open section via ?tab= or ?section= query param
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const sec = params.get('tab') || params.get('section');
+    if (sec) {
+      setActiveSection(sec);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Menu Items based on company type
   // COMPANY_3 (simple / PD Lagani type) = only Day Book + Cash Book
   // COMPANY_1_2 (MoneyMitra / Keshardeep) = full accounting suite

@@ -5,14 +5,15 @@ import { sendPushNotificationToUser } from '@/lib/push-notification-service';
 /**
  * GET /api/cron/overdue-notify
  * Runs 3x daily (Morning 8AM IST, Afternoon 1PM IST, Evening 7PM IST)
- * Finds all overdue EMIs (online + offline) and sends notifications to:
- *   1. Customer — EMI amount + penalty + days overdue
- *   2. Agent / Creator of the loan
- *   3. Company associated with the loan
- *   4. All Super Admins
+ * Sends in-app bell + push notifications to ALL relevant roles:
+ *   1. Customer        — EMI amount + penalty + days overdue
+ *   2. Agent / Handler — whoever last handled the loan
+ *   3. Staff           — all active STAFF users
+ *   4. Cashier         — all active CASHIER users (they collect payments)
+ *   5. Company         — company users linked to the loan
+ *   6. Super Admin     — all SUPER_ADMIN users
  */
 export async function GET(request: NextRequest) {
-  // Security: Vercel sets Authorization: Bearer <CRON_SECRET> on cron calls
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
@@ -31,55 +32,60 @@ export async function GET(request: NextRequest) {
     errors: [] as string[],
   };
 
-  // ── Helper: fire-and-forget push notification (non-blocking) ─────────────
-  // IMPORTANT: NOT awaited — prevents sequential blocking on 200 Firebase calls.
-  // Each push call is independent; failure of one doesn't affect others.
-  function notify(userId: string, title: string, body: string, actionUrl: string, data?: Record<string, string>) {
-    sendPushNotificationToUser({ userId, title, body, actionUrl, data })
-      .catch((err: any) => { stats.errors.push(`User ${userId}: ${err.message}`); });
-  }
+  // ── Fetch role-wide recipients once (reused for every EMI) ────────────────
+  const [superAdmins, allStaff, allCashiers] = await Promise.all([
+    db.user.findMany({ where: { role: 'SUPER_ADMIN', isActive: true }, select: { id: true } }),
+    db.user.findMany({ where: { role: 'STAFF',       isActive: true }, select: { id: true } }),
+    db.user.findMany({ where: { role: 'CASHIER',     isActive: true }, select: { id: true } }),
+  ]);
 
-  // ── Fetch Super Admin user IDs (for batch notification) ──────────────────
-  const superAdmins = await db.user.findMany({
-    where: { role: 'SUPER_ADMIN', isActive: true },
-    select: { id: true },
-  });
+  /**
+   * notify() — writes an in-app Notification DB record (shows in bell panel)
+   * AND fires a push notification (shows on phone). DB write is awaited so
+   * records appear instantly; push is fire-and-forget.
+   */
+  async function notify(
+    userId: string,
+    title: string,
+    body: string,
+    actionUrl: string,
+    type: string,
+    category: 'EMI' | 'LOAN' | 'PAYMENT' | 'SYSTEM' | 'CREDIT' = 'EMI',
+    priority: 'NORMAL' | 'HIGH' | 'CRITICAL' = 'HIGH',
+  ) {
+    try {
+      await db.notification.create({
+        data: { userId, type, category, priority, title, message: body, actionUrl, isRead: false },
+      });
+    } catch (err: any) {
+      stats.errors.push(`DB ${userId}: ${err.message}`);
+    }
+    sendPushNotificationToUser({ userId, title, body, actionUrl })
+      .catch((err: any) => { stats.errors.push(`Push ${userId}: ${err.message}`); });
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. ONLINE LOANS — Overdue EMISchedule records
   // ═══════════════════════════════════════════════════════════════════════════
   try {
     const overdueOnlineEMIs = await db.eMISchedule.findMany({
-      where: {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-        dueDate: { lt: todayStart }, // due date has passed
-      },
+      where: { paymentStatus: { in: ['PENDING', 'OVERDUE'] }, dueDate: { lt: todayStart } },
       include: {
         loanApplication: {
           select: {
-            id: true,
-            applicationNo: true,
-            customerId: true,
-            companyId: true,
-            currentHandlerId: true,
-            customer: {
-              select: { id: true, name: true, fcmToken: true, notificationEnabled: true },
-            },
+            id: true, applicationNo: true, customerId: true,
+            companyId: true, currentHandlerId: true,
+            customer: { select: { id: true, name: true } },
             company: {
               select: {
-                id: true,
-                name: true,
-                users: {
-                  where: { isActive: true, role: 'COMPANY' },
-                  select: { id: true },
-                  take: 3,
-                },
+                id: true, name: true,
+                users: { where: { isActive: true, role: 'COMPANY' }, select: { id: true }, take: 3 },
               },
             },
           },
         },
       },
-      take: 200, // Process max 200 per cron run
+      take: 200,
     });
 
     stats.onlineOverdue = overdueOnlineEMIs.length;
@@ -88,55 +94,76 @@ export async function GET(request: NextRequest) {
       const loan = emi.loanApplication;
       if (!loan) continue;
 
-      const daysOverdue = emi.daysOverdue || Math.floor((now.getTime() - new Date(emi.dueDate).getTime()) / (1000 * 60 * 60 * 24));
-      const emiAmt = Number(emi.totalAmount);
+      const daysOverdue = emi.daysOverdue ||
+        Math.floor((now.getTime() - new Date(emi.dueDate).getTime()) / 86400000);
+      const emiAmt  = Number(emi.totalAmount);
       const penalty = Number(emi.penaltyAmount || 0);
       const totalDue = emiAmt + penalty;
       const dueDateStr = new Date(emi.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      const penaltyStr = penalty > 0 ? ` + Penalty: ₹${penalty.toLocaleString('en-IN')}` : '';
 
-      // ── Customer notification ──
+      const seen = new Set<string>(); // prevent duplicate notifications per person
+
+      // 1. Customer
       if (loan.customerId) {
-        const title = daysOverdue <= 1
-          ? `⚠️ EMI Overdue — Loan ${loan.applicationNo}`
-          : `🔴 EMI Overdue ${daysOverdue} Days — Loan ${loan.applicationNo}`;
-        const body = penalty > 0
-          ? `EMI #${emi.installmentNumber} due ${dueDateStr} is overdue.\nEMI: ₹${emiAmt.toLocaleString('en-IN')} + Penalty: ₹${penalty.toLocaleString('en-IN')}\nTotal Due: ₹${totalDue.toLocaleString('en-IN')}. Pay now to avoid more charges.`
-          : `EMI #${emi.installmentNumber} of ₹${emiAmt.toLocaleString('en-IN')} was due on ${dueDateStr} and is still unpaid. Please pay immediately.`;
-        
-        await notify(loan.customerId, title, body, `/customer/loan/${loan.id}`, {
-          type: 'EMI_OVERDUE',
-          loanId: loan.id,
-          emiId: emi.id,
-          daysOverdue: daysOverdue.toString(),
-          penalty: penalty.toString(),
-        });
+        const t = daysOverdue <= 1
+          ? `⚠️ EMI Overdue — ${loan.applicationNo}`
+          : `🔴 EMI ${daysOverdue}d Overdue — ${loan.applicationNo}`;
+        const b = penalty > 0
+          ? `EMI #${emi.installmentNumber} due ${dueDateStr}.\nEMI: ₹${emiAmt.toLocaleString('en-IN')}${penaltyStr}\nTotal Due: ₹${totalDue.toLocaleString('en-IN')}. Pay now to avoid more charges.`
+          : `EMI #${emi.installmentNumber} of ₹${emiAmt.toLocaleString('en-IN')} due ${dueDateStr} is unpaid. Pay immediately.`;
+        await notify(loan.customerId, t, b, `/customer/loan/${loan.id}`, 'EMI_OVERDUE', 'EMI', 'CRITICAL');
+        seen.add(loan.customerId);
         stats.customerNotifications++;
       }
 
-      // ── Agent / current handler notification ──
-      if (loan.currentHandlerId) {
-        const title = `📋 Overdue EMI — ${loan.applicationNo}`;
-        const body = `Customer EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Total due: ₹${totalDue.toLocaleString('en-IN')}${penalty > 0 ? ` (incl. ₹${penalty.toLocaleString('en-IN')} penalty)` : ''}. Follow up required.`;
-        await notify(loan.currentHandlerId, title, body, `/dashboard?tab=emi-collection`, { type: 'STAFF_OVERDUE_ALERT', loanId: loan.id });
+      // 2. Agent / Current Handler
+      if (loan.currentHandlerId && !seen.has(loan.currentHandlerId)) {
+        const t = `📋 Overdue EMI — ${loan.applicationNo}`;
+        const b = `EMI #${emi.installmentNumber} is ${daysOverdue}d overdue. Total due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}. Follow up required.`;
+        await notify(loan.currentHandlerId, t, b, `/dashboard?tab=emi-collection`, 'STAFF_OVERDUE_ALERT', 'EMI', 'HIGH');
+        seen.add(loan.currentHandlerId);
         stats.staffNotifications++;
       }
 
-      // ── Company users notification ──
-      if (loan.company?.users) {
-        for (const companyUser of loan.company.users) {
-          const title = `⚠️ Overdue EMI — ${loan.applicationNo}`;
-          const body = `EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue} day(s) overdue. Loan: ${loan.applicationNo}.`;
-          await notify(companyUser.id, title, body, `/dashboard?tab=emi-collection`, { type: 'COMPANY_OVERDUE_ALERT', loanId: loan.id });
-          stats.staffNotifications++;
-        }
+      // 3. All STAFF
+      for (const s of allStaff) {
+        if (seen.has(s.id)) continue;
+        await notify(s.id,
+          `📋 Overdue EMI Alert — ${loan.applicationNo}`,
+          `EMI #${emi.installmentNumber} is ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}. Follow up.`,
+          `/dashboard?tab=emi-collection`, 'STAFF_OVERDUE_ALERT', 'EMI', 'HIGH');
+        seen.add(s.id); stats.staffNotifications++;
       }
 
-      // ── Super Admin notification ──
+      // 4. All CASHIER
+      for (const c of allCashiers) {
+        if (seen.has(c.id)) continue;
+        await notify(c.id,
+          `💰 EMI Overdue — ${loan.applicationNo}`,
+          `EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue}d overdue${penaltyStr ? ', penalty accruing' : ''}. Collect payment.`,
+          `/dashboard?tab=emi-collection`, 'CASHIER_OVERDUE_ALERT', 'EMI', 'HIGH');
+        seen.add(c.id); stats.staffNotifications++;
+      }
+
+      // 5. Company Users
+      for (const cu of (loan.company?.users || [])) {
+        if (seen.has(cu.id)) continue;
+        await notify(cu.id,
+          `⚠️ Overdue EMI — ${loan.applicationNo}`,
+          `EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue}d overdue.`,
+          `/dashboard?tab=emi-collection`, 'COMPANY_OVERDUE_ALERT', 'EMI', 'HIGH');
+        seen.add(cu.id); stats.staffNotifications++;
+      }
+
+      // 6. Super Admins
       for (const sa of superAdmins) {
-        const title = `🔴 Overdue EMI — ${loan.applicationNo}`;
-        const body = `EMI #${emi.installmentNumber} — ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penalty > 0 ? ` (₹${penalty.toLocaleString('en-IN')} penalty)` : ''}.`;
-        await notify(sa.id, title, body, `/dashboard?tab=emi-collection`, { type: 'SA_OVERDUE_ALERT', loanId: loan.id });
-        stats.staffNotifications++;
+        if (seen.has(sa.id)) continue;
+        await notify(sa.id,
+          `🔴 Overdue EMI — ${loan.applicationNo}`,
+          `EMI #${emi.installmentNumber} — ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}.`,
+          `/dashboard?tab=emi-collection`, 'SA_OVERDUE_ALERT', 'EMI', 'CRITICAL');
+        seen.add(sa.id); stats.staffNotifications++;
       }
     }
   } catch (err: any) {
@@ -148,27 +175,15 @@ export async function GET(request: NextRequest) {
   // ═══════════════════════════════════════════════════════════════════════════
   try {
     const overdueOfflineEMIs = await db.offlineLoanEMI.findMany({
-      where: {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-        dueDate: { lt: todayStart },
-      },
+      where: { paymentStatus: { in: ['PENDING', 'OVERDUE'] }, dueDate: { lt: todayStart } },
       include: {
         offlineLoan: {
           select: {
-            id: true,
-            loanNumber: true,
-            customerId: true,
-            createdById: true,
-            companyId: true,
-            customerName: true,
-            customerPhone: true,
+            id: true, loanNumber: true, customerId: true,
+            createdById: true, companyId: true, customerName: true, customerPhone: true,
             company: {
               select: {
-                users: {
-                  where: { isActive: true, role: 'COMPANY' },
-                  select: { id: true },
-                  take: 3,
-                },
+                users: { where: { isActive: true, role: 'COMPANY' }, select: { id: true }, take: 3 },
               },
             },
           },
@@ -183,89 +198,99 @@ export async function GET(request: NextRequest) {
       const loan = emi.offlineLoan;
       if (!loan) continue;
 
-      const daysOverdue = emi.daysOverdue || Math.floor((now.getTime() - new Date(emi.dueDate).getTime()) / (1000 * 60 * 60 * 24));
-      const emiAmt = Number(emi.totalAmount);
-      const penalty = Number(emi.penaltyAmount || 0);
+      const daysOverdue = emi.daysOverdue ||
+        Math.floor((now.getTime() - new Date(emi.dueDate).getTime()) / 86400000);
+      const emiAmt   = Number(emi.totalAmount);
+      const penalty  = Number(emi.penaltyAmount || 0);
       const totalDue = emiAmt + penalty;
       const dueDateStr = new Date(emi.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+      const penaltyStr = penalty > 0 ? ` + Penalty: ₹${penalty.toLocaleString('en-IN')}` : '';
 
-      // ── Customer (if linked to a user account) ──
+      const seen = new Set<string>();
+
+      // 1. Customer (if linked)
       if (loan.customerId) {
-        const title = daysOverdue <= 1
-          ? `⚠️ EMI Overdue — Loan ${loan.loanNumber}`
-          : `🔴 EMI Overdue ${daysOverdue} Days — Loan ${loan.loanNumber}`;
-        const body = penalty > 0
-          ? `EMI #${emi.installmentNumber} due ${dueDateStr} is overdue.\nEMI: ₹${emiAmt.toLocaleString('en-IN')} + Penalty: ₹${penalty.toLocaleString('en-IN')}\nTotal Due: ₹${totalDue.toLocaleString('en-IN')}. Please pay immediately.`
-          : `EMI #${emi.installmentNumber} of ₹${emiAmt.toLocaleString('en-IN')} was due on ${dueDateStr} and is still unpaid. Please pay immediately.`;
-        
-        await notify(loan.customerId, title, body, `/dashboard`, {
-          type: 'OFFLINE_EMI_OVERDUE',
-          offlineLoanId: loan.id,
-          emiId: emi.id,
-          daysOverdue: daysOverdue.toString(),
-          penalty: penalty.toString(),
-        });
-        stats.customerNotifications++;
+        const t = daysOverdue <= 1
+          ? `⚠️ EMI Overdue — ${loan.loanNumber}`
+          : `🔴 EMI ${daysOverdue}d Overdue — ${loan.loanNumber}`;
+        const b = penalty > 0
+          ? `EMI #${emi.installmentNumber} due ${dueDateStr}.\nEMI: ₹${emiAmt.toLocaleString('en-IN')}${penaltyStr}\nTotal Due: ₹${totalDue.toLocaleString('en-IN')}. Pay immediately.`
+          : `EMI #${emi.installmentNumber} of ₹${emiAmt.toLocaleString('en-IN')} due ${dueDateStr} is unpaid.`;
+        await notify(loan.customerId, t, b, `/dashboard?tab=my-loans`, 'OFFLINE_EMI_OVERDUE', 'EMI', 'CRITICAL');
+        seen.add(loan.customerId); stats.customerNotifications++;
       }
 
-      // ── Loan Creator (Agent / Super Admin who created the loan) ──
-      if (loan.createdById) {
-        const title = `📋 Offline Loan Overdue — ${loan.loanNumber}`;
-        const body = `${loan.customerName} (${loan.customerPhone}) — EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Total Due: ₹${totalDue.toLocaleString('en-IN')}${penalty > 0 ? ` (incl. ₹${penalty.toLocaleString('en-IN')} penalty)` : ''}. Follow up immediately.`;
-        await notify(loan.createdById, title, body, `/dashboard?tab=offline-loans`, { type: 'OFFLINE_STAFF_OVERDUE', offlineLoanId: loan.id });
-        stats.staffNotifications++;
+      // 2. Loan Creator
+      if (loan.createdById && !seen.has(loan.createdById)) {
+        await notify(loan.createdById,
+          `📋 Offline Loan Overdue — ${loan.loanNumber}`,
+          `${loan.customerName} (${loan.customerPhone}) — EMI #${emi.installmentNumber} is ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}.`,
+          `/dashboard?tab=offline-loans`, 'OFFLINE_STAFF_OVERDUE', 'EMI', 'HIGH');
+        seen.add(loan.createdById); stats.staffNotifications++;
       }
 
-      // ── Company users ──
-      if (loan.company?.users) {
-        for (const companyUser of loan.company.users) {
-          const title = `⚠️ Offline Loan Overdue — ${loan.loanNumber}`;
-          const body = `EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue} day(s) overdue. Customer: ${loan.customerName}.`;
-          await notify(companyUser.id, title, body, `/dashboard?tab=offline-loans`, { type: 'COMPANY_OFFLINE_OVERDUE', offlineLoanId: loan.id });
-          stats.staffNotifications++;
-        }
+      // 3. All STAFF
+      for (const s of allStaff) {
+        if (seen.has(s.id)) continue;
+        await notify(s.id,
+          `📋 Offline Overdue — ${loan.loanNumber}`,
+          `${loan.customerName}: EMI #${emi.installmentNumber} is ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}.`,
+          `/dashboard?tab=offline-loans`, 'OFFLINE_STAFF_OVERDUE', 'EMI', 'HIGH');
+        seen.add(s.id); stats.staffNotifications++;
       }
 
-      // ── Super Admin ──
+      // 4. All CASHIER
+      for (const c of allCashiers) {
+        if (seen.has(c.id)) continue;
+        await notify(c.id,
+          `💰 Offline EMI Overdue — ${loan.loanNumber}`,
+          `${loan.customerName}: EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue}d overdue. Collect payment.`,
+          `/dashboard?tab=offline-loans`, 'CASHIER_OFFLINE_OVERDUE', 'EMI', 'HIGH');
+        seen.add(c.id); stats.staffNotifications++;
+      }
+
+      // 5. Company Users
+      for (const cu of (loan.company?.users || [])) {
+        if (seen.has(cu.id)) continue;
+        await notify(cu.id,
+          `⚠️ Offline Loan Overdue — ${loan.loanNumber}`,
+          `EMI #${emi.installmentNumber} (₹${totalDue.toLocaleString('en-IN')}) is ${daysOverdue}d overdue. Customer: ${loan.customerName}.`,
+          `/dashboard?tab=offline-loans`, 'COMPANY_OFFLINE_OVERDUE', 'EMI', 'HIGH');
+        seen.add(cu.id); stats.staffNotifications++;
+      }
+
+      // 6. Super Admins
       for (const sa of superAdmins) {
-        const title = `🔴 Offline Overdue — ${loan.loanNumber}`;
-        const body = `${loan.customerName}: EMI #${emi.installmentNumber} — ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penalty > 0 ? ` (₹${penalty.toLocaleString('en-IN')} penalty)` : ''}.`;
-        await notify(sa.id, title, body, `/dashboard?tab=offline-loans`, { type: 'SA_OFFLINE_OVERDUE', offlineLoanId: loan.id });
-        stats.staffNotifications++;
+        if (seen.has(sa.id)) continue;
+        await notify(sa.id,
+          `🔴 Offline Overdue — ${loan.loanNumber}`,
+          `${loan.customerName}: EMI #${emi.installmentNumber} — ${daysOverdue}d overdue. Due: ₹${totalDue.toLocaleString('en-IN')}${penaltyStr}.`,
+          `/dashboard?tab=offline-loans`, 'SA_OFFLINE_OVERDUE', 'EMI', 'CRITICAL');
+        seen.add(sa.id); stats.staffNotifications++;
       }
     }
   } catch (err: any) {
     stats.errors.push(`Offline loans error: ${err.message}`);
   }
 
-  // ── Log cron run — single createMany instead of N separate creates ────────
-  const slot = now.getUTCHours() < 8
-    ? '🌅 Morning'
-    : now.getUTCHours() < 14
-    ? '☀️ Afternoon'
-    : '🌆 Evening';
-
+  // ── Cron summary log (SYSTEM category — appears in SYSTEM tab of bell) ────
+  const slot = now.getUTCHours() < 8 ? '🌅 Morning' : now.getUTCHours() < 14 ? '☀️ Afternoon' : '🌆 Evening';
   try {
     if (superAdmins.length > 0) {
-      // createMany = 1 DB write for all admins instead of N separate writes
       await db.notification.createMany({
         data: superAdmins.map(sa => ({
           userId: sa.id,
-          type: 'SYSTEM',
+          type: 'GENERAL',
           category: 'SYSTEM',
           priority: 'LOW',
-          title: `${slot} Overdue Alert Cron Completed`,
-          message: `Ran at ${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST. Online: ${stats.onlineOverdue}, Offline: ${stats.offlineOverdue}. Notified: ${stats.customerNotifications + stats.staffNotifications}.${stats.errors.length > 0 ? ` Errors: ${stats.errors.length}` : ' ✅ No errors.'}`,
+          title: `${slot} Overdue Cron Completed`,
+          message: `${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST — Online: ${stats.onlineOverdue}, Offline: ${stats.offlineOverdue}. Notified: ${stats.customerNotifications + stats.staffNotifications}.${stats.errors.length > 0 ? ` Errors: ${stats.errors.length}` : ' ✅ No errors.'}`,
+          isRead: false,
         })),
         skipDuplicates: true,
       });
     }
   } catch { /* non-critical */ }
 
-  return NextResponse.json({
-    success: true,
-    timestamp: now.toISOString(),
-    slot,
-    stats,
-  });
+  return NextResponse.json({ success: true, timestamp: now.toISOString(), slot, stats });
 }
