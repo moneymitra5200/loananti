@@ -23,17 +23,19 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Build role-specific filters ─────────────────────────────────────────
-    const loanWhere: Record<string, unknown> = {};
-    // isMirrorLoan: false — mirror loans are internal accounting duplicates and must
-    // never inflate dashboard counts across any role.
+    const onlineWhere: Record<string, unknown> = {};
     const offlineWhere: Record<string, unknown> = { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false };
 
     if (role === 'COMPANY' && companyId) {
-      loanWhere.companyId = companyId;
+      onlineWhere.companyId = companyId;
       offlineWhere.companyId = companyId;
     } else if (role === 'AGENT' && userId) {
-      loanWhere.agentId = userId;
-      offlineWhere.agentId = userId;
+      // LoanApplication doesn't have agentId, it uses currentHandlerId or sessionForm relation
+      onlineWhere.OR = [
+        { currentHandlerId: userId },
+        { sessionForm: { agentId: userId } }
+      ];
+      offlineWhere.createdById = userId;
     } else if (role === 'STAFF' && userId) {
       offlineWhere.createdById = userId;
     }
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
     // ── All counts SEQUENTIALLY — prevents connection starvation on connection_limit=3 ──
     // Slightly slower (~200ms) but NEVER exceeds connection pool
     const activeDisbursedLoans = await db.loanApplication.count({
-      where: { ...loanWhere, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
+      where: { ...onlineWhere, status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY'] } },
     }).catch(() => 0);
 
     const offlineLoanCount = await db.offlineLoan.count({ where: offlineWhere }).catch(() => 0);

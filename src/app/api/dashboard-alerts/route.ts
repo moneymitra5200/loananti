@@ -11,7 +11,14 @@ export async function GET(request: NextRequest) {
     const dayEnd   = new Date(`${dateStr}T23:59:59.999Z`);
 
     // Optionally scope EMI / loan queries to a specific agent
-    const loanWhere: any = agentId ? { agentId } : {};
+    const onlineLoanWhere: any = agentId ? { 
+      OR: [
+        { currentHandlerId: agentId },
+        { sessionForm: { agentId: agentId } }
+      ]
+    } : {};
+
+    const offlineLoanWhere: any = agentId ? { createdById: agentId } : {};
 
     // Run all queries SEQUENTIALLY — prevents connection starvation on connection_limit=3
     // Each query has its own try-catch for fault tolerance (same as Promise.allSettled)
@@ -19,7 +26,7 @@ export async function GET(request: NextRequest) {
       where: {
         dueDate: { gte: dayStart, lte: dayEnd },
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        loanApplication: loanWhere,
+        loanApplication: onlineLoanWhere,
       },
       select: { totalAmount: true },
     }).catch(() => [] as any[]);
@@ -28,7 +35,7 @@ export async function GET(request: NextRequest) {
       where: {
         dueDate: { lt: dayStart },
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-        loanApplication: loanWhere,
+        loanApplication: onlineLoanWhere,
       },
       select: { totalAmount: true },
     }).catch(() => [] as any[]);
@@ -37,7 +44,7 @@ export async function GET(request: NextRequest) {
       where: {
         createdAt: { gte: dayStart, lte: dayEnd },
         status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1'] as any[] },
-        ...loanWhere,
+        ...onlineLoanWhere,
       },
     }).catch(() => 0);
 
@@ -45,25 +52,29 @@ export async function GET(request: NextRequest) {
       where: {
         createdAt: { gte: dayStart, lte: dayEnd },
         status: 'PENDING_APPROVAL' as any,
+        ...offlineLoanWhere,
       },
     }).catch(() => 0);
 
     const pendingDisbOnline = await db.loanApplication.count({
       where: {
         status: 'FINAL_APPROVED' as any,
-        ...loanWhere,
+        ...onlineLoanWhere,
       },
     }).catch(() => 0);
 
     const pendingDisbOffline = await db.offlineLoan.count({
-      where: { status: 'PENDING_APPROVAL' as any },
+      where: { 
+        status: 'PENDING_APPROVAL' as any,
+        ...offlineLoanWhere,
+      },
     }).catch(() => 0);
 
     const offlineTodayEMIs = await db.offlineLoanEMI.findMany({
       where: {
         dueDate: { gte: dayStart, lte: dayEnd },
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
+        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
       },
       select: { totalAmount: true, paidAmount: true },
     }).catch(() => [] as any[]);
@@ -72,7 +83,7 @@ export async function GET(request: NextRequest) {
       where: {
         dueDate: { lt: dayStart },
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-        offlineLoan: Object.keys(loanWhere).length > 0 ? loanWhere : undefined,
+        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
       },
       select: { totalAmount: true, paidAmount: true },
     }).catch(() => [] as any[]);
