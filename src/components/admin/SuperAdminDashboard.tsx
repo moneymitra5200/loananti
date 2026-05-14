@@ -289,12 +289,14 @@ export default function SuperAdminDashboard() {
     try {
       // SEQUENTIAL FETCH — prevents connection starvation (connection_limit=3)
       // Each API route opens DB connections; running all 6 in parallel exceeds the pool.
+      const nc = forceRefresh ? '&noCache=true' : '';
       const loansRes     = await fetch('/api/loan/list?role=SUPER_ADMIN');
-      const usersRes     = await fetch('/api/user');
-      const companiesRes = await fetch('/api/company?isActive=true');
+      const usersRes     = await fetch(`/api/user${forceRefresh ? '?noCache=true' : ''}`);
+      const companiesRes = await fetch(`/api/company?isActive=true${nc}`);
       const productsRes  = await fetch('/api/cms/product');
       const settingsRes  = await fetch('/api/settings');
       const allActiveRes = await fetch('/api/loan/all-active');
+
 
       // Process all responses in parallel
       const [loansData, usersData, companiesData, productsData, settingsData, allActiveData] = await Promise.all([

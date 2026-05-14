@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { cache } from '@/lib/cache';
 
+// POST - Delete ALL companies (DANGEROUS - Admin only)
 export async function POST() {
   try {
     // First delete all company users
@@ -10,6 +12,11 @@ export async function POST() {
 
     // Then delete all companies
     const deletedCompanies = await db.company.deleteMany({});
+
+    // ── CRITICAL: Clear server-side cache so next fetch returns empty list ──
+    cache.deletePattern('companies:');
+    cache.deletePattern('users:');
+    cache.clear(); // nuclear clear to be safe
 
     return NextResponse.json({
       success: true,

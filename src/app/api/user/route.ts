@@ -10,14 +10,17 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const roleParam = searchParams.get('role');
+    const noCache   = searchParams.get('noCache') === 'true';
 
     // Generate cache key
     const cacheKey = roleParam ? CacheKeys.usersByRole(roleParam) : CacheKeys.usersList();
 
-    // Check cache first
-    const cachedUsers = cache.get(cacheKey);
-    if (cachedUsers) {
-      return NextResponse.json({ users: cachedUsers, cached: true });
+    // Check cache first (skip if noCache requested)
+    if (!noCache) {
+      const cachedUsers = cache.get(cacheKey);
+      if (cachedUsers) {
+        return NextResponse.json({ users: cachedUsers, cached: true });
+      }
     }
 
     // Build where clause properly
