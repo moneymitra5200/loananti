@@ -9,6 +9,7 @@ import QueryProvider from "@/providers/QueryProvider";
 import PWAInstallPrompt from "@/components/pwa/PWAInstallPrompt";
 import DataPrefetchWrapper from "@/components/DataPrefetchWrapper";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ThemeColorProvider from "@/components/ThemeColorProvider";
 
 export const metadata: Metadata = {
   title: {
@@ -158,6 +159,8 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
       <body>
+        {/* Inject admin-configured theme color as CSS variables */}
+        <ThemeColorProvider />
         <QueryProvider>
           <ErrorBoundary>
             <AuthProvider>

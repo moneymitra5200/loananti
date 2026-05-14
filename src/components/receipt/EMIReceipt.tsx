@@ -187,7 +187,35 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>((props, ref) => {
       boxSizing: 'border-box',
       padding: '4mm',
     }}>
-      <div style={{ border: `2px solid ${accentColor}`, borderRadius: '3px', padding: '4mm', boxSizing: 'border-box' }}>
+      <div style={{ border: `2px solid ${accentColor}`, borderRadius: '3px', padding: '4mm', boxSizing: 'border-box', position: 'relative', overflow: 'hidden' }}>
+
+        {/* ── Diagonal Watermark ── */}
+        <div style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%) rotate(-35deg)',
+          fontSize: '28pt',
+          fontWeight: 'bold',
+          color: accentColor,
+          opacity: 0.055,
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          letterSpacing: '2px',
+          zIndex: 0,
+          width: '200%',
+          textAlign: 'center',
+          lineHeight: '1.8',
+        }}>
+          {companyName.toUpperCase()}<br />
+          {companyName.toUpperCase()}<br />
+          {companyName.toUpperCase()}
+        </div>
+
+        {/* All content above watermark */}
+        <div style={{ position: 'relative', zIndex: 1 }}>
+
 
         {/* ── Header ── */}
         <div style={{ textAlign: 'center', borderBottom: `1px solid ${accentColor}`, paddingBottom: '2mm', marginBottom: '2mm' }}>
@@ -379,7 +407,9 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>((props, ref) => {
         <div style={{ marginTop: '3mm', textAlign: 'center', fontSize: '7.5pt', color: '#888', borderTop: '1px solid #ddd', paddingTop: '1.5mm' }}>
           {footerText} · {companyName} · {companyCode}
         </div>
-      </div>
+
+        </div>{/* end zIndex:1 content wrapper */}
+      </div>{/* end border card */}
     </div>
   );
 });

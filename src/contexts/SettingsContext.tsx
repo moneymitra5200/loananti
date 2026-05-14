@@ -48,10 +48,10 @@ export interface AppSettings {
 
 // Default settings with sensible defaults
 const defaultSettings: AppSettings = {
-  companyName: 'MM Square',
+  companyName: 'Money Mitra Financial Advisor',
   companyLogo: '/mm-logo.png',  // Permanent MM logo
   companyTagline: 'Your Trusted Financial Partner',
-  companyEmail: 'support@mmsquare.com',
+  companyEmail: 'support@moneymitra.com',
   companyPhone: '+91 1800-123-4567',
   companyAddress: 'Bhavnagar, Gujarat, India',
   defaultCurrency: 'INR',
