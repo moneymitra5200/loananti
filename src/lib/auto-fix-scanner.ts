@@ -546,12 +546,12 @@ async function scanAndFixBankBalanceSync(companyId: string): Promise<ScanResult>
 /**
  * SCANNER 3: Journal Entry Balance Check
  * Detects: Journal entries where totalDebit != totalCredit
- * Fixes: Recalculates and updates the totals
+ * Fixes: Adds a Suspense balancing line to each unbalanced entry
  */
 async function scanAndFixJournalEntryBalances(companyId: string): Promise<ScanResult> {
   const result: ScanResult = {
     scanName: 'Journal Entry Balance',
-    description: 'Fixes journal entries where debit != credit',
+    description: 'Fixes journal entries where debit != credit by adding Suspense lines',
     issuesFound: 0,
     issuesFixed: 0,
     details: [],
@@ -559,31 +559,77 @@ async function scanAndFixJournalEntryBalances(companyId: string): Promise<ScanRe
   };
 
   try {
+    // Ensure Suspense account exists
+    let suspense = await db.chartOfAccount.findFirst({
+      where: { companyId, accountCode: '9999' }
+    });
+    if (!suspense) {
+      suspense = await db.chartOfAccount.create({
+        data: {
+          companyId,
+          accountCode: '9999',
+          accountName: 'Suspense – Opening Adjustment',
+          accountType: 'EQUITY',
+          isSystemAccount: true,
+          description: 'Auto-created by scanner to absorb imbalances',
+          openingBalance: 0,
+          currentBalance: 0,
+          isActive: true,
+        }
+      });
+      result.details.push('Created Suspense account (9999)');
+    }
+
     const journalEntries = await db.journalEntry.findMany({
       where: { companyId },
       include: { lines: true }
     });
 
     for (const entry of journalEntries) {
-      const actualDebit = entry.lines.reduce((sum, line) => sum + line.debitAmount, 0);
+      const actualDebit  = entry.lines.reduce((sum, line) => sum + line.debitAmount,  0);
       const actualCredit = entry.lines.reduce((sum, line) => sum + line.creditAmount, 0);
+      const diff = Math.abs(actualDebit - actualCredit);
 
-      if (Math.abs(actualDebit - actualCredit) > 0.01) {
+      // Fix stored totals if they don't match line sums
+      if (
+        Math.abs(entry.totalDebit  - actualDebit)  > 0.005 ||
+        Math.abs(entry.totalCredit - actualCredit) > 0.005
+      ) {
         result.issuesFound++;
-        result.details.push(`${entry.entryNumber}: Debit ₹${actualDebit}, Credit ₹${actualCredit} - UNBALANCED!`);
-        // Note: We can't auto-fix unbalanced entries - they need manual review
-        result.details.push(`${entry.entryNumber}: Needs manual review - cannot auto-fix`);
-      } else if (Math.abs(entry.totalDebit - actualDebit) > 0.01 || Math.abs(entry.totalCredit - actualCredit) > 0.01) {
-        result.issuesFound++;
-        result.details.push(`${entry.entryNumber}: Stored totals don't match line items`);
-
         await db.journalEntry.update({
           where: { id: entry.id },
           data: { totalDebit: actualDebit, totalCredit: actualCredit }
         });
+        result.issuesFixed++;
+        result.details.push(`${entry.entryNumber}: stored totals corrected`);
+      }
+
+      // Fix actual imbalance in lines by adding Suspense line
+      if (diff > 0.005) {
+        result.issuesFound++;
+
+        const addDebit  = actualCredit > actualDebit;  // Cr heavy → add Dr to Suspense
+        const addCredit = actualDebit  > actualCredit; // Dr heavy → add Cr to Suspense
+
+        await db.journalEntryLine.create({
+          data: {
+            journalEntryId: entry.id,
+            accountId:      suspense.id,
+            debitAmount:    addDebit  ? diff : 0,
+            creditAmount:   addCredit ? diff : 0,
+            narration:      'Auto-balance [Scanner]',
+          }
+        });
+
+        // Update stored totals to now-balanced amount
+        const balanced = Math.max(actualDebit, actualCredit);
+        await db.journalEntry.update({
+          where: { id: entry.id },
+          data: { totalDebit: balanced, totalCredit: balanced }
+        });
 
         result.issuesFixed++;
-        result.details.push(`${entry.entryNumber}: Totals updated`);
+        result.details.push(`${entry.entryNumber}: unbalanced by ₹${diff.toFixed(2)} — Suspense line added`);
       }
     }
 

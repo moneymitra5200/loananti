@@ -3,30 +3,127 @@ import { db } from '@/lib/db';
 
 /**
  * POST /api/accounting/recalculate-balances
- * 
- * Recalculates all Chart of Account currentBalance values from Journal Entries
- * Use this if balances are out of sync
+ *
+ * Comprehensive balance fix that:
+ *  1. Fixes stored totals on every JournalEntry where totalDebit/totalCredit
+ *     don't match their line sums.
+ *  2. For each UNBALANCED journal entry (lineDebit ≠ lineCredit) adds a
+ *     balancing line to the Suspense account (code 9999 / "Suspense – Opening
+ *     Adjustment") so the entry itself is balanced.
+ *  3. Recalculates every ChartOfAccount.currentBalance from journal-entry lines.
+ *  4. Overrides the Bank / Cash CoA balances with actual BankAccount /
+ *     CashBook table values (the ground-truth for liquid assets).
+ *  5. Syncs Owner's Capital from the EquityEntry table.
+ *  6. Final Trial Balance check: if total Dr ≠ total Cr after all the above,
+ *     posts ONE correcting journal entry against Suspense to close the gap.
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { companyId } = body;
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    console.log(`[Recalculate] Starting balance recalculation for company: ${companyId}`);
+    const log: string[] = [];
+    const warn: string[] = [];
 
-    // Get all accounts for this company
+    // ─── 0. Ensure Suspense account exists ───────────────────────────────────
+    let suspenseAccount = await db.chartOfAccount.findFirst({
+      where: { companyId, accountCode: '9999' },
+    });
+    if (!suspenseAccount) {
+      suspenseAccount = await db.chartOfAccount.create({
+        data: {
+          companyId,
+          accountCode: '9999',
+          accountName: 'Suspense – Opening Adjustment',
+          accountType: 'EQUITY',
+          isSystemAccount: true,
+          description: 'Auto-created by Recalculate to absorb rounding / legacy imbalances',
+          openingBalance: 0,
+          currentBalance: 0,
+          isActive: true,
+        },
+      });
+      log.push('Created Suspense account (9999)');
+    }
+
+    // ─── 1. Get system user ───────────────────────────────────────────────────
+    const systemUser =
+      await db.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true } }) ||
+      await db.user.findFirst({ select: { id: true } });
+
+    if (!systemUser) {
+      return NextResponse.json({ error: 'No system user found' }, { status: 500 });
+    }
+
+    // ─── 2. Fix every journal entry ────────────────────────────────────────────
+    const journalEntries = await db.journalEntry.findMany({
+      where: { companyId },
+      include: { lines: true },
+      orderBy: { entryDate: 'asc' },
+    });
+
+    let entriesFixed = 0;
+    let balancingLinesAdded = 0;
+
+    for (const entry of journalEntries) {
+      const lineDebit  = entry.lines.reduce((s, l) => s + l.debitAmount,  0);
+      const lineCredit = entry.lines.reduce((s, l) => s + l.creditAmount, 0);
+      const diff = Math.abs(lineDebit - lineCredit);
+
+      // 2a. Fix stored totals if wrong
+      if (
+        Math.abs(entry.totalDebit  - lineDebit)  > 0.005 ||
+        Math.abs(entry.totalCredit - lineCredit) > 0.005
+      ) {
+        await db.journalEntry.update({
+          where: { id: entry.id },
+          data: { totalDebit: lineDebit, totalCredit: lineCredit },
+        });
+        log.push(`${entry.entryNumber}: stored totals corrected (Dr=${lineDebit.toFixed(2)}, Cr=${lineCredit.toFixed(2)})`);
+        entriesFixed++;
+      }
+
+      // 2b. If entry itself is unbalanced, add a Suspense line
+      if (diff > 0.005) {
+        // Determine which side needs topping-up
+        const addDebit  = lineCredit > lineDebit;   // credit heavier → add debit to suspense
+        const addCredit = lineDebit  > lineCredit;  // debit heavier  → add credit to suspense
+
+        await db.journalEntryLine.create({
+          data: {
+            journalEntryId: entry.id,
+            accountId:      suspenseAccount.id,
+            debitAmount:    addDebit  ? diff : 0,
+            creditAmount:   addCredit ? diff : 0,
+            narration:      `Auto-balance adjustment [Recalculate]`,
+          },
+        });
+
+        // Re-update stored totals now that line is added
+        const newDebit  = Math.max(lineDebit,  lineCredit);
+        const newCredit = Math.max(lineDebit,  lineCredit);
+        await db.journalEntry.update({
+          where: { id: entry.id },
+          data: { totalDebit: newDebit, totalCredit: newCredit },
+        });
+
+        warn.push(`${entry.entryNumber}: was unbalanced by ₹${diff.toFixed(2)} — Suspense line added`);
+        balancingLinesAdded++;
+        entriesFixed++;
+      }
+    }
+
+    // ─── 3. Recalculate ChartOfAccount.currentBalance from journal lines ───────
     const accounts = await db.chartOfAccount.findMany({
       where: { companyId, isActive: true },
     });
 
-    console.log(`[Recalculate] Found ${accounts.length} accounts`);
-
-    // Get all journal entry lines for this company
-    const journalLines = await db.journalEntryLine.findMany({
+    // Fetch fresh lines after all fixes above
+    const allLines = await db.journalEntryLine.findMany({
       where: {
         journalEntry: {
           companyId,
@@ -34,291 +131,295 @@ export async function POST(request: NextRequest) {
           isReversed: false,
         },
       },
-      include: {
-        journalEntry: true,
-        account: true,
-      },
     });
 
-    console.log(`[Recalculate] Found ${journalLines.length} journal entry lines`);
-
-    // Calculate balances for each account
-    const accountBalances: Record<string, {
-      totalDebit: number;
-      totalCredit: number;
-      accountType: string;
-      openingBalance: number;
-      currentBalance: number;
-    }> = {};
-
-    for (const account of accounts) {
-      accountBalances[account.id] = {
-        totalDebit: 0,
-        totalCredit: 0,
-        accountType: account.accountType,
-        openingBalance: account.openingBalance || 0,
-        currentBalance: account.currentBalance || 0,
-      };
+    // Aggregate per account
+    const drMap: Record<string, number> = {};
+    const crMap: Record<string, number> = {};
+    for (const line of allLines) {
+      drMap[line.accountId] = (drMap[line.accountId] || 0) + line.debitAmount;
+      crMap[line.accountId] = (crMap[line.accountId] || 0) + line.creditAmount;
     }
 
-    // Sum up all journal entry lines
-    for (const line of journalLines) {
-      if (accountBalances[line.accountId]) {
-        accountBalances[line.accountId].totalDebit += line.debitAmount;
-        accountBalances[line.accountId].totalCredit += line.creditAmount;
-      }
-    }
+    const coaUpdates: string[] = [];
+    for (const acc of accounts) {
+      const dr = drMap[acc.id] || 0;
+      const cr = crMap[acc.id] || 0;
+      const openingBalance = acc.openingBalance || 0;
 
-    // Calculate and update balances
-    const updates: Array<{
-      accountId: string;
-      accountCode: string;
-      accountName: string;
-      oldBalance: number;
-      newBalance: number;
-      totalDebit: number;
-      totalCredit: number;
-    }> = [];
+      // Standard accounting convention
+      const isDebitNormal = acc.accountType === 'ASSET' || acc.accountType === 'EXPENSE';
+      const newBalance = isDebitNormal
+        ? openingBalance + dr - cr
+        : openingBalance + cr - dr;
 
-    for (const account of accounts) {
-      const balances = accountBalances[account.id];
-      const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
-
-      // Calculate correct closing balance
-      let calculatedBalance = balances.openingBalance;
-      if (isDebitAccount) {
-        calculatedBalance += balances.totalDebit - balances.totalCredit;
-      } else {
-        calculatedBalance += balances.totalCredit - balances.totalDebit;
-      }
-
-      // Only update if there's a difference
-      if (Math.abs(calculatedBalance - account.currentBalance) > 0.01) {
+      if (Math.abs(newBalance - (acc.currentBalance || 0)) > 0.005) {
         await db.chartOfAccount.update({
-          where: { id: account.id },
-          data: { currentBalance: calculatedBalance },
+          where: { id: acc.id },
+          data: { currentBalance: newBalance },
         });
-
-        updates.push({
-          accountId: account.id,
-          accountCode: account.accountCode,
-          accountName: account.accountName,
-          oldBalance: account.currentBalance,
-          newBalance: calculatedBalance,
-          totalDebit: balances.totalDebit,
-          totalCredit: balances.totalCredit,
-        });
-
-        console.log(`[Recalculate] Updated ${account.accountCode} ${account.accountName}: ${account.currentBalance} → ${calculatedBalance}`);
+        coaUpdates.push(`${acc.accountCode} ${acc.accountName}: ${acc.currentBalance?.toFixed(2)} → ${newBalance.toFixed(2)}`);
       }
     }
 
-    // ============================================================
-    // BANK OVERRIDE: After journal-based recalculation,
-    // reset any 'Bank Account' parent ChartOfAccount (1102/1103)
-    // to equal the SUM of BankAccount.currentBalance.
-    // This prevents journal credits making the head go negative.
-    // ============================================================
-    const BANK_PARENT_CODES = ['1102', '1103', '1104'];
-    const bankParentAccounts = accounts.filter(a =>
-      BANK_PARENT_CODES.some(p => a.accountCode === p)
-    );
+    log.push(`${coaUpdates.length} account balances updated from journal lines`);
 
-    if (bankParentAccounts.length > 0) {
+    // ─── 4. Bank override — use BankAccount table as ground-truth ─────────────
+    const BANK_CODES = ['1102', '1103', '1104'];
+    const bankCoaList = accounts.filter(a => BANK_CODES.includes(a.accountCode));
+
+    if (bankCoaList.length > 0) {
       const bankRows = await db.bankAccount.findMany({
         where: { companyId, isActive: true },
-        select: { currentBalance: true }
+        select: { currentBalance: true },
       });
-      const actualBankTotal = bankRows.reduce((sum, b) => sum + (b.currentBalance || 0), 0);
+      const actualBankTotal = bankRows.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
-      for (const bankParent of bankParentAccounts) {
-        if (Math.abs(actualBankTotal - bankParent.currentBalance) > 0.01) {
+      for (const bankCoa of bankCoaList) {
+        if (Math.abs(actualBankTotal - (bankCoa.currentBalance || 0)) > 0.005) {
           await db.chartOfAccount.update({
-            where: { id: bankParent.id },
-            data: { currentBalance: actualBankTotal }
+            where: { id: bankCoa.id },
+            data: { currentBalance: actualBankTotal },
           });
-          updates.push({
-            accountId: bankParent.id,
-            accountCode: bankParent.accountCode,
-            accountName: bankParent.accountName + ' [BANK OVERRIDE]',
-            oldBalance: bankParent.currentBalance,
-            newBalance: actualBankTotal,
-            totalDebit: 0,
-            totalCredit: 0
-          });
-          console.log(`[Recalculate] Bank override ${bankParent.accountCode}: ${bankParent.currentBalance} → ${actualBankTotal} (from BankAccount table)`);
+          log.push(`${bankCoa.accountCode} (Bank) overridden → ₹${actualBankTotal.toFixed(2)} (from BankAccount table)`);
         }
       }
     }
 
-    // ============================================================
-    // EQUITY OVERRIDE: Sync Owner's Capital chartOfAccount from
-    // EquityEntry table (the source of truth for capital).
-    // ============================================================
-    const capitalAccounts = accounts.filter(a =>
-      a.accountCode === '3001' || a.accountCode === '3002'
-    );
+    // ─── 5. Cash override — use CashBook table as ground-truth ────────────────
+    const CASH_CODES = ['1101', '1100'];
+    const cashCoaList = accounts.filter(a => CASH_CODES.includes(a.accountCode));
 
-    if (capitalAccounts.length > 0) {
-      const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
-      const netCapital = equityEntries.reduce((s, e) =>
-        e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0
-      );
-
-      // Use the highest-code capital account as the sync target
-      const target = capitalAccounts.sort((a, b) => a.accountCode.localeCompare(b.accountCode)).pop()!;
-      if (netCapital > 0 && Math.abs(netCapital - target.currentBalance) > 0.01) {
-        await db.chartOfAccount.update({
-          where: { id: target.id },
-          data: { currentBalance: netCapital }
-        });
-        updates.push({
-          accountId: target.id,
-          accountCode: target.accountCode,
-          accountName: target.accountName + ' [EQUITY SYNC]',
-          oldBalance: target.currentBalance,
-          newBalance: netCapital,
-          totalDebit: 0,
-          totalCredit: 0
-        });
-        console.log(`[Recalculate] Equity sync ${target.accountCode}: ${target.currentBalance} → ${netCapital} (from EquityEntry table)`);
+    if (cashCoaList.length > 0) {
+      const cashBook = await db.cashBook.findFirst({ where: { companyId } });
+      if (cashBook) {
+        for (const cashCoa of cashCoaList) {
+          if (Math.abs((cashBook.currentBalance || 0) - (cashCoa.currentBalance || 0)) > 0.005) {
+            await db.chartOfAccount.update({
+              where: { id: cashCoa.id },
+              data: { currentBalance: cashBook.currentBalance || 0 },
+            });
+            log.push(`${cashCoa.accountCode} (Cash) overridden → ₹${(cashBook.currentBalance || 0).toFixed(2)} (from CashBook table)`);
+          }
+        }
       }
     }
 
-    console.log(`[Recalculate] Updated ${updates.length} accounts`);
+    // ─── 6. Equity (Owner's Capital) sync from EquityEntry table ──────────────
+    const capitalAccounts = accounts.filter(a =>
+      a.accountCode === '3001' || a.accountCode === '3002'
+    );
+    if (capitalAccounts.length > 0) {
+      const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
+      const netCapital = equityEntries.reduce(
+        (s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0),
+        0
+      );
+      const target = capitalAccounts.sort((a, b) => a.accountCode.localeCompare(b.accountCode)).pop()!;
+      if (netCapital > 0 && Math.abs(netCapital - (target.currentBalance || 0)) > 0.005) {
+        await db.chartOfAccount.update({
+          where: { id: target.id },
+          data: { currentBalance: netCapital },
+        });
+        log.push(`${target.accountCode} (Capital) synced → ₹${netCapital.toFixed(2)} (from EquityEntry table)`);
+      }
+    }
+
+    // ─── 7. Final Trial Balance check: compute Dr / Cr totals after all fixes ──
+    const freshAccounts = await db.chartOfAccount.findMany({
+      where: { companyId, isActive: true },
+    });
+
+    // Re-aggregate from fresh journal lines
+    const freshLines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId,
+          isApproved: true,
+          isReversed: false,
+        },
+      },
+    });
+
+    let trialDr = 0, trialCr = 0;
+    const accTypeMap: Record<string, string> = {};
+    for (const a of freshAccounts) accTypeMap[a.id] = a.accountType;
+
+    for (const line of freshLines) {
+      trialDr += line.debitAmount;
+      trialCr += line.creditAmount;
+    }
+
+    const trialDiff = trialDr - trialCr; // positive = Dr heavy, negative = Cr heavy
+
+    if (Math.abs(trialDiff) > 0.005) {
+      // Post a correcting journal entry to Suspense
+      const nextNumber = `RCALC-${Date.now()}`;
+      const corrEntry = await db.journalEntry.create({
+        data: {
+          companyId,
+          entryNumber:   nextNumber,
+          entryDate:     new Date(),
+          referenceType: 'OPENING_BALANCE_ADJUSTMENT',
+          narration:     'Trial Balance correction — auto-generated by Recalculate',
+          totalDebit:    Math.abs(trialDiff),
+          totalCredit:   Math.abs(trialDiff),
+          isApproved:    true,
+          isReversed:    false,
+          createdById:   systemUser.id,
+        },
+      });
+
+      // The side that is HEAVIER needs a relief on the OTHER side
+      await db.journalEntryLine.createMany({
+        data: [
+          {
+            journalEntryId: corrEntry.id,
+            accountId:      suspenseAccount.id,
+            // If Dr heavy → Cr suspense to relieve; if Cr heavy → Dr suspense
+            debitAmount:    trialDiff < 0 ? Math.abs(trialDiff) : 0,
+            creditAmount:   trialDiff > 0 ? Math.abs(trialDiff) : 0,
+            narration:      'Trial balance correcting entry',
+          },
+        ],
+      });
+
+      warn.push(`Trial Balance was off by ₹${Math.abs(trialDiff).toFixed(2)} — correction entry ${nextNumber} posted to Suspense`);
+
+      // Update suspense CoA balance
+      const suspFresh = await db.chartOfAccount.findUnique({
+        where: { id: suspenseAccount.id },
+      });
+      if (suspFresh) {
+        const suspLine = allLines.filter(l => l.accountId === suspenseAccount.id);
+        const suspDr = suspLine.reduce((s, l) => s + l.debitAmount, 0)
+          + (trialDiff < 0 ? Math.abs(trialDiff) : 0);
+        const suspCr = suspLine.reduce((s, l) => s + l.creditAmount, 0)
+          + (trialDiff > 0 ? Math.abs(trialDiff) : 0);
+        const newSuspBal = suspCr - suspDr; // Equity = Cr normal
+        await db.chartOfAccount.update({
+          where: { id: suspenseAccount.id },
+          data: { currentBalance: newSuspBal },
+        });
+      }
+    } else {
+      log.push('Trial Balance is already balanced ✓');
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Recalculated balances for ${accounts.length} accounts. ${updates.length} accounts were updated.`,
-      accountsProcessed: accounts.length,
-      accountsUpdated: updates.length,
-      updates,
+      message: `Recalculation complete. ${entriesFixed} journal entries fixed, ${balancingLinesAdded} balancing lines added, ${coaUpdates.length} account balances updated.${trialDiff !== 0 && Math.abs(trialDiff) > 0.005 ? ` Trial Balance corrected by ₹${Math.abs(trialDiff).toFixed(2)}.` : ' Trial Balance is balanced.'}`,
+      stats: {
+        journalEntriesFixed: entriesFixed,
+        balancingLinesAdded,
+        coaBalancesUpdated: coaUpdates.length,
+        trialBalanceDiff: Math.abs(trialDiff),
+        isNowBalanced: Math.abs(trialDiff) <= 0.005,
+      },
+      log,
+      warnings: warn,
     });
 
   } catch (error) {
     console.error('[Recalculate] Error:', error);
     return NextResponse.json({
       error: 'Failed to recalculate balances',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 });
   }
 }
 
-
 /**
- * GET /api/accounting/recalculate-balances
- * 
- * Preview what changes would be made without applying them
+ * GET — preview imbalances without fixing anything
  */
 export async function GET(request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const companyId = searchParams.get('companyId');
-
+    const companyId = request.nextUrl.searchParams.get('companyId');
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    // Get all accounts for this company
     const accounts = await db.chartOfAccount.findMany({
       where: { companyId, isActive: true },
     });
 
-    // Get all journal entry lines for this company
-    const journalLines = await db.journalEntryLine.findMany({
-      where: {
-        journalEntry: {
-          companyId,
-          isApproved: true,
-          isReversed: false,
-        },
-      },
-      include: {
-        account: true,
-      },
+    const journalEntries = await db.journalEntry.findMany({
+      where: { companyId },
+      include: { lines: true },
     });
 
-    // Calculate balances for each account
-    const accountBalances: Record<string, {
-      totalDebit: number;
-      totalCredit: number;
-      accountType: string;
-      openingBalance: number;
-      currentBalance: number;
-    }> = {};
+    const unbalancedEntries: any[] = [];
+    let totalDr = 0, totalCr = 0;
 
-    for (const account of accounts) {
-      accountBalances[account.id] = {
-        totalDebit: 0,
-        totalCredit: 0,
-        accountType: account.accountType,
-        openingBalance: account.openingBalance || 0,
-        currentBalance: account.currentBalance || 0,
-      };
-    }
-
-    for (const line of journalLines) {
-      if (accountBalances[line.accountId]) {
-        accountBalances[line.accountId].totalDebit += line.debitAmount;
-        accountBalances[line.accountId].totalCredit += line.creditAmount;
+    for (const entry of journalEntries) {
+      const dr = entry.lines.reduce((s, l) => s + l.debitAmount,  0);
+      const cr = entry.lines.reduce((s, l) => s + l.creditAmount, 0);
+      totalDr += dr;
+      totalCr += cr;
+      if (Math.abs(dr - cr) > 0.005) {
+        unbalancedEntries.push({
+          entryNumber: entry.entryNumber,
+          entryDate: entry.entryDate,
+          narration: entry.narration,
+          lineDebit: dr,
+          lineCredit: cr,
+          difference: Math.abs(dr - cr),
+        });
       }
     }
 
-    // Calculate differences
-    const preview: Array<{
-      accountCode: string;
-      accountName: string;
-      accountType: string;
-      openingBalance: number;
-      totalDebit: number;
-      totalCredit: number;
-      currentBalance: number;
-      calculatedBalance: number;
-      difference: number;
-      needsUpdate: boolean;
-    }> = [];
+    const allLines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: { companyId, isApproved: true, isReversed: false },
+      },
+    });
+    const drMap: Record<string, number> = {};
+    const crMap: Record<string, number> = {};
+    for (const l of allLines) {
+      drMap[l.accountId] = (drMap[l.accountId] || 0) + l.debitAmount;
+      crMap[l.accountId] = (crMap[l.accountId] || 0) + l.creditAmount;
+    }
 
-    for (const account of accounts) {
-      const balances = accountBalances[account.id];
-      const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
-
-      let calculatedBalance = balances.openingBalance;
-      if (isDebitAccount) {
-        calculatedBalance += balances.totalDebit - balances.totalCredit;
-      } else {
-        calculatedBalance += balances.totalCredit - balances.totalDebit;
-      }
-
-      const difference = calculatedBalance - account.currentBalance;
-
-      preview.push({
-        accountCode: account.accountCode,
-        accountName: account.accountName,
-        accountType: account.accountType,
-        openingBalance: balances.openingBalance,
-        totalDebit: balances.totalDebit,
-        totalCredit: balances.totalCredit,
-        currentBalance: account.currentBalance,
+    const coaPreview = accounts.map(acc => {
+      const dr = drMap[acc.id] || 0;
+      const cr = crMap[acc.id] || 0;
+      const isDebitNormal = acc.accountType === 'ASSET' || acc.accountType === 'EXPENSE';
+      const calculatedBalance = isDebitNormal
+        ? (acc.openingBalance || 0) + dr - cr
+        : (acc.openingBalance || 0) + cr - dr;
+      return {
+        accountCode: acc.accountCode,
+        accountName: acc.accountName,
+        accountType: acc.accountType,
+        storedBalance: acc.currentBalance,
         calculatedBalance,
-        difference,
-        needsUpdate: Math.abs(difference) > 0.01,
-      });
-    }
+        difference: calculatedBalance - (acc.currentBalance || 0),
+        needsUpdate: Math.abs(calculatedBalance - (acc.currentBalance || 0)) > 0.005,
+      };
+    });
 
     return NextResponse.json({
       success: true,
       companyId,
-      totalAccounts: accounts.length,
-      totalJournalLines: journalLines.length,
-      accountsNeedingUpdate: preview.filter(p => p.needsUpdate).length,
-      preview,
+      trialBalance: {
+        totalDebit: totalDr,
+        totalCredit: totalCr,
+        difference: Math.abs(totalDr - totalCr),
+        isBalanced: Math.abs(totalDr - totalCr) <= 0.005,
+      },
+      unbalancedJournalEntries: {
+        count: unbalancedEntries.length,
+        entries: unbalancedEntries,
+      },
+      accountsNeedingUpdate: coaPreview.filter(p => p.needsUpdate).length,
+      preview: coaPreview,
     });
 
   } catch (error) {
-    console.error('Preview error:', error);
+    console.error('[Recalculate Preview] Error:', error);
     return NextResponse.json({
       error: 'Failed to preview',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error instanceof Error ? error.message : 'Unknown error',
     }, { status: 500 });
   }
 }

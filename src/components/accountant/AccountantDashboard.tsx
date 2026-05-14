@@ -1485,10 +1485,12 @@ function BankSection({
 // ============================================
 function ChartOfAccountsSection({
   selectedCompanyId,
-  formatCurrency
+  formatCurrency,
+  onRecalcResult,
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
+  onRecalcResult: (data: any) => void;
 }) {
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1596,8 +1598,11 @@ function ChartOfAccountsSection({
   };
 
   // Recalculate all account balances
+  const [recalcLoading, setRecalcLoading] = React.useState(false);
+
   const handleRecalculateBalances = async () => {
     if (!selectedCompanyId) return;
+    setRecalcLoading(true);
     try {
       const res = await fetch('/api/accounting/recalculate-balances', {
         method: 'POST',
@@ -1606,13 +1611,16 @@ function ChartOfAccountsSection({
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(data.message || 'Balances recalculated');
+        onRecalcResult(data);
         loadAccounts();
+        toast.success(data.stats?.isNowBalanced ? '\u2713 Trial Balance is now balanced!' : data.message || 'Recalculation complete');
       } else {
-        toast.error('Failed to recalculate balances');
+        toast.error(data.error || 'Failed to recalculate balances');
       }
     } catch (error) {
       toast.error('Failed to recalculate balances');
+    } finally {
+      setRecalcLoading(false);
     }
   };
 
@@ -1624,9 +1632,17 @@ function ChartOfAccountsSection({
           Chart of Accounts
         </h2>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={handleRecalculateBalances}>
-            <Zap className="h-4 w-4 mr-2" />
-            Recalculate
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRecalculateBalances}
+            disabled={recalcLoading}
+            className="border-amber-400 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+          >
+            {recalcLoading
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Fixing…</>
+              : <><Zap className="h-4 w-4 mr-2 text-amber-500" />Fix Imbalance</>
+            }
           </Button>
           <Button variant="outline" size="sm" onClick={loadAccounts}>
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -2572,6 +2588,10 @@ export default function UnifiedAccountantDashboard() {
   const [showWithdrawCapitalDialog, setShowWithdrawCapitalDialog] = useState(false);
   const [bankAccountsList, setBankAccountsList] = useState<BankAccount[]>([]);
 
+  // Recalculate result dialog (populated by ChartOfAccountsSection callback)
+  const [recalcResult, setRecalcResult] = useState<any>(null);
+  const [showRecalcDialog, setShowRecalcDialog] = useState(false);
+
   // Company
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
@@ -2723,6 +2743,7 @@ export default function UnifiedAccountantDashboard() {
           <ChartOfAccountsSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            onRecalcResult={(data) => { setRecalcResult(data); setShowRecalcDialog(true); }}
           />
         );
       case 'trial-balance':
@@ -2998,6 +3019,75 @@ export default function UnifiedAccountantDashboard() {
         createdById={user?.id || 'system'}
         onSuccess={() => { const c = activeSection; setActiveSection('none'); setTimeout(() => setActiveSection(c), 10); }}
       />
+
+      {/* ── Recalculate Result Dialog ── */}
+      {showRecalcDialog && recalcResult && (
+        <Dialog open={showRecalcDialog} onOpenChange={setShowRecalcDialog}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                {recalcResult.stats?.isNowBalanced
+                  ? <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  : <AlertTriangle className="h-5 w-5 text-amber-500" />}
+                Fix Imbalance — Results
+              </DialogTitle>
+              <DialogDescription>{recalcResult.message}</DialogDescription>
+            </DialogHeader>
+
+            {/* Stats row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
+              {[
+                { label: 'Journal Entries Fixed', value: recalcResult.stats?.journalEntriesFixed ?? 0, color: 'blue' },
+                { label: 'Balancing Lines Added', value: recalcResult.stats?.balancingLinesAdded ?? 0, color: 'amber' },
+                { label: 'CoA Balances Updated', value: recalcResult.stats?.coaBalancesUpdated ?? 0, color: 'purple' },
+                { label: 'Trial Balance Diff', value: `₹${(recalcResult.stats?.trialBalanceDiff ?? 0).toFixed(2)}`, color: recalcResult.stats?.isNowBalanced ? 'emerald' : 'red' },
+              ].map(s => (
+                <div key={s.label} className={`rounded-lg p-3 bg-${s.color}-50 border border-${s.color}-200`}>
+                  <p className={`text-xs font-medium text-${s.color}-600 uppercase tracking-wide`}>{s.label}</p>
+                  <p className={`text-xl font-bold text-${s.color}-800`}>{s.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Trial Balance status */}
+            <div className={`rounded-lg p-4 flex items-center gap-3 ${recalcResult.stats?.isNowBalanced ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+              {recalcResult.stats?.isNowBalanced
+                ? <><CheckCircle className="h-5 w-5 text-emerald-600 flex-shrink-0" /><span className="font-semibold text-emerald-800">Trial Balance is now perfectly balanced ✓</span></>
+                : <><AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" /><span className="font-semibold text-red-800">Trial Balance still has a difference — manual journal review may be needed.</span></>}
+            </div>
+
+            {/* Warnings */}
+            {recalcResult.warnings?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">⚠ Adjustments Made</p>
+                <div className="max-h-36 overflow-y-auto rounded border border-amber-200 bg-amber-50 p-3 space-y-1">
+                  {recalcResult.warnings.map((w: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-800 font-mono">{w}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Log */}
+            {recalcResult.log?.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Activity Log</p>
+                <div className="max-h-48 overflow-y-auto rounded border border-gray-200 bg-gray-50 p-3 space-y-1">
+                  {recalcResult.log.map((l: string, i: number) => (
+                    <p key={i} className="text-xs text-gray-700 font-mono">{l}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button onClick={() => setShowRecalcDialog(false)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                Done
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
