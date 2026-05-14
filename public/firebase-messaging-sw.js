@@ -20,6 +20,13 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   console.log('[SW] Background message:', payload);
 
+  // If the payload contains a 'notification' object, the FCM SDK automatically displays it.
+  // We should NOT call showNotification ourselves to prevent duplicates.
+  if (payload.notification) {
+    console.log('[SW] Notification payload present - letting FCM SDK handle it natively.');
+    return;
+  }
+
   // Resolve the deep-link URL
   const actionUrl = payload.data?.actionUrl
     || payload.notification?.click_action
@@ -28,8 +35,8 @@ messaging.onBackgroundMessage((payload) => {
   const notificationTitle   = payload.notification?.title   || 'Money Mitra';
   const notificationOptions = {
     body:               payload.notification?.body || 'You have a new notification',
-    icon:               payload.notification?.icon  || '/icons/icon-192x192.png',
-    badge:              '/icons/icon-72x72.png',
+    icon:               payload.notification?.icon  || '/logo-circle.png',
+    badge:              '/logo-circle.png',
     vibrate:            [200, 100, 200, 100, 200],
     tag:                payload.data?.type || 'general',
     requireInteraction: true,

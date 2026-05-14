@@ -23,6 +23,13 @@ self.addEventListener('push', function (event) {
   const notification = payload.notification || {};
   const data = payload.data || {};
 
+  // If the payload contains a 'notification' object, the FCM SDK automatically displays it.
+  // We should NOT call showNotification ourselves to prevent duplicates.
+  if (payload.notification) {
+    console.log('[PushHandler] Notification payload present - letting FCM SDK natively handle it.');
+    return;
+  }
+
   const title   = notification.title || 'Money Mitra';
   const body    = notification.body  || 'You have a new notification';
   const iconUrl = notification.icon  || '/logo-circle.png';
@@ -31,7 +38,7 @@ self.addEventListener('push', function (event) {
   const options = {
     body,
     icon: iconUrl,
-    badge:  '/icons/icon-72x72.png',
+    badge:  '/logo-circle.png',
     vibrate: [200, 100, 200, 100, 200],
     tag: data.type || 'general',
     requireInteraction: false,

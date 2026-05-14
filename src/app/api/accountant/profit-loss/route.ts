@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
     if (startDate) dateFilter.gte = new Date(startDate);
     if (endDate) dateFilter.lte = new Date(endDate);
 
-    // Run bank tx + expenses in PARALLEL
-    const [transactions, expenses] = await Promise.all([
+    // Run bank tx, expenses, and cashbook in PARALLEL
+    const [transactions, expenses, cashEntries] = await Promise.all([
       db.bankTransaction.findMany({
         where: {
           bankAccountId: { in: bankAccountIds },
@@ -50,13 +50,34 @@ export async function GET(request: NextRequest) {
         select: { expenseType: true, amount: true },
         take: 500, // cap
       }),
+      db.cashBookEntry.findMany({
+        where: {
+          companyId,
+          ...(Object.keys(dateFilter).length > 0 ? { entryDate: dateFilter } : {})
+        },
+        select: { entryType: true, amount: true, referenceType: true },
+        take: 500, // cap
+      })
     ]);
 
     // Calculate income
     const incomeByType: Record<string, number> = {};
     let totalIncome = 0;
+    
+    // Process Bank Income
     transactions.filter(t => t.transactionType === 'CREDIT').forEach(t => {
+      // Exclude transfers and capital injection from income
+      if (['CASH_DEPOSIT', 'BANK_TRANSFER', 'CAPITAL_INVESTMENT'].includes(t.referenceType)) return;
       const type = getIncomeCategory(t.referenceType);
+      incomeByType[type] = (incomeByType[type] || 0) + t.amount;
+      totalIncome += t.amount;
+    });
+
+    // Process Cash Income
+    cashEntries.filter(t => t.entryType === 'CREDIT' || t.entryType === 'IN').forEach(t => {
+      // Exclude transfers from income
+      if (['CASH_WITHDRAWAL', 'BANK_TRANSFER', 'CAPITAL_INVESTMENT', 'LOAN_DISBURSEMENT'].includes(t.referenceType)) return;
+      const type = getIncomeCategory(t.referenceType) + ' (Cash)';
       incomeByType[type] = (incomeByType[type] || 0) + t.amount;
       totalIncome += t.amount;
     });

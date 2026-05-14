@@ -117,9 +117,9 @@ export async function sendPushNotification(
         notification: {
           title: notification.title,
           body: notification.body,
-          icon: notification.icon || '/icons/icon-192x192.png',
+          icon: notification.icon || '/logo-circle.png',
           image: notification.image,
-          badge: '/icons/icon-72x72.png',
+          badge: '/logo-circle.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
           actions: [
@@ -191,9 +191,9 @@ export async function sendPushNotificationToMany(
         notification: {
           title: notification.title,
           body: notification.body,
-          icon: notification.icon || '/icons/icon-192x192.png',
+          icon: notification.icon || '/logo-circle.png',
           image: notification.image,
-          badge: '/icons/icon-72x72.png',
+          badge: '/logo-circle.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
         },

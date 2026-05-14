@@ -2149,13 +2149,22 @@ function ProfitLossSection({
                     ) : (
                       <TableRow>
                         <TableCell className="text-gray-500">No income recorded</TableCell>
-                        <TableCell className="text-right">â‚¹0.00</TableCell>
+                        <TableCell className="text-right">₹0.00</TableCell>
                       </TableRow>
                     )}
-                    <TableRow className="bg-green-50 font-bold">
-                      <TableCell>Total Income</TableCell>
-                      <TableCell className="text-right text-green-700 text-lg">
-                        {formatCurrency(profitLoss?.totalIncome || 0)}
+                    
+                    {/* If Loss, add Net Loss to Income side to balance it */}
+                    {netProfit < 0 && (
+                      <TableRow className="bg-red-50/50 font-semibold text-red-600">
+                        <TableCell>Net Loss (Balancing Figure)</TableCell>
+                        <TableCell className="text-right">{formatCurrency(Math.abs(netProfit))}</TableCell>
+                      </TableRow>
+                    )}
+
+                    <TableRow className="bg-green-50 font-bold border-t-2 border-green-200">
+                      <TableCell>TOTAL</TableCell>
+                      <TableCell className="text-right text-green-800 text-lg decoration-double underline underline-offset-4">
+                        {formatCurrency(netProfit < 0 ? profitLoss?.totalExpenses || 0 : profitLoss?.totalIncome || 0)}
                       </TableCell>
                     </TableRow>
                   </TableBody>
@@ -2184,13 +2193,22 @@ function ProfitLossSection({
                     ) : (
                       <TableRow>
                         <TableCell className="text-gray-500">No expenses recorded</TableCell>
-                        <TableCell className="text-right">â‚¹0.00</TableCell>
+                        <TableCell className="text-right">₹0.00</TableCell>
                       </TableRow>
                     )}
-                    <TableRow className="bg-red-50 font-bold">
-                      <TableCell>Total Expenses</TableCell>
-                      <TableCell className="text-right text-red-700 text-lg">
-                        {formatCurrency(profitLoss?.totalExpenses || 0)}
+                    
+                    {/* If Profit, add Net Profit to Expense side to balance it */}
+                    {netProfit >= 0 && (
+                      <TableRow className="bg-green-50/50 font-semibold text-green-600">
+                        <TableCell>Net Profit (Balancing Figure)</TableCell>
+                        <TableCell className="text-right">{formatCurrency(netProfit)}</TableCell>
+                      </TableRow>
+                    )}
+
+                    <TableRow className="bg-red-50 font-bold border-t-2 border-red-200">
+                      <TableCell>TOTAL</TableCell>
+                      <TableCell className="text-right text-red-800 text-lg decoration-double underline underline-offset-4">
+                        {formatCurrency(netProfit >= 0 ? profitLoss?.totalIncome || 0 : profitLoss?.totalExpenses || 0)}
                       </TableCell>
                     </TableRow>
                   </TableBody>

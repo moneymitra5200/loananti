@@ -145,9 +145,51 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
     const totalDebit  = account.journalLines.reduce((s: number, l: any) => s + (l.debitAmount  || 0), 0);
     const journalAmt  = totalCredit - totalDebit;
     // If no date filter: fall back to currentBalance so existing data is preserved
-    const amount = journalAmt !== 0 ? journalAmt : (startDate ? 0 : (account.currentBalance || 0));
+    let amount = journalAmt !== 0 ? journalAmt : (startDate ? 0 : (account.currentBalance || 0));
     return { accountCode: account.accountCode, accountName: account.accountName, amount };
   });
+
+  // Inject Cashbook Income for missing Journal Entries (Processing Fee, Penalties, etc)
+  if (companyId) {
+    const cbDateFilter: Record<string, unknown> = {};
+    if (startDate) cbDateFilter.gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      cbDateFilter.lte = end;
+    }
+    const cbWhere: any = {
+      cashBook: { companyId },
+      entryType: 'CREDIT',
+      referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME', 'LATE_FEE'] }
+    };
+    if (Object.keys(cbDateFilter).length > 0) cbWhere.entryDate = cbDateFilter;
+
+    const cbEntries = await db.cashBookEntry.findMany({
+      where: cbWhere,
+      select: { amount: true, referenceType: true }
+    });
+    
+    // Map cashbook types to standard account codes
+    const cbMapping: Record<string, string> = {
+      'PROCESSING_FEE': '4121', // Processing Fees
+      'LATE_FEE': '4122',
+      'PENALTY_INCOME': '4125',
+      'INTEREST_INCOME': '4110',
+      'MIRROR_INTEREST_INCOME': '4110',
+      'EXTRA_EMI_PROFIT': '4110'
+    };
+    
+    cbEntries.forEach(entry => {
+      const targetCode = cbMapping[entry.referenceType] || '4300';
+      const existingAcct = income.find(a => a.accountCode === targetCode);
+      if (existingAcct) {
+        existingAcct.amount += (entry.amount || 0);
+      } else {
+        income.push({ accountCode: targetCode, accountName: `${entry.referenceType.replace(/_/g, ' ')} (Cash)`, amount: entry.amount || 0 });
+      }
+    });
+  }
 
   // Expenses: net debits on EXPENSE accounts = expenses incurred in the period
   const expenses = (expenseAccounts as any[]).map(account => {
@@ -296,10 +338,23 @@ async function getBalanceSheet(companyId: string | null) {
 
   if (companyId) {
     const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
-    const ownerCapital = equityEntries.reduce((s, e) =>
+    const ownerCapitalFromEquity = equityEntries.reduce((s, e) =>
       e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0
     );
-    equity.push({ accountCode: '3002', accountName: "Owner's Capital (Invested)", amount: ownerCapital });
+
+    const coaOwnerCapital = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3002', isActive: true } });
+    const coaOpeningEquity = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3001', isActive: true } });
+    
+    // Combine EquityEntry data with Chart of Accounts balance
+    const ownerCapital = ownerCapitalFromEquity > 0 ? ownerCapitalFromEquity : (coaOwnerCapital?.currentBalance || 0);
+    const openingEquity = coaOpeningEquity?.currentBalance || 0;
+
+    if (ownerCapital !== 0) {
+      equity.push({ accountCode: '3002', accountName: "Owner's Capital (Invested)", amount: ownerCapital });
+    }
+    if (openingEquity !== 0) {
+      equity.push({ accountCode: '3001', accountName: "Opening Balance Equity", amount: openingEquity });
+    }
 
     const retainedAcct = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3003', isActive: true } });
     const retainedAmt = retainedAcct?.currentBalance || 0;
@@ -311,27 +366,12 @@ async function getBalanceSheet(companyId: string | null) {
     eqAccounts.forEach(a => equity.push({ accountCode: a.accountCode, accountName: a.accountName, amount: a.currentBalance || 0 }));
   }
 
-  // Current Year P&L from ChartOfAccount income/expense balances
-  const [incAccts, expAccts] = await Promise.all([
-    db.chartOfAccount.findMany({ where: { ...where, accountType: 'INCOME' } }),
-    db.chartOfAccount.findMany({ where: { ...where, accountType: 'EXPENSE' } })
-  ]);
-  const totalIncome = incAccts.reduce((s, a) => s + (a.currentBalance || 0), 0);
-  const totalExpenses = expAccts.reduce((s, a) => s + (a.currentBalance || 0), 0);
-
-  let cashbookIncome = 0;
-  if (companyId) {
-    const cbEntries = await db.cashBookEntry.findMany({
-      where: {
-        cashBook: { companyId },
-        entryType: 'CREDIT',
-        referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME'] }
-      },
-      select: { amount: true }
-    });
-    cashbookIncome = cbEntries.reduce((s, e) => s + (e.amount || 0), 0);
-  }
-  const currentYearProfit = Math.max(totalIncome, cashbookIncome) - totalExpenses;
+  // Current Year P&L - fetch exact calculation from getProfitAndLoss to ensure perfect match
+  const pnlRes = await getProfitAndLoss(companyId);
+  const pnlData = await pnlRes.json();
+  const totalIncome = pnlData.totalIncome || 0;
+  const totalExpenses = pnlData.totalExpenses || 0;
+  const currentYearProfit = pnlData.netProfit || 0;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
 
   // ── TOTALS ────────────────────────────────────────────────────────────────────

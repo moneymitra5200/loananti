@@ -124,33 +124,20 @@ export async function GET(request: NextRequest) {
       const balances = accountBalances[account.id];
       const isDebitAccount = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       
-      // SPECIAL HANDLING for Bank Account (1102) and Cash in Hand (1101)
-      // Use ACTUAL balance from BankAccount/CashBook tables as source of truth
       let closingBalance: number;
       let openingBalance: number;
       let isActualBalance = false;
       
-      if (account.accountCode === '1102') {
-        // Bank Account - use actual balance from BankAccount table
-        closingBalance = actualBankBalance;
-        openingBalance = bankOpeningBalance;
-        isActualBalance = true;
-      } else if (account.accountCode === '1101') {
-        // Cash in Hand - use actual balance from CashBook table
-        closingBalance = actualCashBalance;
-        openingBalance = cashOpeningBalance;
-        isActualBalance = true;
+      // Calculate from journal entries for ALL accounts to maintain double-entry equality
+      // Ignore unverified chart-of-accounts opening balances as they may not be balanced
+      openingBalance = 0;
+      closingBalance = 0;
+      if (isDebitAccount) {
+        // Debit accounts: Debit increases, Credit decreases
+        closingBalance += balances.totalDebit - balances.totalCredit;
       } else {
-        // Other accounts - calculate from journal entries
-        openingBalance = balances.openingBalance;
-        closingBalance = balances.openingBalance;
-        if (isDebitAccount) {
-          // Debit accounts: Debit increases, Credit decreases
-          closingBalance += balances.totalDebit - balances.totalCredit;
-        } else {
-          // Credit accounts: Credit increases, Debit decreases
-          closingBalance += balances.totalCredit - balances.totalDebit;
-        }
+        // Credit accounts: Credit increases, Debit decreases
+        closingBalance += balances.totalCredit - balances.totalDebit;
       }
 
       // Determine debit/credit balance for trial balance
