@@ -92,8 +92,12 @@ export default function PushNotificationInit() {
               window.location.href = payload.data!.actionUrl as string;
             }
           } : undefined,
-          className: '!bg-[var(--theme-color,var(--primary,var(--color-brand-primary,#10b981)))] !text-white !border-none',
-          style: { backgroundColor: 'var(--color-brand-primary, #10b981)', color: 'white', border: 'none' }
+          style: { 
+            backgroundColor: '#059669', // emerald-600
+            color: 'white', 
+            border: 'none',
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)'
+          }
         });
 
         // Refresh the bell count immediately

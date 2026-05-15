@@ -2134,7 +2134,7 @@ export async function PUT(request: NextRequest) {
               e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
             );
             if (mirrorAllPaid) {
-              await tx.offlineLoan.update({ where: { id: mirrorMap.mirrorLoanId }, data: { status: 'CLOSED', closedAt: now } });
+            await tx.offlineLoan.update({ where: { id: mirrorMap.mirrorLoanId }, data: { status: 'CLOSED', closedAt: now } });
               console.log(`[Interest-Only Auto-Close] ✅ Mirror loan also auto-closed`);
             }
           }
@@ -3523,6 +3523,11 @@ export async function PUT(request: NextRequest) {
 
       emitDashboardRefresh({ companyId: emi.offlineLoan.companyId || undefined });
       emitReportInvalidate({ companyId: emi.offlineLoan.companyId || undefined, type: 'all' });
+
+      // Broadcast real-time refresh
+      setImmediate(() => {
+        import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
+      });
 
       return NextResponse.json({
         success: true,

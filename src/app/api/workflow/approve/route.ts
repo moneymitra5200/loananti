@@ -158,6 +158,12 @@ export async function POST(request: NextRequest) {
       
       const successCount = results.filter(r => r.success).length;
       
+      if (successCount > 0) {
+        setImmediate(() => {
+          import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
+        });
+      }
+
       return NextResponse.json({
         success: successCount > 0,
         message: `Processed ${successCount}/${loanIds.length} applications`,
@@ -172,6 +178,10 @@ export async function POST(request: NextRequest) {
 
     const result = await processSingleApproval({
       loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request
+    });
+
+    setImmediate(() => {
+      import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
     });
 
     return NextResponse.json({ success: true, loan: { id: loanId, status: result.nextStatus } });

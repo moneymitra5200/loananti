@@ -171,6 +171,11 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Loan] Successfully started loan ${loan.applicationNo}`);
     console.log(`[Start Loan] Created ${result.emiSchedules.length} EMI schedules`);
 
+    // Broadcast real-time refresh
+    setImmediate(() => {
+      import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
+    });
+
     return NextResponse.json({
       success: true,
       loan: result.updatedLoan,

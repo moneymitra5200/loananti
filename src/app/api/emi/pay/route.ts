@@ -1817,6 +1817,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Broadcast real-time refresh
+    setImmediate(() => {
+      import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
+    });
+
     // ── Invalidate caches + push real-time update to all open tabs ──────────
     // Fire-and-forget: non-blocking, won't delay the success response
     try {

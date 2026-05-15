@@ -193,7 +193,7 @@ app.prepare().then(async () => {
       if (role)   socket.join(`role:${role}`);
     });
     socket.on('join-company',    (id) => { if (id) socket.join(`company:${id}`); });
-    socket.on('request-refresh', ()   => { socket.emit('dashboard:refresh'); });
+    socket.on('request-refresh', ()   => { io.emit('dashboard:refresh'); });
     socket.on('disconnect',      ()   => { /* no-op */ });
   });
 

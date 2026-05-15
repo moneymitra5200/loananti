@@ -189,6 +189,7 @@ export async function POST(request: NextRequest) {
     // Re-initialize Chart of Accounts for all surviving companies so the accounting portal works
     try {
       const { AccountingService } = await import('@/lib/accounting-service');
+      AccountingService.clearAllCaches(); // CRITICAL: Clear in-memory caches so re-init isn't skipped
       const allCompanies = await db.company.findMany({ select: { id: true } });
       for (const company of allCompanies) {
         const svc = new AccountingService(company.id);

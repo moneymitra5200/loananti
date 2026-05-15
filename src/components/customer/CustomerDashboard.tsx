@@ -961,13 +961,13 @@ export default function CustomerDashboard() {
     setAiMessages(prev => [...prev, { role: 'user', text: msg }]);
     setAiLoading(true);
     try {
-      const res = await fetch('/api/ai', {
+      const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, userId: user?.id })
+        body: JSON.stringify({ message: msg, customerId: user?.id, customerName: user?.name, sessionId: 'session-1' })
       });
       const data = await res.json();
-      setAiMessages(prev => [...prev, { role: 'bot', text: data.reply || data.message || "I'm not sure about that. Please contact support." }]);
+      setAiMessages(prev => [...prev, { role: 'bot', text: data.response || data.reply || data.message || "I'm not sure about that. Please contact support." }]);
     } catch {
       setAiMessages(prev => [...prev, { role: 'bot', text: 'Sorry, I had trouble connecting. Please try again.' }]);
     } finally {
