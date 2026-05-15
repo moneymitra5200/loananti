@@ -57,7 +57,7 @@ function EMICalculator() {
                 step="10000"
                 value={principal}
                 onChange={(e) => setPrincipal(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
                 <span>₹10,000</span>
@@ -77,7 +77,7 @@ function EMICalculator() {
                 step="0.25"
                 value={rate}
                 onChange={(e) => setRate(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
                 <span>5%</span>
@@ -96,7 +96,7 @@ function EMICalculator() {
                 max="84"
                 value={tenure}
                 onChange={(e) => setTenure(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
                 <span>6 Months</span>
@@ -141,7 +141,7 @@ function StaffCarousel({ staffList }: { staffList: any[] }) {
   return (
     <div className="overflow-hidden py-8">
       <div
-        className="flex gap-6 animate-scroll"
+        className="flex gap-6 animate-scroll w-max"
         style={{
           animation: 'scroll 30s linear infinite',
         }}
@@ -188,6 +188,7 @@ export default function LandingPage() {
   const [contactForm, setContactForm] = useState({ name: '', email: '', phone: '', message: '' });
   const [formSubmitted, setFormSubmitted] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   // Generate Google Maps URL from company address
   const mapUrl = useMemo(() => {
@@ -310,18 +311,19 @@ export default function LandingPage() {
           <div className="flex items-center justify-between h-16 sm:h-20 md:h-24 py-3">
             {/* Logo & Brand */}
             <div className="flex items-center gap-3 sm:gap-4 md:gap-6">
-              {settings.companyLogo ? (
+              {settings.companyLogo && !logoError ? (
                 <img
                   src={settings.companyLogo}
                   alt={settings.companyName || 'Company'}
                   className="h-10 sm:h-12 md:h-16 lg:h-20 w-auto object-contain max-w-[120px] sm:max-w-[160px] md:max-w-[200px] lg:max-w-[240px]"
+                  onError={() => setLogoError(true)}
                 />
               ) : (
                 <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-16 md:h-16 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl md:rounded-2xl flex items-center justify-center shadow-lg">
                   <Wallet className="h-5 w-5 sm:h-6 sm:w-6 md:h-8 md:w-8 text-white" />
                 </div>
               )}
-              {!settings.companyLogo && (
+              {(!settings.companyLogo || logoError) && (
                 <div className="flex flex-col">
                   <span className="text-base sm:text-lg md:text-xl lg:text-2xl font-bold bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent leading-tight">
                     {settings.companyName || 'MM Square'}
@@ -460,7 +462,7 @@ export default function LandingPage() {
               <div className="text-center">
                 <Building2 className="h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 sm:mb-3 text-emerald-400" />
                 <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">{stats.companies || 100}+</p>
-                <p className="text-gray-400 text-xs sm:text-sm mt-1">Partner Banks</p>
+                <p className="text-gray-400 text-xs sm:text-sm mt-1">Partner Companies</p>
               </div>
             </div>
           </div>
@@ -611,7 +613,7 @@ export default function LandingPage() {
                   {[
                     { value: '10+', label: 'Years Experience' },
                     { value: '100+', label: 'Cities Covered' },
-                    { value: '500+', label: 'Partner Banks' },
+                    { value: '500+', label: 'Partner Companies' },
                     { value: '99%', label: 'Satisfaction Rate' },
                   ].map((item) => (
                     <div key={item.label} className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-lg sm:rounded-xl p-3 sm:p-4 text-center">
@@ -641,6 +643,37 @@ export default function LandingPage() {
                   </ul>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Blog */}
+        <section id="blog" className="py-10 sm:py-12 md:py-16 lg:py-20 bg-gray-50">
+          <div className="w-full px-4 sm:px-6 md:px-8 lg:px-12 xl:px-16">
+            <div className="text-center mb-8 sm:mb-10 md:mb-16">
+              <Badge className="bg-emerald-100 text-emerald-700 mb-3 sm:mb-4 text-xs sm:text-sm">Latest Updates</Badge>
+              <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">From Our Blog</h2>
+              <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Stay updated with the latest financial insights and news</p>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-6 sm:gap-8">
+              {[
+                { title: 'Top 5 Tips for Quick Loan Approval', date: 'Oct 12, 2023', excerpt: 'Discover the essential factors that lenders look for when approving personal and business loans.', img: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80' },
+                { title: 'Understanding Your Credit Score', date: 'Sep 28, 2023', excerpt: 'Your credit score is the key to unlocking better financial opportunities. Learn how to improve it.', img: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800&q=80' },
+                { title: 'Choosing Between EMI and Lump Sum', date: 'Sep 15, 2023', excerpt: 'Make the right choice for your financial health by understanding the pros and cons of different payment methods.', img: 'https://images.unsplash.com/photo-1556740749-887f6717defa?w=800&q=80' },
+              ].map((post, idx) => (
+                <Card key={idx} className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white overflow-hidden group">
+                  <div className="h-48 overflow-hidden">
+                    <img src={post.img} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  </div>
+                  <CardContent className="p-6">
+                    <p className="text-xs text-emerald-600 font-semibold mb-2">{post.date}</p>
+                    <h3 className="font-bold text-lg text-gray-800 mb-3 hover:text-emerald-600 cursor-pointer transition-colors">{post.title}</h3>
+                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">{post.excerpt}</p>
+                    <Button variant="link" className="text-emerald-600 p-0 h-auto font-medium group-hover:underline">Read More <ArrowRight className="ml-1 h-3 w-3" /></Button>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         </section>
