@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2
+  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2, Calendar
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';

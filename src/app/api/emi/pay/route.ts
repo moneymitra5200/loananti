@@ -996,8 +996,13 @@ export async function POST(request: NextRequest) {
 
 
 
+    // Pre-sync capture variables — read by the accounting block to compute session delta for mirror journal entries.
+    let mirrorEmiPreSyncPaidInterest  = 0;
+    let mirrorEmiPreSyncPaidPrincipal = 0;
+
     // ============ MIRROR LOAN SYNC FOR FULL EMI PAYMENT ============
     if (mirrorMapping && paymentType === 'FULL_EMI') {
+
       const installmentNumber = emi.installmentNumber;
       const isExtraEMIForMirror = installmentNumber > mirrorMapping.mirrorTenure;
 
@@ -1090,7 +1095,7 @@ export async function POST(request: NextRequest) {
         // ============================================
         
         const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
-        
+
         // Get mirror EMI to calculate correct mirror interest
         if (mirrorMapping.mirrorLoanId) {
           // Issue 11 Fix: No paymentStatus filter — handles PENDING and PARTIALLY_PAID mirror EMIs
@@ -1102,6 +1107,10 @@ export async function POST(request: NextRequest) {
           });
           
           if (mirrorEMI) {
+            // ── Capture PRE-SYNC values for session delta (fixes double interest on full payment after partial) ──
+            mirrorEmiPreSyncPaidInterest  = Number(mirrorEMI.paidInterest  || 0);
+            mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMI.paidPrincipal || 0);
+
             // ── FIX: Use STORED principal & interest from mirror EMI record (NOT recalculated from rate)
             // Recalculating from rate gives wrong values (e.g. 3% rate → ₹2.5 instead of ₹26.87)
             // The EMI schedule already has the correct pre-computed P+I breakdown.
@@ -1203,13 +1212,6 @@ export async function POST(request: NextRequest) {
         console.error('[Mirror PO Sync] ❌ Failed (non-critical):', poSyncErr?.message);
       }
     }
-
-    // Pre-sync capture variables — written by INTEREST_ONLY and PARTIAL blocks,
-    // read by the accounting block to compute session delta for mirror journal entries.
-    let mirrorEmiPreSyncPaidInterest  = 0;
-    let mirrorEmiPreSyncPaidPrincipal = 0;
-
-
     // ── INTEREST_ONLY → Mirror EMI sync (matching offline route lines 2632-2669) ──────────
     // For INTEREST_ONLY: mark mirror EMI as INTEREST_ONLY_PAID and create deferred principal EMI.
     // Pre-sync values are captured here (all zeros since mirror wasn't touched yet).
@@ -1454,11 +1456,14 @@ export async function POST(request: NextRequest) {
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
             console.log(`[Accounting] ONLINE MIRROR INTEREST_ONLY session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else {
-            // FULL / ADVANCE: mirror EMI is fully updated by the transaction above.
-            // Use stored interestAmount/principalAmount — these ARE the full session amounts for FULL payments.
-            mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
-            mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
-            console.log(`[Accounting] ONLINE MIRROR FULL stored amounts: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting}`);
+            // ── FULL / ADVANCE: Use SESSION DELTA (fixes full payment after partial payment) ──
+            // Previously this used stored interestAmount/principalAmount, which double-counted
+            // if the EMI was already partially paid.
+            const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
+            const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
+            mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+            mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+            console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           }
         }
       }

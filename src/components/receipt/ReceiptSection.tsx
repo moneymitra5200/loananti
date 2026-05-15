@@ -90,50 +90,64 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
     try {
       // Generate receipt number
       const companyCode = loanDetails.company?.code || 'MM';
-      const receiptNo = `LR-${companyCode}-${Date.now()}`;
+      const receiptNo = `LR-${companyCode}-${loanDetails.applicationNo || Date.now()}`;
       
       const sessionForm = loanDetails.sessionForm || {};
       const company = loanDetails.company || {};
       const customer = loanDetails.customer || {};
       
-      // Calculate totals
-      const loanAmount = sessionForm.loanAmount || loanDetails.loanAmount || 0;
-      const interestRate = sessionForm.interestRate || 0;
-      const tenure = sessionForm.tenure || 0;
+      // FIX: correct field name is approvedAmount (not loanAmount)
+      const loanAmount = sessionForm.approvedAmount || loanDetails.disbursedAmount || loanDetails.requestedAmount || 0;
+      const interestRate = sessionForm.interestRate || loanDetails.interestRate || 0;
+      const tenure = sessionForm.tenure || loanDetails.tenure || 0;
       const interestType = sessionForm.interestType || 'FLAT';
       
-      // Calculate EMI and interest
-      let emiAmount = 0;
-      let totalInterest = 0;
-      let totalAmount = 0;
+      // EMI + totals — prefer schedule data for accuracy
+      let emiAmount: number = sessionForm.emiAmount || 0;
+      let totalInterest: number = sessionForm.totalInterest || 0;
+      let totalAmount: number = sessionForm.totalAmount || 0;
       
-      if (emiSchedules.length > 0) {
-        emiAmount = emiSchedules[0].emiAmount || 0;
-        totalAmount = emiSchedules.reduce((sum, e) => sum + (e.emiAmount || 0), 0);
-        totalInterest = totalAmount - loanAmount;
-      } else {
-        // Calculate if no EMI schedules
-        if (interestType === 'FLAT') {
-          totalInterest = loanAmount * (interestRate / 100) * (tenure / 12);
-          totalAmount = loanAmount + totalInterest;
-          emiAmount = totalAmount / tenure;
-        }
+      if (emiSchedules.length > 0 && emiAmount === 0) {
+        // Derive from schedule (totalAmount field on each EMI row)
+        emiAmount = emiSchedules[0].emiAmount || emiSchedules[0].totalAmount || 0;
+        totalAmount = emiSchedules.reduce((sum: number, e: any) => sum + (e.emiAmount || e.totalAmount || 0), 0);
+        totalInterest = Math.max(0, totalAmount - loanAmount);
       }
+      
+      // Customer details — prefer application-level fields, fallback to customer profile
+      const custName = [
+        loanDetails.title,
+        loanDetails.firstName,
+        loanDetails.middleName,
+        loanDetails.lastName
+      ].filter(Boolean).join(' ') || customer.name || '';
+      
+      const custAddress = [
+        loanDetails.address || customer.address,
+        loanDetails.city || customer.city,
+        loanDetails.state || customer.state,
+        loanDetails.pincode || customer.pincode
+      ].filter(Boolean).join(', ');
+      
+      // Bank details — from customer profile
+      const custBank = customer.bankName || loanDetails.bankName || '';
+      const custBankAcc = customer.bankAccountNumber || loanDetails.bankAccountNumber || '';
+      const custBankIfsc = customer.bankIfsc || loanDetails.bankIfsc || '';
       
       const receiptData: LoanReceiptData = {
         receiptNo,
         date: new Date().toISOString(),
         companyName: company.name || 'Money Mitra Financial Services',
         companyCode: company.code || 'MM',
-        companyAddress: [company.address, company.city, company.state, company.pincode].filter(Boolean).join(', ') || 'India',
-        companyPhone: company.contactPhone || '+91-XXXXXXXXXX',
-        companyEmail: company.contactEmail || 'info@moneymitra.com',
-        customerName: `${loanDetails.firstName || ''} ${loanDetails.lastName || ''}`.trim() || customer.name || '',
-        fatherName: sessionForm.fatherName || '',
-        customerPhone: customer.phone || loanDetails.phone || '',
-        customerAddress: [customer.address, customer.city, customer.state, customer.pincode].filter(Boolean).join(', ') || loanDetails.address || '',
-        customerAadhaar: customer.aadhaarNumber || '',
-        customerPan: customer.panNumber || '',
+        companyAddress: [company.address, company.city, company.state].filter(Boolean).join(', ') || 'India',
+        companyPhone: company.contactPhone || '',
+        companyEmail: company.contactEmail || '',
+        customerName: custName,
+        fatherName: loanDetails.fatherName || '',
+        customerPhone: loanDetails.phone || customer.phone || '',
+        customerAddress: custAddress,
+        customerAadhaar: loanDetails.aadhaarNumber || customer.aadhaarNumber || '',
+        customerPan: loanDetails.panNumber || customer.panNumber || '',
         loanAccountNo: loanDetails.applicationNo || '',
         loanAmount,
         interestRate,
@@ -144,12 +158,12 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
         totalAmount,
         disbursementDate: loanDetails.disbursedAt || new Date().toISOString(),
         firstEmiDate: emiSchedules[0]?.dueDate || new Date().toISOString(),
-        bankName: company.bankName || '',
-        bankAccountNo: company.bankAccountNumber || '',
-        bankIfsc: company.bankIfsc || '',
-        purpose: sessionForm.purpose || 'Personal Loan',
-        witnessName: sessionForm.witnessName || '',
-        witnessPhone: sessionForm.witnessPhone || ''
+        bankName: custBank,
+        bankAccountNo: custBankAcc,
+        bankIfsc: custBankIfsc,
+        purpose: loanDetails.purpose || sessionForm.purpose || 'Personal Loan',
+        witnessName: loanDetails.reference1Name || '',
+        witnessPhone: loanDetails.reference1Phone || ''
       };
       
       setLoanReceiptData(receiptData);
@@ -204,9 +218,10 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
     }
   };
 
-  // Filter paid EMIs
-  const paidEmis = emiSchedules.filter(emi => 
-    emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID'
+  // Filter paid EMIs — support both field naming conventions (online vs offline)
+  const paidEmis = emiSchedules.filter((emi: any) => 
+    emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' ||
+    emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID'
   );
 
   if (!loanDetails) {
@@ -236,7 +251,7 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
             <div>
               <p className="font-semibold text-blue-800">Loan Account: {loanDetails.applicationNo}</p>
               <p className="text-sm text-blue-600">
-                Amount: ₹{formatCurrency(loanDetails.sessionForm?.loanAmount || loanDetails.loanAmount || 0)}
+                Amount: ₹{formatCurrency(loanDetails.sessionForm?.approvedAmount || loanDetails.disbursedAmount || loanDetails.requestedAmount || 0)}
               </p>
             </div>
             <Button
@@ -316,7 +331,7 @@ export default function ReceiptSection({ loanDetails, emiSchedules }: ReceiptSec
                         )}
                       </p>
                       <p className="text-sm text-gray-500">
-                        Paid: {formatDate(emi.paidDate)} | ₹{formatCurrency(emi.paidAmount || emi.emiAmount || emi.totalAmount)}
+                        Paid: {formatDate(emi.paidDate)} | ₹{formatCurrency(emi.paidAmount || emi.emiAmount || emi.totalAmount || 0)}
                       </p>
                     </div>
                   </div>
