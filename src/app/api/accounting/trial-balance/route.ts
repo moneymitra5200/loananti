@@ -25,291 +25,159 @@ export async function GET(request: NextRequest) {
     }
 
     const dateFilter = asOfDate ? new Date(asOfDate) : new Date();
+    dateFilter.setHours(23, 59, 59, 999);
 
-    // ─── Run all real-data queries in parallel ──────────────────────────────
-    const [
-      cashBook,
-      bankAccounts,
-      equityEntries,
-      borrowedMoney,
-      investMoney,
-      activeOnlineLoans,
-      activeOfflineLoans,
-      closedOnlineLoans,
-      paidOnlineEMIs,
-      paidOfflineEMIs,
-      pendingOnlineEMIs,
-      pendingOfflineEMIs,
-      cashBookEntries,
-      expenses,
-    ] = await Promise.all([
-      // Cash
+    // ─── 1. FETCH ALL ACCOUNTS ──────────────────────────────────────────────
+    const allAccounts = await db.chartOfAccount.findMany({
+      where: { companyId, isActive: true },
+      orderBy: { accountCode: 'asc' },
+    });
+
+    // ─── 2. FETCH ALL APPROVED JOURNAL LINES (Up to date) ──────────────────
+    const journalLines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId,
+          isApproved: true,
+          isReversed: false,
+          entryDate: { lte: dateFilter }
+        }
+      },
+      select: {
+        accountId: true,
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
+
+    // ─── 3. FETCH GROUND TRUTH DATA FOR CRITICAL ACCOUNTS ───────────────────
+    const [cashBook, bankAccounts, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs] = await Promise.all([
       db.cashBook.findUnique({ where: { companyId } }),
-
-      // Bank accounts
       db.bankAccount.findMany({ where: { companyId, isActive: true } }),
-
-      // Equity
       db.equityEntry.findMany({ where: { companyId } }),
-
-      // Borrowed money
-      db.borrowedMoney.findMany({ where: { companyId } }),
-
-      // Investments
-      db.investMoney.findMany({ where: { companyId } }),
-
-      // Active online loans with EMI schedules
       db.loanApplication.findMany({
-        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] } },
-        select: {
-          id: true,
-          disbursedAmount: true,
-          emiSchedules: { select: { principalAmount: true, paidPrincipal: true, paymentStatus: true } }
-        }
+        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'DEFAULTED'] as any[] } },
+        select: { disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
-
-      // Active offline loans with EMIs
       db.offlineLoan.findMany({
-        where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] } },
-        select: {
-          id: true,
-          loanAmount: true,
-          emis: { select: { principalAmount: true, paidPrincipal: true, paymentStatus: true } }
-        }
+        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DEFAULTED'] as any[] } },
+        select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
-
-      // Closed/Disbursed online loans (to compute total disbursed for capital movement)
-      db.loanApplication.findMany({
-        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY', 'CLOSED'] }, disbursedAmount: { gt: 0 } },
-        select: { disbursedAmount: true }
-      }),
-
-      // Paid online EMIs — for interest income
       db.eMISchedule.aggregate({
-        where: {
-          loanApplication: { companyId },
-          paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID', 'PARTIALLY_PAID'] }
-        },
-        _sum: { paidInterest: true, paidPrincipal: true, paidAmount: true }
-      }),
-
-      // Paid offline EMIs — for interest income
-      db.offlineLoanEMI.aggregate({
-        where: {
-          offlineLoan: { companyId },
-          paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID', 'PARTIALLY_PAID'] }
-        },
-        _sum: { paidInterest: true, paidPrincipal: true, paidAmount: true }
-      }),
-
-      // Pending online EMI interest receivable
-      db.eMISchedule.aggregate({
-        where: {
-          loanApplication: { companyId },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] }
-        },
+        where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
         _sum: { interestAmount: true, paidInterest: true }
       }),
-
-      // Pending offline EMI interest receivable
       db.offlineLoanEMI.aggregate({
-        where: {
-          offlineLoan: { companyId },
-          paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] }
-        },
+        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
         _sum: { interestAmount: true, paidInterest: true }
-      }),
-
-      // CashBook entries by referenceType — for processing fee, mirror interest, penalty, extra EMI
-      db.cashBookEntry.findMany({
-        where: {
-          cashBook: { companyId },
-          entryType: 'CREDIT',
-          referenceType: {
-            in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME',
-                 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME']
-          }
-        },
-        select: { referenceType: true, amount: true }
-      }),
-
-      // Expenses
-      db.expense.findMany({
-        where: { companyId },
-        select: { amount: true, expenseType: true }
-      }),
+      })
     ]);
 
-    // ─── COMPUTE EACH ACCOUNT HEAD ─────────────────────────────────────────
+    // Compute ground truths
+    const actualCash      = cashBook?.currentBalance || 0;
+    const actualBankTotal = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
+    const actualCapital    = equityEntries.reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
+    
+    const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.disbursedAmount || 0;
+      // In online loans, we use total principal from schedule if disbursedAmount is zero
+      const principal = disbursed > 0 ? disbursed : loan.emiSchedules.reduce((s, e) => s + (e.principalAmount || 0), 0);
+      const paid = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, principal - paid);
+    }, 0);
+    
+    const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.loanAmount || 0;
+      const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paid);
+    }, 0);
 
-    // 1101 Cash in Hand
-    const cashBalance = cashBook?.currentBalance || 0;
-
-    // 1102 Bank Account (aggregate)
-    const bankBalance = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
-
-    // 1200 Online Loans Receivable (outstanding principal)
-    let onlinePrincipalOut = 0;
-    for (const loan of activeOnlineLoans) {
-      for (const emi of loan.emiSchedules) {
-        if (!['PAID', 'WAIVED'].includes(emi.paymentStatus)) {
-          onlinePrincipalOut += (emi.principalAmount || 0) - (emi.paidPrincipal || 0);
-        }
-      }
-    }
-
-    // 1201 Offline Loans Receivable (outstanding principal)
-    let offlinePrincipalOut = 0;
-    for (const loan of activeOfflineLoans) {
-      for (const emi of loan.emis) {
-        if (!['PAID', 'WAIVED'].includes(emi.paymentStatus)) {
-          offlinePrincipalOut += (emi.principalAmount || 0) - (emi.paidPrincipal || 0);
-        }
-      }
-    }
-
-    // 1300 Interest Receivable (accrued but not yet paid)
     const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
     const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
     const interestReceivable     = Math.max(0, onlinePendingInterest + offlinePendingInterest);
 
-    // 1600 Investments (FDs etc.)
-    const investments = investMoney.reduce((s, i) => s + (i.amount || 0), 0);
-
-    // 2100 Borrowed Funds (outstanding)
-    const borrowedBalance = borrowedMoney.reduce((s, b) => s + ((b.amount || 0) - (b.amountRepaid || 0)), 0);
-
-    // 3002 Owner's Capital (equity)
-    const equity = equityEntries.reduce((s, e) =>
-      e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0
-    );
-
-    // 4101 Interest Income (online loans — paid interest)
-    const onlineInterestIncome  = paidOnlineEMIs._sum.paidInterest  || 0;
-
-    // 4102 Offline Interest Income
-    const offlineInterestIncome = paidOfflineEMIs._sum.paidInterest || 0;
-
-    // Group cashbook entries by type
-    const cbByType: Record<string, number> = {};
-    for (const entry of cashBookEntries) {
-      cbByType[entry.referenceType] = (cbByType[entry.referenceType] || 0) + (entry.amount || 0);
+    // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
+    const drMap: Record<string, number> = {};
+    const crMap: Record<string, number> = {};
+    for (const line of journalLines) {
+      drMap[line.accountId] = (drMap[line.accountId] || 0) + line.debitAmount;
+      crMap[line.accountId] = (crMap[line.accountId] || 0) + line.creditAmount;
     }
 
-    // 4121 Processing Fee Income
-    const processingFeeIncome = cbByType['PROCESSING_FEE'] || 0;
+    // ─── 5. BUILD TRIAL BALANCE ROWS ────────────────────────────────────────
+    const rows = allAccounts.map(acc => {
+      const dr = drMap[acc.id] || 0;
+      const cr = crMap[acc.id] || 0;
+      const opening = acc.openingBalance || 0;
 
-    // 4125 Penalty Income
-    const penaltyIncome = cbByType['PENALTY_INCOME'] || 0;
-
-    // 4130 Mirror Interest Income
-    const mirrorInterestIncome = cbByType['MIRROR_INTEREST_INCOME'] || 0;
-
-    // 4150 Extra EMI Profit
-    const extraEMIProfit = cbByType['EXTRA_EMI_PROFIT'] || 0;
-
-    // 5000 Total Expenses (from Expense table)
-    const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-    const expenseBreakdown: Record<string, number> = {};
-    for (const e of expenses) {
-      expenseBreakdown[e.expenseType || 'General'] = (expenseBreakdown[e.expenseType || 'General'] || 0) + (e.amount || 0);
-    }
-
-    // ─── BUILD TRIAL BALANCE ROWS ───────────────────────────────────────────
-    const rows: any[] = [];
-
-    const addRow = (
-      code: string, name: string, type: string,
-      debit: number, credit: number,
-      extraProps: Record<string, any> = {}
-    ) => {
-      const d = Math.round(Math.max(0, debit)  * 100) / 100;
-      const c = Math.round(Math.max(0, credit) * 100) / 100;
-      rows.push({ accountCode: code, accountName: name, accountType: type,
-        debitBalance: d, creditBalance: c,
-        openingBalance: 0, totalDebit: d, totalCredit: c,
-        closingBalance: d > 0 ? d : -c,
-        ...extraProps });
-    };
-
-    // ASSETS
-    addRow('1101', 'Cash in Hand',           'ASSET', cashBalance,         0, { source: 'cashbook' });
-    addRow('1102', `Bank Account${bankAccounts.length > 1 ? ` (${bankAccounts.length} banks)` : ''}`,
-                                             'ASSET', bankBalance,         0, {
-                                               source: 'bank',
-                                               bankBreakdown: bankAccounts.map(b => ({ name: b.bankName, balance: b.currentBalance }))
-                                             });
-    if (onlinePrincipalOut > 0)
-      addRow('1200', 'Loans Receivable (Online)',   'ASSET', onlinePrincipalOut,  0);
-    if (offlinePrincipalOut > 0)
-      addRow('1201', 'Loans Receivable (Offline)',  'ASSET', offlinePrincipalOut, 0);
-    if (interestReceivable > 0)
-      addRow('1300', 'Interest Receivable',         'ASSET', interestReceivable,  0);
-    if (investments > 0)
-      addRow('1600', 'Investments (FD/Deposits)',   'ASSET', investments,         0);
-
-    // LIABILITIES
-    if (borrowedBalance > 0)
-      addRow('2100', 'Borrowed Funds',              'LIABILITY', 0, borrowedBalance);
-
-    // EQUITY
-    if (equity !== 0)
-      addRow('3002', "Owner's Capital",             'EQUITY', 0, Math.max(0, equity));
-
-    // INCOME
-    if (onlineInterestIncome > 0)
-      addRow('4101', 'Interest Income (Online EMI)', 'INCOME', 0, onlineInterestIncome, { source: 'emi_paid' });
-    if (offlineInterestIncome > 0)
-      addRow('4102', 'Interest Income (Offline EMI)', 'INCOME', 0, offlineInterestIncome, { source: 'offline_emi' });
-    if (processingFeeIncome > 0)
-      addRow('4121', 'Processing Fee Income',        'INCOME', 0, processingFeeIncome);
-    if (penaltyIncome > 0)
-      addRow('4125', 'Penalty Income',               'INCOME', 0, penaltyIncome);
-    if (mirrorInterestIncome > 0)
-      addRow('4130', 'Mirror Interest Income',       'INCOME', 0, mirrorInterestIncome);
-    if (extraEMIProfit > 0)
-      addRow('4150', 'Extra EMI Profit',             'INCOME', 0, extraEMIProfit);
-
-    // EXPENSES
-    if (totalExpenses > 0) {
-      for (const [type, amt] of Object.entries(expenseBreakdown)) {
-        addRow('5000', `Expense — ${type}`, 'EXPENSE', amt, 0);
+      let closingBalance = 0;
+      const isDebitNormal = acc.accountType === 'ASSET' || acc.accountType === 'EXPENSE';
+      
+      // Calculate closing balance from journals + opening
+      if (isDebitNormal) {
+        closingBalance = opening + dr - cr;
+      } else {
+        closingBalance = opening + cr - dr;
       }
-    }
 
-    // ─── TOTALS & BALANCE CHECK ─────────────────────────────────────────────
+      // Apply ground truth overrides for precision (matches Balance Sheet)
+      if (acc.accountCode === '1101') closingBalance = actualCash;
+      if (acc.accountCode === '1102') closingBalance = actualBankTotal;
+      if (acc.accountCode === '1201') closingBalance = actualOnlineLoans;
+      if (acc.accountCode === '1210') closingBalance = actualOfflineLoans;
+      if (acc.accountCode === '1301') closingBalance = interestReceivable;
+      if (acc.accountCode === '3002') closingBalance = actualCapital;
+      
+      // Special case: 1200 (Total Loans Receivable) should be the sum of online + offline
+      if (acc.accountCode === '1200') closingBalance = actualOnlineLoans + actualOfflineLoans;
+
+      // Determine Trial Balance presentation (Debit vs Credit column)
+      let debitBalance = 0;
+      let creditBalance = 0;
+
+      // For Trial Balance presentation, we usually show the net balance in the normal column
+      // but if the balance is negative, we show it on the opposite side.
+      if (isDebitNormal) {
+        if (closingBalance >= 0) {
+          debitBalance = closingBalance;
+        } else {
+          creditBalance = Math.abs(closingBalance);
+        }
+      } else {
+        if (closingBalance >= 0) {
+          creditBalance = closingBalance;
+        } else {
+          debitBalance = Math.abs(closingBalance);
+        }
+      }
+
+      return {
+        accountCode: acc.accountCode,
+        accountName: acc.accountName,
+        accountType: acc.accountType,
+        debitBalance: Math.round(debitBalance * 100) / 100,
+        creditBalance: Math.round(creditBalance * 100) / 100,
+        isSystem: acc.isSystemAccount
+      };
+    }).filter(row => row.debitBalance !== 0 || row.creditBalance !== 0); // Hide zero balance accounts for clarity
+
+    // ─── 6. SUMMARY & BALANCING ─────────────────────────────────────────────
     const totalDebitBalance  = rows.reduce((s, r) => s + r.debitBalance,  0);
     const totalCreditBalance = rows.reduce((s, r) => s + r.creditBalance, 0);
     const difference         = Math.abs(totalDebitBalance - totalCreditBalance);
-    const isBalanced         = difference < 1; // within ₹1 rounding tolerance
-
-    // ─── GROUP BY TYPE ──────────────────────────────────────────────────────
-    const groupedByType: Record<string, any[]> = {
-      ASSET: [], LIABILITY: [], EQUITY: [], INCOME: [], EXPENSE: []
-    };
-    for (const row of rows) {
-      if (groupedByType[row.accountType]) groupedByType[row.accountType].push(row);
-    }
+    const isBalanced         = difference < 1; // within ₹1 tolerance
 
     return NextResponse.json({
       success: true,
       data: {
         trialBalance: rows,
-        groupedByType,
         summary: {
           totalAccounts:     rows.length,
-          totalDebitBalance,
-          totalCreditBalance,
+          totalDebitBalance: Math.round(totalDebitBalance * 100) / 100,
+          totalCreditBalance: Math.round(totalCreditBalance * 100) / 100,
           isBalanced,
-          difference,
-          totalTransactions: rows.length,
-          asOfDate:          dateFilter,
-          // Detailed sub-totals useful for UI
-          assetTotal:     rows.filter(r => r.accountType === 'ASSET').reduce((s, r) => s + r.debitBalance, 0),
-          liabilityTotal: rows.filter(r => r.accountType === 'LIABILITY').reduce((s, r) => s + r.creditBalance, 0),
-          equityTotal:    rows.filter(r => r.accountType === 'EQUITY').reduce((s, r) => s + r.creditBalance, 0),
-          incomeTotal:    rows.filter(r => r.accountType === 'INCOME').reduce((s, r) => s + r.creditBalance, 0),
-          expenseTotal:   rows.filter(r => r.accountType === 'EXPENSE').reduce((s, r) => s + r.debitBalance, 0),
+          difference: Math.round(difference * 100) / 100,
+          asOfDate: dateFilter
         },
       },
     });

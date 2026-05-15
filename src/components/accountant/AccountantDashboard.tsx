@@ -37,6 +37,7 @@ import { AddExpenseDialog, RecordBorrowingDialog, RepayBorrowingDialog, AddCapit
 import JournalEntriesSection from '@/components/accountant/modules/JournalEntriesSection';
 import CapitalWithdrawDialog from '@/components/accounting/CapitalWithdrawDialog';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
+import { useRealtime } from '@/hooks/useRealtime';
 
 // ============================================
 // TYPES
@@ -167,11 +168,13 @@ function DayBookSection({
 function CashBookSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDateShort
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDateShort: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
   const [cashBook, setCashBook] = useState<any>(null);
   const [entries, setEntries] = useState<CashBookEntry[]>([]);
@@ -198,7 +201,7 @@ function CashBookSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   useEffect(() => {
     loadData();
@@ -538,11 +541,13 @@ function CashBookSection({
 function BankSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDateShort
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDateShort: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTransaction[]>([]);
@@ -604,7 +609,7 @@ function BankSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   useEffect(() => {
     loadData();
@@ -1487,10 +1492,12 @@ function ChartOfAccountsSection({
   selectedCompanyId,
   formatCurrency,
   onRecalcResult,
+  refreshKey = 0,
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   onRecalcResult: (data: any) => void;
+  refreshKey?: number;
 }) {
   const [accounts, setAccounts] = useState<ChartOfAccount[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1516,7 +1523,7 @@ function ChartOfAccountsSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   useEffect(() => {
     loadAccounts();
@@ -1810,11 +1817,13 @@ function ChartOfAccountsSection({
 function TrialBalanceSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDate
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
   const [trialBalance, setTrialBalance] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -1832,7 +1841,7 @@ function TrialBalanceSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId, asOfDate]);
+  }, [selectedCompanyId, asOfDate, refreshKey]);
 
   useEffect(() => {
     loadTrialBalance();
@@ -2027,11 +2036,13 @@ function TrialBalanceSection({
 function ProfitLossSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDate
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
   const [profitLoss, setProfitLoss] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -2050,7 +2061,7 @@ function ProfitLossSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId, startDate, endDate]);
+  }, [selectedCompanyId, startDate, endDate, refreshKey]);
 
   useEffect(() => {
     loadProfitLoss();
@@ -2252,11 +2263,13 @@ function ProfitLossSection({
 function BalanceSheetSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDate
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
   const [balanceSheet, setBalanceSheet] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -2274,7 +2287,7 @@ function BalanceSheetSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   useEffect(() => {
     loadBalanceSheet();
@@ -2614,6 +2627,19 @@ export default function UnifiedAccountantDashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const triggerRefresh = useCallback(() => {
+    console.log('[AccountantDashboard] Real-time refresh triggered');
+    setRefreshKey(prev => prev + 1);
+  }, []);
+
+  useRealtime({
+    userId: user?.id,
+    role: user?.role,
+    companyId: selectedCompanyId,
+    onDashboardRefresh: triggerRefresh,
+  });
+
   const companyType = getCompanyType(selectedCompany);
 
   // Load bank accounts for dialogs (placed after selectedCompanyId is declared)
@@ -2623,7 +2649,7 @@ export default function UnifiedAccountantDashboard() {
       .then(r => r.json())
       .then(d => setBankAccountsList(d.bankAccounts || d || []))
       .catch(() => {});
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   // Fetch Companies — on load, silently fix any badly-flagged original companies
   useEffect(() => {
@@ -2662,7 +2688,7 @@ export default function UnifiedAccountantDashboard() {
   // Reset to day-book when company changes
   useEffect(() => {
     setActiveSection('day-book');
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, refreshKey]);
 
   // Deep link: notification click -> open section via ?tab= or ?section= query param
   useEffect(() => {
@@ -2756,6 +2782,7 @@ export default function UnifiedAccountantDashboard() {
           <CashBookSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDateShort={formatDateShort}
           />
         );
@@ -2764,6 +2791,7 @@ export default function UnifiedAccountantDashboard() {
           <BankSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDateShort={formatDateShort}
           />
         );
@@ -2772,6 +2800,7 @@ export default function UnifiedAccountantDashboard() {
           <ChartOfAccountsSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             onRecalcResult={(data) => { setRecalcResult(data); setShowRecalcDialog(true); }}
           />
         );
@@ -2780,6 +2809,7 @@ export default function UnifiedAccountantDashboard() {
           <TrialBalanceSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDate={formatDate}
           />
         );
@@ -2788,6 +2818,7 @@ export default function UnifiedAccountantDashboard() {
           <ProfitLossSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDate={formatDate}
           />
         );
@@ -2796,6 +2827,7 @@ export default function UnifiedAccountantDashboard() {
           <BalanceSheetSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDate={formatDate}
           />
         );

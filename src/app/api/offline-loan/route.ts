@@ -1895,8 +1895,8 @@ export async function POST(request: NextRequest) {
       actionUrl: '/?section=offline-loans',
     });
 
-    emitDashboardRefresh({ companyId: loan.companyId });
-    emitReportInvalidate({ companyId: loan.companyId, type: 'all' });
+    emitDashboardRefresh({ companyId: loan.companyId || undefined });
+    emitReportInvalidate({ companyId: loan.companyId || undefined, type: 'all' });
 
     return NextResponse.json({
 
@@ -2261,8 +2261,8 @@ export async function PUT(request: NextRequest) {
       } // end if (loan.companyId)
 
       if (loan.companyId) {
-        emitDashboardRefresh({ companyId: loan.companyId });
-        emitReportInvalidate({ companyId: loan.companyId, type: 'all' });
+        emitDashboardRefresh({ companyId: loan.companyId || undefined });
+        emitReportInvalidate({ companyId: loan.companyId || undefined, type: 'all' });
       }
 
       return NextResponse.json({
@@ -3521,8 +3521,8 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      emitDashboardRefresh({ companyId: emi.offlineLoan.companyId });
-      emitReportInvalidate({ companyId: emi.offlineLoan.companyId, type: 'all' });
+      emitDashboardRefresh({ companyId: emi.offlineLoan.companyId || undefined });
+      emitReportInvalidate({ companyId: emi.offlineLoan.companyId || undefined, type: 'all' });
 
       return NextResponse.json({
         success: true,
