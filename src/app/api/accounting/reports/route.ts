@@ -231,15 +231,43 @@ async function getBalanceSheet(companyId: string | null) {
     : await db.bankAccount.findMany({ where: { isActive: true } });
   const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
-  // ── 3. LOANS GIVEN (active outstanding principal from Ledger) ────────────────
-  const loanAccounts = await db.chartOfAccount.findMany({
-    where: { ...(companyId ? { companyId } : {}), accountCode: { in: ['1100', '1200', '1201', '1210'] }, isActive: true }
+  // ── 3. LOANS GIVEN (True outstanding principal from active loans) ────────────────
+  const loanWhere = companyId 
+    ? { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'DEFAULTED'] as any[] } } 
+    : { status: { in: ['ACTIVE', 'DISBURSED', 'DEFAULTED'] as any[] } };
+
+  // Calculate online loans true outstanding
+  const activeOnlineLoans = await db.loanApplication.findMany({
+    where: loanWhere,
+    select: { disbursedAmount: true, emis: { select: { paidPrincipal: true } } }
   });
-  
+  const onlineLoansOutstanding = activeOnlineLoans.reduce((sum, loan) => {
+    const disbursed = loan.disbursedAmount || 0;
+    const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+    return sum + Math.max(0, disbursed - paid);
+  }, 0);
+
+  // Calculate offline loans true outstanding
+  const activeOfflineLoans = await db.offlineLoan.findMany({
+    where: { 
+      ...(companyId ? { companyId } : {}), 
+      status: { in: ['ACTIVE', 'DISBURSED', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DEFAULTED'] as any[] } 
+    },
+    select: { loanAmount: true, emis: { select: { paidPrincipal: true } } }
+  });
+  const offlineLoansOutstanding = activeOfflineLoans.reduce((sum, loan) => {
+    const disbursed = loan.loanAmount || 0;
+    const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+    return sum + Math.max(0, disbursed - paid);
+  }, 0);
+
+  const genLoansOutstanding = 0; // Merged into online/offline dynamically
+
+  // Legacy manual ledger (1100) just in case there are historic manual journals
+  const loanAccounts = await db.chartOfAccount.findMany({
+    where: { ...(companyId ? { companyId } : {}), accountCode: { in: ['1100'] }, isActive: true }
+  });
   const legacyLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1100')?.currentBalance || 0);
-  const genLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1200')?.currentBalance || 0);
-  const onlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1201')?.currentBalance || 0);
-  const offlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1210')?.currentBalance || 0);
 
   // ── 4. INTEREST RECEIVABLE (ChartOfAccount 13xx) ─────────────────────────────
   const interestReceivableAcct = await db.chartOfAccount.findFirst({

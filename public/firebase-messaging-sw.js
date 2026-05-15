@@ -63,8 +63,10 @@ self.addEventListener('notificationclick', (event) => {
   if (event.action === 'close') return;
 
   // Deep link: use actionUrl from notification data (e.g. /?section=pending)
-  const targetUrl = event.notification.data?.url || event.notification.data?.actionUrl || '/';
-  const fullUrl   = self.location.origin + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
+  const targetUrl = event.notification.data?.url || event.notification.data?.actionUrl || event.notification.data?.click_action || '/';
+  const fullUrl = targetUrl.startsWith('http') 
+    ? targetUrl 
+    : self.location.origin + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
 
   event.waitUntil(
     self.clients

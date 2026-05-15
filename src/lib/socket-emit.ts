@@ -147,8 +147,17 @@ export function emitReportInvalidate(options: {
     const io = getIO();
     if (!io) return;
     io.to('role:SUPER_ADMIN').emit('report:invalidated', { type: options.type });
-    if (options.companyId) io.to(`company:${options.companyId}`).emit('report:invalidated', { type: options.type });
-    if (options.userId)    io.to(`user:${options.userId}`).emit('report:invalidated', { type: options.type });
+    io.to('role:SUPER_ADMIN').emit('dashboard:refresh');
+    
+    if (options.companyId) {
+      io.to(`company:${options.companyId}`).emit('report:invalidated', { type: options.type });
+      io.to(`company:${options.companyId}`).emit('dashboard:refresh');
+    }
+    
+    if (options.userId) {
+      io.to(`user:${options.userId}`).emit('report:invalidated', { type: options.type });
+      io.to(`user:${options.userId}`).emit('dashboard:refresh');
+    }
   } catch { /* non-critical */ }
 }
 

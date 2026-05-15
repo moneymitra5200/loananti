@@ -5,6 +5,7 @@ import { calculateEMI } from '@/utils/helpers';
 import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { recordOfflineLoanDisbursement as recordDaybookDisbursement } from '@/lib/accounting-helper';
 import { notifyEvent } from '@/lib/event-notify';
+import { emitReportInvalidate, emitDashboardRefresh } from '@/lib/socket-emit';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
@@ -1894,6 +1895,9 @@ export async function POST(request: NextRequest) {
       actionUrl: '/?section=offline-loans',
     });
 
+    emitDashboardRefresh({ companyId: loan.companyId });
+    emitReportInvalidate({ companyId: loan.companyId, type: 'all' });
+
     return NextResponse.json({
 
       success: true,
@@ -2255,6 +2259,11 @@ export async function PUT(request: NextRequest) {
           console.error('[Interest-Only Accounting] Failed (non-critical):', accErr);
         }
       } // end if (loan.companyId)
+
+      if (loan.companyId) {
+        emitDashboardRefresh({ companyId: loan.companyId });
+        emitReportInvalidate({ companyId: loan.companyId, type: 'all' });
+      }
 
       return NextResponse.json({
         success: true,
@@ -3511,6 +3520,9 @@ export async function PUT(request: NextRequest) {
           }));
         }
       }
+
+      emitDashboardRefresh({ companyId: emi.offlineLoan.companyId });
+      emitReportInvalidate({ companyId: emi.offlineLoan.companyId, type: 'all' });
 
       return NextResponse.json({
         success: true,

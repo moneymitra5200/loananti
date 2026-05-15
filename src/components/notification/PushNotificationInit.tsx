@@ -83,7 +83,18 @@ export default function PushNotificationInit() {
         }
 
         // In-app toast
-        toast(title, { description: body, duration: 6000 });
+        toast(title, { 
+          description: body, 
+          duration: 6000,
+          action: payload.data?.actionUrl ? {
+            label: 'Open',
+            onClick: () => {
+              window.location.href = payload.data!.actionUrl as string;
+            }
+          } : undefined,
+          className: '!bg-[var(--theme-color,var(--primary,var(--color-brand-primary,#10b981)))] !text-white !border-none',
+          style: { backgroundColor: 'var(--color-brand-primary, #10b981)', color: 'white', border: 'none' }
+        });
 
         // Refresh the bell count immediately
         window.dispatchEvent(new Event('new-notification'));

@@ -127,9 +127,6 @@ export async function sendPushNotification(
             { action: 'close', title: 'Close' },
           ],
         },
-        fcmOptions: {
-          link: data?.actionUrl || '/',
-        },
       },
       android: {
         notification: {
@@ -196,9 +193,6 @@ export async function sendPushNotificationToMany(
           badge: '/logo-circle.png',
           vibrate: [200, 100, 200],
           requireInteraction: true,
-        },
-        fcmOptions: {
-          link: data?.actionUrl || '/',
         },
       },
       android: {
