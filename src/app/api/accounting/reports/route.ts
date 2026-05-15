@@ -335,9 +335,7 @@ async function getBalanceSheet(companyId: string | null) {
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
     { accountCode: '1201', accountName: 'Online Loans Given', amount: accountBalances['1201'] || 0 },
-    { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 },
-    { accountCode: 'SEC_REC', accountName: '── Receivables ──', amount: 0, isSection: true },
-    { accountCode: '1301', accountName: 'Interest Receivable', amount: accountBalances['1301'] || 0 }
+    { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 }
   ];
 
   // Add other assets (Fixed Assets, etc)
@@ -356,7 +354,8 @@ async function getBalanceSheet(companyId: string | null) {
     !['1101', '1102', '1200', '1201', '1210', '1301'].includes(a.accountCode) &&
     !a.accountCode.startsWith('110') &&
     !bankNamesToExclude.has(a.accountName) &&
-    !a.accountName.toUpperCase().includes('BANK OF BARODA') // Hard fallback
+    !a.accountName.toUpperCase().includes('BANK OF BARODA') &&
+    !a.accountName.toUpperCase().includes('RECEIVABLE')
   );
   if (otherAssetAccounts.length > 0) {
     assets.push({ accountCode: 'SEC_OA', accountName: '── Other Assets ──', amount: 0, isSection: true });
