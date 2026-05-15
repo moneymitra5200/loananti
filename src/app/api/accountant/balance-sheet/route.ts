@@ -191,7 +191,7 @@ export async function GET(request: NextRequest) {
     const coaCapital3001 = getAccountBalance(ACCOUNT_CODES.OPENING_BALANCE_EQUITY);
 
     // Use EquityEntry if it has data, otherwise fall back to CoA
-    const ownersCapital       = ownersCapitalFromEquity > 0 ? ownersCapitalFromEquity : coaCapital3002;
+    const ownersCapital       = ownersCapitalFromEquity !== 0 ? ownersCapitalFromEquity : coaCapital3002;
     const openingBalanceEquity = coaCapital3001;
     const retainedEarnings    = getAccountBalance(ACCOUNT_CODES.RETAINED_EARNINGS);
     const currentYearProfit   = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
@@ -277,13 +277,6 @@ export async function GET(request: NextRequest) {
         type: 'LIABILITY',
         accountCode: ACCOUNT_CODES.BANK_LOANS,
         description: 'Loans taken from banks'
-      },
-      {
-        name: 'Investor Capital',
-        amount: investorCapital,
-        type: 'LIABILITY',
-        accountCode: ACCOUNT_CODES.INVESTOR_CAPITAL,
-        description: 'Capital from investors'
       },
       {
         name: 'Borrowed Funds',

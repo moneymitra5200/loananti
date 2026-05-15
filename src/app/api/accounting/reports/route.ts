@@ -313,7 +313,9 @@ async function getBalanceSheet(companyId: string | null) {
     if (acc.accountCode === '1201') balance = actualOnlineLoans;
     if (acc.accountCode === '1210') balance = actualOfflineLoans;
     if (acc.accountCode === '1301') balance = interestReceivable;
-    if (acc.accountCode === '3002') balance = actualCapital;
+    if (acc.accountCode === '3002') {
+      balance = actualCapital > 0 || actualCapital < 0 ? actualCapital : balance;
+    }
     if (acc.accountCode === '1200') balance = actualOnlineLoans + actualOfflineLoans;
 
     accountBalances[acc.accountCode] = balance;
@@ -332,7 +334,6 @@ async function getBalanceSheet(companyId: string | null) {
       }))
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
-    { accountCode: '1200', accountName: 'Total Loans Receivable', amount: accountBalances['1200'] || 0 },
     { accountCode: '1201', accountName: 'Online Loans Given', amount: accountBalances['1201'] || 0 },
     { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 },
     { accountCode: 'SEC_REC', accountName: '── Receivables ──', amount: 0, isSection: true },
@@ -366,12 +367,19 @@ async function getBalanceSheet(companyId: string | null) {
 
   // LIABILITIES (Keep structure permanent even if 0)
   const liabilities: any[] = accounts
-    .filter(a => a.accountType === 'LIABILITY')
+    .filter(a => a.accountType === 'LIABILITY' && a.accountCode !== '2110') // Hide Investor Capital 
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
+    
+  // Add Owner's Capital to Liabilities instead of Equity
+  liabilities.push({
+    accountCode: '3002',
+    accountName: "Owner's Capital",
+    amount: accountBalances['3002'] || 0
+  });
 
   // EQUITY (Keep structure permanent even if 0)
   const equity: any[] = accounts
-    .filter(a => a.accountType === 'EQUITY' && a.accountCode !== '3004')
+    .filter(a => a.accountType === 'EQUITY' && !['3004', '3002'].includes(a.accountCode))
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
   // Current Year P&L
