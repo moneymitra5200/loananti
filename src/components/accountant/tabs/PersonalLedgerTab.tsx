@@ -84,6 +84,8 @@ interface StatementRow {
   totalPayment: number | null;
   interestPaid: number | null;
   principalPaid: number | null;
+  debit?: number;
+  credit?: number;
   remainingBalance: number;
   referenceType: string;
   emiNumber?: number;
@@ -208,6 +210,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         totalPayment: null,
         interestPaid: null,
         principalPaid: null,
+        debit: runningBalance,
+        credit: 0,
         remainingBalance: runningBalance,
         referenceType: 'LOAN_DISBURSEMENT'
       });
@@ -222,21 +226,19 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       );
 
       for (const entry of paymentEntries) {
-        // Compute principal from LR account lines (creditAmount reduces the receivable)
         let principalPaid = 0;
         let interestPaid  = 0;
 
         if (entry.lines && entry.lines.length > 0) {
           for (const line of entry.lines) {
             const code = line.accountCode || '';
-            if (['1200', '1201', '1210'].includes(code)) {
-              principalPaid += line.creditAmount; // Loans Receivable reduced
+            if (['1100', '1200', '1201', '1210'].includes(code)) {
+              principalPaid += line.creditAmount;
             } else if (['4110', '4100', '4001', '4002'].includes(code)) {
-              interestPaid  += line.creditAmount; // Interest income
+              interestPaid  += line.creditAmount;
             }
           }
         } else if (entry.principalPaid !== undefined) {
-          // Use pre-computed values from journal-entries-based API
           principalPaid = entry.principalPaid || 0;
           interestPaid  = entry.interestPaid  || 0;
         }
@@ -244,14 +246,35 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         const totalPayment = principalPaid + interestPaid;
         if (totalPayment <= 0) continue;
 
-        runningBalance = Math.max(0, runningBalance - principalPaid);
+        // 1. Interest Charged (Debit) - Increases outstanding balance
+        if (interestPaid > 0) {
+          runningBalance += interestPaid;
+          rows.push({
+            date: entry.date,
+            description: `To-INTEREST Normal Dr. Int.`,
+            totalPayment: null,
+            interestPaid,
+            principalPaid: null,
+            debit: interestPaid,
+            credit: 0,
+            remainingBalance: runningBalance,
+            referenceType: 'INTEREST_CHARGE',
+            emiNumber: entry.emiNumber,
+          });
+        }
 
+        // 2. EMI Payment (Credit) - Decreases outstanding balance
+        runningBalance -= totalPayment;
+        const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
+        
         rows.push({
           date: entry.date,
-          description: (entry as any).description || buildRowDescription(entry),
+          description: `${paymentMethod} — ${(entry as any).description || buildRowDescription(entry)}`,
           totalPayment,
           interestPaid,
           principalPaid,
+          debit: 0,
+          credit: totalPayment,
           remainingBalance: runningBalance,
           referenceType: entry.referenceType,
           emiNumber: entry.emiNumber,
@@ -264,9 +287,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const apiTotalInterestPaid = loan.totalInterestPaid ?? null;
       const apiTotalPrincipalPaid= loan.totalPrincipalPaid?? null;
 
-      const rowTotalPaid          = rows.reduce((s, r) => s + (r.totalPayment  || 0), 0);
-      const rowTotalInterestPaid  = rows.reduce((s, r) => s + (r.interestPaid  || 0), 0);
-      const rowTotalPrincipalPaid = rows.reduce((s, r) => s + (r.principalPaid || 0), 0);
+      // Note: we only sum the credit lines that are actual payments
+      const actualPayments = rows.filter(r => r.credit && r.credit > 0);
+      const rowTotalPaid          = actualPayments.reduce((s, r) => s + (r.credit || 0), 0);
+      const rowTotalInterestPaid  = rows.filter(r => r.debit && r.debit > 0).reduce((s, r) => s + (r.debit || 0), 0);
+      const rowTotalPrincipalPaid = actualPayments.reduce((s, r) => s + (r.principalPaid || 0), 0);
 
       return {
         loanId:            loan.id,
@@ -413,10 +438,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               <TableHeader>
                 <TableRow className="bg-slate-50 border-b-2">
                   <TableHead className="font-bold text-slate-700 text-xs uppercase">Date</TableHead>
-                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Description</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Total</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Interest</TableHead>
-                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Principal</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Particulars</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Chq No.</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Value Date</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Debit</TableHead>
+                  <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Credit</TableHead>
                   <TableHead className="text-right font-bold text-slate-700 text-xs uppercase">Balance</TableHead>
                 </TableRow>
               </TableHeader>
@@ -427,45 +453,37 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                     <tr
                       key={idx}
                       className={`border-b transition-colors ${
-                        isFirst ? 'bg-blue-50 hover:bg-blue-100 font-semibold'
+                        isFirst ? 'bg-blue-50/50 hover:bg-blue-100/50'
                         : idx % 2 === 0 ? 'bg-white hover:bg-gray-50'
                         : 'bg-slate-50/60 hover:bg-slate-100'
                       }`}
                     >
-                      <TableCell className="text-sm py-3">{formatDate(row.date)}</TableCell>
-                      <TableCell className="py-3">
-                        <div className="flex items-center gap-2">
-                          {isFirst
-                            ? <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />
-                            : <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
-                          }
-                          <span className={`text-sm ${isFirst ? 'text-blue-800 font-semibold' : 'text-gray-800'}`}>
-                            {row.description}
-                          </span>
-                        </div>
+                      <TableCell className="text-sm py-2 whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                      <TableCell className="py-2">
+                        <span className={`text-sm font-medium ${isFirst ? 'text-slate-900' : 'text-slate-800'}`}>
+                          {row.description}
+                        </span>
                       </TableCell>
-                      <TableCell className="text-right py-3">
-                        {row.totalPayment !== null
-                          ? <span className="font-semibold text-emerald-700">{formatCurrency(row.totalPayment)}</span>
-                          : <span className="text-gray-400 text-sm">—</span>}
+                      <TableCell className="text-sm text-slate-500 py-2">
+                        {/* Empty Chq No. for now, or could map to reference */}
+                        —
                       </TableCell>
-                      <TableCell className="text-right py-3">
-                        {row.interestPaid !== null && row.interestPaid > 0
-                          ? <span className="text-amber-700">{formatCurrency(row.interestPaid)}</span>
-                          : row.interestPaid === null
-                            ? <span className="text-gray-400 text-sm">—</span>
-                            : <span className="text-gray-400 text-sm">₹0</span>}
+                      <TableCell className="text-sm text-slate-500 py-2 whitespace-nowrap">
+                        {formatDate(row.date)}
                       </TableCell>
-                      <TableCell className="text-right py-3">
-                        {row.principalPaid !== null && row.principalPaid > 0
-                          ? <span className="text-blue-700 font-medium">{formatCurrency(row.principalPaid)}</span>
-                          : row.principalPaid === null
-                            ? <span className="text-gray-400 text-sm">—</span>
-                            : <span className="text-gray-400 text-sm">₹0</span>}
+                      <TableCell className="text-right py-2">
+                        {row.debit && row.debit > 0
+                          ? <span className="font-medium text-slate-800">{row.debit.toFixed(2)}</span>
+                          : <span className="text-slate-300">0.00</span>}
                       </TableCell>
-                      <TableCell className="text-right py-3">
-                        <span className={`font-bold text-base ${row.remainingBalance <= 0 ? 'text-green-600' : 'text-slate-800'}`}>
-                          {formatCurrency(row.remainingBalance)}
+                      <TableCell className="text-right py-2">
+                        {row.credit && row.credit > 0
+                          ? <span className="font-medium text-slate-800">{row.credit.toFixed(2)}</span>
+                          : <span className="text-slate-300">0.00</span>}
+                      </TableCell>
+                      <TableCell className="text-right py-2">
+                        <span className={`font-semibold text-sm ${row.remainingBalance <= 0 ? 'text-green-600' : 'text-slate-900'}`}>
+                          {row.remainingBalance.toFixed(2)} Dr
                         </span>
                       </TableCell>
                     </tr>

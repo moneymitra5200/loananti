@@ -233,9 +233,10 @@ async function getBalanceSheet(companyId: string | null) {
 
   // ── 3. LOANS GIVEN (active outstanding principal from Ledger) ────────────────
   const loanAccounts = await db.chartOfAccount.findMany({
-    where: { ...(companyId ? { companyId } : {}), accountCode: { in: ['1200', '1201', '1210'] }, isActive: true }
+    where: { ...(companyId ? { companyId } : {}), accountCode: { in: ['1100', '1200', '1201', '1210'] }, isActive: true }
   });
   
+  const legacyLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1100')?.currentBalance || 0);
   const genLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1200')?.currentBalance || 0);
   const onlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1201')?.currentBalance || 0);
   const offlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1210')?.currentBalance || 0);
@@ -271,10 +272,11 @@ async function getBalanceSheet(companyId: string | null) {
       }))
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
+    ...(legacyLoansOutstanding > 0 ? [{ accountCode: '1100', accountName: 'Loans Given / Advances', amount: legacyLoansOutstanding }] : []),
     ...(genLoansOutstanding > 0 ? [{ accountCode: '1200', accountName: 'Loans Given (Principal Outstanding)', amount: genLoansOutstanding }] : []),
     ...(onlineLoansOutstanding > 0 ? [{ accountCode: '1201', accountName: 'Online Loans Given', amount: onlineLoansOutstanding }] : []),
     ...(offlineLoansOutstanding > 0 ? [{ accountCode: '1210', accountName: 'Offline Loans Given', amount: offlineLoansOutstanding }] : []),
-    ...(genLoansOutstanding === 0 && onlineLoansOutstanding === 0 && offlineLoansOutstanding === 0 ? [{ accountCode: 'NL', accountName: 'No Active Loans', amount: 0 }] : []),
+    ...(legacyLoansOutstanding === 0 && genLoansOutstanding === 0 && onlineLoansOutstanding === 0 && offlineLoansOutstanding === 0 ? [{ accountCode: 'NL', accountName: 'No Active Loans', amount: 0 }] : []),
     ...(interestReceivable > 0 ? [
       { accountCode: 'SEC_REC', accountName: '── Receivables ──', amount: 0, isSection: true },
       { accountCode: '1301', accountName: 'Interest Receivable', amount: interestReceivable }
