@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * GNUCASH-STYLE BALANCE SHEET API
  * 

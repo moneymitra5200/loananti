@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { LoanStatus, EMIPaymentStatus } from '@prisma/client';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 const LoanStatusConst = {
   ACTIVE: LoanStatus.ACTIVE,
   DISBURSED: LoanStatus.DISBURSED,
@@ -337,10 +340,22 @@ async function getBalanceSheet(companyId: string | null) {
   ];
 
   // Add other assets (Fixed Assets, etc)
+  const bankNamesToExclude = new Set(
+    bankAccountsData.flatMap(b => [
+      b.bankName,
+      b.accountName,
+      `${b.bankName} - ${b.accountNumber?.slice(-4) || 'XXXX'}`,
+      `${b.bankName} \u2013 ${b.accountNumber?.slice(-4) || 'XXXX'}`,
+      `${b.bankName} - ${b.accountNumber}`
+    ].filter(Boolean))
+  );
+
   const otherAssetAccounts = accounts.filter(a => 
     a.accountType === 'ASSET' && 
     !['1101', '1102', '1200', '1201', '1210', '1301'].includes(a.accountCode) &&
-    !a.accountCode.startsWith('110')
+    !a.accountCode.startsWith('110') &&
+    !bankNamesToExclude.has(a.accountName) &&
+    !a.accountName.toUpperCase().includes('BANK OF BARODA') // Hard fallback
   );
   if (otherAssetAccounts.length > 0) {
     assets.push({ accountCode: 'SEC_OA', accountName: '── Other Assets ──', amount: 0, isSection: true });
