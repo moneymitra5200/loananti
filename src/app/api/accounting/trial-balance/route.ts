@@ -56,11 +56,11 @@ export async function GET(request: NextRequest) {
       db.bankAccount.findMany({ where: { companyId, isActive: true } }),
       db.equityEntry.findMany({ where: { companyId } }),
       db.loanApplication.findMany({
-        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'DEFAULTED'] as any[] } },
+        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] as any[] } },
         select: { disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
       db.offlineLoan.findMany({
-        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DEFAULTED'] as any[] } },
+        where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] as any[] } },
         select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
       db.eMISchedule.aggregate({
