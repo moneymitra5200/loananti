@@ -340,24 +340,24 @@ async function getBalanceSheet(companyId: string | null) {
   const otherAssetAccounts = accounts.filter(a => 
     a.accountType === 'ASSET' && 
     !['1101', '1102', '1200', '1201', '1210', '1301'].includes(a.accountCode) &&
-    (accountBalances[a.accountCode] || 0) !== 0
+    !a.accountCode.startsWith('110')
   );
   if (otherAssetAccounts.length > 0) {
     assets.push({ accountCode: 'SEC_OA', accountName: '── Other Assets ──', amount: 0, isSection: true });
     otherAssetAccounts.forEach(a => {
-      assets.push({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] });
+      assets.push({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 });
     });
   }
 
-  // LIABILITIES
+  // LIABILITIES (Keep structure permanent even if 0)
   const liabilities: any[] = accounts
-    .filter(a => a.accountType === 'LIABILITY' && (accountBalances[a.accountCode] || 0) !== 0)
-    .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] }));
+    .filter(a => a.accountType === 'LIABILITY')
+    .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
-  // EQUITY
+  // EQUITY (Keep structure permanent even if 0)
   const equity: any[] = accounts
-    .filter(a => a.accountType === 'EQUITY' && a.accountCode !== '3004' && (accountBalances[a.accountCode] || 0) !== 0)
-    .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] }));
+    .filter(a => a.accountType === 'EQUITY' && a.accountCode !== '3004')
+    .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
   // Current Year P&L
   const pnlRes = await getProfitAndLoss(companyId);

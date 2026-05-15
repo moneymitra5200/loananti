@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
         accountCode: ACCOUNT_CODES.BORROWED_FUNDS,
         description: 'Funds borrowed from other sources'
       }
-    ].filter(item => item.amount !== 0 || ['Owner\'s Capital', 'Current Year Profit/Loss'].includes(item.name));
+    ];
 
     // Right Side Items (Assets)
     const rightSideItems = [
@@ -331,7 +331,7 @@ export async function GET(request: NextRequest) {
         accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
         description: 'Interest accrued but not received'
       }
-    ].filter(item => item.amount !== 0 || ['Cash in Hand', 'Bank Balance'].includes(item.name));
+    ];
 
     // ============================================
     // CALCULATE TOTALS
