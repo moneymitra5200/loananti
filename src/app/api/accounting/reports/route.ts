@@ -231,38 +231,14 @@ async function getBalanceSheet(companyId: string | null) {
     : await db.bankAccount.findMany({ where: { isActive: true } });
   const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
-  // ── 3. LOANS GIVEN (active outstanding principal) ───────────────────────────
-  const [onlineLoanAgg, offlineLoanAgg, onlinePaidAgg, offlinePaidAgg] = await Promise.all([
-    // Total Disbursed
-    db.loanApplication.aggregate({
-      where: companyId
-        ? { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } }
-        : { status: { in: ['ACTIVE', 'DISBURSED'] } },
-      _sum: { disbursedAmount: true }
-    }),
-    db.offlineLoan.aggregate({
-      where: companyId
-        ? { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false }
-        : { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false },
-      _sum: { loanAmount: true }
-    }),
-    // Total Principal Repaid
-    db.eMISchedule.aggregate({
-      where: companyId
-        ? { loanApplication: { companyId, status: { in: ['ACTIVE', 'DISBURSED'] } } }
-        : { loanApplication: { status: { in: ['ACTIVE', 'DISBURSED'] } } },
-      _sum: { paidPrincipal: true }
-    }),
-    db.offlineLoanEMI.aggregate({
-      where: companyId
-        ? { offlineLoan: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false } }
-        : { offlineLoan: { status: { in: ['ACTIVE', 'INTEREST_ONLY'] }, isMirrorLoan: false } },
-      _sum: { paidPrincipal: true }
-    })
-  ]);
-
-  const onlineLoansOutstanding = (onlineLoanAgg._sum.disbursedAmount || 0) - (onlinePaidAgg._sum.paidPrincipal || 0);
-  const offlineLoansOutstanding = (offlineLoanAgg._sum.loanAmount || 0) - (offlinePaidAgg._sum.paidPrincipal || 0);
+  // ── 3. LOANS GIVEN (active outstanding principal from Ledger) ────────────────
+  const loanAccounts = await db.chartOfAccount.findMany({
+    where: { ...(companyId ? { companyId } : {}), accountCode: { in: ['1200', '1201', '1210'] }, isActive: true }
+  });
+  
+  const genLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1200')?.currentBalance || 0);
+  const onlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1201')?.currentBalance || 0);
+  const offlineLoansOutstanding = Math.max(0, loanAccounts.find(a => a.accountCode === '1210')?.currentBalance || 0);
 
   // ── 4. INTEREST RECEIVABLE (ChartOfAccount 13xx) ─────────────────────────────
   const interestReceivableAcct = await db.chartOfAccount.findFirst({
@@ -295,9 +271,10 @@ async function getBalanceSheet(companyId: string | null) {
       }))
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
-    ...(onlineLoansOutstanding > 0 ? [{ accountCode: '1201', accountName: 'Online Loans Given (Active)', amount: onlineLoansOutstanding }] : []),
-    ...(offlineLoansOutstanding > 0 ? [{ accountCode: '1210', accountName: 'Offline Loans Given (Active)', amount: offlineLoansOutstanding }] : []),
-    ...(onlineLoansOutstanding === 0 && offlineLoansOutstanding === 0 ? [{ accountCode: 'NL', accountName: 'No Active Loans', amount: 0 }] : []),
+    ...(genLoansOutstanding > 0 ? [{ accountCode: '1200', accountName: 'Loans Given (Principal Outstanding)', amount: genLoansOutstanding }] : []),
+    ...(onlineLoansOutstanding > 0 ? [{ accountCode: '1201', accountName: 'Online Loans Given', amount: onlineLoansOutstanding }] : []),
+    ...(offlineLoansOutstanding > 0 ? [{ accountCode: '1210', accountName: 'Offline Loans Given', amount: offlineLoansOutstanding }] : []),
+    ...(genLoansOutstanding === 0 && onlineLoansOutstanding === 0 && offlineLoansOutstanding === 0 ? [{ accountCode: 'NL', accountName: 'No Active Loans', amount: 0 }] : []),
     ...(interestReceivable > 0 ? [
       { accountCode: 'SEC_REC', accountName: '── Receivables ──', amount: 0, isSection: true },
       { accountCode: '1301', accountName: 'Interest Receivable', amount: interestReceivable }
@@ -337,32 +314,17 @@ async function getBalanceSheet(companyId: string | null) {
     }
   }
 
-  // BorrowedMoney table — always override 2120 with actual outstanding
-  if (companyId) {
-    const borrowedRows = await db.borrowedMoney.findMany({ where: { companyId } });
-    const borrowedNet = borrowedRows.reduce((s, b) => s + ((b.amount || 0) - (b.amountRepaid || 0)), 0);
-    if (borrowedNet > 0.01) {
-      const idx = liabilities.findIndex(l => l.accountCode === '2120');
-      if (idx >= 0) liabilities[idx].amount = Math.max(liabilities[idx].amount, borrowedNet);
-      else liabilities.push({ accountCode: '2120', accountName: 'Borrowed Funds (Outstanding)', amount: borrowedNet });
-    }
-  }
+
 
   // ── 7. EQUITY ─────────────────────────────────────────────────────────────────
   const equity: any[] = [];
 
   if (companyId) {
-    const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
-    const ownerCapitalFromEquity = equityEntries.reduce((s, e) =>
-      e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0
-    );
-
     const coaOwnerCapital = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3002', isActive: true } });
     const coaOpeningEquity = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3001', isActive: true } });
     
-    // Combine EquityEntry data with Chart of Accounts balance
-    const ownerCapital = ownerCapitalFromEquity > 0 ? ownerCapitalFromEquity : (coaOwnerCapital?.currentBalance || 0);
-    const openingEquity = coaOpeningEquity?.currentBalance || 0;
+    const ownerCapital = Math.abs(coaOwnerCapital?.currentBalance || 0);
+    const openingEquity = Math.abs(coaOpeningEquity?.currentBalance || 0);
 
     if (ownerCapital !== 0) {
       equity.push({ accountCode: '3002', accountName: "Owner's Capital (Invested)", amount: ownerCapital });
@@ -372,7 +334,7 @@ async function getBalanceSheet(companyId: string | null) {
     }
 
     const retainedAcct = await db.chartOfAccount.findFirst({ where: { companyId, accountCode: '3003', isActive: true } });
-    const retainedAmt = retainedAcct?.currentBalance || 0;
+    const retainedAmt = Math.abs(retainedAcct?.currentBalance || 0);
     if (retainedAmt !== 0) {
       equity.push({ accountCode: '3003', accountName: 'Retained Earnings (Prior Years)', amount: retainedAmt });
     }
