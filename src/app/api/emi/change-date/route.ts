@@ -97,35 +97,31 @@ export async function POST(request: NextRequest) {
     });
 
     // Batch update all subsequent EMIs using updateMany with raw SQL for date math
-    // This is MUCH faster than individual updates
-    if (subsequentEmis.length > 0) {
-      // SQLite: date(dueDate, '+N days') format
-      const daysStr = daysDiff >= 0 ? `+${daysDiff} days` : `${daysDiff} days`;
-      
+      // PostgreSQL: dueDate + INTERVAL 'N days'
+      // To prevent SQL injection with interval string interpolation, we use:
+      // dueDate + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day'
       await db.$executeRaw`
-        UPDATE EMISchedule 
-        SET dueDate = date(dueDate, ${daysStr}),
-            originalDueDate = CASE WHEN originalDueDate IS NULL THEN dueDate ELSE originalDueDate END,
-            notes = 'Auto-shifted by ' || ${daysDiff} || ' days (from EMI #' || ${emi.installmentNumber} || ' change)'
-        WHERE loanApplicationId = ${emi.loanApplicationId}
-        AND installmentNumber > ${emi.installmentNumber}
-        AND paymentStatus != 'PAID'
+        UPDATE "EMISchedule" 
+        SET "dueDate" = "dueDate" + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day',
+            "originalDueDate" = CASE WHEN "originalDueDate" IS NULL THEN "dueDate" ELSE "originalDueDate" END,
+            "notes" = 'Auto-shifted by ' || CAST(${daysDiff} AS TEXT) || ' days (from EMI #' || CAST(${emi.installmentNumber} AS TEXT) || ' change)'
+        WHERE "loanApplicationId" = ${emi.loanApplicationId}
+        AND "installmentNumber" > ${emi.installmentNumber}
+        AND "paymentStatus" != 'PAID'
       `;
-    }
 
     // Sync mirror loan in parallel
     let mirrorSyncCount = 0;
     if (mirrorMapping?.mirrorLoanId) {
       try {
-        const daysStr = daysDiff >= 0 ? `+${daysDiff} days` : `${daysDiff} days`;
         const result = await db.$executeRaw`
-          UPDATE EMISchedule 
-          SET dueDate = date(dueDate, ${daysStr}),
-              originalDueDate = CASE WHEN originalDueDate IS NULL THEN dueDate ELSE originalDueDate END,
-              notes = 'Synced from original loan, shifted by ' || ${daysDiff} || ' days'
-          WHERE loanApplicationId = ${mirrorMapping.mirrorLoanId}
-          AND installmentNumber >= ${emi.installmentNumber}
-          AND paymentStatus != 'PAID'
+          UPDATE "EMISchedule" 
+          SET "dueDate" = "dueDate" + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day',
+              "originalDueDate" = CASE WHEN "originalDueDate" IS NULL THEN "dueDate" ELSE "originalDueDate" END,
+              "notes" = 'Synced from original loan, shifted by ' || CAST(${daysDiff} AS TEXT) || ' days'
+          WHERE "loanApplicationId" = ${mirrorMapping.mirrorLoanId}
+          AND "installmentNumber" >= ${emi.installmentNumber}
+          AND "paymentStatus" != 'PAID'
         `;
         mirrorSyncCount = result;
         console.log(`[EMI Date Change] Synced ${mirrorSyncCount} mirror loan EMIs`);

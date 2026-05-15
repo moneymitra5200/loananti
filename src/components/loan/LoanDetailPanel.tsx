@@ -804,13 +804,30 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
             {(currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'CASHIER') &&
              !isMirrorLoan && loanDetails &&
              ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY'].includes(loanDetails.status) && (
-              <Button
-                size="sm"
-                className="bg-red-500/80 text-white hover:bg-red-600/90 border border-red-300/30"
-                onClick={() => setShowCloseLoanDialog(true)}
-              >
-                <Calculator className="h-4 w-4 mr-1" /> Close Loan
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  className="bg-red-500/80 text-white hover:bg-red-600/90 border border-red-300/30"
+                  onClick={() => setShowCloseLoanDialog(true)}
+                >
+                  <Calculator className="h-4 w-4 mr-1" /> Close Loan
+                </Button>
+                {/* Global Change Date Button */}
+                {emiSchedules.some(e => e.status !== 'PAID' && e.status !== 'INTEREST_ONLY_PAID') && (
+                  <Button
+                    size="sm"
+                    className="bg-white/20 text-white hover:bg-white/30 border border-white/30"
+                    onClick={() => {
+                      const firstPending = [...emiSchedules].sort((a,b) => a.emiNumber - b.emiNumber).find(e => e.status !== 'PAID' && e.status !== 'INTEREST_ONLY_PAID');
+                      if (firstPending) {
+                        openDateChangeDialog(firstPending);
+                      }
+                    }}
+                  >
+                    <Calendar className="h-4 w-4 mr-1" /> Change Date
+                  </Button>
+                )}
+              </>
             )}
             {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
             {currentUserRole === 'SUPER_ADMIN' && !isMirrorLoan && loanDetails && (

@@ -487,16 +487,7 @@ const EMISection = memo(function EMISection({
                             >
                               <IndianRupee className="h-4 w-4 mr-1" /> Pay
                             </Button>
-                            {/* EMI Date Change - Available for all roles except ACCOUNTANT */}
-                            {currentUserRole !== 'ACCOUNTANT' && (
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => onChangeDate(emi)}
-                              >
-                                <Calendar className="h-4 w-4 mr-1" /> Change Date
-                              </Button>
-                            )}
+                            {/* Removed individual EMI Change Date button as requested */}
                           </>
                         )}
                         {/* Mirror loan indicator for unpaid EMIs */}

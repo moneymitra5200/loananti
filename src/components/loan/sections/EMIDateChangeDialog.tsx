@@ -55,9 +55,9 @@ const EMIDateChangeDialog = memo(function EMIDateChangeDialog({
               <span className="font-semibold text-sm">Important</span>
             </div>
             <p className="text-xs text-blue-600">
-              <strong>All subsequent EMIs will be automatically shifted by the same number of days.</strong>
+              <strong>This will shift the dates of ALL remaining EMIs for this loan.</strong>
               <br />
-              This action will be logged for audit purposes.
+              This action will be automatically recorded and the Super Admin will be notified in the audit logs.
             </p>
           </div>
 
