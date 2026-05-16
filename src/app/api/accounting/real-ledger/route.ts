@@ -93,24 +93,93 @@ export async function GET(request: NextRequest) {
     // ─── INTEREST INCOME ───────────────────────────────────────────────────────
     else if (account === 'INTEREST') {
       accountName = 'Interest Income'; accountCode = '4001'; accountType = 'INCOME';
-      const online = await db.eMISchedule.findMany({
-        where: { loanApplication: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] }, paidDate: { gte: periodStart, lte: periodEnd } },
-        include: { loanApplication: { include: { customer: { select: { name: true } } } } },
-        orderBy: { paidDate: 'asc' },
+
+      // ── Opening balance: all paidInterest on EMIs paid BEFORE period ──────────
+      const priorOnline = await db.eMISchedule.findMany({
+        where: {
+          loanApplication: { companyId },
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] },
+          paidDate: { lt: periodStart },
+        },
+        select: { paidInterest: true },
       });
-      const offline = await db.offlineLoanEMI.findMany({
-        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] }, paidDate: { gte: periodStart, lte: periodEnd } },
+      const priorOffline = await db.offlineLoanEMI.findMany({
+        where: {
+          offlineLoan: { companyId },
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] },
+          paidDate: { lt: periodStart },
+        },
+        select: { paidInterest: true },
+      });
+      opening = [...priorOnline, ...priorOffline].reduce((s, e) => s + ((e as any).paidInterest || 0), 0);
+
+      // ── Period transactions: use individual Payment records ────────────────────
+      // Each partial/full payment gets its own Payment record with interestComponent.
+      // Reading Payment records (not EMISchedule) ensures each partial shows separately.
+      type Ev = { date: Date; particulars: string; ref: string; cr: number };
+      const events: Ev[] = [];
+
+      const payments = await db.payment.findMany({
+        where: {
+          loanApplication: { companyId },
+          status: 'COMPLETED',
+          createdAt: { gte: periodStart, lte: periodEnd },
+          interestComponent: { gt: 0 },
+        },
+        include: {
+          loanApplication: {
+            include: { customer: { select: { name: true } } },
+          },
+          emiSchedule: { select: { installmentNumber: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      for (const p of payments) {
+        const cr = p.interestComponent || 0;
+        if (!cr) continue;
+        const custName = p.loanApplication?.customer?.name || 'Unknown';
+        const appNo = p.loanApplication?.applicationNo || '-';
+        const emiNo = p.emiSchedule?.installmentNumber || '?';
+        events.push({
+          date: p.createdAt,
+          particulars: `Interest – ${custName} EMI #${emiNo}`,
+          ref: appNo,
+          cr,
+        });
+      }
+
+      // ── Offline Payment records ────────────────────────────────────────────────
+      const offlinePayments = await db.offlineLoanEMI.findMany({
+        where: {
+          offlineLoan: { companyId },
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] },
+          paidDate: { gte: periodStart, lte: periodEnd },
+          paidInterest: { gt: 0 },
+        },
         include: { offlineLoan: { select: { customerName: true, loanNumber: true } } },
         orderBy: { paidDate: 'asc' },
       });
-      let bal = 0;
-      for (const e of online) { const cr = e.paidInterest || 0; if (!cr) continue; bal += cr; totCr += cr; txns.push({ date: e.paidDate!.toISOString(), particulars: `Interest – ${e.loanApplication?.customer?.name || 'Unknown'} EMI #${e.installmentNumber}`, referenceNo: e.loanApplication?.applicationNo || '-', debit: 0, credit: cr, balance: bal }); }
-      for (const e of offline) { const cr = (e as any).paidInterest || 0; if (!cr) continue; bal += cr; totCr += cr; txns.push({ date: e.paidDate!.toISOString(), particulars: `Interest – ${e.offlineLoan?.customerName || 'Unknown'} EMI #${e.installmentNumber}`, referenceNo: e.offlineLoan?.loanNumber || '-', debit: 0, credit: cr, balance: bal }); }
-      txns.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      // Recalc balance after sort
-      let bal2 = 0;
-      for (const t of txns) { bal2 += t.credit - t.debit; t.balance = bal2; }
+      for (const e of offlinePayments) {
+        const cr = (e as any).paidInterest || 0;
+        if (!cr) continue;
+        events.push({
+          date: e.paidDate!,
+          particulars: `Interest – ${e.offlineLoan?.customerName || 'Unknown'} EMI #${e.installmentNumber}`,
+          ref: e.offlineLoan?.loanNumber || '-',
+          cr,
+        });
+      }
+
+      events.sort((a, b) => a.date.getTime() - b.date.getTime());
+      let bal = opening;
+      for (const ev of events) {
+        bal += ev.cr;
+        totCr += ev.cr;
+        txns.push({ date: ev.date.toISOString(), particulars: ev.particulars, referenceNo: ev.ref, debit: 0, credit: ev.cr, balance: bal });
+      }
     }
+
 
     // ─── PROCESSING FEE ────────────────────────────────────────────────────────
     else if (account === 'PROCESSING') {
