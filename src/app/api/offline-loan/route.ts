@@ -1899,6 +1899,12 @@ export async function POST(request: NextRequest) {
     emitDashboardRefresh({ companyId: loan.companyId || undefined });
     emitReportInvalidate({ companyId: loan.companyId || undefined, type: 'all' });
 
+    // Bust the server-side all-active loans cache so next fetch gets fresh data immediately
+    try {
+      const { cache } = await import('@/lib/cache');
+      cache.deletePattern('active-loans:');
+    } catch { /* non-critical */ }
+
     return NextResponse.json({
 
       success: true,

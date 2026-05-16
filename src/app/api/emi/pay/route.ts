@@ -1350,28 +1350,39 @@ export async function POST(request: NextRequest) {
       data: {
         userId: paidBy,
         userRole: 'CASHIER',
-        actionType: paymentType === 'FULL_EMI' ? 'PAYMENT' : 
-                    paymentType === 'PARTIAL_PAYMENT' ? 'PAYMENT' : 'PAYMENT',
-        module: 'EMI_PAYMENT',
+        actionType: 'PAY',
+        module: 'ONLINE_LOAN',
         recordId: payment.id,
         recordType: 'Payment',
+        canUndo: true,
+        // Store full pre-payment EMI state so undo can restore it exactly
         previousData: JSON.stringify({
-          emiStatus: emi.paymentStatus,
-          paidAmount: emi.paidAmount
+          emiId,
+          emiStatus:     emi.paymentStatus,
+          paidAmount:    emi.paidAmount    ?? 0,
+          paidPrincipal: emi.paidPrincipal ?? 0,
+          paidInterest:  emi.paidInterest  ?? 0,
         }),
-        newData: JSON.stringify({ 
-          emiId, 
-          loanId, 
-          paymentId: payment.id,
-          amount: paidAmount, 
-          paymentMode, 
+        newData: JSON.stringify({
+          emiId,
+          loanId,
+          paymentId:       payment.id,
+          amount:          paidAmount,
+          paymentAmount:   paidAmount,
+          paymentMode,
           paymentType,
-          creditType, 
-          companyId: creditType === 'COMPANY' ? companyId : null,
+          creditType,
+          // Include companyId so undo can reverse the bank/cash balance
+          companyId: emi.loanApplication?.companyId || companyId || null,
+          collectorId:   paidBy,
           partialAmount: paymentType === 'PARTIAL_PAYMENT' ? partialAmount : null,
-          nextPaymentDate: paymentType === 'PARTIAL_PAYMENT' ? nextPaymentDate : null
         }),
-        description: `${paymentType === 'FULL_EMI' ? 'Full EMI' : paymentType === 'PARTIAL_PAYMENT' ? 'Partial' : paymentType === 'INTEREST_ONLY' ? 'Interest Only' : paymentType === 'PRINCIPAL_ONLY' ? 'Principal Only' : paymentType} payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber}`
+        description: `${
+          paymentType === 'FULL_EMI'       ? 'Full EMI'       :
+          paymentType === 'PARTIAL_PAYMENT' ? 'Partial'        :
+          paymentType === 'INTEREST_ONLY'   ? 'Interest Only'  :
+          paymentType === 'PRINCIPAL_ONLY'  ? 'Principal Only' : paymentType
+        } payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo || loanId}`
       }
     }).catch(e => console.error('[ActionLog] Failed (non-critical):', e));
 

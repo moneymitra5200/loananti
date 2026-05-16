@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, lazy, Suspense, memo, useMemo, useCallback, useRef } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
@@ -144,7 +144,7 @@ export default function SuperAdminDashboard() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  // ── Deep link: notification click → open specific section ───────────────
+  // â”€â”€ Deep link: notification click â†’ open specific section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Notifications use ?tab=emi-collection, ?tab=offline-loans, etc.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -164,7 +164,7 @@ export default function SuperAdminDashboard() {
   const [showProductDialog, setShowProductDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [productForm, setProductForm] = useState({
-    title: '', description: '', icon: '💰', code: '', loanType: 'PERSONAL',
+    title: '', description: '', icon: 'ðŸ’°', code: '', loanType: 'PERSONAL',
     minInterestRate: 8, maxInterestRate: 24,
     minTenure: 6, maxTenure: 60,
     minAmount: 10000, maxAmount: 10000000,
@@ -249,7 +249,7 @@ export default function SuperAdminDashboard() {
   const [loadingMirrorPreview, setLoadingMirrorPreview] = useState(false);
   const [mirrorCompanies, setMirrorCompanies] = useState<any[]>([]);
 
-  // Instant dashboard counters — shows BEFORE full data loads
+  // Instant dashboard counters â€” shows BEFORE full data loads
   const { stats: liveStats } = useStats({
     role: 'SUPER_ADMIN',
     userId: user?.id,
@@ -290,7 +290,7 @@ export default function SuperAdminDashboard() {
 
     setLoading(true);
     try {
-      // SEQUENTIAL FETCH — prevents connection starvation (connection_limit=3)
+      // SEQUENTIAL FETCH â€” prevents connection starvation (connection_limit=3)
       // Each API route opens DB connections; running all 6 in parallel exceeds the pool.
       const nc = forceRefresh ? '&noCache=true' : '';
       const loansRes     = await fetch('/api/loan/list?role=SUPER_ADMIN');
@@ -587,7 +587,12 @@ export default function SuperAdminDashboard() {
     }
     setLoading(true);
     try {
-      const response = await fetch('/api/loan/all-active');
+      // Pass ?noCache=true when force-refreshing so the server bypasses its 60s cache
+      // This is critical after creating a new loan â€” without it the new loan won't appear for 60 seconds
+      const url = forceRefresh
+        ? '/api/loan/all-active?noCache=true'
+        : '/api/loan/all-active';
+      const response = await fetch(url);
       const data = await response.json();
       const activeLoansList = data.loans || [];
       store.setActiveLoans(activeLoansList);
@@ -623,7 +628,7 @@ export default function SuperAdminDashboard() {
         setDeleteReason('');
         // Refresh both loan lists
         fetchLoans(true);
-        fetchAllActiveLoans();
+        fetchAllActiveLoans(true);
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to delete loan', variant: 'destructive' });
       }
@@ -799,7 +804,7 @@ export default function SuperAdminDashboard() {
         setShowProductDialog(false);
         setSelectedProduct(null);
         setProductForm({
-          title: '', description: '', icon: '💰', code: '', loanType: 'PERSONAL',
+          title: '', description: '', icon: 'ðŸ’°', code: '', loanType: 'PERSONAL',
           minInterestRate: 8, maxInterestRate: 24,
           minTenure: 6, maxTenure: 60,
           minAmount: 10000, maxAmount: 10000000,
@@ -845,7 +850,7 @@ export default function SuperAdminDashboard() {
     setProductForm({
       title: product.title,
       description: product.description,
-      icon: product.icon || '💰',
+      icon: product.icon || 'ðŸ’°',
       code: product.code || '',
       loanType: product.loanType || 'PERSONAL',
       minInterestRate: product.minInterestRate,
@@ -902,7 +907,7 @@ export default function SuperAdminDashboard() {
         fetchLoans(true);
         fetchUsers(true);
         fetchCompanies();
-        fetchAllActiveLoans();
+        fetchAllActiveLoans(true);
         fetchProducts();
       } else {
         toast({
@@ -985,7 +990,7 @@ export default function SuperAdminDashboard() {
       });
       const data = await response.json();
       if (response.ok && data.success) {
-        // ── Charges: increase approver's personal credit ──────────────
+        // â”€â”€ Charges: increase approver's personal credit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (chargesAmount && chargesAmount > 0 && user?.id && approvalAction === 'approve') {
           try {
             await fetch('/api/credit', {
@@ -1003,8 +1008,8 @@ export default function SuperAdminDashboard() {
               })
             });
             toast({
-              title: `💰 Charges Recorded`,
-              description: `₹${chargesAmount.toLocaleString('en-IN')} added to your personal credit.`,
+              title: `ðŸ’° Charges Recorded`,
+              description: `â‚¹${chargesAmount.toLocaleString('en-IN')} added to your personal credit.`,
               duration: 3000,
             });
           } catch (chargeErr) {
@@ -1015,7 +1020,7 @@ export default function SuperAdminDashboard() {
         const actionText = approvalAction === 'approve' ? 'Approved' : approvalAction === 'reject' ? 'Rejected' : 'Sent Back';
         const mirrorMessage = mirrorLoanConfig.enabled ? ' Mirror loan scheduled. Cashier will disburse from mirror company bank account.' : '';
         toast({ 
-          title: `✅ Application ${actionText} Successfully!`, 
+          title: `âœ… Application ${actionText} Successfully!`, 
           description: `Application ${selectedLoan.applicationNo} has been ${actionText.toLowerCase()}.${approvalAction === 'approve' ? ' It has been sent to the next stage for processing.' : ''}${mirrorMessage}`,
           duration: 5000
         });
@@ -1241,7 +1246,7 @@ export default function SuperAdminDashboard() {
                 {loan.fraudFlag && <Badge className="bg-red-100 text-red-700">High Risk</Badge>}
                 {showSanction && <Badge className="bg-emerald-100 text-emerald-700">Sanction: {formatCurrency(displayAmount)}</Badge>}
               </div>
-              <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+              <p className="text-sm text-gray-500">{loan.customer?.name} â€¢ {loan.customer?.email}</p>
               <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
             </div>
           </div>
@@ -1255,7 +1260,7 @@ export default function SuperAdminDashboard() {
                     <p className="font-bold text-lg text-emerald-700">{formatCurrency(displayAmount)}</p>
                   </div>
                   <div className="flex items-center gap-2 justify-end text-xs text-gray-500">
-                    <span>{displayTenure} mo</span><span>•</span><span>{displayInterest}%</span><span>•</span>
+                    <span>{displayTenure} mo</span><span>â€¢</span><span>{displayInterest}%</span><span>â€¢</span>
                     <span className="text-emerald-600 font-medium">EMI: {formatCurrency(displayEMI)}</span>
                   </div>
                 </div>
@@ -1340,7 +1345,7 @@ export default function SuperAdminDashboard() {
               setShowLoanDetailPanel={setShowLoanDetailPanel}
               userId={user?.id}
               userRole={user?.role}
-              onPaymentComplete={() => { fetchAllActiveLoans(); }}
+              onPaymentComplete={() => { fetchAllActiveLoans(true); }}
             />
           </Suspense>
         );
@@ -1520,6 +1525,9 @@ export default function SuperAdminDashboard() {
                 createdByRole={user?.role || 'SUPER_ADMIN'}
                 onLoanCreated={() => {
                   setOfflineLoansRefreshKey(k => k + 1);
+                  // Force-refresh active loans with cache-bust so new loan appears immediately
+                  fetchAllActiveLoans(true);
+                  fetchLoans(true);
                 }}
               />
             </div>
@@ -1591,7 +1599,7 @@ export default function SuperAdminDashboard() {
           <Suspense fallback={<div className="flex items-center justify-center h-64"><span className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"/></div>}>
             <div className="space-y-4">
               <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <span>🎫</span> Support Tickets
+                <span>ðŸŽ«</span> Support Tickets
               </h2>
               <TicketManagement userId={user?.id || ''} userRole={user?.role || 'SUPER_ADMIN'} />
             </div>
@@ -1602,7 +1610,7 @@ export default function SuperAdminDashboard() {
         return (
           <div className="space-y-3">
             <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <span>💬</span> Messages
+              <span>ðŸ’¬</span> Messages
             </h2>
             <DirectMessaging
               userId={user?.id || ''}
@@ -2174,7 +2182,7 @@ export default function SuperAdminDashboard() {
             onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
             userId={user?.id || ''}
             userRole={user?.role || 'SUPER_ADMIN'}
-            onPaymentSuccess={() => { fetchLoans(); fetchAllActiveLoans(); setOfflineLoansRefreshKey(prev => prev + 1); }}
+            onPaymentSuccess={() => { fetchLoans(); fetchAllActiveLoans(true); setOfflineLoansRefreshKey(prev => prev + 1); }}
           />
         </Suspense>
       ) : (
@@ -2184,7 +2192,7 @@ export default function SuperAdminDashboard() {
           onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
           userRole={user?.role || 'SUPER_ADMIN'}
           userId={user?.id || ''}
-          onPaymentSuccess={() => { fetchLoans(); fetchAllActiveLoans(); }}
+          onPaymentSuccess={() => { fetchLoans(); fetchAllActiveLoans(true); }}
         />
       ))}
 

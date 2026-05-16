@@ -65,7 +65,8 @@ interface Props {
 const MODULE_ICONS: Record<string, React.ElementType> = {
   AUTH: Shield, USER: User, COMPANY: Building2, LOAN: FileText,
   PAYMENT: CreditCard, OFFLINE_LOAN: Banknote, EMI_PAYMENT: Banknote,
-  SETTLEMENT: CreditCard, SYSTEM: Settings, DEFAULT: Activity,
+  ONLINE_LOAN: Banknote, LOAN_CLOSE: XCircle, SETTLEMENT: CreditCard,
+  SYSTEM: Settings, DEFAULT: Activity,
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -139,21 +140,20 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false }: Pr
     if (!userId && !isAdmin) return;
     setUndoLoading(true);
     try {
+      // Always use the undoable endpoint — for admin omit userId to get all users' actions
       const params = new URLSearchParams({ action: 'undoable' });
-      if (!isAdmin && userId) params.set('userId', userId);
-      // For admin: fetch all undoable in history mode instead
-      const url = isAdmin
-        ? `/api/action-log?action=history&limit=50`
-        : `/api/action-log?${params}`;
-      const res  = await fetch(url);
+      if (userId) params.set('userId', userId);
+      if (userRole) params.set('userRole', userRole);
+      const res  = await fetch(`/api/action-log?${params}`);
       const data = await res.json();
+      // Filter defensively in case backend returns already-undone items
       setUndoActions((data.actions || []).filter((a: ActionEntry) => a.canUndo && !a.isUndone));
     } catch {
       toast({ title: 'Error', description: 'Failed to fetch undoable actions', variant: 'destructive' });
     } finally {
       setUndoLoading(false);
     }
-  }, [userId, isAdmin]);
+  }, [userId, userRole, isAdmin]);
 
   useEffect(() => { fetchAuditLogs(); }, [fetchAuditLogs]);
   useEffect(() => { if (tab === 'undo') fetchUndoActions(); }, [tab, fetchUndoActions]);
@@ -166,11 +166,17 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false }: Pr
       const res = await fetch('/api/action-log', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'undo', actionLogId: actionLog.id, userId: actionLog.userId }),
+        // Pass acting userId + userRole so super admin can undo others' actions
+        body: JSON.stringify({
+          action: 'undo',
+          actionLogId: actionLog.id,
+          userId: userId || actionLog.userId,
+          userRole
+        }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        toast({ title: '✅ Action Undone', description: `"${actionLog.description}" has been reversed successfully.` });
+        toast({ title: '✅ Action Undone', description: `"${actionLog.description}" has been reversed.` });
         fetchUndoActions();
         fetchAuditLogs();
       } else {

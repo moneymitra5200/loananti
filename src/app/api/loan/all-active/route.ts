@@ -12,13 +12,19 @@ export async function GET(request: NextRequest) {
 
     // Generate cache key
     const cacheKey = `active-loans:${filter}:${includePassbook}`;
-    
-    // Check cache first (for non-passbook requests)
-    if (!includePassbook) {
+    const noCache = searchParams.get('noCache') === 'true';
+
+    // Check cache first — skip when noCache=true (e.g. right after a new loan is created)
+    if (!includePassbook && !noCache) {
       const cached = cache.get(cacheKey);
       if (cached) {
         return NextResponse.json({ ...cached, cached: true });
       }
+    }
+
+    // Bust cache immediately when noCache requested, so no subsequent call gets stale data
+    if (noCache) {
+      cache.delete(cacheKey);
     }
 
     let onlineLoans: any[] = [];
