@@ -38,7 +38,7 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     onNotification,
     onDashboardRefresh,
     onCreditUpdated,
-    pollInterval = 30_000, // 30s polling — safety net for mobile/PWA where WebSocket may drop
+    pollInterval = 300_000, // 5-min polling — WebSocket handles real-time; polling is only a fallback for dropped connections
   } = options;
 
   const callbacksRef = useRef({
@@ -152,18 +152,21 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
   }, [userId, pollInterval]);
 
   // ─── Visibility change restart ───────────────────────────────────────────────
-  // Refresh immediately when tab/app becomes visible again.
-  // Throttled to 15s minimum so rapid tab-switches don't spam requests.
+  // Refresh when tab becomes visible after being hidden. Throttled to 60s minimum.
   useEffect(() => {
     if (!userId) return;
 
-    const VISIBILITY_REFRESH_THROTTLE_MS = 15_000; // 15 seconds — fast enough for mobile PWA
+    const VISIBILITY_REFRESH_THROTTLE_MS = 60_000; // 60 seconds — prevents rapid tab-switch spam
 
-    // Refresh immediately on first mount (catches stale data after background/reopen)
+    // Mount-timer: only fire if WebSocket didn't connect within 3s
+    // This avoids a double-refresh (socket connect + mount timer) on every page load
     const mountTimer = setTimeout(() => {
-      callbacksRef.current.onDashboardRefresh?.();
-      lastRefreshRef.current = Date.now();
-    }, 1500); // small delay so initial fetch completes first
+      if (!socketInstance || !socketInstance.connected) {
+        // WebSocket unavailable — do an initial refresh to ensure fresh data
+        callbacksRef.current.onDashboardRefresh?.();
+        lastRefreshRef.current = Date.now();
+      }
+    }, 3000); // give socket 3s to connect before deciding to poll
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {

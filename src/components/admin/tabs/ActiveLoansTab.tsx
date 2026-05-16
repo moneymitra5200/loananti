@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useState, useEffect } from 'react';
+import { memo, useMemo, useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -128,33 +128,32 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, MirrorMapping>>({});
 
-  // Fetch mirror mappings on mount
-  useEffect(() => {
-    const fetchMirrorMappings = async () => {
-      try {
-        const res = await fetch('/api/mirror-loan?action=all-mappings');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.mappings) {
-            const mappingMap: Record<string, MirrorMapping> = {};
-            for (const mapping of data.mappings) {
-              // Map by original loan ID
-              mappingMap[mapping.originalLoanId] = mapping;
-              // Also map by mirror loan ID for filtering
-              if (mapping.mirrorLoanId) {
-                mappingMap[mapping.mirrorLoanId] = mapping;
-              }
+  // Fetch mirror mappings — re-run when loans list changes (new loan created)
+  const fetchMirrorMappings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/mirror-loan?action=all-mappings&_t=' + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.mappings) {
+          const mappingMap: Record<string, MirrorMapping> = {};
+          for (const mapping of data.mappings) {
+            mappingMap[mapping.originalLoanId] = mapping;
+            if (mapping.mirrorLoanId) {
+              mappingMap[mapping.mirrorLoanId] = mapping;
             }
-            setMirrorMappings(mappingMap);
           }
+          setMirrorMappings(mappingMap);
         }
-      } catch (error) {
-        console.error('Failed to fetch mirror mappings:', error);
       }
-    };
-
-    fetchMirrorMappings();
+    } catch (error) {
+      console.error('Failed to fetch mirror mappings:', error);
+    }
   }, []);
+
+  // Re-fetch whenever loans list updates (catches new mirror loans created after mount)
+  useEffect(() => {
+    fetchMirrorMappings();
+  }, [loans, fetchMirrorMappings]);
 
   const filteredLoans = useMemo(() => {
     let result = loans;

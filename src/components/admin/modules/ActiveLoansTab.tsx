@@ -201,31 +201,31 @@ export default function ActiveLoansTab({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
 
-  // Fetch mirror mappings on mount
-  useEffect(() => {
-    const fetchMirrorMappings = async () => {
-      try {
-        const res = await fetch('/api/mirror-loan?action=all-mappings');
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.mappings) {
-            const mappingMap: Record<string, any> = {};
-            for (const mapping of data.mappings) {
-              mappingMap[mapping.originalLoanId] = mapping;
-              if (mapping.mirrorLoanId) {
-                mappingMap[mapping.mirrorLoanId] = mapping;
-              }
+  // Fetch mirror mappings \u2014 re-run when loans list changes (catches new mirror loans)
+  const fetchMirrorMappings = useCallback(async () => {
+    try {
+      const res = await fetch('/api/mirror-loan?action=all-mappings&_t=' + Date.now());
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.mappings) {
+          const mappingMap: Record<string, any> = {};
+          for (const mapping of data.mappings) {
+            mappingMap[mapping.originalLoanId] = mapping;
+            if (mapping.mirrorLoanId) {
+              mappingMap[mapping.mirrorLoanId] = mapping;
             }
-            setMirrorMappings(mappingMap);
           }
+          setMirrorMappings(mappingMap);
         }
-      } catch (error) {
-        console.error('Failed to fetch mirror mappings:', error);
       }
-    };
-
-    fetchMirrorMappings();
+    } catch (error) {
+      console.error('Failed to fetch mirror mappings:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchMirrorMappings();
+  }, [allActiveLoans, fetchMirrorMappings]);
 
   // Filter loans - exclude mirror loans
   const filteredActiveLoans = allActiveLoans.filter(loan => {
