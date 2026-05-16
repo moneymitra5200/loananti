@@ -33,6 +33,7 @@ import DaybookSection from '@/components/company/DaybookSection';
 import FixMirrorAccountingPage from '@/components/accounting/FixMirrorAccountingPage';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useRefresh } from '@/contexts/RefreshContext';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
 
@@ -73,6 +74,7 @@ export default function CompanyDashboard() {
   }, []);
 
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
+  const { refreshKey } = useRefresh();
   const [saving, setSaving] = useState(false);
   const [agentForm, setAgentForm] = useState({ name: '', email: '', password: '', commissionRate: 5 });
   const [viewingAgent, setViewingAgent] = useState<Agent | null>(null);
@@ -1199,7 +1201,7 @@ export default function CompanyDashboard() {
                   <OfflineLoansList 
                     userRole={user?.role || 'COMPANY'} 
                     companyId={getCompanyId() || undefined}
-                    refreshKey={offlineLoansRefreshKey}
+                    refreshKey={offlineLoansRefreshKey + refreshKey}
                   />
                 </CardContent>
               </Card>

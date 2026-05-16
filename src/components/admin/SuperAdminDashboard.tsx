@@ -26,6 +26,7 @@ import { getMirrorCompanies, getOriginalCompany } from '@/lib/mirror-company-uti
 import { useAuth } from '@/contexts/AuthContext';
 import { motion } from 'framer-motion';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useRefresh } from '@/contexts/RefreshContext';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
 import { useCompaniesStore } from '@/stores/companiesStore';
@@ -158,6 +159,7 @@ export default function SuperAdminDashboard() {
 
 
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
+  const { refreshKey } = useRefresh();
   const [products, setProducts] = useState<any[]>([]);
   const [showProductDialog, setShowProductDialog] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -1524,7 +1526,7 @@ export default function SuperAdminDashboard() {
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'SUPER_ADMIN'}
-              refreshKey={offlineLoansRefreshKey}
+              refreshKey={offlineLoansRefreshKey + refreshKey}
             />
           </div>
         );

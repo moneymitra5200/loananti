@@ -4,6 +4,7 @@ import { useState, ReactNode, useEffect, useCallback, useRef } from 'react';
 import React from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSettings } from '@/contexts/SettingsContext';
+import { RefreshProvider } from '@/contexts/RefreshContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -143,6 +144,7 @@ export default function DashboardLayout({
   }, [fetchUserCredit]);
 
   return (
+    <RefreshProvider>
     <div className="h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col overflow-hidden">
       {/* Push notification registration + FCM token save */}
       <PushNotificationInit />
@@ -403,6 +405,7 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+    </RefreshProvider>
   );
 }
 

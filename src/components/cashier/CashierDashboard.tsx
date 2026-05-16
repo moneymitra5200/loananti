@@ -28,6 +28,7 @@ import TicketManagement from '@/components/support/TicketManagement';
 import { DisbursementDialog, LoanDetailPanel, InterestPaymentDialog } from './modules';
 import type { Loan, BankAccount, MirrorLoanInfo, DisbursementForm, ExpandedSections } from './tabs/types';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useRefresh } from '@/contexts/RefreshContext';
 import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useSystemSettings } from '@/hooks/useSystemSettings';
@@ -57,6 +58,7 @@ export default function CashierDashboard() {
 
   const [saving, setSaving] = useState(false);
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
+  const { refreshKey } = useRefresh();
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);
   
   // Offline loan detail panel state
@@ -823,7 +825,7 @@ export default function CashierDashboard() {
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'CASHIER'}
-              refreshKey={offlineLoansRefreshKey}
+              refreshKey={offlineLoansRefreshKey + refreshKey}
             />
           </div>
         );

@@ -29,6 +29,7 @@ import ProfileSection from '@/components/shared/ProfileSection';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useRefresh } from '@/contexts/RefreshContext';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
 
@@ -68,6 +69,7 @@ export default function AgentDashboard() {
   }, []);
 
   const [offlineLoansRefreshKey, setOfflineLoansRefreshKey] = useState(0);
+  const { refreshKey } = useRefresh();
   const [saving, setSaving] = useState(false);
   const [staffForm, setStaffForm] = useState({ name: '', email: '', password: '' });
   const [viewingStaff, setViewingStaff] = useState<Staff | null>(null);
@@ -859,7 +861,7 @@ export default function AgentDashboard() {
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'AGENT'}
-              refreshKey={offlineLoansRefreshKey}
+              refreshKey={offlineLoansRefreshKey + refreshKey}
             />
           </div>
         );

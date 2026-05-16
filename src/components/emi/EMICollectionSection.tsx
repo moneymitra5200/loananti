@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRefresh } from '@/contexts/RefreshContext';
 import { motion } from 'framer-motion';
 import { compressImage } from '@/utils/imageCompression';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -107,9 +108,12 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   // File input ref
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { refreshKey, triggerRefresh } = useRefresh();
+
   useEffect(() => {
     fetchEmisByDate();
-  }, [selectedDate, userId, userRole]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDate, userId, userRole, refreshKey]);
 
   const fetchEmisByDate = async () => {
     try {
@@ -152,6 +156,8 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
 
       fetchEmisByDate();
       onPaymentComplete?.();
+      triggerRefresh(); // Notify all other sections to refresh instantly
+
 
       toast({
         title: 'Payment Collected',
