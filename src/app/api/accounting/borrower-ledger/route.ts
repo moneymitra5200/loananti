@@ -38,7 +38,10 @@ export async function GET(request: NextRequest) {
           include: {
             company: { select: { id: true, name: true, code: true } },
             sessionForm: true,
-            emiSchedules: true,
+            loanForm: { select: { internalRemarks: true } },
+            emiSchedules: {
+              select: { paymentStatus: true, principalAmount: true, paidPrincipal: true, totalAmount: true, paidAmount: true, dueDate: true }
+            },
             payments: {
               orderBy: { createdAt: 'desc' },
               take: 1
@@ -56,12 +59,12 @@ export async function GET(request: NextRequest) {
       const totalBorrowed = customer.loanApplications.reduce((sum, l) => 
         sum + (l.sessionForm?.approvedAmount || l.requestedAmount), 0);
 
+      // M7 Fix: Outstanding = disbursedAmount - sum(paidPrincipal)
+      // NOT totalAmount - paidAmount (which incorrectly includes future interest in "outstanding")
       const totalOutstanding = customer.loanApplications.reduce((sum, loan) => {
-        const outstanding = loan.emiSchedules.reduce((s, emi) => {
-          if (emi.paymentStatus === 'PAID') return s;
-          return s + (emi.totalAmount - emi.paidAmount);
-        }, 0);
-        return sum + outstanding;
+        const disbursed = (loan as any).disbursedAmount || loan.sessionForm?.approvedAmount || loan.requestedAmount;
+        const paidPrincipal = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paidPrincipal);
       }, 0);
 
       const totalPaid = customer.loanApplications.reduce((sum, loan) => 
@@ -69,6 +72,14 @@ export async function GET(request: NextRequest) {
 
       const totalInterestPaid = customer.loanApplications.reduce((sum, loan) => 
         sum + loan.payments.reduce((s, p) => s + p.interestComponent, 0), 0);
+
+      // H4 Fix: Parse credit score from loanForm.internalRemarks
+      let creditScore = 0;
+      for (const loan of customer.loanApplications) {
+        const remarks = (loan as any).loanForm?.internalRemarks || '';
+        const match = remarks.match(/Credit Score[\s:]*(\d+)/i);
+        if (match) { creditScore = parseInt(match[1]); break; }
+      }
 
       // Find next EMI
       let nextEMIDate: Date | null = null;
@@ -100,17 +111,18 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Build loans array
+      // Build loans array with correct outstanding (principal only)
       const loans = customer.loanApplications.map(loan => ({
         id: loan.id,
         applicationNo: loan.applicationNo,
         loanType: loan.loanType,
         loanMode: 'ONLINE' as const,
         approvedAmount: loan.sessionForm?.approvedAmount || loan.requestedAmount,
-        outstandingAmount: loan.emiSchedules.reduce((s, e) => {
-          if (e.paymentStatus === 'PAID') return s;
-          return s + (e.totalAmount - e.paidAmount);
-        }, 0),
+        outstandingAmount: (() => {
+          const disbursed = (loan as any).disbursedAmount || loan.sessionForm?.approvedAmount || loan.requestedAmount;
+          const paid = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+          return Math.max(0, disbursed - paid);
+        })(),
         interestRate: loan.sessionForm?.interestRate || 0,
         tenure: loan.sessionForm?.tenure || 0,
         emiAmount: loan.sessionForm?.emiAmount || 0,
@@ -118,7 +130,7 @@ export async function GET(request: NextRequest) {
         emiPending: loan.emiSchedules.filter(e => e.paymentStatus !== 'PAID').length,
         status: loan.status,
         companyName: loan.company?.name || 'Unknown',
-        disbursementDate: loan.disbursedAt || loan.createdAt,
+        disbursementDate: (loan as any).disbursedAt || loan.createdAt,
         lastPaymentDate: loan.payments[0]?.createdAt || null
       }));
 
@@ -137,7 +149,7 @@ export async function GET(request: NextRequest) {
         totalInterestPaid,
         nextEMIDate,
         nextEMIAmount,
-        creditScore: 0,
+        creditScore,
         npaStatus,
         loans
       });

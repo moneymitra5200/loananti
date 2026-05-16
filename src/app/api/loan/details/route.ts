@@ -105,7 +105,13 @@ export async function GET(request: NextRequest) {
         disbursedAmount: true,
         disbursementMode: true,
         disbursementRef: true,
-        // Personal Details
+        riskScore: true,
+        fraudFlag: true,
+        requestedTenure: true,
+        requestedInterestRate: true,
+        purpose: true,
+        applicationLocation: true,
+
         title: true,
         firstName: true,
         middleName: true,
@@ -298,12 +304,19 @@ export async function GET(request: NextRequest) {
     const duration = Date.now() - startTime;
     console.log(`[Loan Details] Full fetch completed in ${duration}ms`);
 
+    const creditScore = (() => {
+      const remarks = (loan as any).loanForm?.internalRemarks || '';
+      const match = remarks.match(/Credit Score[:\s]*(\d+)/i);
+      return match ? parseInt(match[1]) : 0;
+    })();
+
     return NextResponse.json({
       success: true,
-      loan,
+      loan: { ...loan, creditScore },
       emiSummary,
       workflowPipeline
     });
+
   } catch (error) {
     console.error('Loan details fetch error:', error);
     return NextResponse.json({ error: 'Failed to fetch loan details' }, { status: 500 });

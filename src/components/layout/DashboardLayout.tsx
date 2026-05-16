@@ -569,6 +569,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'history', label: 'Recent', icon: Receipt },
     { id: 'activeLoans', label: 'Active Loans', icon: Banknote },
     { id: 'closedLoans', label: 'Closed Loans', icon: CheckCircle },
+    { id: 'customers', label: 'Customers', icon: User },
     { id: 'myCredit', label: 'My Credit', icon: IndianRupee },
     { id: 'enquiry', label: 'Enquiries', icon: MessageSquare },
     { id: 'tickets', label: 'Support Tickets', icon: MessageCircle },

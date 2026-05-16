@@ -2279,7 +2279,11 @@ function BalanceSheetSection({
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}`);
+      // Always fetch fresh — add timestamp to bust any CDN/browser cache
+      const res = await fetch(`/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      });
       const data = await res.json();
       setBalanceSheet(data);
     } catch (error) {
@@ -2288,6 +2292,7 @@ function BalanceSheetSection({
       setLoading(false);
     }
   }, [selectedCompanyId, refreshKey]);
+
 
   useEffect(() => {
     loadBalanceSheet();
@@ -2685,10 +2690,11 @@ export default function UnifiedAccountantDashboard() {
 
 
 
-  // Reset to day-book when company changes
+  // Reset to day-book when company changes (NOT on refresh — refreshKey must NOT be here)
   useEffect(() => {
     setActiveSection('day-book');
-  }, [selectedCompanyId, refreshKey]);
+  }, [selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Deep link: notification click -> open section via ?tab= or ?section= query param
   useEffect(() => {

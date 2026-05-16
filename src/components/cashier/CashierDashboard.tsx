@@ -37,6 +37,48 @@ import DirectMessaging from '@/components/messaging/DirectMessaging';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import CashierExpenseSection from '@/components/expense/CashierExpenseSection';
+import CustomersSection from '@/components/admin/modules/CustomersSection';
+
+// Self-fetching wrapper so Cashier customers tab doesn't need parent-level data
+function CashierCustomersPage({ companyId }: { companyId?: string }) {
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [custLoans, setCustLoans] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const { refreshKey } = useRefresh();
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const [usersRes, loansRes] = await Promise.all([
+          fetch('/api/user?role=CUSTOMER&_t=' + Date.now()),
+          fetch('/api/loan?status=all&_t=' + Date.now()),
+        ]);
+        const [usersData, loansData] = await Promise.all([usersRes.json(), loansRes.json()]);
+        if (!cancelled) {
+          setCustomers(usersData.users || usersData || []);
+          setCustLoans((loansData.loans || loansData || []).filter((l: any) => !l.isMirrorLoan));
+        }
+      } catch { /* silent */ } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  return (
+    <CustomersSection
+      customers={customers}
+      loans={custLoans}
+      searchQuery={searchQuery}
+      setSearchQuery={setSearchQuery}
+      onViewCustomer={() => {}}
+    />
+  );
+}
 
 export default function CashierDashboard() {
   const { user } = useAuth();
@@ -1057,6 +1099,10 @@ export default function CashierDashboard() {
             companyId={user?.companyId || undefined}
           />
         );
+
+
+      case 'customers':
+        return <CashierCustomersPage companyId={user?.companyId || undefined} />;
 
       default:
         return (

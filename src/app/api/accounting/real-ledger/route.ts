@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // ─── LOANS GIVEN (Online Only) ─────────────────────────────────────────────
+    // ─── LOANS GIVEN (Online + Offline, mirror excluded) ───────────────────────
     else if (account === 'LOANS') {
       accountName = 'Loans Given / Advances'; accountCode = '1100'; accountType = 'ASSET';
       const disbursed = await db.loanApplication.findMany({
@@ -62,19 +62,42 @@ export async function GET(request: NextRequest) {
         include: { customer: { select: { name: true } } },
         orderBy: { disbursedAt: 'asc' },
       });
+      // Fetch EMI schedules for principal recovery
+      // Use paidPrincipal (actual principal repaid) — never fall back to principalAmount (scheduled)
+      // INTEREST_ONLY_PAID means interest collected but principal still outstanding → cr = 0
       const recovered = await db.eMISchedule.findMany({
-        where: { loanApplication: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] }, paidDate: { gte: periodStart, lte: periodEnd } },
-        include: { loanApplication: { include: { customer: { select: { name: true } } } } },
+        where: {
+          loanApplication: { companyId },
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] },
+          paidDate: { gte: periodStart, lte: periodEnd },
+          paidPrincipal: { gt: 0 }
+        },
+        select: {
+          installmentNumber: true,
+          paidDate: true,
+          paidPrincipal: true,
+          loanApplication: { include: { customer: { select: { name: true } } } }
+        },
         orderBy: { paidDate: 'asc' },
       });
-      // Also add offline loans
+      // Offline loans — exclude mirror loans (accounting duplicates)
       const offlineDisb = await db.offlineLoan.findMany({
-        where: { companyId, disbursementDate: { gte: periodStart, lte: periodEnd }, loanAmount: { gt: 0 } },
+        where: { companyId, isMirrorLoan: false, disbursementDate: { gte: periodStart, lte: periodEnd }, loanAmount: { gt: 0 } },
         orderBy: { disbursementDate: 'asc' },
       });
       const offlineRecovered = await db.offlineLoanEMI.findMany({
-        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID', 'INTEREST_ONLY_PAID'] }, paidDate: { gte: periodStart, lte: periodEnd } },
-        include: { offlineLoan: { select: { customerName: true, loanNumber: true } } },
+        where: {
+          offlineLoan: { companyId, isMirrorLoan: false },
+          paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] },
+          paidDate: { gte: periodStart, lte: periodEnd },
+          paidPrincipal: { gt: 0 }
+        },
+        select: {
+          installmentNumber: true,
+          paidDate: true,
+          paidPrincipal: true,
+          offlineLoan: { select: { customerName: true, loanNumber: true } }
+        },
         orderBy: { paidDate: 'asc' },
       });
 
@@ -82,13 +105,15 @@ export async function GET(request: NextRequest) {
       const events: Ev[] = [];
       disbursed.forEach(l => events.push({ date: l.disbursedAt!, particulars: `Loan disbursed – ${l.customer?.name || 'Unknown'} (Online)`, ref: l.applicationNo, dr: l.disbursedAmount || 0, cr: 0 }));
       offlineDisb.forEach(l => events.push({ date: l.disbursementDate, particulars: `Loan disbursed – ${l.customerName} (Offline)`, ref: l.loanNumber, dr: l.loanAmount, cr: 0 }));
-      recovered.forEach(e => events.push({ date: e.paidDate!, particulars: `Principal received – ${e.loanApplication?.customer?.name || 'Unknown'} EMI #${e.installmentNumber}`, ref: e.loanApplication?.applicationNo || '-', dr: 0, cr: e.paidPrincipal || e.principalAmount }));
-      offlineRecovered.forEach(e => { const pr = (e as any).paidPrincipal ?? e.principalAmount; events.push({ date: e.paidDate!, particulars: `Principal received – ${e.offlineLoan?.customerName || 'Unknown'} EMI #${e.installmentNumber}`, ref: e.offlineLoan?.loanNumber || '-', dr: 0, cr: pr }); });
+      // Use paidPrincipal exclusively — accurate for full, partial, and interest-only payments
+      recovered.forEach(e => events.push({ date: e.paidDate!, particulars: `Principal received – ${e.loanApplication?.customer?.name || 'Unknown'} EMI #${e.installmentNumber}`, ref: (e.loanApplication as any)?.applicationNo || '-', dr: 0, cr: e.paidPrincipal || 0 }));
+      offlineRecovered.forEach(e => events.push({ date: e.paidDate!, particulars: `Principal received – ${e.offlineLoan?.customerName || 'Unknown'} EMI #${e.installmentNumber}`, ref: e.offlineLoan?.loanNumber || '-', dr: 0, cr: e.paidPrincipal || 0 }));
       events.sort((a, b) => a.date.getTime() - b.date.getTime());
 
       let bal = 0;
       for (const ev of events) { bal += ev.dr - ev.cr; totDr += ev.dr; totCr += ev.cr; txns.push({ date: ev.date.toISOString(), particulars: ev.particulars, referenceNo: ev.ref, debit: ev.dr, credit: ev.cr, balance: bal }); }
     }
+
 
     // ─── INTEREST INCOME ───────────────────────────────────────────────────────
     else if (account === 'INTEREST') {

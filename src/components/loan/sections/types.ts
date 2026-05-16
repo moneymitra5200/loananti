@@ -12,6 +12,8 @@ export interface LoanDetails {
   purpose: string;
   createdAt: string;
   riskScore: number;
+  creditScore?: number;
+
   fraudFlag: boolean;
   title?: string;
   firstName?: string;

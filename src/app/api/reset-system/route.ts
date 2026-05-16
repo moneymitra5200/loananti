@@ -61,9 +61,12 @@ export async function POST(request: NextRequest) {
     // PHASE 3: Transactions & Accounting Entries
     // ========================================
 
-    // Daybook & AccountHead reference JournalEntry — delete first
+    // Daybook entries are transactional — safe to delete
+    // AccountHead records are structural HEADERS — must NOT be deleted
     stats.daybookEntries      = (await db.daybookEntry.deleteMany({})).count;
-    stats.accountHeads        = (await db.accountHead.deleteMany({})).count;
+    // Do NOT delete accountHeads — they are permanent structural categories
+    // stats.accountHeads     = (await db.accountHead.deleteMany({})).count; // REMOVED
+
 
     // Equity / Borrow / Invest entries may reference JournalEntry
     stats.equityEntries       = (await db.equityEntry.deleteMany({})).count;
@@ -168,9 +171,17 @@ export async function POST(request: NextRequest) {
     // ========================================
     // PHASE 9: Accounting Portal — wipe transactional data only
     // Companies themselves are PRESERVED — they keep their name, code, and ID
+    // Chart of Accounts STRUCTURE is PRESERVED — only balances are zeroed
     // ========================================
 
-    stats.chartOfAccounts           = (await db.chartOfAccount.deleteMany({})).count;
+    // ⚠️ IMPORTANT: Do NOT delete chartOfAccount records — they are structural headers.
+    // Instead, reset balances to zero so the accounting portal stays functional.
+    const coaReset = await db.chartOfAccount.updateMany({
+      data: { currentBalance: 0 }
+    });
+    stats.chartOfAccountsBalancesReset = coaReset.count;
+    // Old: stats.chartOfAccounts = (await db.chartOfAccount.deleteMany({})).count; // REMOVED
+
     stats.financialYears            = (await db.financialYear.deleteMany({})).count;
     stats.gstConfigs                = (await db.gSTConfig.deleteMany({})).count;
     stats.cashBookEntries           = (await db.cashBookEntry.deleteMany({})).count;
@@ -181,24 +192,36 @@ export async function POST(request: NextRequest) {
     stats.fixedAssets               = (await db.fixedAsset.deleteMany({})).count;
     stats.ledgers                   = (await db.ledger.deleteMany({})).count;
     stats.reportsCache              = (await db.reportsCache.deleteMany({})).count;
-    stats.loanSequence              = (await db.loanSequence.deleteMany({})).count;
+    // ⚠️ Do NOT delete loanSequence — it prevents loan number collisions after reset.
+    // If deleted, new loans would restart from sequence 1 and collide with pre-reset loan numbers.
+    // stats.loanSequence = (await db.loanSequence.deleteMany({})).count; // REMOVED
 
     // Reset company financial balances to zero (but do NOT delete the company records)
     await db.company.updateMany({ data: { companyCredit: 0, myCash: 0 } });
 
-    // Re-initialize Chart of Accounts for all surviving companies so the accounting portal works
+    // Re-initialize Chart of Accounts ONLY for companies that have NO accounts yet
+    // (companies that already have CoA structure keep it — balances were already zeroed above)
+    // IMPORTANT: Do NOT call clearAllCaches() here — it resets the "initialized" flag and can
+    // cause initializeChartOfAccounts() to create DUPLICATE account heads.
     try {
       const { AccountingService } = await import('@/lib/accounting-service');
-      AccountingService.clearAllCaches(); // CRITICAL: Clear in-memory caches so re-init isn't skipped
       const allCompanies = await db.company.findMany({ select: { id: true } });
+      let initialized = 0;
       for (const company of allCompanies) {
-        const svc = new AccountingService(company.id);
-        await svc.initializeChartOfAccounts().catch(() => {});
+        const existingCount = await db.chartOfAccount.count({ where: { companyId: company.id } });
+        if (existingCount === 0) {
+          // Only re-init if no accounts exist (shouldn't happen since we preserved them)
+          const svc = new AccountingService(company.id);
+          await svc.initializeChartOfAccounts().catch(() => {});
+          initialized++;
+        }
       }
-      stats.coaReinitialized = allCompanies.length;
+      stats.coaReinitialized = initialized;
+      stats.coaPreserved = allCompanies.length - initialized;
     } catch {
       stats.coaReinitError = 'COA re-init had errors (non-fatal)';
     }
+
 
     // ========================================
     // PHASE 10: Bank Accounts
@@ -218,6 +241,9 @@ export async function POST(request: NextRequest) {
     stats.companyPaymentSettings  = (await db.companyPaymentSettings.deleteMany({})).count;
     stats.companyPaymentPages     = (await db.companyPaymentPage.deleteMany({})).count;
     stats.uploadedFiles           = (await db.uploadedFile.deleteMany({})).count;
+    // ⚠️ Do NOT delete companyPaymentSettings — they contain gateway config (UPI, Razorpay keys).
+    // Deleting them forces staff to re-configure payment settings after every reset.
+    // stats.companyPaymentSettings = (await db.companyPaymentSettings.deleteMany({})).count; // REMOVED
 
     // ========================================
     // PHASE 11.5: File System Cleanup

@@ -317,7 +317,8 @@ export async function GET(request: NextRequest) {
       end.setHours(23, 59, 59, 999);
 
       const whereClause: Record<string, unknown> = {
-        dueDate: { gte: start, lte: end }
+        dueDate: { gte: start, lte: end },
+        offlineLoan: { isMirrorLoan: false }  // Exclude mirror loan EMIs (accounting duplicates)
       };
 
       const emis = await db.offlineLoanEMI.findMany({

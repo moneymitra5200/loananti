@@ -249,20 +249,25 @@ async function getBalanceSheet(companyId: string | null) {
     companyId ? db.cashBook.findUnique({ where: { companyId } }) : null,
     db.bankAccount.findMany({ where: { ...(companyId ? { companyId } : {}), isActive: true } }),
     db.equityEntry.findMany({ where: { ...(companyId ? { companyId } : {}) } }),
+    // Online loans — status ACTIVE or DISBURSED (interest-only handled via isInterestOnlyLoan)
     db.loanApplication.findMany({
-      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] as any[] } },
-      select: { disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
+      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'DISBURSED'] } },
+      select: {
+        disbursedAmount: true,
+        emiSchedules: { select: { paidPrincipal: true } }
+      }
     }),
+    // Offline loans — exclude mirror loans (they are internal accounting duplicates)
     db.offlineLoan.findMany({
-      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] as any[] } },
-      select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
+      where: { ...(companyId ? { companyId } : {}), isMirrorLoan: false, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
+      select: { loanAmount: true, emis: { select: { paidPrincipal: true } } }
     }),
     db.eMISchedule.aggregate({
       where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
       _sum: { interestAmount: true, paidInterest: true }
     }),
     db.offlineLoanEMI.aggregate({
-      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+      where: { offlineLoan: { ...(companyId ? { companyId } : {}), isMirrorLoan: false }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
       _sum: { interestAmount: true, paidInterest: true }
     })
   ]);
@@ -272,18 +277,21 @@ async function getBalanceSheet(companyId: string | null) {
   const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
   const actualCapital    = equityEntries.reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
   
+  // Online loans outstanding = disbursedAmount - total paidPrincipal (actual principal repaid)
+  // This is the only correct calculation — never use principalAmount from schedule (that's scheduled, not paid)
   const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
     const disbursed = loan.disbursedAmount || 0;
-    const principal = disbursed > 0 ? disbursed : loan.emiSchedules.reduce((s, e) => s + (e.principalAmount || 0), 0);
-    const paid = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-    return sum + Math.max(0, principal - paid);
+    const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+    return sum + Math.max(0, disbursed - paidPrincipal);
   }, 0);
   
+  // Offline loans outstanding = loanAmount - total paidPrincipal (excluding mirror loans already filtered above)
   const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
     const disbursed = loan.loanAmount || 0;
-    const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-    return sum + Math.max(0, disbursed - paid);
+    const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+    return sum + Math.max(0, disbursed - paidPrincipal);
   }, 0);
+
 
   const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
   const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);

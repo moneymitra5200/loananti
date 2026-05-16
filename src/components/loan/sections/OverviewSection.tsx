@@ -279,7 +279,7 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
       </Card>
 
       {/* Risk & Fraud */}
-      {(loanDetails?.riskScore || loanDetails?.fraudFlag) && (
+      {(loanDetails?.riskScore || loanDetails?.fraudFlag || loanDetails?.creditScore) && (
         <Card className={`border-0 shadow-sm ${loanDetails?.fraudFlag ? 'bg-red-50' : ''}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -287,7 +287,35 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
               Risk Assessment
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            {/* Credit Score — entered during loan form fill */}
+            {loanDetails?.creditScore && loanDetails.creditScore > 0 && (
+              <div className="p-3 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-medium text-blue-800">Credit Score (CIBIL)</span>
+                  <span className={`text-2xl font-bold ${
+                    loanDetails.creditScore >= 750 ? 'text-green-600' :
+                    loanDetails.creditScore >= 650 ? 'text-amber-600' : 'text-red-600'
+                  }`}>
+                    {loanDetails.creditScore}
+                    <span className="text-xs font-normal text-gray-400 ml-1">/ 900</span>
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className={`h-2.5 rounded-full ${
+                      loanDetails.creditScore >= 750 ? 'bg-green-500' :
+                      loanDetails.creditScore >= 650 ? 'bg-amber-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${Math.min(100, Math.max(0, ((loanDetails.creditScore - 300) / 600) * 100))}%` }}
+                  />
+                </div>
+                <p className="text-xs mt-1 text-blue-600">
+                  {loanDetails.creditScore >= 750 ? '✓ Excellent — high approval confidence' :
+                   loanDetails.creditScore >= 650 ? '⚠ Good — standard terms apply' : '✗ Poor — enhanced risk review needed'}
+                </p>
+              </div>
+            )}
             {loanDetails?.riskScore && (
               <div className="mb-3">
                 <div className="flex justify-between mb-1">
