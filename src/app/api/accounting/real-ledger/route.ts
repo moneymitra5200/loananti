@@ -80,14 +80,14 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { paidDate: 'asc' },
       });
-      // Offline loans — exclude mirror loans (accounting duplicates)
+      // Offline loans — mirror loans are valid assets for the company that disbursed them
       const offlineDisb = await db.offlineLoan.findMany({
-        where: { companyId, isMirrorLoan: false, disbursementDate: { gte: periodStart, lte: periodEnd }, loanAmount: { gt: 0 } },
+        where: { companyId, disbursementDate: { gte: periodStart, lte: periodEnd }, loanAmount: { gt: 0 } },
         orderBy: { disbursementDate: 'asc' },
       });
       const offlineRecovered = await db.offlineLoanEMI.findMany({
         where: {
-          offlineLoan: { companyId, isMirrorLoan: false },
+          offlineLoan: { companyId },
           paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] },
           paidDate: { gte: periodStart, lte: periodEnd },
           paidPrincipal: { gt: 0 }

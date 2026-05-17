@@ -257,9 +257,9 @@ async function getBalanceSheet(companyId: string | null) {
         emiSchedules: { select: { paidPrincipal: true } }
       }
     }),
-    // Offline loans — exclude mirror loans (they are internal accounting duplicates)
+    // Offline loans — mirror loans MUST be included because they represent actual cash out of this company's bank
     db.offlineLoan.findMany({
-      where: { ...(companyId ? { companyId } : {}), isMirrorLoan: false, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
+      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
       select: { loanAmount: true, emis: { select: { paidPrincipal: true } } }
     }),
     db.eMISchedule.aggregate({
@@ -267,7 +267,7 @@ async function getBalanceSheet(companyId: string | null) {
       _sum: { interestAmount: true, paidInterest: true }
     }),
     db.offlineLoanEMI.aggregate({
-      where: { offlineLoan: { ...(companyId ? { companyId } : {}), isMirrorLoan: false }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
       _sum: { interestAmount: true, paidInterest: true }
     })
   ]);
