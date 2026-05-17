@@ -197,7 +197,7 @@ function CustomersSection({
             </CardTitle>
             <div className="flex gap-2">
               <Input placeholder="Search customers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-64" />
-              <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={() => setShowNewCustomerDialog(true)}>
+              <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => setShowNewCustomerDialog(true)}>
                 <UserPlus className="h-4 w-4 mr-2" />New
               </Button>
             </div>
@@ -209,7 +209,7 @@ function CustomersSection({
               <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <p className="text-gray-500 mb-2">No customers found</p>
               <p className="text-sm text-gray-400">Customers will appear here when they register</p>
-              <Button className="mt-4 bg-emerald-500 hover:bg-emerald-600" onClick={() => setShowNewCustomerDialog(true)}>
+              <Button className="mt-4 bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => setShowNewCustomerDialog(true)}>
                 <UserPlus className="h-4 w-4 mr-2" />Add First Customer
               </Button>
             </div>
@@ -347,7 +347,7 @@ function CustomersSection({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewCustomerDialog(false)}>Cancel</Button>
-            <Button className="bg-emerald-500 hover:bg-emerald-600" onClick={handleCreateCustomer} disabled={creating}>
+            <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={handleCreateCustomer} disabled={creating}>
               {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Creating...</> : 'Create Customer'}
             </Button>
           </DialogFooter>

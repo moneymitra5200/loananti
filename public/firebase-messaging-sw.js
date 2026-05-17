@@ -62,8 +62,20 @@ self.addEventListener('notificationclick', (event) => {
 
   if (event.action === 'close') return;
 
-  // Deep link: use actionUrl from notification data (e.g. /?section=pending)
-  const targetUrl = event.notification.data?.url || event.notification.data?.actionUrl || event.notification.data?.click_action || '/';
+  // FCM SDK wraps the payload in FCM_MSG when it generates the notification natively
+  const fcmData = event.notification.data?.FCM_MSG?.data;
+  const fcmNotification = event.notification.data?.FCM_MSG?.notification;
+
+  // Deep link: try our custom data payload first, then FCM wrapper payload
+  const targetUrl = 
+    event.notification.data?.url || 
+    event.notification.data?.actionUrl || 
+    event.notification.data?.click_action || 
+    fcmData?.actionUrl ||
+    fcmData?.url ||
+    fcmNotification?.click_action ||
+    '/';
+    
   const fullUrl = targetUrl.startsWith('http') 
     ? targetUrl 
     : self.location.origin + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);

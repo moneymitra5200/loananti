@@ -38,6 +38,7 @@ import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import CashierExpenseSection from '@/components/expense/CashierExpenseSection';
 import CustomersSection from '@/components/admin/modules/CustomersSection';
+import UserDetailsSheet from '@/components/admin/UserDetailsSheet';
 
 // Self-fetching wrapper so Cashier customers tab doesn't need parent-level data
 function CashierCustomersPage({ companyId }: { companyId?: string }) {
@@ -45,6 +46,13 @@ function CashierCustomersPage({ companyId }: { companyId?: string }) {
   const [custLoans, setCustLoans] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  
+  // User Details state
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [selectedUserDetails, setSelectedUserDetails] = useState<any | null>(null);
+  const [showUserDetailsDialog, setShowUserDetailsDialog] = useState(false);
+  const [loadingUserDetails, setLoadingUserDetails] = useState(false);
+
   const { refreshKey } = useRefresh();
 
   useEffect(() => {
@@ -54,14 +62,25 @@ function CashierCustomersPage({ companyId }: { companyId?: string }) {
       try {
         const [usersRes, loansRes] = await Promise.all([
           fetch('/api/user?role=CUSTOMER&_t=' + Date.now()),
-          fetch('/api/loan?status=all&_t=' + Date.now()),
+          fetch('/api/loan/list?role=CASHIER&_t=' + Date.now()),
         ]);
-        const [usersData, loansData] = await Promise.all([usersRes.json(), loansRes.json()]);
+        
+        let usersData = { users: [] };
+        let loansData = { loans: [] };
+        
+        if (usersRes.ok) usersData = await usersRes.json();
+        else console.error('CashierCustomersPage users fetch failed', usersRes.status);
+        
+        if (loansRes.ok) loansData = await loansRes.json();
+        else console.error('CashierCustomersPage loans fetch failed', loansRes.status);
+        
         if (!cancelled) {
           setCustomers(usersData.users || usersData || []);
           setCustLoans((loansData.loans || loansData || []).filter((l: any) => !l.isMirrorLoan));
         }
-      } catch { /* silent */ } finally {
+      } catch (error) { 
+        console.error('CashierCustomersPage fetch error:', error);
+      } finally {
         if (!cancelled) setLoading(false);
       }
     }
@@ -70,13 +89,37 @@ function CashierCustomersPage({ companyId }: { companyId?: string }) {
   }, [refreshKey]);
 
   return (
-    <CustomersSection
-      customers={customers}
-      loans={custLoans}
-      searchQuery={searchQuery}
-      setSearchQuery={setSearchQuery}
-      onViewCustomer={() => {}}
-    />
+    <>
+      <CustomersSection
+        customers={customers}
+        loans={custLoans}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        onViewCustomer={(customer) => {
+          setSelectedUser(customer);
+          setLoadingUserDetails(true);
+          fetch(`/api/user/details?userId=${customer.id}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.success) {
+                setSelectedUserDetails(data.user);
+                setShowUserDetailsDialog(true);
+              } else {
+                toast({ title: 'Error', description: 'Failed to fetch customer details', variant: 'destructive' });
+              }
+            })
+            .catch(() => toast({ title: 'Error', description: 'Failed to fetch customer details', variant: 'destructive' }))
+            .finally(() => setLoadingUserDetails(false));
+        }}
+      />
+      {showUserDetailsDialog && selectedUser && (
+        <UserDetailsSheet
+          userId={selectedUser.id}
+          open={showUserDetailsDialog}
+          onClose={() => setShowUserDetailsDialog(false)}
+        />
+      )}
+    </>
   );
 }
 

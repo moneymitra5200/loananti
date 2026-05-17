@@ -544,9 +544,7 @@ export default function LandingPage() {
                   <Card key={product.id} className="border-0 shadow-lg hover:shadow-2xl transition-all duration-300 bg-white overflow-hidden group">
                     <div className="h-2 bg-gradient-to-r from-emerald-500 to-teal-500"></div>
                     <CardContent className="p-4 sm:p-6 md:p-8">
-                      <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-gradient-to-br from-emerald-100 to-teal-100 rounded-lg sm:rounded-xl md:rounded-2xl flex items-center justify-center text-2xl sm:text-3xl mb-4 sm:mb-6 group-hover:scale-110 transition-transform">
-                        {product.icon || '≡ƒÆ░'}
-                      </div>
+
                       <h3 className="text-base sm:text-lg md:text-xl font-bold text-gray-800 mb-2 sm:mb-3">{product.title}</h3>
                       <p className="text-gray-600 text-xs sm:text-sm mb-4 sm:mb-6 leading-relaxed">{product.description}</p>
 
