@@ -170,8 +170,14 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
 
     const cbEntries = await db.cashBookEntry.findMany({
       where: cbWhere,
-      select: { amount: true, referenceType: true }
+      select: { amount: true, referenceType: true, referenceId: true }
     });
+
+    const existingJournals = await db.journalEntry.findMany({
+      where: { companyId, isReversed: false },
+      select: { referenceId: true }
+    });
+    const journalRefIds = new Set(existingJournals.map(j => j.referenceId).filter(Boolean));
     
     // Map cashbook types to standard account codes
     const cbMapping: Record<string, string> = {
@@ -184,6 +190,9 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
     };
     
     cbEntries.forEach(entry => {
+      // Skip if there's already a journal entry for this transaction (avoids double counting)
+      if (entry.referenceId && journalRefIds.has(entry.referenceId)) return;
+      
       const targetCode = cbMapping[entry.referenceType] || '4300';
       const existingAcct = income.find(a => a.accountCode === targetCode);
       if (existingAcct) {

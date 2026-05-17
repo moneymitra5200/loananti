@@ -419,9 +419,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       console.log(`[Accounting] MIRROR SPLIT ✅: Cash ₹${mirrorCashPortion} → Cashbook, Online ₹${mirrorOnlinePortion} → Bank`);
     } else {
       // Non-split: route entire amount to bank (ONLINE) or cashbook (CASH)
-      console.log(`[Accounting] Payment Mode: ${paymentMode} → ${paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI' ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
+      const isOnlineMode = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
+      console.log(`[Accounting] Payment Mode: ${paymentMode} → ${isOnlineMode ? 'BANK ACCOUNT' : 'CASH BOOK'}`);
 
-      if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
+      if (isOnlineMode) {
         result.bankTransaction = await recordBankTransaction({
           companyId: mirrorCompanyId,
           transactionType: 'CREDIT',
@@ -453,9 +454,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     //   Cr  Loans Receivable  = proportional mirror principal
 
     // For single-mode, determine debit account from paymentMode
-    const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
-      ? ACCOUNT_CODES.BANK_ACCOUNT
-      : ACCOUNT_CODES.CASH_IN_HAND;
+    const isOnlineMode = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
+    const debitAccountCode = isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
 
     // ── DIRECT DB JOURNAL — bypasses AccountingService entirely to avoid silent failures ──
     try {
@@ -545,7 +545,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             accountId: singleDebitAccId,
             debitAmount: recordAmount, creditAmount: 0,
             loanId: loanId || null, customerId: customerId || null,
-            narration: (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
+            narration: isOnlineMode
               ? `Bank received - Mirror EMI #${installmentNumber}${partialSuffix}`
               : `Cash received - Mirror EMI #${installmentNumber}${partialSuffix}`,
           });
@@ -698,8 +698,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   const splitCashAmt   = isSplitMode ? (splitCash   ?? 0) : 0;
   const splitOnlineAmt = isSplitMode ? (splitOnline ?? 0) : 0;
 
+  const isOnlineModeCompany = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
+
   // Record cashbook/bank (same pattern as offline route — called with cash-only amount)
-  if (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') {
+  if (isOnlineModeCompany) {
     result.bankTransaction = await recordBankTransaction({
       companyId: targetCompanyId,
       transactionType: 'CREDIT',
@@ -763,14 +765,12 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       if (splitOnlineAmt > 0)
         debitLines.push({ accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: splitOnlineAmt, creditAmount: 0, loanId, customerId, narration: `Bank received [SPLIT ₹${splitOnlineAmt}]` });
     } else {
-      const debitAccountCode = (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI')
-        ? ACCOUNT_CODES.BANK_ACCOUNT
-        : ACCOUNT_CODES.CASH_IN_HAND;
+      const debitAccountCode = isOnlineModeCompany ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
       modeLabel = paymentMode;
       debitLines = [{
         accountCode: debitAccountCode,
         debitAmount: amount, creditAmount: 0, loanId, customerId,
-        narration: (paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI') ? 'Bank received for EMI' : 'Cash received for EMI',
+        narration: isOnlineModeCompany ? 'Bank received for EMI' : 'Cash received for EMI',
       }];
     }
 
