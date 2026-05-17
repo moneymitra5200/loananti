@@ -283,12 +283,12 @@ const EMIReceipt = forwardRef<HTMLDivElement, EMIReceiptProps>((props, ref) => {
           {isInterestOnly ? (
             <>
               {show.interest && row('Interest Collected:', fmt(interestAmount), false, '#1d4ed8')}
-              {show.principal && row('Principal:', 'Deferred to next EMI', false, '#6b7280')}
+              {show.principal && row('Principal:', '—', false, '#6b7280')}
             </>
           ) : isPrincipalOnly ? (
             <>
               {show.principal && row('Principal Collected:', fmt(principalAmount), false, '#dc2626')}
-              {show.interest && row('Interest:', 'Written off (Irrecoverable Debt)', false, '#6b7280')}
+              {show.interest && row('Interest:', '—', false, '#6b7280')}
             </>
           ) : isPartialPayment ? (
             <>
