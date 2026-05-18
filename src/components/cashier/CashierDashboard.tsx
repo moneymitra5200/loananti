@@ -603,7 +603,7 @@ export default function CashierDashboard() {
           amount: disbursementForm.disbursedAmount,
           mode: isCashDisbursement ? 'CASH' : 'BANK_TRANSFER',
           reference: disbursementForm.disbursementRef || `TXN${Date.now()}`,
-          bankAccountId: actualBankAccountId,
+          bankAccountId: isSplitPayment ? disbursementForm.splitBankAccountId : actualBankAccountId,
           isCashPayment: isCashPayment,
           // Split payment fields
           useSplitPayment: isSplitPayment || false,
