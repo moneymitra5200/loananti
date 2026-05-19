@@ -688,7 +688,10 @@ export async function POST(request: NextRequest) {
     const docUrls: Record<string, string> = {};
     
     // Accounting tracking variables
-    let bankAccountIdUsed: string | null = bankAccountId || null;
+    // CRITICAL: Strip fake 'cash_<companyId>' IDs set by the frontend for CashBook sources.
+    // These are virtual IDs used for UI selection only — they are NOT real bank account UUIDs.
+    const isRealBankAccountId = bankAccountId && !bankAccountId.startsWith('cash_');
+    let bankAccountIdUsed: string | null = isRealBankAccountId ? bankAccountId : null;
     let cashBookIdUsed: string | null = null;
 
     if (documents) {
@@ -976,7 +979,8 @@ export async function POST(request: NextRequest) {
             emiAmount: calculatedEmiAmount, // Same EMI as original
             processingFee: 0, // No processing fee for mirror
             disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
-            disbursementMode: 'BANK_TRANSFER',
+            // FIX: Preserve the actual disbursement mode instead of hardcoding BANK_TRANSFER
+            disbursementMode: disbursementMode || 'BANK_TRANSFER',
             status: 'ACTIVE',
             startDate: requiredDate(startDate, 'startDate'),
             notes: `Mirror loan for ${loanNumber}`,
@@ -1062,7 +1066,10 @@ export async function POST(request: NextRequest) {
         // CRITICAL FIX: Always create journal entry regardless of disbursement success
         // ============================================
         let disbursementSuccess = false;
-        let disbursementMode: 'BANK' | 'CASH' | 'SPLIT' | 'PENDING' = 'PENDING';
+        // FIX: Use the requested disbursement mode from the request body.
+        // Rename local tracking variable to avoid shadowing the outer `disbursementMode`.
+        // The outer `disbursementMode` (from request body) must remain readable for `shouldTryBankFirst` check.
+        let mirrorDisbursementResult: 'BANK' | 'CASH' | 'SPLIT' | 'PENDING' = 'PENDING';
         let cashBookIdUsedMirror: string | null = null;
         let newBalanceAfterDisbursement = 0;
         let actualBankAmount = 0;
@@ -1181,7 +1188,7 @@ export async function POST(request: NextRequest) {
           // Check if split was successful
           if (actualBankAmount > 0 || actualCashAmount > 0) {
             disbursementSuccess = true;
-            disbursementMode = 'SPLIT';
+            mirrorDisbursementResult = 'SPLIT';
             console.log(`[Mirror Loan] ✓ SPLIT PAYMENT SUCCESS: Bank ₹${actualBankAmount}, Cash ₹${actualCashAmount}`);
           }
 
@@ -1190,8 +1197,9 @@ export async function POST(request: NextRequest) {
           // SINGLE PAYMENT: Full Bank OR Full Cash
           // ============================================
           
-          // Determine if we should attempt bank first based on selected disbursement mode
-          const shouldTryBankFirst = disbursementMode !== 'CASH';
+          // Determine if we should attempt bank first based on the ORIGINAL disbursement mode from the request.
+          // `disbursementMode` here is the value from the request body (CASH / BANK_TRANSFER / etc).
+          const shouldTryBankFirst = (disbursementMode || 'BANK_TRANSFER') !== 'CASH';
           
           // FIRST: Try bank deduction if not specifically CASH
           if (shouldTryBankFirst && mirrorBank) {
@@ -1226,7 +1234,7 @@ export async function POST(request: NextRequest) {
                 ]);
 
                 disbursementSuccess = true;
-                disbursementMode = 'BANK';
+                mirrorDisbursementResult = 'BANK';
                 bankAccountIdUsed = mirrorBank.id;
                 actualBankAmount = loanAmount;
                 newBalanceAfterDisbursement = newBalance;
@@ -1259,7 +1267,7 @@ export async function POST(request: NextRequest) {
               });
 
               disbursementSuccess = true;
-              disbursementMode = 'CASH';
+              mirrorDisbursementResult = 'CASH';
               cashBookIdUsed = cashResult.cashBookId;
               actualCashAmount = loanAmount;
               newBalanceAfterDisbursement = cashResult.newBalance;
@@ -1282,7 +1290,7 @@ export async function POST(request: NextRequest) {
                 });
                 
                 disbursementSuccess = true;
-                disbursementMode = 'CASH';
+                mirrorDisbursementResult = 'CASH';
                 cashBookIdUsed = cashResult.cashBookId;
                 actualCashAmount = loanAmount;
                 newBalanceAfterDisbursement = cashResult.newBalance;
@@ -1303,7 +1311,7 @@ export async function POST(request: NextRequest) {
         // 1. Create Daybook Entry for Mirror Loan Disbursement
         try {
           const effectivePaymentMode = disbursementSuccess 
-            ? (disbursementMode === 'SPLIT' ? 'SPLIT' : disbursementMode === 'BANK' ? 'BANK_TRANSFER' : 'CASH')
+            ? (mirrorDisbursementResult === 'SPLIT' ? 'SPLIT' : mirrorDisbursementResult === 'BANK' ? 'BANK_TRANSFER' : 'CASH')
             : 'PENDING';
             
           await recordDaybookDisbursement({
@@ -1347,7 +1355,7 @@ export async function POST(request: NextRequest) {
           });
 
           // Credit lines based on disbursement mode
-          if (disbursementMode === 'SPLIT' && actualBankAmount > 0 && actualCashAmount > 0) {
+          if (mirrorDisbursementResult === 'SPLIT' && actualBankAmount > 0 && actualCashAmount > 0) {
             // SPLIT: Credit both Bank and Cash
             journalLines.push({
               accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
@@ -1362,14 +1370,14 @@ export async function POST(request: NextRequest) {
               narration: `Cash portion (₹${actualCashAmount}) for mirror loan`,
             });
             console.log(`[Mirror Loan Accounting] SPLIT journal entry: Bank ₹${actualBankAmount}, Cash ₹${actualCashAmount}`);
-          } else if (disbursementSuccess && disbursementMode === 'BANK') {
+          } else if (disbursementSuccess && mirrorDisbursementResult === 'BANK') {
             journalLines.push({
               accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
               debitAmount: 0,
               creditAmount: loanAmount,
               narration: 'Bank account debited for mirror loan disbursement',
             });
-          } else if (disbursementSuccess && disbursementMode === 'CASH') {
+          } else if (disbursementSuccess && mirrorDisbursementResult === 'CASH') {
             journalLines.push({
               accountCode: ACCOUNT_CODES.CASH_IN_HAND,
               debitAmount: 0,
@@ -1384,7 +1392,7 @@ export async function POST(request: NextRequest) {
               creditAmount: loanAmount,
               narration: 'Pending disbursement - funds to be received',
             });
-            disbursementMode = 'PENDING';
+            mirrorDisbursementResult = 'PENDING';
             console.log(`[Mirror Loan Accounting] Disbursement PENDING - recording as borrowed funds liability`);
           }
 
@@ -1393,15 +1401,15 @@ export async function POST(request: NextRequest) {
             entryDate: new Date(disbursementDate),
             referenceType: 'MIRROR_LOAN_DISBURSEMENT',
             referenceId: mirrorLoan.id,
-            narration: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber}) - Principal: ₹${loanAmount.toLocaleString()} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING FUNDS)'}`,
+            narration: `Mirror Loan Disbursement - ${mirrorLoanNumber} (Mirror of ${loanNumber}) - Principal: ₹${loanAmount.toLocaleString()} ${disbursementSuccess ? `via ${mirrorDisbursementResult}` : '(PENDING FUNDS)'}`,
             lines: journalLines,
             createdById: createdById,
-            paymentMode: disbursementMode === 'SPLIT' ? 'SPLIT' : disbursementMode === 'BANK' ? 'BANK_TRANSFER' : disbursementMode === 'CASH' ? 'CASH' : 'PENDING',
+            paymentMode: mirrorDisbursementResult === 'SPLIT' ? 'SPLIT' : mirrorDisbursementResult === 'BANK' ? 'BANK_TRANSFER' : mirrorDisbursementResult === 'CASH' ? 'CASH' : 'PENDING',
             bankAccountId: bankAccountIdUsed || undefined,
             isAutoEntry: true,
           });
 
-          console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${disbursementMode}` : '(PENDING)'}`);
+          console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${mirrorDisbursementResult}` : '(PENDING)'}`);
         } catch (accountingError) {
           console.error('[Mirror Loan Accounting] Failed to create journal entry:', accountingError);
         }
@@ -1816,7 +1824,9 @@ export async function POST(request: NextRequest) {
           disbursementDate: new Date(disbursementDate),
           createdById,
           paymentMode: effectiveDisbursementMode,
-          bankAccountId: bankAccountIdUsed || undefined,
+          // FIX: Only pass bankAccountId for bank payments. For CASH, bankAccountIdUsed may still
+          // hold a real bank ID from a previous attempt, but journal entry must credit Cash In Hand.
+          bankAccountId: effectiveDisbursementMode === 'CASH' ? undefined : (bankAccountIdUsed || undefined),
           reference: `Offline Loan: ${loanNumber}`
         });
         

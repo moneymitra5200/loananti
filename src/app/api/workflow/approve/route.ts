@@ -637,8 +637,9 @@ async function processSingleApproval({
         });
         
         console.log(`[Disbursement] Company 3 CashBook updated: Balance ${cashBook.currentBalance} → ${newBalance}`);
-      } else if (disbursementData?.isCashPayment && company) {
+      } else if ((disbursementData?.isCashPayment || disbursementData?.mode === 'CASH' || String(disbursementData?.bankAccountId || '').startsWith('cash_')) && company) {
         // Cash payment from cash book
+        // Catches: explicit isCashPayment flag, mode=CASH, or virtual cash_<companyId> bankAccountId from frontend
         console.log(`[Disbursement] Processing CASH payment for company ${company.name}`);
         
         let cashBook = await tx.cashBook.findUnique({
@@ -681,8 +682,9 @@ async function processSingleApproval({
         });
         
         console.log(`[Disbursement] Cash Book updated: Balance ${cashBook.currentBalance} → ${newBalance}`);
-      } else if (disbursementData?.bankAccountId) {
+      } else if (disbursementData?.bankAccountId && !String(disbursementData.bankAccountId).startsWith('cash_')) {
         // Other companies: Use BankAccount — allow overdraft (no balance check)
+        // CRITICAL: Skip if bankAccountId is a virtual 'cash_<companyId>' ID from the frontend (CashBook source).
         const bank = await tx.bankAccount.findUnique({ 
           where: { id: disbursementData.bankAccountId },
           select: { currentBalance: true }
@@ -723,14 +725,17 @@ async function processSingleApproval({
           const accountingService = new AccountingService(targetCompanyId);
           await accountingService.initializeChartOfAccounts();
 
+          const isCashMode = disbursementData.mode === 'CASH' || disbursementData.isCashPayment || 
+            (disbursementData.bankAccountId && String(disbursementData.bankAccountId).startsWith('cash_'));
           await accountingService.recordLoanDisbursement({
             loanId,
             customerId: loan.customerId,
             amount: disbursementData.amount,
             disbursementDate: new Date(),
             createdById: userId || 'SYSTEM',
-            bankAccountId: disbursementData.bankAccountId,
-            paymentMode: disbursementData.mode || (disbursementData.isCashPayment ? 'CASH' : 'BANK_TRANSFER'),
+            // FIX: Never pass a cash_ virtual ID as bankAccountId to the journal entry
+            bankAccountId: isCashMode ? undefined : disbursementData.bankAccountId,
+            paymentMode: isCashMode ? 'CASH' : (disbursementData.mode || 'BANK_TRANSFER'),
             reference: `Workflow Approval: ${loan.applicationNo}`
           }, tx);
           
