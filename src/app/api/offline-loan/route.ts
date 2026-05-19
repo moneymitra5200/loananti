@@ -1190,8 +1190,11 @@ export async function POST(request: NextRequest) {
           // SINGLE PAYMENT: Full Bank OR Full Cash
           // ============================================
           
-          // FIRST: Try bank deduction
-          if (mirrorBank) {
+          // Determine if we should attempt bank first based on selected disbursement mode
+          const shouldTryBankFirst = disbursementMode !== 'CASH';
+          
+          // FIRST: Try bank deduction if not specifically CASH
+          if (shouldTryBankFirst && mirrorBank) {
             try {
               const currentBank = await db.bankAccount.findUnique({
                 where: { id: mirrorBank.id },
@@ -1235,11 +1238,13 @@ export async function POST(request: NextRequest) {
               console.error(`[Mirror Loan] Bank deduction FAILED:`, bankError);
               console.log(`[Mirror Loan] Falling back to cash...`);
             }
-          } else {
+          } else if (shouldTryBankFirst) {
             console.log(`[Mirror Loan] No bank account found for mirror company ${mirrorCompanyId}. Trying cash...`);
+          } else {
+            console.log(`[Mirror Loan] Cash mode selected. Skipping bank deduction.`);
           }
 
-          // SECOND: If bank failed, try cash deduction
+          // SECOND: If bank failed (or skipped), try cash deduction
           if (!disbursementSuccess) {
             try {
               console.log(`[Mirror Loan] Attempting cash deduction for company ${mirrorCompanyId}...`);
