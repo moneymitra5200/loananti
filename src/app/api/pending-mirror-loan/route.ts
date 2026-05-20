@@ -184,7 +184,7 @@ export async function POST(request: NextRequest) {
     // ── FIX: Interest-Only loans have tenure=0 at creation (set at "Start Loan" time) ──
     // For IO loans, use a sensible default (12 months) so calculateMirrorLoan
     // produces a valid schedule for the pending mirror loan request.
-    const isInterestOnlyOriginal = originalTenure === 0 || originalLoan.sessionForm?.isInterestOnly === true;
+    const isInterestOnlyOriginal = originalTenure === 0; // IO loans always have tenure=0 at creation
     const effectiveTenure = isInterestOnlyOriginal ? 12 : originalTenure; // Default 12-month IO mirror
 
     const calculation = calculateMirrorLoan(
