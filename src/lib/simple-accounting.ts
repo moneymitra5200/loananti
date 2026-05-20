@@ -26,6 +26,8 @@ export interface CashbookEntryParams {
   referenceType: string;
   referenceId?: string;
   createdById: string;
+  /** Optional: pass a Prisma transaction client to run inside a larger transaction */
+  tx?: Parameters<Parameters<typeof db.$transaction>[0]>[0];
 }
 
 export interface BankEntryParams {
@@ -37,6 +39,8 @@ export interface BankEntryParams {
   referenceType: string;
   referenceId?: string;
   createdById: string;
+  /** Optional: pass a Prisma transaction client to run inside a larger transaction */
+  tx?: Parameters<Parameters<typeof db.$transaction>[0]>[0];
 }
 
 // ============================================
@@ -68,72 +72,55 @@ export async function getOrCreateCashBook(companyId: string): Promise<string> {
  * IDEMPOTENCY: If a DEBIT entry for the same referenceId already exists, skip to prevent double-deduction
  */
 export async function recordCashBookEntry(params: CashbookEntryParams): Promise<{ success: boolean; cashBookId: string; newBalance: number }> {
-  const { companyId, entryType, amount, description, referenceType, referenceId, createdById } = params;
+  const { companyId, entryType, amount, description, referenceType, referenceId, createdById, tx: outerTx } = params;
+  // Use outer tx client if provided, otherwise use db directly
+  const client = (outerTx as any) || db;
 
   // Get or create cashbook
   const cashBookId = await getOrCreateCashBook(companyId);
 
   // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
-  // Prevent duplicate entries for the same referenceId.
-  // Blocks BOTH debit AND credit duplicates to ensure entries
-  // only fire once regardless of retries or manual triggers.
   if (referenceId) {
-    const existing = await db.cashBookEntry.findFirst({
-      where: {
-        cashBookId,
-        referenceId,
-        referenceType,
-        entryType,
-      },
+    const existing = await client.cashBookEntry.findFirst({
+      where: { cashBookId, referenceId, referenceType, entryType },
     });
     if (existing) {
       console.warn(`[CashBook] DUPLICATE ${entryType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
-      const cashBook = await db.cashBook.findUnique({ where: { id: cashBookId } });
+      const cashBook = await client.cashBook.findUnique({ where: { id: cashBookId } });
       return { success: true, cashBookId, newBalance: cashBook?.currentBalance || 0 };
     }
   }
 
   // Get current balance
-  const cashBook = await db.cashBook.findUnique({
-    where: { id: cashBookId }
-  });
+  const cashBook = await client.cashBook.findUnique({ where: { id: cashBookId } });
+  if (!cashBook) throw new Error('CashBook not found');
 
-  if (!cashBook) {
-    throw new Error('CashBook not found');
+  const currentBalance = cashBook.currentBalance || 0;
+  const newBalance = entryType === 'CREDIT' ? currentBalance + amount : currentBalance - amount;
+
+  if (outerTx) {
+    // Running inside caller's transaction — just do the writes directly
+    await (outerTx as any).cashBookEntry.create({
+      data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+    });
+    await (outerTx as any).cashBook.update({
+      where: { id: cashBookId },
+      data: { currentBalance: newBalance, lastUpdatedById: createdById, lastUpdatedAt: new Date() }
+    });
+  } else {
+    // No outer tx — use own internal transaction (backward compatible)
+    await db.$transaction([
+      db.cashBookEntry.create({
+        data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+      }),
+      db.cashBook.update({
+        where: { id: cashBookId },
+        data: { currentBalance: newBalance, lastUpdatedById: createdById, lastUpdatedAt: new Date() }
+      })
+    ]);
   }
 
-  // Calculate new balance
-  const currentBalance = cashBook.currentBalance || 0;
-  const newBalance = entryType === 'CREDIT' 
-    ? currentBalance + amount 
-    : currentBalance - amount;
-
-  // Create entry and update balance in transaction
-  await db.$transaction([
-    db.cashBookEntry.create({
-      data: {
-        cashBookId,
-        entryType,
-        amount,
-        balanceAfter: newBalance,
-        description,
-        referenceType,
-        referenceId,
-        createdById
-      }
-    }),
-    db.cashBook.update({
-      where: { id: cashBookId },
-      data: {
-        currentBalance: newBalance,
-        lastUpdatedById: createdById,
-        lastUpdatedAt: new Date()
-      }
-    })
-  ]);
-
   console.log(`[CashBook] ${entryType} ₹${amount} - ${description} - Company: ${companyId} - New Balance: ₹${newBalance}`);
-
   return { success: true, cashBookId, newBalance };
 }
 
@@ -166,7 +153,8 @@ export async function getDefaultBankAccount(companyId: string): Promise<string |
  * IDEMPOTENCY: If a DEBIT transaction for the same referenceId already exists, skip it.
  */
 export async function recordBankTransaction(params: BankEntryParams): Promise<{ success: boolean; bankAccountId: string; newBalance: number }> {
-  const { companyId, bankAccountId, transactionType, amount, description, referenceType, referenceId, createdById } = params;
+  const { companyId, bankAccountId, transactionType, amount, description, referenceType, referenceId, createdById, tx: outerTx } = params;
+  const client = (outerTx as any) || db;
 
   // Get bank account
   let targetBankId: string | undefined = bankAccountId;
@@ -178,69 +166,52 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
     // No bank account configured – fall back to CashBook so money is not lost
     console.warn(`[Bank] No bank account found for company ${companyId}. Falling back to CashBook.`);
     const cashResult = await recordCashBookEntry({
-      companyId,
-      entryType: transactionType === 'CREDIT' ? 'CREDIT' : 'DEBIT',
-      amount,
-      description: `[Bank Fallback] ${description}`,
-      referenceType,
-      referenceId,
-      createdById,
+      companyId, entryType: transactionType === 'CREDIT' ? 'CREDIT' : 'DEBIT', amount,
+      description: `[Bank Fallback] ${description}`, referenceType, referenceId, createdById, tx: outerTx
     });
     return { success: true, bankAccountId: 'CASHBOOK', newBalance: cashResult.newBalance };
   }
 
   // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────
-  // Prevent duplicate bank transactions for the same referenceId.
-  // Blocks BOTH debit AND credit duplicates — status-driven accounting only.
   if (referenceId) {
-    const existing = await db.bankTransaction.findFirst({
+    const existing = await client.bankTransaction.findFirst({
       where: { bankAccountId: targetBankId, referenceId, referenceType, transactionType },
       select: { id: true, balanceAfter: true },
     });
     if (existing) {
       console.warn(`[Bank] DUPLICATE ${transactionType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
-      const bank = await db.bankAccount.findUnique({ where: { id: targetBankId }, select: { currentBalance: true } });
+      const bank = await client.bankAccount.findUnique({ where: { id: targetBankId }, select: { currentBalance: true } });
       return { success: true, bankAccountId: targetBankId, newBalance: bank?.currentBalance || 0 };
     }
   }
 
-  // Get current balance
-  const bankAccount = await db.bankAccount.findUnique({
-    where: { id: targetBankId }
-  });
+  const bankAccount = await client.bankAccount.findUnique({ where: { id: targetBankId } });
+  if (!bankAccount) throw new Error('Bank account not found');
 
-  if (!bankAccount) {
-    throw new Error('Bank account not found');
+  const currentBalance = bankAccount.currentBalance || 0;
+  const newBalance = transactionType === 'CREDIT' ? currentBalance + amount : currentBalance - amount;
+
+  if (outerTx) {
+    // Running inside caller's transaction
+    await (outerTx as any).bankTransaction.create({
+      data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+    });
+    await (outerTx as any).bankAccount.update({
+      where: { id: targetBankId }, data: { currentBalance: newBalance }
+    });
+  } else {
+    // No outer tx — own internal transaction
+    await db.$transaction([
+      db.bankTransaction.create({
+        data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+      }),
+      db.bankAccount.update({
+        where: { id: targetBankId }, data: { currentBalance: newBalance }
+      })
+    ]);
   }
 
-  // Calculate new balance
-  const currentBalance = bankAccount.currentBalance || 0;
-  const newBalance = transactionType === 'CREDIT' 
-    ? currentBalance + amount 
-    : currentBalance - amount;
-
-  // Create transaction and update balance
-  await db.$transaction([
-    db.bankTransaction.create({
-      data: {
-        bankAccountId: targetBankId,
-        transactionType,
-        amount,
-        balanceAfter: newBalance,
-        description,
-        referenceType,
-        referenceId,
-        createdById
-      }
-    }),
-    db.bankAccount.update({
-      where: { id: targetBankId },
-      data: { currentBalance: newBalance }
-    })
-  ]);
-
   console.log(`[Bank] ${transactionType} ₹${amount} - ${description} - Company: ${companyId} - New Balance: ₹${newBalance}`);
-
   return { success: true, bankAccountId: targetBankId, newBalance };
 }
 
@@ -687,12 +658,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   }
 
   // ============================================
-  // COMPANY CREDIT - ONLINE → BANK, CASH → CASHBOOK
-  // Note: for SPLIT payments, the calling route already handled:
-  //   - amount = splitCashAmount (cash portion only) → routes to Cashbook below
-  //   - a separate recordBankTransaction for splitOnlineAmount
-  // So here 'amount' is already the cash-only portion for splits.
-  // We only need to fix the JOURNAL to show Dr Cash + Dr Bank instead of Dr Cash(full).
+  // COMPANY CREDIT -- Atomic: cashbook/bank + journal in ONE transaction
+  // CASH   -> CashBook + Journal
+  // ONLINE -> Bank    + Journal
+  // SPLIT  -> CashBook (cash) + Bank (online) + Journal
   // ============================================
   const isSplitMode = !!(isSplitPayment && splitCash && splitCash > 0 && splitOnline && splitOnline > 0);
   const splitCashAmt   = isSplitMode ? (splitCash   ?? 0) : 0;
@@ -700,93 +669,68 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
   const isOnlineModeCompany = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
 
-  // Record cashbook/bank (same pattern as offline route — called with cash-only amount)
-  if (isOnlineModeCompany) {
-    result.bankTransaction = await recordBankTransaction({
-      companyId: targetCompanyId,
-      transactionType: 'CREDIT',
-      amount,
-      description: `${description} [Company Credit - ${paymentMode}]`,
-      referenceType: 'EMI_PAYMENT',
-      referenceId: paymentId,
-      createdById: userId
-    });
-    console.log(`[Accounting] Company Credit EMI recorded in BANK ACCOUNT: ₹${amount}`);
-  } else {
-    // CASH or SPLIT (cash portion only — caller routes online portion to bank separately)
-    result.cashBookEntry = await recordCashBookEntry({
-      companyId: targetCompanyId,
-      entryType: 'CREDIT',
-      amount,
-      description: `${description} [Company Credit - ${paymentMode}${isSplitMode ? ` SPLIT Cash ₹${splitCashAmt}` : ''}]`,
-      referenceType: 'EMI_PAYMENT',
-      referenceId: paymentId,
-      createdById: userId
-    });
-    console.log(`[Accounting] Company Credit EMI recorded in CASH BOOK: ₹${amount}`);
-  }
-
-  // ── JOURNAL ENTRY ────────────────────────────────────────────────────
-  // CASH:   Dr Cash ₹amount        | Cr Loans + Cr Interest
-  // ONLINE: Dr Bank ₹amount        | Cr Loans + Cr Interest
-  // SPLIT:  Dr Cash ₹splitCash + Dr Bank ₹splitOnline | Cr Loans + Cr Interest
-  //         (total debits = splitCash + splitOnline = full EMI amount)
+  // ACID: wrap cashbook/bank + journal in one transaction so they succeed or fail together
+  const { withRetry } = await import('@/lib/db-utils');
   try {
+    // Pre-init chart of accounts (outside tx to avoid long-held lock)
     const accountingService = new AccountingService(targetCompanyId);
     await accountingService.initializeChartOfAccounts();
 
-    // Build credit lines (same for all modes)
-    const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
-    const totalForCredit = isSplitMode ? (splitCashAmt + splitOnlineAmt) : amount;
-    if (principalComponent > 0) {
-      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
-    }
-    const companyInterestAdj = Math.max(0, interestComponent + Math.round((totalForCredit - principalComponent - interestComponent) * 100) / 100);
-    if (companyInterestAdj > 0) {
-      companyCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: 'Interest income' });
-    }
-    if (companyCreditLines.length === 0) {
-      companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalForCredit, loanId, customerId, narration: 'EMI repayment' });
-    }
-    const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
-    const companyDiff = Math.round((totalForCredit - companyCreditSum) * 100) / 100;
-    if (Math.abs(companyDiff) > 0.001) companyCreditLines[companyCreditLines.length - 1].creditAmount += companyDiff;
+    await withRetry(() => db.$transaction(async (tx) => {
+      // 1. Record cashbook or bank entry
+      if (isOnlineModeCompany) {
+        const bResult = await recordBankTransaction({
+          companyId: targetCompanyId, transactionType: 'CREDIT', amount,
+          description: ` [Company Credit - ]`,
+          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
+        });
+        result.bankTransaction = bResult;
+        console.log(`[Accounting] Company Credit EMI -> BANK: Rs.`);
+      } else {
+        const cbResult = await recordCashBookEntry({
+          companyId: targetCompanyId, entryType: 'CREDIT', amount,
+          description: ` [Company Credit - ]`,
+          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
+        });
+        result.cashBookEntry = cbResult;
+        console.log(`[Accounting] Company Credit EMI -> CASHBOOK: Rs.`);
+      }
 
-    // Build debit lines based on mode
-    let debitLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[];
-    let modeLabel: string;
+      // 2. Build journal lines
+      const totalForCredit = isSplitMode ? (splitCashAmt + splitOnlineAmt) : amount;
+      const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
+      if (principalComponent > 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
+      const companyInterestAdj = Math.max(0, interestComponent + Math.round((totalForCredit - principalComponent - interestComponent) * 100) / 100);
+      if (companyInterestAdj > 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: 'Interest income' });
+      if (companyCreditLines.length === 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalForCredit, loanId, customerId, narration: 'EMI repayment' });
+      const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
+      const companyDiff = Math.round((totalForCredit - companyCreditSum) * 100) / 100;
+      if (Math.abs(companyDiff) > 0.001) companyCreditLines[companyCreditLines.length - 1].creditAmount += companyDiff;
 
-    if (isSplitMode) {
-      // SPLIT: Dr Cash (cash portion) + Dr Bank (online portion)
-      modeLabel = `SPLIT: Cash ₹${splitCashAmt} + Online ₹${splitOnlineAmt}`;
-      debitLines = [];
-      if (splitCashAmt > 0)
-        debitLines.push({ accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: splitCashAmt, creditAmount: 0, loanId, customerId, narration: `Cash received [SPLIT ₹${splitCashAmt}]` });
-      if (splitOnlineAmt > 0)
-        debitLines.push({ accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: splitOnlineAmt, creditAmount: 0, loanId, customerId, narration: `Bank received [SPLIT ₹${splitOnlineAmt}]` });
-    } else {
-      const debitAccountCode = isOnlineModeCompany ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
-      modeLabel = paymentMode;
-      debitLines = [{
-        accountCode: debitAccountCode,
-        debitAmount: amount, creditAmount: 0, loanId, customerId,
-        narration: isOnlineModeCompany ? 'Bank received for EMI' : 'Cash received for EMI',
-      }];
-    }
+      let debitLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[];
+      let modeLabel: string;
+      if (isSplitMode) {
+        modeLabel = 'SPLIT: Cash Rs.' + splitCashAmt + ' + Online Rs.' + splitOnlineAmt;
+        debitLines = [];
+        if (splitCashAmt > 0) debitLines.push({ accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: splitCashAmt, creditAmount: 0, loanId, customerId, narration: 'Cash received [SPLIT Rs.' + splitCashAmt + ']' });
+        if (splitOnlineAmt > 0) debitLines.push({ accountCode: ACCOUNT_CODES.BANK_ACCOUNT, debitAmount: splitOnlineAmt, creditAmount: 0, loanId, customerId, narration: 'Bank received [SPLIT Rs.' + splitOnlineAmt + ']' });
+      } else {
+        modeLabel = paymentMode;
+        debitLines = [{ accountCode: isOnlineModeCompany ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0, loanId, customerId, narration: isOnlineModeCompany ? 'Bank received for EMI' : 'Cash received for EMI' }];
+      }
 
-    result.journalEntryId = await accountingService.createJournalEntry({
-      entryDate: new Date(),
-      referenceType: 'EMI_PAYMENT',
-      referenceId: paymentId,
-      narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
-      lines: [...debitLines, ...companyCreditLines],
-      createdById: userId,
-      paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
-    });
-
-    console.log(`[Accounting] ✅ Journal (${modeLabel}): Dr ₹${totalForCredit} | Cr Loans ₹${principalComponent} | Cr Interest ₹${companyInterestAdj}`);
-  } catch (journalError) {
-    console.error('[Accounting] ❌ Failed to create journal entry for company credit EMI:', journalError);
+      // 3. Create journal entry inside the same transaction
+      result.journalEntryId = await accountingService.createJournalEntry({
+        entryDate: new Date(), referenceType: 'EMI_PAYMENT', referenceId: paymentId,
+        narration: customerLabel + ' ' + loanNumber + ' (EMI#' + installmentNumber + ')',
+        lines: [...debitLines, ...companyCreditLines], createdById: userId,
+        paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
+      });
+      console.log('[Accounting] Journal (' + modeLabel + '): Dr Rs.' + totalForCredit + ' | Cr Loans Rs.' + principalComponent + ' | Cr Interest Rs.' + companyInterestAdj);
+    }));
+  } catch (acctErr: any) {
+    console.error('[Accounting] Company Credit EMI accounting transaction FAILED:', acctErr?.message);
+    throw acctErr; // re-throw so calling route's saga rollback fires
   }
 
   return result;
