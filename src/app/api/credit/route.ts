@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
       ? 'PERSONAL_COLLECTION'
       : 'CREDIT_INCREASE') as 'PERSONAL_COLLECTION' | 'CREDIT_INCREASE';
 
-    // Create credit transaction and update user credit
+    // Create credit transaction + update user + update company — all atomic
     const [transaction] = await db.$transaction([
       db.creditTransaction.create({
         data: { // @ts-ignore
@@ -419,7 +419,7 @@ export async function POST(request: NextRequest) {
           proofDocument,
           proofType,
           proofUploadedAt: proofDocument ? new Date() : null,
-          proofVerified: paymentMode === 'CASH' && actualCreditType === 'COMPANY', // Auto-verify CASH company transactions
+          proofVerified: paymentMode === 'CASH' && actualCreditType === 'COMPANY',
           collectedFrom,
           collectedFromPhone,
           collectionLocation,
@@ -430,53 +430,44 @@ export async function POST(request: NextRequest) {
       }),
       db.user.update({
         where: { id: userId },
-        data: { 
-          credit: newTotalCredit,
-          companyCredit: newCompanyCredit,
-          personalCredit: newPersonalCredit
-        }
-      })
+        data: { credit: newTotalCredit, companyCredit: newCompanyCredit, personalCredit: newPersonalCredit }
+      }),
+      // ACID: company credit increment inside the same transaction so user+company are always in sync
+      ...(actualCreditType === 'COMPANY' && user.companyId
+        ? [db.company.update({ where: { id: user.companyId }, data: { companyCredit: { increment: amount } } })]
+        : []
+      )
     ]);
-
-    // Update company credit if applicable
-    if (actualCreditType === 'COMPANY' && user.companyId) {
-      await db.company.update({
-        where: { id: user.companyId },
-        data: { companyCredit: { increment: amount } }
-      });
-    }
 
     // Update daily collection
     await updateDailyCollection(amount, paymentMode, user.role, actualCreditType);
 
-    // Create accounting entry for EMI payment
+    // Accounting entry for EMI payment — non-critical but failures are logged
     if (sourceType === 'EMI_PAYMENT' && loanApplicationId && customerId) {
       try {
-        // Get EMI details for proper principal/interest split
         let principalComp = principalComponent || 0;
         let interestComp = interestComponent || 0;
-        
-        // If not provided, estimate based on typical loan structure (rough estimate)
         if (!principalComp && !interestComp && emiAmount) {
-          // Assume 70% principal, 30% interest as default split
           principalComp = emiAmount * 0.7;
           interestComp = emiAmount * 0.3;
         }
-        
         await createEMIPaymentEntry({
-          loanId: loanApplicationId,
-          customerId: customerId,
-          paymentId: transaction.id,
-          totalAmount: amount,
-          principalComponent: principalComp,
-          interestComponent: interestComp,
-          paymentDate: new Date(),
-          createdById: userId,
-          paymentMode: paymentMode
+          loanId: loanApplicationId, customerId, paymentId: transaction.id,
+          totalAmount: amount, principalComponent: principalComp,
+          interestComponent: interestComp, paymentDate: new Date(),
+          createdById: userId, paymentMode
         });
-      } catch (accountingError) {
-        console.error('Accounting entry for EMI payment failed:', accountingError);
-        // Don't fail the transaction if accounting fails
+      } catch (accountingError: any) {
+        // Log to actionLog so admin can detect and fix orphaned accounting entries
+        console.error('[Credit POST] Accounting entry failed:', accountingError?.message);
+        db.actionLog.create({
+          data: {
+            userId, userRole: 'SYSTEM', actionType: 'ACCOUNTING_ERROR',
+            module: 'CREDIT', recordId: transaction.id, recordType: 'CreditTransaction',
+            description: `Accounting FAILED for credit tx ${transaction.id} (EMI payment ${loanApplicationId}): ${accountingError?.message}`,
+            canUndo: false,
+          } as any
+        }).catch(() => {});
       }
     }
 

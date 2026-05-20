@@ -391,55 +391,56 @@ export async function POST(request: NextRequest) {
     // Close mirror too
     await closeMirrorLoan();
 
-    // ── Accounting: Foreclosure cash/bank + journal ───────────────────────────
+    // -- Accounting: Foreclosure cashbook/bank + journal — ATOMIC --
+    // Both entries committed in one transaction: if journal fails, cashbook rolls back too.
     const foreClosureTargetCompanyId = mirrorMapping?.mirrorCompanyId || effectiveCompanyId;
 
     if (foreClosureTargetCompanyId && totalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
-        const entryArgs = {
-          companyId:     foreClosureTargetCompanyId,
-          amount:        totalForeclosureAmount,
-          description:   `Foreclosure - ${loan.loanNumber} (P:₹${totalPrincipal.toFixed(2)} + I:₹${totalInterest.toFixed(2)})`,
-          referenceType: 'EMI_PAYMENT' as const,
-          referenceId:   `${loanId}-FORECLOSURE`,
-          createdById:   userId,
-        };
-        if (isOnlineMode) {
-          await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
-        } else {
-          await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
-        }
-        console.log(`[Close/Payment] ✅ ${mirrorMapping ? 'Mirror' : 'Original'} co. cashbook/bank entry: ₹${totalForeclosureAmount}`);
-      } catch (e: any) {
-        const msg = `Cashbook/Bank entry failed: ${e?.message}`;
-        accountingWarnings.push(msg);
-        console.error('[Close/Payment] ❌', msg);
-      }
-
-      // Double-entry journal in the same target company
-      try {
         const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+
+        // Pre-init CoA outside transaction to avoid long-held lock
         const accSvc = new AccountingService(foreClosureTargetCompanyId);
         await accSvc.initializeChartOfAccounts();
-        await accSvc.createJournalEntry({
-          entryDate:     now,
-          referenceType: 'EMI_PAYMENT',
-          referenceId:   `${loanId}-FORECLOSURE-JE`,
-          narration:     `Foreclosure - ${loan.loanNumber} — P:₹${totalPrincipal.toFixed(2)} I:₹${totalInterest.toFixed(2)} via ${paymentMode}`,
-          lines: [
-            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
-            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` },
-            ...(totalInterest > 0 ? [{ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalInterest, narration: `Interest income on foreclosure` }] : []),
-          ],
-          createdById: userId,
-          isAutoEntry: true,
-        });
-        console.log(`[Close/Payment] ✅ Foreclosure journal in ${mirrorMapping ? 'MIRROR' : 'original'} co. (${foreClosureTargetCompanyId}) created`);
+
+        await withRetry(() => db.$transaction(async (tx) => {
+          // 1. Cashbook or bank entry (participates in outer tx)
+          const entryArgs = {
+            companyId:     foreClosureTargetCompanyId,
+            amount:        totalForeclosureAmount,
+            description:   `Foreclosure - ${loan.loanNumber} (P:Rs.${totalPrincipal.toFixed(2)} + I:Rs.${totalInterest.toFixed(2)})`,
+            referenceType: 'EMI_PAYMENT' as const,
+            referenceId:   `${loanId}-FORECLOSURE`,
+            createdById:   userId,
+            tx,
+          };
+          if (isOnlineMode) {
+            await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
+          } else {
+            await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
+          }
+
+          // 2. Double-entry journal in the same transaction
+          await accSvc.createJournalEntry({
+            entryDate:     now,
+            referenceType: 'EMI_PAYMENT',
+            referenceId:   `${loanId}-FORECLOSURE-JE`,
+            narration:     `Foreclosure - ${loan.loanNumber} - P:Rs.${totalPrincipal.toFixed(2)} I:Rs.${totalInterest.toFixed(2)} via ${paymentMode}`,
+            lines: [
+              { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
+              { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` },
+              ...(totalInterest > 0 ? [{ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalInterest, narration: `Interest income on foreclosure` }] : []),
+            ],
+            createdById: userId,
+            isAutoEntry: true,
+          });
+        }));
+        console.log(`[Close/Payment] DONE Foreclosure accounting (cashbook+journal) in ${mirrorMapping ? 'MIRROR' : 'original'} co. (${foreClosureTargetCompanyId}): Rs.${totalForeclosureAmount}`);
       } catch (e: any) {
-        const msg = `Foreclosure journal failed: ${e?.message}`;
+        const msg = `Foreclosure accounting failed: ${e?.message}`;
         accountingWarnings.push(msg);
-        console.error('[Close/Payment] ❌ Journal', msg);
+        console.error('[Close/Payment] FAILED Foreclosure accounting:', msg);
       }
     }
 

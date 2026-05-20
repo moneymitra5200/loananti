@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
+import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
 
 // GET - Get payment details and history
 export async function GET(request: NextRequest) {
@@ -115,26 +117,17 @@ export async function POST(request: NextRequest) {
       // Find or create payment record for current month
       let payment;
       if (paymentId) {
-        payment = await tx.interestOnlyPayment.findUnique({
-          where: { id: paymentId }
-        });
+        payment = await tx.interestOnlyPayment.findUnique({ where: { id: paymentId } });
       } else {
-        // Create payment for current month
         const now = new Date();
         payment = await tx.interestOnlyPayment.findFirst({
-          where: {
-            interestOnlyLoanId: interestLoanId,
-            status: { in: ['PENDING', 'OVERDUE'] }
-          },
+          where: { interestOnlyLoanId: interestLoanId, status: { in: ['PENDING', 'OVERDUE'] } },
           orderBy: { dueDate: 'asc' }
         });
-
         if (!payment) {
-          // Create new payment record for this month
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + 1);
-          dueDate.setDate(5); // Due on 5th of next month
-
+          dueDate.setDate(5);
           payment = await tx.interestOnlyPayment.create({
             data: {
               interestOnlyLoanId: interestLoanId,
@@ -147,51 +140,82 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Update payment record
       const updatedPayment = await tx.interestOnlyPayment.update({
         where: { id: payment.id },
         data: {
-          paidAmount: amount,
-          paidDate: new Date(),
+          paidAmount: amount, paidDate: new Date(),
           paymentMode: paymentMode || 'ONLINE',
-          paymentReference: transactionId,
-          utrNumber,
+          paymentReference: transactionId, utrNumber,
           receiptNumber: `RCP${Date.now().toString(36).toUpperCase()}`,
           status: 'PAID'
         }
       });
 
-      // Update interest only loan totals
       await tx.interestOnlyLoan.update({
         where: { id: interestLoanId },
         data: {
-          totalInterestPaid: { increment: amount },
-          totalMonthsPaid: { increment: 1 },
+          totalInterestPaid: { increment: amount }, totalMonthsPaid: { increment: 1 },
           lastPaymentDate: new Date(),
-          nextPaymentDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+          nextPaymentDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         }
       });
 
-      // Create payment record in main payment table
       await tx.payment.create({
         data: {
           loanApplicationId: interestLoan.loanApplicationId,
           customerId: interestLoan.loanApplication.customerId,
-          amount,
-          interestComponent: amount,
-          principalComponent: 0,
-          paymentMode: paymentMode || 'ONLINE',
-          status: 'COMPLETED',
+          amount, interestComponent: amount, principalComponent: 0,
+          paymentMode: paymentMode || 'ONLINE', status: 'COMPLETED',
           paymentType: 'INTEREST_ONLY',
           paidById: paidById || interestLoan.loanApplication.customerId,
-          transactionId,
-          utrNumber,
-          remarks: remarks || 'Interest Only Payment'
+          transactionId, utrNumber, remarks: remarks || 'Interest Only Payment'
         }
       });
 
+      // ACID: cashbook/bank entry inside the same transaction — if this fails, payment rolls back
+      const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS'].includes((paymentMode||'').toUpperCase());
+      const loanCompanyId = (interestLoan.loanApplication as any)?.companyId || '';
+      if (loanCompanyId) {
+        if (isOnline) {
+          await recordBankTransaction({
+            companyId: loanCompanyId, transactionType: 'CREDIT', amount,
+            description: `Interest Only Payment - ${interestLoan.loanApplicationId} (${paymentMode})`,
+            referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: updatedPayment.id,
+            createdById: paidById || 'SYSTEM', tx
+          });
+        } else {
+          await recordCashBookEntry({
+            companyId: loanCompanyId, entryType: 'CREDIT', amount,
+            description: `Interest Only Payment - ${interestLoan.loanApplicationId} (CASH)`,
+            referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: updatedPayment.id,
+            createdById: paidById || 'SYSTEM', tx
+          });
+        }
+      }
+
       return updatedPayment;
     });
+
+    // Journal entry (outside tx — non-critical, CoA init can be slow)
+    try {
+      const loanCompanyId = (interestLoan.loanApplication as any)?.companyId || '';
+      if (loanCompanyId) {
+        const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS'].includes((paymentMode||'').toUpperCase());
+        const accSvc = new AccountingService(loanCompanyId);
+        await accSvc.initializeChartOfAccounts();
+        await accSvc.createJournalEntry({
+          entryDate: new Date(), referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: result.id,
+          narration: `Interest Only Payment - loan ${interestLoan.loanApplicationId}`,
+          lines: [
+            { accountCode: isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0, narration: 'Interest received' },
+            { accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: amount, narration: 'Interest income (interest-only loan)' },
+          ],
+          createdById: paidById || 'SYSTEM', isAutoEntry: true,
+        });
+      }
+    } catch (journalErr: any) {
+      console.error('[InterestLoan/Payment] Journal entry failed (non-critical):', journalErr?.message);
+    }
 
     return NextResponse.json({
       success: true,
