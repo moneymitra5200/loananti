@@ -998,34 +998,65 @@ export async function POST(request: NextRequest) {
             displayColor, // Same color as original
             isMirrorLoan: true, // READ-ONLY - EMI payments sync from original
             originalLoanId: loan.id, // Reference to original loan
-            allowInterestOnly: false,
+            // ── FIX: Inherit product type from original loan ────────────────────────
+            // If original is interest-only, mirror must also be interest-only so that
+            // EMI accounting correctly routes to mirror company (not original company).
+            allowInterestOnly: loan.isInterestOnlyLoan || loan.allowInterestOnly || false,
             allowPartialPayment: true,
-            isInterestOnlyLoan: false,
+            isInterestOnlyLoan: loan.isInterestOnlyLoan || false,
             partialPaymentEnabled: true
           }
         });
 
         // CREATE EMI SCHEDULE FOR MIRROR LOAN
-        const mirrorEmis = mirrorSchedule.map((item, index) => {
-          const dueDate = requiredDate(startDate, 'startDate');
-          dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
-          dueDate.setHours(0, 0, 0, 0);
+        // ── FIX: For interest-only loans, create an interest-only schedule ──────────
+        // The standard mirrorSchedule is a reducing/flat amortization schedule.
+        // Interest-only loans just collect monthly interest; principal is not paid each EMI.
+        const isOriginalInterestOnly = loan.isInterestOnlyLoan || false;
+        let mirrorEmisData: any[];
 
-          return {
-            offlineLoanId: mirrorLoan.id,
-            installmentNumber: item.installmentNumber,
-            dueDate,
-            principalAmount: item.principal,
-            interestAmount: item.interest,
-            totalAmount: item.emi, // EMIScheduleItem uses .emi
-            outstandingPrincipal: item.outstandingPrincipal,
-            paymentStatus: 'PENDING' as const
-          };
-        });
+        if (isOriginalInterestOnly) {
+          // Interest-only schedule: each EMI = just the interest, principal = 0
+          const monthlyMirrorInterest = Math.round((loanAmount * mirrorRate / 100 / 12) * 100) / 100;
+          const ioTenure = tenure || 12; // Use original tenure for interest-only mirror
+          mirrorEmisData = Array.from({ length: ioTenure }, (_, index) => {
+            const dueDate = requiredDate(startDate, 'startDate');
+            dueDate.setMonth(dueDate.getMonth() + index + 1);
+            dueDate.setDate(5);
+            dueDate.setHours(0, 0, 0, 0);
+            return {
+              offlineLoanId: mirrorLoan.id,
+              installmentNumber: index + 1,
+              dueDate,
+              principalAmount: 0,          // Interest-only: no principal per EMI
+              interestAmount: monthlyMirrorInterest,
+              totalAmount: monthlyMirrorInterest,
+              outstandingPrincipal: loanAmount, // stays constant until loan closes
+              paymentStatus: 'PENDING' as const
+            };
+          });
+          console.log(`[Mirror Loan] Interest-Only schedule: ${ioTenure} EMIs × ₹${monthlyMirrorInterest}/mo at ${mirrorRate}%`);
+        } else {
+          mirrorEmisData = mirrorSchedule.map((item, index) => {
+            const dueDate = requiredDate(startDate, 'startDate');
+            dueDate.setMonth(dueDate.getMonth() + index + 1);
+            dueDate.setDate(5);
+            dueDate.setHours(0, 0, 0, 0);
+            return {
+              offlineLoanId: mirrorLoan.id,
+              installmentNumber: item.installmentNumber,
+              dueDate,
+              principalAmount: item.principal,
+              interestAmount: item.interest,
+              totalAmount: item.emi,
+              outstandingPrincipal: item.outstandingPrincipal,
+              paymentStatus: 'PENDING' as const
+            };
+          });
+        }
 
         await db.offlineLoanEMI.createMany({
-          data: mirrorEmis as any
+          data: mirrorEmisData as any
         });
 
         // Update original loan with the same display color
@@ -3190,14 +3221,25 @@ export async function PUT(request: NextRequest) {
               console.log(`[Accounting] MIRROR Session Delta: I:₹${mirrorInterestAmount} P:₹${mirrorPrincipalAmount} (pre: I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal}, post: I:₹${postPaidInterest} P:₹${postPaidPrincipal})`  );
             }
           } else {
-            // Fallback: Calculate mirror interest if mirror EMI not found
+            // Fallback: mirror EMI record not found (e.g. installmentNumber mismatch)
+            // For INTEREST_ONLY: use the actual session interest the customer just paid.
+            // For FULL/PARTIAL: calculate from mirror rate × outstanding principal.
             const mirrorRate = (await db.mirrorLoanMapping.findFirst({
               where: { id: mirrorLoanMapping.id },
               select: { mirrorInterestRate: true }
             }))?.mirrorInterestRate || 15;
-            const monthlyRate = mirrorRate / 100 / 12;
-            mirrorInterestAmount = Math.round(emi.outstandingPrincipal * monthlyRate * 100) / 100;
-            console.log(`[Accounting] MIRROR Interest calculated: ₹${mirrorInterestAmount} at ${mirrorRate}% rate`);
+            if (paymentType === 'INTEREST_ONLY') {
+              // sessionInterest = interest collected this session on the ORIGINAL EMI.
+              // For INTEREST_ONLY mirror, use same amount (mirror interest-only collections).
+              mirrorInterestAmount  = sessionInterest;
+              mirrorPrincipalAmount = 0;
+              console.log(`[Accounting] MIRROR IO Fallback: Using sessionInterest ₹${mirrorInterestAmount} (mirror EMI not found at installment #${emi.installmentNumber})`);
+            } else {
+              const monthlyRate = mirrorRate / 100 / 12;
+              mirrorInterestAmount  = Math.round(emi.outstandingPrincipal * monthlyRate * 100) / 100;
+              mirrorPrincipalAmount = Math.max(0, sessionPrincipal);
+              console.log(`[Accounting] MIRROR Fallback: I:₹${mirrorInterestAmount} at ${mirrorRate}% rate, P:₹${mirrorPrincipalAmount}`);
+            }
           }
         }
         
