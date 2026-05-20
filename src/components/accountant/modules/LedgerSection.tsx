@@ -1,5 +1,6 @@
 'use client';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -52,6 +53,14 @@ export default function LedgerSection({ selectedCompanyId }: { selectedCompanyId
     } catch { /* silent */ } finally { setLoading(false); }
   }, [selectedCompanyId, selectedAccount, startDate, endDate]);
 
+  // Auto-refresh every 30s once ledger has been loaded at least once
+  const { lastUpdated: ldLastUpdated } = useAutoRefresh({
+    onRefresh: load,
+    intervalMs: 30_000,
+    enabled: !!selectedCompanyId && !!ledger,
+  });
+  const ldUpdatedLabel = useRelativeTime(ldLastUpdated);
+
   const acctInfo = ACCOUNTS.find(a => a.code === selectedAccount);
 
   return (
@@ -96,6 +105,15 @@ export default function LedgerSection({ selectedCompanyId }: { selectedCompanyId
               {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
               Show Ledger
             </Button>
+            {ldUpdatedLabel && (
+              <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                Live · {ldUpdatedLabel}
+              </span>
+            )}
           </div>
           {acctInfo && (
             <div className="mt-2 flex items-center gap-2">

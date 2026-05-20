@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -164,6 +165,14 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
   useEffect(() => { loadEntries(); }, [loadEntries]);
   useEffect(() => { setPage(0); }, [filterType, selectedCompanyId]);
 
+  // Auto-refresh every 30s — journal entries stay live
+  const { lastUpdated: jeLastUpdated } = useAutoRefresh({
+    onRefresh: loadEntries,
+    intervalMs: 30_000,
+    enabled: !!selectedCompanyId,
+  });
+  const jeUpdatedLabel = useRelativeTime(jeLastUpdated);
+
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev);
@@ -206,6 +215,15 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           <span className="ml-1.5">Refresh</span>
         </Button>
+        {jeUpdatedLabel && (
+          <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Live · {jeUpdatedLabel}
+          </span>
+        )}
       </div>
 
       {/* Unbalanced Alert */}

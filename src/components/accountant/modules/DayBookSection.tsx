@@ -1,5 +1,6 @@
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +66,14 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency }: { 
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-refresh every 30 seconds — data stays live without hard refresh
+  const { lastUpdated, forceRefresh } = useAutoRefresh({
+    onRefresh: load,
+    intervalMs: 30_000,
+    enabled: !!selectedCompanyId,
+  });
+  const updatedLabel = useRelativeTime(lastUpdated);
+
   const filtered = entries.filter(e =>
     !search ||
     e.narration?.toLowerCase().includes(search.toLowerCase()) ||
@@ -110,9 +119,18 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency }: { 
           <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 w-36 text-sm" />
           <span className="text-xs text-gray-500">To:</span>
           <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 w-36 text-sm" />
-          <Button size="sm" variant="outline" className="h-8" onClick={load} disabled={loading}>
+          <Button size="sm" variant="outline" className="h-8" onClick={() => { load(); forceRefresh(); }} disabled={loading}>
             <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
+          {updatedLabel && (
+            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Live · {updatedLabel}
+            </span>
+          )}
         </div>
       </div>
 

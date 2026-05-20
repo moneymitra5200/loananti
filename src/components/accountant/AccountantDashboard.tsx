@@ -38,6 +38,7 @@ import JournalEntriesSection from '@/components/accountant/modules/JournalEntrie
 import CapitalWithdrawDialog from '@/components/accounting/CapitalWithdrawDialog';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import { useRealtime } from '@/hooks/useRealtime';
+import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
 
 // ============================================
 // TYPES
@@ -207,6 +208,14 @@ function CashBookSection({
     loadData();
   }, [loadData]);
 
+  // Auto-refresh every 30s — cash book stays live
+  const { lastUpdated: cbLastUpdated } = useAutoRefresh({
+    onRefresh: loadData,
+    intervalMs: 30_000,
+    enabled: !!selectedCompanyId,
+  });
+  const cbUpdatedLabel = useRelativeTime(cbLastUpdated);
+
   const handleAddEntry = async () => {
     const amount = parseFloat(addAmount);
     if (!amount || amount <= 0) {
@@ -319,7 +328,16 @@ function CashBookSection({
           <Wallet className="h-5 w-5" />
           Cash Book
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {cbUpdatedLabel && (
+            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Live · {cbUpdatedLabel}
+            </span>
+          )}
           <Button variant="outline" onClick={() => setShowOpeningDialog(true)}>
             <PiggyBank className="h-4 w-4 mr-2" />
             Opening Balance
@@ -615,7 +633,14 @@ function BankSection({
     loadData();
   }, [loadData]);
 
-  // Open Bank Dialog (for Add or Edit)
+  // Auto-refresh every 30s — bank section stays live
+  const { lastUpdated: bankLastUpdated } = useAutoRefresh({
+    onRefresh: loadData,
+    intervalMs: 30_000,
+    enabled: !!selectedCompanyId && selectedCompanyId.length >= 10,
+  });
+  const bankUpdatedLabel = useRelativeTime(bankLastUpdated);
+
   const openBankDialog = (bank?: BankAccount) => {
     if (bank) {
       setEditMode(true);
@@ -878,7 +903,16 @@ function BankSection({
           <Landmark className="h-5 w-5" />
           Bank Accounts
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {bankUpdatedLabel && (
+            <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              Live · {bankUpdatedLabel}
+            </span>
+          )}
           <Button onClick={() => openBankDialog()}>
             <Plus className="h-4 w-4 mr-2" />
             Add Bank
@@ -2643,6 +2677,7 @@ export default function UnifiedAccountantDashboard() {
     role: user?.role,
     companyId: selectedCompanyId,
     onDashboardRefresh: triggerRefresh,
+    pollInterval: 30_000, // Poll every 30s — keeps accounting data live without hard refresh
   });
 
   const companyType = getCompanyType(selectedCompany);
