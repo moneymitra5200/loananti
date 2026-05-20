@@ -233,8 +233,16 @@ export async function POST(request: NextRequest) {
         data: {
           userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
           recordId: loanId, recordType: 'OfflineLoan',
+          // previousData enables undo (reopen the loan)
+          previousData: JSON.stringify({ status: loan.status, closedAt: null }),
+          newData: JSON.stringify({
+            closeType: 'LOSS',
+            totalWriteOff,
+            lossType,
+            companyId: effectiveCompanyId,
+          }),
           description: `Loan ${loan.loanNumber} written off as loss (${writeOffInterest ? 'Principal Only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)}, I written off:₹${writeOffInterest ? 0 : totalRemainingInterest.toFixed(2)}`,
-          canUndo: false,
+          canUndo: true,
         }
       }).catch(e => console.error('[Close/Loss] ActionLog failed (non-critical):', e));
 
@@ -366,8 +374,16 @@ export async function POST(request: NextRequest) {
       data: {
         userId, userRole: user.role, actionType: 'CLOSE', module: 'OFFLINE_LOAN',
         recordId: loanId, recordType: 'OfflineLoan',
+        // previousData enables undo (reopen the loan)
+        previousData: JSON.stringify({ status: loan.status, closedAt: null }),
+        newData: JSON.stringify({
+          closeType: 'PAYMENT',
+          totalForeclosureAmount,
+          paymentMode,
+          companyId: effectiveCompanyId,
+        }),
         description: `Loan ${loan.loanNumber} closed. Foreclosure: ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
-        canUndo: false,
+        canUndo: true,
       }
     }).catch(e => console.error('[Close/Payment] ActionLog failed (non-critical):', e));
 

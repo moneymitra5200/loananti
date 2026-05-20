@@ -213,10 +213,13 @@ export async function POST(request: NextRequest) {
       // ActionLog — fire-and-forget
       db.actionLog.create({
         data: {
-          userId, userRole: user.role, actionType: 'CLOSE', module: 'ONLINE_LOAN',
+          userId, userRole: user.role, actionType: 'CLOSE', module: 'LOAN_CLOSE',
           recordId: loanId, recordType: 'LoanApplication',
+          // previousData enables undo handler to reopen the loan
+          previousData: JSON.stringify({ status: loan.status, closedAt: null }),
+          newData: JSON.stringify({ closeType: 'LOSS', totalWriteOff, lossType, companyId: effectiveCompanyId }),
           description: `Loan ${loan.applicationNo} written off as loss (${writeOffInterestOnly ? 'P-only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)}, I:₹${writeOffInterestOnly ? 0 : totalRemainingInterest.toFixed(2)}`,
-          canUndo: false,
+          canUndo: true,
         }
       }).catch(e => console.error('[Close/Loss] ActionLog failed:', e));
 
@@ -415,10 +418,13 @@ export async function POST(request: NextRequest) {
     // ActionLog — fire-and-forget
     db.actionLog.create({
       data: {
-        userId, userRole: user.role, actionType: 'CLOSE', module: 'ONLINE_LOAN',
+        userId, userRole: user.role, actionType: 'CLOSE', module: 'LOAN_CLOSE',
         recordId: loanId, recordType: 'LoanApplication',
+        // previousData enables undo handler to reopen the loan
+        previousData: JSON.stringify({ status: loan.status, closedAt: null }),
+        newData: JSON.stringify({ closeType: 'PAYMENT', totalForeclosureAmount, paymentMode, companyId: effectiveCompanyId }),
         description: `Loan ${loan.applicationNo} closed via foreclosure. ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
-        canUndo: false,
+        canUndo: true,
       }
     }).catch(e => console.error('[Close/Payment] ActionLog failed:', e));
 

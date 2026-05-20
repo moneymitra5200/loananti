@@ -2188,20 +2188,30 @@ export async function PUT(request: NextRequest) {
           }
         });
 
-        // Log action
+        // Log action — previousData required for undo to restore the EMI state
         await tx.actionLog.create({
           data: {
             userId,
             userRole: user.role,
             actionType: 'PAY',
-            module: 'INTEREST_ONLY_LOAN',
-            recordId: loanId,
-            recordType: 'OfflineLoan',
+            module: 'EMI_PAYMENT',
+            recordId: currentEMI!.id,
+            recordType: 'OfflineLoanEMI',
+            // UNDO FIX: store pre-payment EMI state so undo can restore exactly
+            previousData: JSON.stringify({
+              paidAmount:    currentEMI!.paidAmount    ?? 0,
+              paidPrincipal: currentEMI!.paidPrincipal ?? 0,
+              paidInterest:  currentEMI!.paidInterest  ?? 0,
+              paymentStatus: currentEMI!.paymentStatus ?? 'PENDING',
+            }),
             newData: JSON.stringify({
               emiId: currentEMI!.id,
               installmentNumber: currentEMI!.installmentNumber,
               interestAmount,
+              paymentAmount: interestAmount,
               paymentMode,
+              // companyId required for undo balance reversal
+              companyId: loan.companyId,
               collectorId: userId,
               collectorName: user.name,
               bankTransactionId: bankTransactionResult?.bankTransactionId
@@ -2612,7 +2622,7 @@ export async function PUT(request: NextRequest) {
           }
         });
 
-        // Action log
+        // Action log — previousData enables undo, newData enables balance reversal
         await tx.actionLog.create({
           data: {
             userId,
@@ -2622,7 +2632,14 @@ export async function PUT(request: NextRequest) {
             recordId: emiId,
             recordType: 'OfflineLoanEMI',
             previousData: JSON.stringify(previousState),
-            newData: JSON.stringify({ paidAmount, paidPrincipal, paidInterest, paymentStatus, sessionAmount, collectorId: userId, collectorName: user.name, paymentMode }),
+            newData: JSON.stringify({
+              paidAmount, paidPrincipal, paidInterest, paymentStatus, sessionAmount,
+              paymentAmount: sessionAmount, // alias used by undo handler
+              companyId: emi.offlineLoan.companyId, // required for undo balance reversal
+              collectorId: userId,
+              collectorName: user.name,
+              paymentMode,
+            }),
             description: `Collected EMI #${emi.installmentNumber} for ${emi.offlineLoan.loanNumber}`,
             canUndo: true
           }
