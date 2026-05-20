@@ -111,12 +111,12 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
     fetchCashBookData();
   }, [selectedCompanyIds, dateRange.startDate, dateRange.endDate, filterType]);
 
-  // Auto-refresh every 30 seconds so external payments (EMI, offline) appear without manual reload
+  // Refresh on window focus — data stays fresh when user returns to tab,
+  // without the constant 30-second polling flicker.
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchCashBookData(/* silent */ true);
-    }, 30000);
-    return () => clearInterval(interval);
+    const onFocus = () => fetchCashBookData(/* silent */ true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [selectedCompanyIds, dateRange.startDate, dateRange.endDate, filterType]);
 
   const fetchCashBookData = async (silent = false) => {

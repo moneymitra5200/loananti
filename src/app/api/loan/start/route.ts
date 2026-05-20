@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
 // ACID: retry on deadlock
 import { withRetry } from '@/lib/db-utils';
+import { AccountingService } from '@/lib/accounting-service';
 
 // POST - Start a loan (convert from interest-only to normal EMI)
 export async function POST(request: NextRequest) {
@@ -188,6 +189,123 @@ export async function POST(request: NextRequest) {
       import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});
     });
 
+    // ── CASCADE: Also start the mirror online loan with its own rate ──────────
+    setImmediate(async () => {
+      try {
+        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId, isOfflineLoan: false },
+          include: { mirrorCompany: { select: { id: true, name: true } } }
+        });
+
+        if (!mirrorMapping?.mirrorLoanId) {
+          console.log(`[Mirror Start Online] No online mirror for ${loan.applicationNo}`);
+          return;
+        }
+
+        const mirrorLoan = await db.loanApplication.findUnique({
+          where: { id: mirrorMapping.mirrorLoanId },
+          include: { sessionForm: true }
+        });
+        if (!mirrorLoan) return;
+
+        // Mirror uses its OWN rate from mapping
+        const mirrorRate   = mirrorMapping.mirrorInterestRate || interestRate;
+        const mirrorType   = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
+        const mirrorTenure = tenure;
+        const principal    = principalAmount;
+
+        const mc = calculateEMI(principal, mirrorRate, mirrorTenure, mirrorType, new Date());
+
+        // Delete mirror's IO placeholder EMIs
+        await db.eMISchedule.deleteMany({ where: { loanApplicationId: mirrorMapping.mirrorLoanId } });
+
+        // Build mirror amortizing schedule
+        const mirrorSchedule = mc.schedule.map((item, index) => {
+          const dueDate = new Date();
+          dueDate.setMonth(dueDate.getMonth() + index + 1);
+          dueDate.setDate(5);
+          dueDate.setHours(0, 0, 0, 0);
+          return {
+            loanApplicationId: mirrorMapping.mirrorLoanId!,
+            installmentNumber: item.installmentNumber,
+            dueDate,
+            originalDueDate: dueDate,
+            principalAmount: item.principal,
+            interestAmount: item.interest,
+            totalAmount: item.totalAmount,
+            outstandingPrincipal: item.outstandingPrincipal,
+            outstandingInterest: 0,
+            paidAmount: 0, paidPrincipal: 0, paidInterest: 0,
+            paymentStatus: 'PENDING' as const,
+            penaltyAmount: 0, penaltyPaid: 0, waivedAmount: 0,
+            daysOverdue: 0, isPartialPayment: false, partialPaymentCount: 0,
+            remainingAmount: 0, isInterestOnly: false, principalDeferred: false,
+          };
+        });
+
+        await db.eMISchedule.createMany({ data: mirrorSchedule as any });
+
+        // Activate mirror loan
+        await db.loanApplication.update({
+          where: { id: mirrorMapping.mirrorLoanId! },
+          data: { status: 'ACTIVE', tenure: mirrorTenure, interestRate: mirrorRate, emiAmount: mc.emi, loanStartedAt: new Date() }
+        });
+
+        // Update session form if exists
+        if (mirrorLoan.sessionForm) {
+          await db.sessionForm.update({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId! },
+            data: { tenure: mirrorTenure, interestRate: mirrorRate, emiAmount: mc.emi, totalInterest: mc.totalInterest, totalAmount: mc.totalAmount }
+          });
+        }
+
+        // Update mapping
+        await db.mirrorLoanMapping.update({
+          where: { id: mirrorMapping.id },
+          data: { mirrorTenure, originalTenure: tenure }
+        });
+
+        // ── Journal entry in mirror company ──────────────────────────────────
+        try {
+          const mcId    = mirrorMapping.mirrorCompanyId;
+          const acctSvc = new AccountingService(mcId);
+
+          await acctSvc.initializeChartOfAccounts();
+          const entryNumber = await acctSvc.generateEntryNumber();
+
+          const loansRec = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1200' } });
+          const cashAcc  = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1101' } });
+
+          if (loansRec && cashAcc) {
+            await db.journalEntry.create({
+              data: {
+                companyId: mcId,
+                entryNumber,
+                entryDate: new Date(),
+                referenceType: 'LOAN_ACTIVATION',
+                referenceId: mirrorMapping.mirrorLoanId!,
+                narration: `Mirror loan activated (IO→EMI): ${loan.applicationNo} | ${mirrorRate}% ${mirrorType} × ${mirrorTenure}mo`,
+                totalDebit: principal, totalCredit: principal,
+                isAutoEntry: true, isApproved: true,
+                createdById: startedBy || 'system',
+                lines: {
+                  create: [
+                    { accountId: loansRec.id, debitAmount: principal, creditAmount: 0, loanId: mirrorMapping.mirrorLoanId!, narration: `Mirror activated: ${loan.applicationNo}` },
+                    { accountId: cashAcc.id,  debitAmount: 0, creditAmount: principal, narration: `Offset — loan earning mirror interest` },
+                  ]
+                }
+              }
+            });
+          }
+        } catch (je) { console.error('[Mirror Start Online] Journal entry failed (non-fatal):', je); }
+
+        console.log(`[Mirror Start Online] ✅ ${mirrorLoan.applicationNo} activated | ${mirrorRate}% ${mirrorType} | EMI ₹${mc.emi} × ${mirrorTenure}mo`);
+      } catch (e) {
+        console.error('[Mirror Start Online] Non-fatal error:', e);
+      }
+    });
+    // ── END MIRROR CASCADE ────────────────────────────────────────────────────
+
     return NextResponse.json({
       success: true,
       loan: result.updatedLoan,
@@ -211,6 +329,7 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 }
+
 
 // GET - Preview EMI calculation for starting loan
 export async function GET(request: NextRequest) {
