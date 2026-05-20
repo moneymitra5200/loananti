@@ -1259,8 +1259,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 </div>
               )}
 
-              {/* Mirror Loan Checkbox - Available for ALL companies with non-Interest Only loans */}
-              {!isInterestOnly && formData.companyId && (
+              {/* Mirror Loan Checkbox - Available for ALL loan types including Interest Only */}
+              {formData.companyId && (
                 <div className="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <input
                     type="checkbox"
@@ -1277,6 +1277,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     </Label>
                     <p className="text-sm text-blue-600 mt-1">
                       Create a duplicate loan record in another company with different interest rate/type.
+                      {isInterestOnly && (
+                        <span className="block mt-1 text-purple-600 font-medium">
+                          ⚡ Interest-Only: Mirror company will collect interest at the mirror rate monthly.
+                        </span>
+                      )}
                     </p>
                     {isMirrorLoan && (
                       <div className="mt-3 space-y-3">

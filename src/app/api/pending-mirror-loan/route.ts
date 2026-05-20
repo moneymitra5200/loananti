@@ -181,10 +181,16 @@ export async function POST(request: NextRequest) {
     // Use provided interest type or default to REDUCING
     const effectiveMirrorType = (mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
 
+    // ── FIX: Interest-Only loans have tenure=0 at creation (set at "Start Loan" time) ──
+    // For IO loans, use a sensible default (12 months) so calculateMirrorLoan
+    // produces a valid schedule for the pending mirror loan request.
+    const isInterestOnlyOriginal = originalTenure === 0 || originalLoan.sessionForm?.isInterestOnly === true;
+    const effectiveTenure = isInterestOnlyOriginal ? 12 : originalTenure; // Default 12-month IO mirror
+
     const calculation = calculateMirrorLoan(
       principal,
       originalRate,
-      originalTenure,
+      effectiveTenure,   // ← use effectiveTenure, not originalTenure
       originalType,
       effectiveMirrorRate,
       effectiveMirrorType
@@ -210,9 +216,11 @@ export async function POST(request: NextRequest) {
         mirrorInterestType: effectiveMirrorType,
         originalEMIAmount,
         originalTenure,
-        mirrorTenure: calculation.mirrorLoan.schedule.length,
-        extraEMICount: calculation.extraEMICount,
-        leftoverAmount: calculation.leftoverAmount,
+        mirrorTenure: isInterestOnlyOriginal
+          ? effectiveTenure  // IO loan: use effectiveTenure (12) as placeholder
+          : calculation.mirrorLoan.schedule.length,
+        extraEMICount: isInterestOnlyOriginal ? 0 : calculation.extraEMICount,
+        leftoverAmount: isInterestOnlyOriginal ? 0 : calculation.leftoverAmount,
         principalAmount: principal,
         status,
         createdBy,
@@ -482,31 +490,57 @@ export async function PUT(request: NextRequest) {
         }
       });
 
-      // Create EMI schedules for mirror loan — use SHIFTED schedule
-      // Shifted: last (smallest) EMI moves to position 1; all others shift +1
-      // This is required so EMI #1 triggers the processing fee income recording
-      const scheduleToUse = calculation.shiftedSchedule && calculation.shiftedSchedule.length > 0
-        ? calculation.shiftedSchedule
-        : calculation.mirrorLoan.schedule;
+      // Create EMI schedules for mirror loan
+      // ── FIX: For IO loans (originalTenure=0), create interest-only schedule ──────
+      const isIOLoan = pendingLoan.originalTenure === 0;
+      let mirrorEMISchedules: any[];
 
-      const mirrorEMISchedules = scheduleToUse.map((emi, index) => {
-        const dueDate = new Date();
-        dueDate.setMonth(dueDate.getMonth() + index + 1);
-        dueDate.setDate(5);
+      if (isIOLoan) {
+        // Interest-only mirror: fixed monthly interest, no principal reduction
+        const ioTenure = pendingLoan.mirrorTenure || 12;
+        const monthlyMirrorInterest = Math.round((pendingLoan.principalAmount * pendingLoan.mirrorInterestRate / 100 / 12) * 100) / 100;
+        mirrorEMISchedules = Array.from({ length: ioTenure }, (_, index) => {
+          const dueDate = new Date();
+          dueDate.setMonth(dueDate.getMonth() + index + 1);
+          dueDate.setDate(5);
+          return {
+            loanApplicationId: mirrorLoan.id,
+            installmentNumber: index + 1,
+            dueDate,
+            originalDueDate: dueDate,
+            principalAmount: 0,           // IO: no principal per EMI
+            interestAmount: monthlyMirrorInterest,
+            totalAmount: monthlyMirrorInterest,
+            outstandingPrincipal: pendingLoan.principalAmount, // stays constant
+            outstandingInterest: 0,
+            paymentStatus: 'PENDING' as const,
+          };
+        });
+        console.log(`[Mirror Loan IO] ${ioTenure} interest-only EMIs × ₹${monthlyMirrorInterest}/mo at ${pendingLoan.mirrorInterestRate}%`);
+      } else {
+        // ── Standard amortizing schedule ─────────────────────────────────────────
+        const scheduleToUse = calculation.shiftedSchedule && calculation.shiftedSchedule.length > 0
+          ? calculation.shiftedSchedule
+          : calculation.mirrorLoan.schedule;
 
-        return {
-          loanApplicationId: mirrorLoan.id,
-          installmentNumber: emi.installmentNumber,
-          dueDate,
-          originalDueDate: dueDate,
-          principalAmount: emi.principal,
-          interestAmount: emi.interest,
-          totalAmount: emi.emi,
-          outstandingPrincipal: emi.outstandingPrincipal,
-          outstandingInterest: 0,
-          paymentStatus: 'PENDING' as const,
-        };
-      });
+        mirrorEMISchedules = scheduleToUse.map((emi, index) => {
+          const dueDate = new Date();
+          dueDate.setMonth(dueDate.getMonth() + index + 1);
+          dueDate.setDate(5);
+          return {
+            loanApplicationId: mirrorLoan.id,
+            installmentNumber: emi.installmentNumber,
+            dueDate,
+            originalDueDate: dueDate,
+            principalAmount: emi.principal,
+            interestAmount: emi.interest,
+            totalAmount: emi.emi,
+            outstandingPrincipal: emi.outstandingPrincipal,
+            outstandingInterest: 0,
+            paymentStatus: 'PENDING' as const,
+          };
+        });
+      }
 
       await db.eMISchedule.createMany({
         data: mirrorEMISchedules as any,
