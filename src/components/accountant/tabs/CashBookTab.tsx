@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -71,6 +71,8 @@ const ENTRY_TYPES = [
 
 function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }: CashBookTabProps) {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
   const [entries, setEntries] = useState<CashBookEntry[]>([]);
   const [stats, setStats] = useState<CashBookStats>({
     totalEntries: 0,
@@ -107,10 +109,19 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
 
   useEffect(() => {
     fetchCashBookData();
-  }, [selectedCompanyIds, dateRange.startDate, dateRange.endDate]);
+  }, [selectedCompanyIds, dateRange.startDate, dateRange.endDate, filterType]);
 
-  const fetchCashBookData = async () => {
-    setLoading(true);
+  // Auto-refresh every 30 seconds so external payments (EMI, offline) appear without manual reload
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchCashBookData(/* silent */ true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [selectedCompanyIds, dateRange.startDate, dateRange.endDate, filterType]);
+
+  const fetchCashBookData = async (silent = false) => {
+    if (!silent) setLoading(true);
+    setError(null);
     try {
       const companyFilter = selectedCompanyIds.length > 0
         ? selectedCompanyIds.join(',')
@@ -118,21 +129,30 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
 
       let url = `/api/accounting/cash-book?companyId=${companyFilter}`;
       if (dateRange.startDate) url += `&startDate=${dateRange.startDate}`;
-      if (dateRange.endDate) url += `&endDate=${dateRange.endDate}`;
+      if (dateRange.endDate)   url += `&endDate=${dateRange.endDate}`;
       if (filterType && filterType !== 'all') url += `&type=${filterType}`;
 
-      const res = await fetch(url);
+      const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
 
       if (data.success) {
         setEntries(data.entries || []);
         setStats(data.stats || stats);
+      } else {
+        setError(data.error || 'Failed to load cashbook data');
       }
-    } catch (error) {
-      console.error('Error fetching cash book data:', error);
+    } catch (err) {
+      console.error('Error fetching cash book data:', err);
+      setError('Network error — could not load cashbook. Please refresh.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchCashBookData();
   };
 
   const handleAddEntry = async () => {
@@ -226,9 +246,9 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchCashBookData}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
+          <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button variant="outline" size="sm" onClick={handleExportCSV}>
             <Download className="h-4 w-4 mr-2" />
@@ -244,6 +264,15 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
           </Button>
         </div>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <AlertCircle className="h-4 w-4 flex-shrink-0" />
+          <span>{error}</span>
+          <Button variant="ghost" size="sm" className="ml-auto text-red-700" onClick={handleRefresh}>Retry</Button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

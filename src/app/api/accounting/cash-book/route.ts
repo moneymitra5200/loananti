@@ -5,102 +5,97 @@ import { db } from '@/lib/db';
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const companyId = searchParams.get('companyId');
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
-    const entryType = searchParams.get('type'); // CREDIT or DEBIT
+    const companyIdParam = searchParams.get('companyId') || searchParams.get('companyId');
+    const startDate  = searchParams.get('startDate');
+    const endDate    = searchParams.get('endDate');
+    const entryType  = searchParams.get('type');
 
-    console.log(`[Cash Book] Fetching entries for company: ${companyId}`);
-
-    if (!companyId) {
+    if (!companyIdParam) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
-    // Get or create cash book for the company
-    let cashBook = await db.cashBook.findUnique({
-      where: { companyId }
+    // Support: single ID, comma-separated IDs, or "all"
+    let cashBookWhere: any;
+    if (companyIdParam === 'all') {
+      cashBookWhere = {};
+    } else {
+      const ids = companyIdParam.split(',').map((s: string) => s.trim()).filter(Boolean);
+      cashBookWhere = ids.length === 1 ? { companyId: ids[0] } : { companyId: { in: ids } };
+    }
+
+    const cashBooks = await (db.cashBook as any).findMany({
+      where: cashBookWhere,
+      include: { company: { select: { id: true, name: true, code: true } } }
     });
 
-    if (!cashBook) {
+    if (cashBooks.length === 0) {
       return NextResponse.json({
-        success: true,
-        entries: [],
-        stats: {
-          totalEntries: 0,
-          totalCashIn: 0,
-          totalCashOut: 0,
-          currentBalance: 0,
-          byType: {},
-        }
+        success: true, entries: [],
+        stats: { totalEntries: 0, totalCashIn: 0, totalCashOut: 0, currentBalance: 0, byType: {}, byCompany: [] }
       });
     }
 
-    // Build date filter
-    const dateFilter: any = {};
-    if (startDate) {
-      dateFilter.gte = new Date(startDate);
-    }
-    if (endDate) {
-      dateFilter.lte = new Date(endDate);
-    }
+    const cashBookIds = cashBooks.map((cb: any) => cb.id);
 
-    // Fetch entries
-    const entries = await db.cashBookEntry.findMany({
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(startDate);
+    if (endDate) { const e = new Date(endDate); e.setHours(23, 59, 59, 999); dateFilter.lte = e; }
+
+    const rawEntries = await db.cashBookEntry.findMany({
       where: {
-        cashBookId: cashBook.id,
+        cashBookId: { in: cashBookIds },
         ...(Object.keys(dateFilter).length > 0 && { entryDate: dateFilter }),
-        ...(entryType && { entryType })
+        ...(entryType && entryType !== 'all' && { entryType }),
       },
-      orderBy: [
-        { entryDate: 'desc' },
-        { createdAt: 'desc' }
-      ]
+      include: { cashBook: { include: { company: { select: { id: true, name: true, code: true } } } } },
+      orderBy: [{ entryDate: 'desc' }, { createdAt: 'desc' }]
     });
 
-    // Calculate totals
-    const totalCashIn = entries
-      .filter(e => e.entryType === 'CREDIT')
-      .reduce((sum, e) => sum + e.amount, 0);
-    const totalCashOut = entries
-      .filter(e => e.entryType === 'DEBIT')
-      .reduce((sum, e) => sum + e.amount, 0);
-    const currentBalance = cashBook.currentBalance;
+    // Map DB fields (entryType/amount/balanceAfter) -> frontend fields (cashIn/cashOut/balance/voucherNo)
+    const entries = rawEntries.map((e: any, idx: number) => ({
+      id: e.id,
+      companyId: (e.cashBook as any).companyId,
+      entryDate: e.entryDate,
+      voucherNo: `CB-${String(rawEntries.length - idx).padStart(4, '0')}`,
+      description: e.description || '',
+      reference: e.referenceId || null,
+      referenceType: e.referenceType || null,
+      cashIn:  e.entryType === 'CREDIT' ? Number(e.amount) : 0,
+      cashOut: e.entryType === 'DEBIT'  ? Number(e.amount) : 0,
+      balance: Number(e.balanceAfter),
+      loanId: null, customerId: null, notes: null,
+      company: (e.cashBook as any).company,
+      createdAt: e.createdAt,
+    }));
 
-    // Group by type
-    const byType = entries.reduce((acc, e) => {
+    const totalCashIn  = entries.reduce((s: number, e: any) => s + e.cashIn,  0);
+    const totalCashOut = entries.reduce((s: number, e: any) => s + e.cashOut, 0);
+    const currentBalance = cashBooks.reduce((s: number, cb: any) => s + Number(cb.currentBalance), 0);
+
+    const byType = rawEntries.reduce((acc: any, e: any) => {
       const type = e.referenceType || 'OTHER';
       if (!acc[type]) acc[type] = { count: 0, totalIn: 0, totalOut: 0 };
       acc[type].count++;
-      if (e.entryType === 'CREDIT') {
-        acc[type].totalIn += e.amount;
-      } else {
-        acc[type].totalOut += e.amount;
-      }
+      if (e.entryType === 'CREDIT') acc[type].totalIn  += Number(e.amount);
+      else                          acc[type].totalOut += Number(e.amount);
       return acc;
-    }, {} as Record<string, { count: number; totalIn: number; totalOut: number }>);
+    }, {});
 
-    console.log(`[Cash Book] Found ${entries.length} entries`);
+    const byCompany = cashBooks.map((cb: any) => ({
+      companyId: cb.companyId, companyName: cb.company?.name || 'Unknown', currentBalance: Number(cb.currentBalance),
+    }));
+
+    console.log(`[Cash Book] ${entries.length} entries across ${cashBooks.length} cashbook(s)`);
 
     return NextResponse.json({
-      success: true,
-      entries,
-      cashBook,
-      stats: {
-        totalEntries: entries.length,
-        totalCashIn,
-        totalCashOut,
-        currentBalance,
-        byType,
-      }
+      success: true, entries,
+      cashBook: cashBooks[0],
+      stats: { totalEntries: entries.length, totalCashIn, totalCashOut, currentBalance, byType, byCompany }
     });
 
   } catch (error) {
     console.error('[Cash Book] Error:', error);
-    return NextResponse.json({
-      success: false,
-      error: 'Failed to fetch cash book entries',
-      details: (error as Error).message
-    }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Failed to fetch cash book entries', details: (error as Error).message }, { status: 500 });
   }
 }
 
