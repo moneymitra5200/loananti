@@ -1016,26 +1016,29 @@ export async function POST(request: NextRequest) {
         let mirrorEmisData: any[];
 
         if (isOriginalInterestOnly) {
-          // Interest-only schedule: each EMI = just the interest, principal = 0
+          // Interest-only mirror: create ONLY the first EMI (same as the original loan at lines 835-854).
+          // The IO payment sync (pay-interest-only action, ~line 2350) creates the next EMI on each
+          // payment via an `alreadyExists` guard. Pre-populating ALL EMIs breaks that guard —
+          // `alreadyExists` is always true, so no next-EMI is ever created.
           const monthlyMirrorInterest = Math.round((loanAmount * mirrorRate / 100 / 12) * 100) / 100;
-          const ioTenure = tenure || 12; // Use original tenure for interest-only mirror
-          mirrorEmisData = Array.from({ length: ioTenure }, (_, index) => {
-            const dueDate = requiredDate(startDate, 'startDate');
-            dueDate.setMonth(dueDate.getMonth() + index + 1);
-            dueDate.setDate(5);
-            dueDate.setHours(0, 0, 0, 0);
-            return {
-              offlineLoanId: mirrorLoan.id,
-              installmentNumber: index + 1,
-              dueDate,
-              principalAmount: 0,          // Interest-only: no principal per EMI
-              interestAmount: monthlyMirrorInterest,
-              totalAmount: monthlyMirrorInterest,
-              outstandingPrincipal: loanAmount, // stays constant until loan closes
-              paymentStatus: 'PENDING' as const
-            };
-          });
-          console.log(`[Mirror Loan] Interest-Only schedule: ${ioTenure} EMIs × ₹${monthlyMirrorInterest}/mo at ${mirrorRate}%`);
+          const firstDueDate = requiredDate(disbursementDate, 'disbursementDate');
+          firstDueDate.setMonth(firstDueDate.getMonth() + 1);
+          firstDueDate.setDate(5);
+          firstDueDate.setHours(0, 0, 0, 0);
+          mirrorEmisData = [{
+            offlineLoanId: mirrorLoan.id,
+            installmentNumber: 1,
+            dueDate: firstDueDate,
+            originalDueDate: firstDueDate,
+            principalAmount: 0,
+            interestAmount: monthlyMirrorInterest,
+            totalAmount: monthlyMirrorInterest,
+            outstandingPrincipal: loanAmount,
+            paymentStatus: 'PENDING' as const,
+            isInterestOnly: true,
+            interestOnlyAmount: monthlyMirrorInterest,
+          }];
+          console.log(`[Mirror Loan] Interest-Only: 1 seed EMI created for mirror loan ₹${monthlyMirrorInterest}/mo @ ${mirrorRate}% (rolling schedule — next EMI created on each payment).`);
         } else {
           mirrorEmisData = mirrorSchedule.map((item, index) => {
             const dueDate = requiredDate(startDate, 'startDate');

@@ -75,6 +75,19 @@ export async function POST(request: NextRequest) {
     console.log(`[Interest Payment] Interest Rate: ${interestRate}%`);
     console.log(`[Interest Payment] Expected Monthly Interest: ${expectedMonthlyInterest}`);
     
+    // ── MIRROR ROUTING: check before transaction ─────────────────────────────────
+    // Rule: Mirror exists → entry in MIRROR company using MIRROR rate
+    //       No mirror    → entry in ORIGINAL company using original amount
+    const mirrorMapForAcct = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId, isOfflineLoan: false },
+      select: { id: true, mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
+    });
+    const acctCompanyId   = mirrorMapForAcct?.mirrorCompanyId || loan.companyId || '';
+    const acctAmount      = mirrorMapForAcct
+      ? Math.round((principalAmount * (mirrorMapForAcct.mirrorInterestRate || 0) / 100 / 12) * 100) / 100
+      : amount;
+    console.log(`[Interest Payment] Accounting target: ${mirrorMapForAcct ? 'MIRROR company ' + acctCompanyId : 'ORIGINAL company ' + loan.companyId} | amount: ₹${acctAmount}`);
+
     // Handle proof upload (now sent as a compressed base64 string directly from client)
     let proofUrl = '';
     if (proofBase64) {
@@ -152,31 +165,51 @@ export async function POST(request: NextRequest) {
         data: { totalInterestOnlyPaid: { increment: amount } }
       });
 
-      // C. Bank / CashBook entry for non-cash payments
+      // C. Bank / CashBook entry — routed to MIRROR company if mapping exists, else ORIGINAL.
+      // acctCompanyId and acctAmount are determined before the transaction (mirror-aware).
       const isBankPayment = ['BANK_TRANSFER', 'ONLINE', 'UPI'].includes(paymentMode);
       if (isBankPayment) {
+        // Prefer the accounting-target company's bank account; fall back to any default.
         let bankAccount = await tx.bankAccount.findFirst({
-          where: { companyId: loan.companyId || undefined, isDefault: true, isActive: true }
+          where: { companyId: acctCompanyId || undefined, isDefault: true, isActive: true }
         });
+        if (!bankAccount && acctCompanyId) {
+          bankAccount = await tx.bankAccount.findFirst({ where: { companyId: acctCompanyId, isActive: true } });
+        }
         if (!bankAccount) {
           bankAccount = await tx.bankAccount.findFirst({ where: { isDefault: true, isActive: true } });
         }
         if (bankAccount) {
           await tx.bankAccount.update({
             where: { id: bankAccount.id },
-            data: { currentBalance: { increment: amount } }
+            data: { currentBalance: { increment: acctAmount } }
           });
           await tx.bankTransaction.create({
             data: {
               bankAccountId: bankAccount.id,
               transactionType: 'CREDIT',
-              amount: amount,
-              balanceAfter: bankAccount.currentBalance + amount,
-              description: `Interest Collection (Interest-Only Phase) - ${loan.applicationNo}`,
+              amount: acctAmount,
+              balanceAfter: bankAccount.currentBalance + acctAmount,
+              description: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ' (mirror)' : ''}`,
               referenceType: 'INTEREST_ONLY_PAYMENT',
               referenceId: payment.id,
               createdById: collectedBy
             }
+          });
+        }
+      } else {
+        // CASH: record in CashBook of the accounting target company
+        if (acctCompanyId) {
+          const { recordCashBookEntry } = await import('@/lib/simple-accounting');
+          await recordCashBookEntry({
+            companyId: acctCompanyId,
+            entryType: 'CREDIT',
+            amount: acctAmount,
+            description: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ' (mirror)' : ''}`,
+            referenceType: 'INTEREST_ONLY_PAYMENT',
+            referenceId: payment.id,
+            createdById: collectedBy,
+            tx,
           });
         }
       }
@@ -238,10 +271,161 @@ export async function POST(request: NextRequest) {
         }
       });
 
+      // E2. Rolling EMI update — identical to offline IO loan pattern.
+      // Mark the current PENDING IO EMI as INTEREST_ONLY_PAID and create the next month's
+      // PENDING EMI so the cashier can collect next month without calling interest-emi GET first.
+      // If no PENDING EMI exists yet (first-time, before interest-emi GET was called), this is a
+      // no-op — the next GET call will auto-create EMI #1 and subsequent collections will roll.
+      const currentIOEmi = await tx.eMISchedule.findFirst({
+        where: {
+          loanApplicationId: loanId,
+          isInterestOnly: true,
+          paymentStatus: { in: ['PENDING', 'OVERDUE'] }
+        },
+        orderBy: { installmentNumber: 'asc' },
+      });
+      if (currentIOEmi) {
+        await tx.eMISchedule.update({
+          where: { id: currentIOEmi.id },
+          data: {
+            paymentStatus: 'INTEREST_ONLY_PAID',
+            paidAmount: amount,
+            paidInterest: amount,
+            paidDate: new Date(),
+            paymentMode: paymentMode,
+            interestOnlyPaidAt: new Date(),
+            interestOnlyAmount: amount,
+            notes: `[IO PAID] Receipt: ${receiptNo}`,
+          }
+        });
+        console.log(`[Interest Payment] EMI #${currentIOEmi.installmentNumber} marked INTEREST_ONLY_PAID`);
+        // Create next month's EMI (rolling)
+        const nextInstNum = currentIOEmi.installmentNumber + 1;
+        const nextAlreadyExists = await tx.eMISchedule.findFirst({
+          where: { loanApplicationId: loanId, installmentNumber: nextInstNum },
+        });
+        if (!nextAlreadyExists) {
+          const nextDue = new Date(currentIOEmi.dueDate);
+          nextDue.setMonth(nextDue.getMonth() + 1);
+          await tx.eMISchedule.create({
+            data: {
+              loanApplicationId: loanId,
+              installmentNumber: nextInstNum,
+              dueDate: nextDue,
+              originalDueDate: nextDue,
+              principalAmount: 0,
+              interestAmount: expectedMonthlyInterest,
+              totalAmount: expectedMonthlyInterest,
+              outstandingPrincipal: principalAmount,
+              outstandingInterest: expectedMonthlyInterest,
+              paymentStatus: 'PENDING',
+              isInterestOnly: true,
+              interestOnlyAmount: expectedMonthlyInterest,
+            }
+          });
+          console.log(`[Interest Payment] Next IO EMI #${nextInstNum} created (rolling)`);
+        }
+      }
+
       return { payment, updatedLoan };
     })); // end withRetry + $transaction
 
     console.log(`[Interest Payment] ✅ All writes committed atomically.`);
+
+    // ── DOUBLE-ENTRY JOURNAL (outside tx — non-critical, CoA init can be slow) ──────────────
+    // Routes to mirror company if mapping exists, else original company.
+    try {
+      if (acctCompanyId) {
+        const { AccountingService: AccSvc, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+        const accSvc = new AccSvc(acctCompanyId);
+        await accSvc.initializeChartOfAccounts();
+        const isOnlineMode = ['BANK_TRANSFER', 'ONLINE', 'UPI'].includes(paymentMode);
+        await accSvc.createJournalEntry({
+          entryDate: new Date(),
+          referenceType: 'INTEREST_ONLY_PAYMENT',
+          referenceId: payment.id,
+          narration: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ` @ ${mirrorMapForAcct.mirrorInterestRate}% (mirror)` : ''} ₹${acctAmount}`,
+          lines: [
+            {
+              accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
+              debitAmount: acctAmount, creditAmount: 0,
+              narration: `Interest received (${paymentMode})`,
+            },
+            {
+              accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+              debitAmount: 0, creditAmount: acctAmount,
+              narration: `Interest income — ${loan.applicationNo}`,
+            },
+          ],
+          createdById: collectedBy,
+          paymentMode: paymentMode || 'CASH',
+          isAutoEntry: true,
+        });
+        console.log(`[Interest Payment] ✅ Journal entry in ${mirrorMapForAcct ? 'MIRROR' : 'ORIGINAL'} company ${acctCompanyId} ₹${acctAmount}`);
+
+        // ── Mirror EMI rolling sync (if mirror mapping exists) ──────────────────
+        if (mirrorMapForAcct?.mirrorLoanId) {
+          try {
+            const mirrorLoanId = mirrorMapForAcct.mirrorLoanId;
+            const currentEMI = await db.eMISchedule.findFirst({
+              where: { loanApplicationId: loanId, isInterestOnly: true, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
+              orderBy: { installmentNumber: 'asc' },
+            });
+            if (currentEMI) {
+              const mirrorEMI = await db.eMISchedule.findFirst({
+                where: { loanApplicationId: mirrorLoanId, installmentNumber: currentEMI.installmentNumber },
+              });
+              if (mirrorEMI && mirrorEMI.paymentStatus !== 'PAID') {
+                await db.eMISchedule.update({
+                  where: { id: mirrorEMI.id },
+                  data: {
+                    paymentStatus: 'INTEREST_ONLY_PAID',
+                    isInterestOnly: true,
+                    interestOnlyPaidAt: new Date(),
+                    interestOnlyAmount: acctAmount,
+                    paidInterest: acctAmount,
+                    paidAmount: acctAmount,
+                    paidDate: new Date(),
+                    principalDeferred: true,
+                    notes: `[IO SYNC] Auto-paid ₹${acctAmount} (synced from original loan)`,
+                  }
+                });
+                // Create next mirror EMI if it doesn't exist
+                const nextInstNum = mirrorEMI.installmentNumber + 1;
+                const alreadyExists = await db.eMISchedule.findFirst({
+                  where: { loanApplicationId: mirrorLoanId, installmentNumber: nextInstNum },
+                });
+                if (!alreadyExists) {
+                  const nextDue = new Date(mirrorEMI.dueDate);
+                  nextDue.setMonth(nextDue.getMonth() + 1);
+                  await db.eMISchedule.create({
+                    data: {
+                      loanApplicationId: mirrorLoanId,
+                      installmentNumber: nextInstNum,
+                      dueDate: nextDue,
+                      originalDueDate: nextDue,
+                      principalAmount: 0,
+                      interestAmount: acctAmount,
+                      totalAmount: acctAmount,
+                      outstandingPrincipal: principalAmount,
+                      outstandingInterest: acctAmount,
+                      paymentStatus: 'PENDING',
+                      isInterestOnly: true,
+                      interestOnlyAmount: acctAmount,
+                    }
+                  });
+                  console.log(`[Interest Payment] ✅ Mirror EMI #${nextInstNum} created for mirror loan ${mirrorLoanId}`);
+                }
+              }
+            }
+          } catch (mirrorSyncErr) {
+            console.error('[Interest Payment] Mirror EMI sync error (non-critical):', mirrorSyncErr);
+          }
+        }
+      }
+    } catch (journalErr: any) {
+      console.error('[Interest Payment] Journal entry failed (non-critical):', journalErr?.message);
+    }
 
     console.log(`[Interest Payment] ========== INTEREST COLLECTION COMPLETE ==========`);
     

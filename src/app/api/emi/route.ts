@@ -1120,22 +1120,71 @@ export async function PUT(request: NextRequest) {
         principalPaid = Math.max(0, paidAmount - interestPaid);
       }
 
-      if (capturedPaymentId && capturedCompanyId) {
-        try {
-          await createEMIPaymentEntry({
-            loanId,
-            customerId: emi.loanApplication?.customerId || '',
-            paymentId: capturedPaymentId,
-            totalAmount: paidAmount,
-            principalComponent: principalPaid,
-            interestComponent: interestPaid,
-            penaltyComponent: 0,
-            paymentDate: new Date(),
-            createdById: userId,
-            paymentMode: actualPaymentMode,
-            targetCompanyId: capturedCompanyId,
+      // Look up mirror mapping AFTER tx for accounting routing.
+      // Mirror exists → MIRROR company using MIRROR P+I.
+      // No mirror    → ORIGINAL company using ORIGINAL P+I.
+      let acctIsMirror = false;
+      let acctMirrorCompanyId: string | undefined;
+      let acctMirrorLoanId:    string | undefined;
+      let acctMirrorPrincipal: number | undefined;
+      let acctMirrorInterest:  number | undefined;
+      try {
+        const mirrorMap = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId },
+          select: { mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
+        });
+        if (mirrorMap?.mirrorLoanId && mirrorMap.mirrorCompanyId) {
+          acctIsMirror        = true;
+          acctMirrorCompanyId = mirrorMap.mirrorCompanyId;
+          acctMirrorLoanId    = mirrorMap.mirrorLoanId;
+          const mEmiRow = await db.eMISchedule.findFirst({
+            where: { loanApplicationId: mirrorMap.mirrorLoanId, installmentNumber: emi.installmentNumber },
+            select: { principalAmount: true, interestAmount: true }
           });
-          console.log(`[EMI API] ✅ Journal entry created for company ${capturedCompanyId}`);
+          if (mEmiRow) {
+            acctMirrorPrincipal = mEmiRow.principalAmount;
+            acctMirrorInterest  = mEmiRow.interestAmount;
+          } else {
+            // Fallback: estimate at mirror rate
+            acctMirrorInterest  = Math.round(emi.outstandingPrincipal * (mirrorMap.mirrorInterestRate / 100 / 12) * 100) / 100;
+            acctMirrorPrincipal = Math.max(0, principalPaid - (emi.interestAmount - acctMirrorInterest));
+          }
+        }
+      } catch (mLookupErr) {
+        console.warn('[EMI API] Mirror lookup for accounting (non-critical):', mLookupErr);
+      }
+
+      // Effective accounting company: mirror if mapping exists, else original
+      const acctCompanyId = acctIsMirror
+        ? acctMirrorCompanyId!
+        : (capturedCompanyId || emi.loanApplication?.companyId || null);
+
+      if (capturedPaymentId && acctCompanyId) {
+        try {
+          const { recordEMIPaymentAccounting } = await import('@/lib/simple-accounting');
+          await recordEMIPaymentAccounting({
+            amount:             paidAmount,
+            principalComponent: principalPaid,
+            interestComponent:  interestPaid,
+            paymentMode:        actualPaymentMode as any,
+            paymentType:        normalizedPaymentType || 'FULL',
+            creditType:         actualCreditType as 'PERSONAL' | 'COMPANY',
+            loanCompanyId:      emi.loanApplication?.companyId || acctCompanyId || '',
+            company3Id:         emi.loanApplication?.companyId || acctCompanyId || '',
+            loanId,
+            emiId,
+            paymentId:          capturedPaymentId,
+            loanNumber:         emi.loanApplication?.applicationNo || loanId,
+            installmentNumber:  emi.installmentNumber,
+            userId,
+            customerId:         emi.loanApplication?.customerId || undefined,
+            mirrorLoanId:       acctIsMirror ? acctMirrorLoanId    : undefined,
+            mirrorPrincipal:    acctIsMirror ? (acctMirrorPrincipal ?? 0) : undefined,
+            mirrorInterest:     acctIsMirror ? (acctMirrorInterest  ?? 0) : undefined,
+            mirrorCompanyId:    acctIsMirror ? acctMirrorCompanyId  : undefined,
+            isMirrorPayment:    acctIsMirror,
+          });
+          console.log(`[EMI API] ✅ Journal — ${acctIsMirror ? 'MIRROR ' + acctMirrorCompanyId : 'ORIGINAL ' + acctCompanyId}`);
         } catch (journalError) {
           console.error('[EMI API] ⚠️ Journal entry failed (payment still recorded):', journalError);
         }
@@ -1198,11 +1247,8 @@ export async function PUT(request: NextRequest) {
           }
         } // end processing fee block
 
-        // ── BANK / CASHBOOK PASSBOOK UPDATE ──────────────────────────────────────
-        // Update the physical passbook records so EMI payments show up in
-        // the bank statements and cash book (not just the journal/daybook).
-        // This runs even if the journal entry failed — passbook is a separate concern.
-        if (capturedPaymentId && capturedCompanyId) {
+        // ── BANK / CASHBOOK PASSBOOK UPDATE (routes to acctCompanyId: mirror or original) ────
+        if (capturedPaymentId && acctCompanyId) {
           try {
             const isCash = actualPaymentMode === 'CASH';
             const loanAppNo = emi.loanApplication?.applicationNo || loanId;
@@ -1213,15 +1259,15 @@ export async function PUT(request: NextRequest) {
             if (isSplitMode && (splitCashAmount > 0 || splitOnlineAmount > 0)) {
               // Cash portion → CashBook
               if (splitCashAmount > 0) {
-                let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
-                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+                let cashBook = await db.cashBook.findUnique({ where: { companyId: acctCompanyId } });
+                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: acctCompanyId, currentBalance: 0 } });
                 const newCashBal = cashBook.currentBalance + splitCashAmount;
                 await db.cashBookEntry.create({ data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: splitCashAmount, balanceAfter: newCashBal, description: `${passbookDesc} (Cash portion)`, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, entryDate: new Date() } });
                 await db.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBal, lastUpdatedById: userId, lastUpdatedAt: new Date() } });
               }
               // Online portion → BankAccount
               if (splitOnlineAmount > 0) {
-                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: capturedCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
+                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: acctCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
                 if (bankAcct) {
                   const newBankBal = bankAcct.currentBalance + splitOnlineAmount;
                   await db.bankTransaction.create({ data: { bankAccountId: bankAcct.id, transactionType: 'CREDIT', amount: splitOnlineAmount, balanceAfter: newBankBal, description: `${passbookDesc} (Online portion)`, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, transactionDate: new Date() } });
@@ -1231,64 +1277,38 @@ export async function PUT(request: NextRequest) {
               console.log(`[EMI API] ✅ SPLIT passbook: Cash ₹${splitCashAmount} + Online ₹${splitOnlineAmount}`);
             } else if (isCash) {
               // CASH → update CashBook
-              let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
+              let cashBook = await db.cashBook.findUnique({ where: { companyId: acctCompanyId } });
               if (!cashBook) {
-                cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+                cashBook = await db.cashBook.create({ data: { companyId: acctCompanyId, currentBalance: 0 } });
               }
               const newCashBalance = cashBook.currentBalance + paidAmount;
               await db.cashBookEntry.create({
-                data: {
-                  cashBookId: cashBook.id,
-                  entryType: 'CREDIT',
-                  amount: paidAmount,
-                  balanceAfter: newCashBalance,
-                  description: passbookDesc,
-                  referenceType: 'EMI_PAYMENT',
-                  referenceId: capturedPaymentId,
-                  createdById: userId,
-                  entryDate: new Date(),
-                },
+                data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: paidAmount, balanceAfter: newCashBalance, description: passbookDesc, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, entryDate: new Date() },
               });
-              await db.cashBook.update({
-                where: { id: cashBook.id },
-                data: { currentBalance: newCashBalance, lastUpdatedById: userId, lastUpdatedAt: new Date() },
-              });
-              console.log(`[EMI API] ✅ CashBook entry created: +₹${paidAmount} (new balance: ₹${newCashBalance})`);
+              await db.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBalance, lastUpdatedById: userId, lastUpdatedAt: new Date() } });
+              console.log(`[EMI API] \u2705 CashBook: +\u20b9${paidAmount} [${acctIsMirror ? 'MIRROR' : 'ORIGINAL'}]`);
             } else {
-              // ONLINE / CHEQUE → update BankAccount
+              // ONLINE / CHEQUE → BankAccount
               const bankAcct = await db.bankAccount.findFirst({
-                where: { companyId: capturedCompanyId, isActive: true },
+                where: { companyId: acctCompanyId, isActive: true },
                 orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
               });
               if (bankAcct) {
                 const newBankBalance = bankAcct.currentBalance + paidAmount;
                 await db.bankTransaction.create({
-                  data: {
-                    bankAccountId: bankAcct.id,
-                    transactionType: 'CREDIT',
-                    amount: paidAmount,
-                    balanceAfter: newBankBalance,
-                    description: passbookDesc,
-                    referenceType: 'EMI_PAYMENT',
-                    referenceId: capturedPaymentId,
-                    createdById: userId,
-                    transactionDate: new Date(),
-                  },
+                  data: { bankAccountId: bankAcct.id, transactionType: 'CREDIT', amount: paidAmount, balanceAfter: newBankBalance, description: passbookDesc, referenceType: 'EMI_PAYMENT', referenceId: capturedPaymentId, createdById: userId, transactionDate: new Date() },
                 });
-                await db.bankAccount.update({
-                  where: { id: bankAcct.id },
-                  data: { currentBalance: newBankBalance },
-                });
-                console.log(`[EMI API] ✅ BankTransaction created: +₹${paidAmount} → ${bankAcct.bankName} (new balance: ₹${newBankBalance})`);
+                await db.bankAccount.update({ where: { id: bankAcct.id }, data: { currentBalance: newBankBalance } });
+                console.log(`[EMI API] \u2705 BankTx: +\u20b9${paidAmount} \u2192 ${bankAcct.bankName} [${acctIsMirror ? 'MIRROR' : 'ORIGINAL'}]`);
               } else {
-                console.warn(`[EMI API] ⚠️ No bank account found for company ${capturedCompanyId}, skipping bank passbook entry`);
+                console.warn(`[EMI API] \u26a0\ufe0f No bank account for company ${acctCompanyId}`);
               }
             }
           } catch (bookError) {
-            console.error('[EMI API] ⚠️ Bank/cashbook passbook update failed (payment still recorded):', bookError);
+            console.error('[EMI API] \u26a0\ufe0f Passbook update failed (payment still recorded):', bookError);
           }
         }
-      } // end outer if (capturedPaymentId && capturedCompanyId)
+      } // end outer accounting block
 
       return NextResponse.json({ 
         success: true, 
