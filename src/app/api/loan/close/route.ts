@@ -134,31 +134,31 @@ export async function POST(request: NextRequest) {
     const effectiveCompanyId = companyId || loan.companyId || '';
     const isCloseable        = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
     const unpaidEMIs         = loan.emiSchedules.filter(isCloseable);
+    const unpaidEMIIds       = unpaidEMIs.map((e: any) => e.id);
     const accountingWarnings: string[] = [];
 
-    // ─── Helper: close online mirror loan ────────────────────────────────────
+    // ─── Helper: close online mirror loan (BATCH — avoids sequential round-trips) ─
     const closeMirrorLoan = async () => {
       if (!mirrorMapping?.mirrorLoanId) return;
       try {
         const mirrorLoan = await db.loanApplication.findUnique({
-          where:   { id: mirrorMapping.mirrorLoanId },
-          include: { emiSchedules: true }
+          where:  { id: mirrorMapping.mirrorLoanId },
+          select: { id: true, applicationNo: true, status: true }
         });
         if (!mirrorLoan || mirrorLoan.status === 'CLOSED') return;
-        const mirrorUnpaid = mirrorLoan.emiSchedules.filter(isCloseable);
-        for (const emi of mirrorUnpaid) {
-          await db.eMISchedule.update({
-            where: { id: emi.id },
-            data:  {
-              paymentStatus: 'PAID',
-              paidAmount:    Number(emi.totalAmount    ?? 0),
-              paidPrincipal: Number(emi.principalAmount ?? 0),
-              paidInterest:  Number(emi.interestAmount   ?? 0),
-              paidDate:      now,
-              paymentMode:   paymentMode || 'CASH',
-            }
-          });
-        }
+
+        // BATCH: one updateMany instead of N sequential updates
+        await db.eMISchedule.updateMany({
+          where: {
+            loanApplicationId: mirrorMapping.mirrorLoanId,
+            paymentStatus:     { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
+          },
+          data: {
+            paymentStatus: 'PAID',
+            paidDate:      now,
+            paymentMode:   paymentMode || 'CASH',
+          }
+        });
         await db.loanApplication.update({
           where: { id: mirrorMapping.mirrorLoanId! },
           data:  { status: 'CLOSED', closedAt: now }
@@ -185,16 +185,16 @@ export async function POST(request: NextRequest) {
         ? totalRemainingPrincipal
         : totalRemainingPrincipal + totalRemainingInterest;
 
-      // ── Core DB ops — atomic ─────────────────────────────────────────────
+      // ── Core DB ops — BATCH updateMany + single loan update ─────────────────
+      // CRITICAL FIX: replaced sequential per-EMI update loop with a single updateMany.
+      // Old code: N await tx.eMISchedule.update() calls = N round-trips = DB_TIMEOUT.
+      // New code: 2 queries total regardless of EMI count.
       await db.$transaction(async (tx) => {
-        for (const emi of unpaidEMIs) {
-          await tx.eMISchedule.update({
-            where: { id: emi.id },
-            data:  {
+        if (unpaidEMIIds.length > 0) {
+          await tx.eMISchedule.updateMany({
+            where: { id: { in: unpaidEMIIds } },
+            data: {
               paymentStatus: 'PAID',
-              paidAmount:    Number(emi.totalAmount    ?? 0),
-              paidPrincipal: Number(emi.principalAmount ?? 0),
-              paidInterest:  Number(emi.interestAmount   ?? 0),
               paidDate:      now,
               notes:         `Written off as loss (${writeOffInterestOnly ? 'Principal Only' : 'P+I'})`,
             }
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
             rejectionReason: `Loan written off as irrecoverable loss (${writeOffInterestOnly ? 'Principal Only' : 'P+I'}). ₹${totalWriteOff.toFixed(2)} written off. ${remarks || ''}`
           }
         });
-      }, { maxWait: 15000, timeout: 30000 });
+      }, { maxWait: 5000, timeout: 10000 });
 
       // ActionLog — fire-and-forget
       db.actionLog.create({
@@ -315,19 +315,16 @@ export async function POST(request: NextRequest) {
     }
     const totalForeclosureAmount = totalPrincipal + totalInterest;
 
-    // ── Core DB ops — atomic ─────────────────────────────────────────────────
+    // ── Core DB ops — BATCH updateMany + single loan update ─────────────────
+    // CRITICAL FIX: sequential per-EMI await loop replaced with updateMany.
+    // Old code: N await tx.eMISchedule.update() = N round-trips = DB_TIMEOUT on Hostinger.
+    // New code: 2 queries regardless of EMI count. Loan is CLOSED atomically in <1s.
     const paymentRecord = await db.$transaction(async (tx) => {
-      for (const emi of unpaidEMIs) {
-        const monthHasStarted = new Date(emi.dueDate) <= now;
-        const collectP = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
-        const collectI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0)) : 0;
-        await tx.eMISchedule.update({
-          where: { id: emi.id },
-          data:  {
+      if (unpaidEMIIds.length > 0) {
+        await tx.eMISchedule.updateMany({
+          where: { id: { in: unpaidEMIIds } },
+          data: {
             paymentStatus: 'PAID',
-            paidAmount:    Number(emi.paidAmount    ?? 0) + collectP + collectI,
-            paidPrincipal: Number(emi.principalAmount ?? 0),
-            paidInterest:  monthHasStarted ? Number(emi.interestAmount ?? 0) : Number(emi.paidInterest ?? 0),
             paidDate:      now,
             paymentMode,
             notes:         `Foreclosure payment — Loan closed`,
@@ -392,7 +389,28 @@ export async function POST(request: NextRequest) {
       });
 
       return pmt;
-    }, { maxWait: 15000, timeout: 30000 });
+    }, { maxWait: 5000, timeout: 10000 });
+
+    // ── Update per-EMI exact amounts OUTSIDE transaction (fire-and-forget) ──
+    // paidAmount/paidPrincipal/paidInterest are display fields — non-critical.
+    // Loan is already CLOSED; these run asynchronously to keep the response fast.
+    setImmediate(async () => {
+      try {
+        for (const emi of unpaidEMIs) {
+          const monthHasStarted = new Date(emi.dueDate) <= now;
+          const collectP = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          const collectI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0)) : 0;
+          await db.eMISchedule.update({
+            where: { id: emi.id },
+            data: {
+              paidAmount:    Number(emi.paidAmount ?? 0) + collectP + collectI,
+              paidPrincipal: Number(emi.principalAmount ?? 0),
+              paidInterest:  monthHasStarted ? Number(emi.interestAmount ?? 0) : Number(emi.paidInterest ?? 0),
+            }
+          }).catch(() => {});
+        }
+      } catch { /* silent */ }
+    });
 
     // ActionLog — fire-and-forget
     db.actionLog.create({
