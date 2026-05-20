@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { createSettlementEntry } from '@/lib/accounting-service';
+// ACID: retry on deadlock + settlement status guard
+import { withRetry, guardSettlementStatus } from '@/lib/db-utils';
+
 
 // Local type definitions - Prisma schema uses strings, not enums
 type SettlementStatus = 'PENDING' | 'VERIFIED' | 'COMPLETED' | 'REJECTED';
@@ -142,8 +145,9 @@ export async function POST(request: NextRequest) {
 
     const settlementNumber = generateSettlementNumber();
 
-    // Create settlement and decrease user's credit
-    const [settlement, creditTx] = await db.$transaction([
+    // Create settlement and decrease user's credit atomically
+    // withRetry: retries on deadlock (P2034) up to 3 times
+    const [settlement, creditTx] = await withRetry(() => db.$transaction([
       db.cashierSettlement.create({
         data: {
           settlementNumber,
@@ -173,8 +177,23 @@ export async function POST(request: NextRequest) {
           sourceType: 'SETTLEMENT',
           remarks: `Settlement ${settlementNumber}`
         }
-      })
-    ]);
+      }),
+      // ActionLog inside transaction — ACID-safe (rolls back if tx fails)
+      db.actionLog.create({
+        data: {
+          userId,
+          userRole: 'STAFF',
+          actionType: 'CREATE',
+          module: 'SETTLEMENT',
+          recordId: userId,
+          recordType: 'CashierSettlement',
+          previousData: JSON.stringify({ credit: user.credit }),
+          newData: JSON.stringify({ amount, paymentMode, cashierId, settlementNumber }),
+          description: `Settlement ₹${amount} submitted to cashier (${settlementNumber})`,
+          canUndo: true,
+        },
+      }),
+    ]));
 
     // Update credit transaction with settlement ID
     await db.creditTransaction.update({
@@ -286,8 +305,11 @@ export async function PUT(request: NextRequest) {
       });
 
       if (cashier) {
-        await db.$transaction([
-          db.creditTransaction.create({
+        await withRetry(() => db.$transaction(async (tx) => {
+          // ACID GUARD: Re-read settlement status inside tx to prevent double-processing
+          await guardSettlementStatus(tx, settlementId, 'VERIFIED');
+
+          await tx.creditTransaction.create({
             data: { // @ts-ignore
               userId: settlement.cashierId,
               transactionType: 'SETTLEMENT',
@@ -299,12 +321,27 @@ export async function PUT(request: NextRequest) {
               settlementId: settlementId,
               description: `Received from ${settlement.user?.id || 'user'}`
             }
-          }),
-          db.user.update({
+          });
+          await tx.user.update({
             where: { id: settlement.cashierId },
             data: { credit: { increment: settlement.amount } }
-          })
-        ]);
+          });
+          // ActionLog inside transaction — ACID-safe
+          await tx.actionLog.create({
+            data: {
+              userId: verifiedById || settlement.cashierId,
+              userRole: 'STAFF',
+              actionType: 'COMPLETE',
+              module: 'SETTLEMENT',
+              recordId: settlementId,
+              recordType: 'CashierSettlement',
+              previousData: JSON.stringify({ status: 'VERIFIED', cashierCredit: cashier.credit }),
+              newData: JSON.stringify({ status: 'COMPLETED', amount: settlement.amount, cashierCreditAfter: cashier.credit + settlement.amount }),
+              description: `Settlement ${settlement.settlementNumber || settlementId} completed. Cashier received ₹${settlement.amount}`,
+              canUndo: false, // completed settlements should not be undone
+            },
+          });
+        }));
       }
 
       return NextResponse.json({ success: true, settlement: updatedSettlement });

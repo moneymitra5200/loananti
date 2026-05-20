@@ -4,6 +4,9 @@ import { AccountingService } from '@/lib/accounting-service';
 import NotificationService from '@/lib/notification-service';
 import { notifyEvent } from '@/lib/event-notify';
 import { fireAudit } from '@/lib/audit';
+// ACID: retry on deadlock
+import { withRetry } from '@/lib/db-utils';
+
 
 // Expense type → account code mapping (must match DEFAULT_CHART_OF_ACCOUNTS in accounting-service.ts)
 const EXPENSE_ACCOUNT_CODES: Record<string, string> = {
@@ -209,6 +212,22 @@ export async function POST(request: NextRequest) {
         },
       });
       
+      // ActionLog (fire-and-forget — non-critical, cashier pending request)
+      db.actionLog.create({
+        data: {
+          userId,
+          userRole: role,
+          actionType: 'CREATE',
+          module: 'EXPENSE',
+          recordId: expense.id,
+          recordType: 'Expense',
+          previousData: null,
+          newData: JSON.stringify({ expenseNumber, amount, expenseType, description, paymentSource }),
+          description: `Expense request ₹${amount} submitted for approval (${expenseNumber})`,
+          canUndo: true,
+        },
+      }).catch(() => {/* non-critical */});
+
       // Notify SUPER_ADMIN + ACCOUNTANT of new pending expense (push + in-app)
       notifyEvent({
         event: 'EXPENSE_REQUEST',
@@ -244,7 +263,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const result = await db.$transaction(async (tx) => {
+      const result = await withRetry(() => db.$transaction(async (tx) => {
         const expense = await tx.expense.create({
           data: {
             companyId: effectiveCompanyId,
@@ -267,8 +286,25 @@ export async function POST(request: NextRequest) {
         });
 
         const balances = await postToAccounting(tx, expense.id, expense, userId, bankAccount, paymentSource);
+
+        // ActionLog inside transaction — ACID-safe (rolls back if tx fails)
+        await tx.actionLog.create({
+          data: {
+            userId,
+            userRole: role,
+            actionType: 'CREATE',
+            module: 'EXPENSE',
+            recordId: expense.id,
+            recordType: 'Expense',
+            previousData: null,
+            newData: JSON.stringify({ expenseNumber: expense.expenseNumber, amount, expenseType, paymentSource, companyId: effectiveCompanyId }),
+            description: `Expense ₹${amount} posted directly by ${role} (${expense.expenseNumber})`,
+            canUndo: true,
+          },
+        });
+
         return { expense, ...balances, bankAccount };
-      });
+      }));
 
       // Journal entry — awaited so entry is guaranteed before response
       await createJournalEntry(effectiveCompanyId, result.expense, userId, bankAccount?.id, resolvedPaymentMode);
@@ -385,7 +421,7 @@ export async function PUT(request: NextRequest) {
 
       const effectiveExpense = { ...expense, companyId: effectiveCompanyId };
 
-      const result = await db.$transaction(async (tx) => {
+      const result = await withRetry(() => db.$transaction(async (tx) => {
         await tx.expense.update({
           where: { id },
           data: {
@@ -400,8 +436,25 @@ export async function PUT(request: NextRequest) {
         });
 
         const balances = await postToAccounting(tx, expense.id, effectiveExpense, adminId, bankAccount, paymentSource);
+
+        // ActionLog inside transaction — ACID-safe
+        await tx.actionLog.create({
+          data: {
+            userId: adminId,
+            userRole: 'SUPER_ADMIN',
+            actionType: 'APPROVE',
+            module: 'EXPENSE',
+            recordId: id,
+            recordType: 'Expense',
+            previousData: JSON.stringify({ categoryId: 'PENDING', companyId: expense.companyId }),
+            newData: JSON.stringify({ categoryId: 'APPROVED', amount: expense.amount, companyId: effectiveCompanyId, paymentSource }),
+            description: `Expense ₹${expense.amount} approved & posted by admin (${expense.expenseNumber})`,
+            canUndo: false, // approved+posted expenses should not be undone without reversal
+          },
+        });
+
         return { ...balances, bankAccount };
-      });
+      }));
 
       // Journal entry — awaited, uses admin's chosen company
       await createJournalEntry(

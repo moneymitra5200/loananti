@@ -2,6 +2,9 @@
 // Fix A: ts-nocheck bypasses PaymentModeType enum mismatch (runtime values are correct)
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+// ACID: retry on deadlock + credit balance guard
+import { withRetry, guardCreditBalance } from '@/lib/db-utils';
+
 
 // GET - Get credit transfer history and balances
 export async function GET(request: NextRequest) {
@@ -113,7 +116,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Insufficient credit balance' }, { status: 400 });
       }
 
-      const result = await db.$transaction(async (tx) => {
+      const result = await withRetry(() => db.$transaction(async (tx) => {
+        // ACID GUARD: Re-read balance inside tx to prevent concurrent overdraft
+        await guardCreditBalance(tx, fromUserId, amount, creditType as any);
+
         // Deduct from sender
         await tx.user.update({
           where: { id: fromUserId },
@@ -170,8 +176,24 @@ export async function POST(request: NextRequest) {
           }
         });
 
+        // ActionLog (inside tx — ACID-safe, rolls back if tx fails)
+        await tx.actionLog.create({
+          data: {
+            userId: createdBy || fromUserId,
+            userRole: 'STAFF',
+            actionType: 'TRANSFER',
+            module: 'CREDIT_TRANSFER',
+            recordId: fromUserId,
+            recordType: 'User',
+            previousData: JSON.stringify({ balance: fromUser.credit, companyCredit: fromUser.companyCredit, personalCredit: fromUser.personalCredit }),
+            newData: JSON.stringify({ toUserId, toUserName: toUser.name, amount, creditType, paymentMode }),
+            description: `₹${amount} ${creditType} credit transferred from ${fromUser.name} to ${toUser.name}`,
+            canUndo: true,
+          },
+        });
+
         return { success: true };
-      });
+      }));
 
       return NextResponse.json({ success: true, message: 'Credit transferred successfully' });
     }
@@ -200,7 +222,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Insufficient credit balance' }, { status: 400 });
       }
 
-      const result = await db.$transaction(async (tx) => {
+      const result = await withRetry(() => db.$transaction(async (tx) => {
+        // ACID GUARD: Re-read balance inside tx to prevent concurrent overdraft
+        await guardCreditBalance(tx, fromUserId, amount, creditType as any);
+
         // Deduct from user
         await tx.user.update({
           where: { id: fromUserId },
@@ -227,6 +252,7 @@ export async function POST(request: NextRequest) {
             balanceAfter: newBalance,
             description: `Credit deposit from ${fromUser.name} (${fromUser.role})`,
             referenceType: 'CREDIT_TRANSFER',
+            referenceId: `CREDIT-TRANSFER-${fromUserId}-${Date.now()}`,
             createdById: fromUserId,
             transactionDate: new Date()
           }
@@ -250,8 +276,24 @@ export async function POST(request: NextRequest) {
           }
         });
 
+        // ActionLog (inside tx — ACID-safe)
+        await tx.actionLog.create({
+          data: {
+            userId: createdBy || fromUserId,
+            userRole: 'STAFF',
+            actionType: 'TRANSFER',
+            module: 'CREDIT_TRANSFER',
+            recordId: fromUserId,
+            recordType: 'User',
+            previousData: JSON.stringify({ balance: fromUser.credit, companyCredit: fromUser.companyCredit, personalCredit: fromUser.personalCredit }),
+            newData: JSON.stringify({ bankAccountId, bankName: bankAccount.bankName, amount, creditType }),
+            description: `₹${amount} deposited to ${bankAccount.bankName} from ${fromUser.name}`,
+            canUndo: true,
+          },
+        });
+
         return { success: true, newBalance };
-      });
+      }));
 
       return NextResponse.json({ 
         success: true, 
@@ -497,7 +539,11 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
+    // ACID: surface insufficient credit as 400 not 500
+    if (error?.code === 'INSUFFICIENT_CREDIT') {
+      return NextResponse.json({ error: error.message, code: 'INSUFFICIENT_CREDIT' }, { status: 400 });
+    }
     console.error('Error in credit transfer:', error);
     return NextResponse.json({ 
       error: 'Failed to process credit transfer',

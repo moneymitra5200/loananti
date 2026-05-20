@@ -1147,6 +1147,9 @@ model BankTransaction {
   @@index([bankAccountId])
   @@index([transactionDate])
   @@index([referenceType])
+  // Unique constraint on referenceId prevents double bank entries (idempotency at DB level)
+  // Only applies when referenceId is non-null; MySQL treats each NULL as distinct
+  @@unique([referenceId])
 }
 
 // GST Configuration
@@ -1233,6 +1236,9 @@ model CashBookEntry {
   @@index([cashBookId])
   @@index([entryDate])
   @@index([referenceType])
+  // Unique constraint on referenceId prevents double-accounting (idempotency at DB level)
+  // MySQL treats NULL as distinct so nullable referenceId is safe here
+  @@unique([referenceId])
   @@index([cashBookId, entryDate]) // compound: cashbook history by date range
   @@index([referenceId, referenceType]) // compound: find cashbook entry by reference
 }

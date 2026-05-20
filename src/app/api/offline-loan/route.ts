@@ -6,6 +6,9 @@ import { recordEMIPaymentAccounting, getCompany3Id, recordCashBookEntry, recordB
 import { recordOfflineLoanDisbursement as recordDaybookDisbursement } from '@/lib/accounting-helper';
 import { notifyEvent } from '@/lib/event-notify';
 import { emitReportInvalidate, emitDashboardRefresh } from '@/lib/socket-emit';
+// ACID: central utilities for retry-on-deadlock + duplicate-payment guards
+import { withRetry, guardOfflineEMIPayment } from '@/lib/db-utils';
+
 
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
@@ -2563,8 +2566,13 @@ export async function PUT(request: NextRequest) {
           : { personalCredit: newPersonalCr };
 
       // ============ STEP 4: PROCESS PAYMENT IN TRANSACTION ============
-      // timeout: 30000 — INTEREST_ONLY shifts EMIs (N queries) and can exceed default 5s
-      const updatedEmi = await db.$transaction(async (tx) => {
+      // withRetry: automatically retries on Prisma deadlock (P2034) up to 3 times.
+      // guardOfflineEMIPayment: re-reads EMI status INSIDE the transaction to prevent
+      // race conditions where two concurrent requests both think the EMI is PENDING.
+      const updatedEmi = await withRetry(() => db.$transaction(async (tx) => {
+        // ─── ACID GUARD: Prevent duplicate payment (re-read inside tx) ─────────
+        await guardOfflineEMIPayment(tx, emiId);
+
         // Update EMI
         const updated = await tx.offlineLoanEMI.update({
           where: { id: emiId },
@@ -2900,7 +2908,7 @@ export async function PUT(request: NextRequest) {
 
 
         return updated;
-      }, { maxWait: 10000, timeout: 30000 }); // 30s — INTEREST_ONLY shifts ≥N EMI rows
+      }, { maxWait: 10000, timeout: 30000 })); // 30s — INTEREST_ONLY shifts ≥N EMI rows
 
       console.log(`[EMI Payment] Transaction completed in ${Date.now() - startTime}ms total`);
 
@@ -3596,7 +3604,14 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
+    // ACID: Return 409 Conflict for duplicate payment attempts (from guardOfflineEMIPayment)
+    if (error?.code === 'DUPLICATE_PAYMENT') {
+      return NextResponse.json({
+        error: 'Duplicate payment blocked. This EMI is already marked as paid.',
+        code: 'DUPLICATE_PAYMENT',
+      }, { status: 409 });
+    }
     console.error('Offline loan update error:', error);
     return NextResponse.json({ error: 'Failed to update offline loan' }, { status: 500 });
   }
