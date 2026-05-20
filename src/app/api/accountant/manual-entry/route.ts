@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
 
 // POST - Record a manual expense or income entry
 export async function POST(request: NextRequest) {
@@ -65,7 +66,7 @@ export async function POST(request: NextRequest) {
         : bankAccount.currentBalance + amount;
 
       // Create transaction and update balance
-      result = await db.$transaction(async (tx) => {
+      result = await withRetry(() => db.$transaction(async (tx) => {
         // Create bank transaction
         const transaction = await tx.bankTransaction.create({
           data: {
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
         }
 
         return { transaction, newBalance };
-      });
+      })); // end withRetry + $transaction
 
     } else {
       // Cash transaction - update cashbook
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
         ? cashBook.currentBalance - amount 
         : cashBook.currentBalance + amount;
 
-      result = await db.$transaction(async (tx) => {
+      result = await withRetry(() => db.$transaction(async (tx) => {
         // Create cashbook entry
         const entry = await tx.cashBookEntry.create({
           data: {
@@ -164,7 +165,7 @@ export async function POST(request: NextRequest) {
         }
 
         return { entry, newBalance };
-      });
+      })); // end withRetry + $transaction
     }
 
     // Create journal entry for double-entry accounting

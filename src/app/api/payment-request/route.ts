@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
 import { AccountingService } from '@/lib/accounting-service';
 import { sendPaymentConfirmationPush } from '@/lib/push-notification-service';
 import { notifyEvent } from '@/lib/event-notify';
@@ -477,7 +478,7 @@ export async function PUT(request: NextRequest) {
       }
 
       // Start transaction for approval process with extended timeout
-      const result = await db.$transaction(async (tx) => {
+      const result = await withRetry(() => db.$transaction(async (tx) => {
         // Update payment request status
         const updated = await tx.paymentRequest.update({
           where: { id: paymentRequestId },
@@ -657,7 +658,7 @@ export async function PUT(request: NextRequest) {
         }
 
         return updated;
-      }, { timeout: 30000 }); // 30 second timeout for complex payment processing
+      }, { timeout: 30000 })); // 30 second timeout for complex payment processing
 
       // ═══════════════════════════════════════════════════════════════════
       // INTEREST_ONLY POST-TRANSACTION: EMI Shifting + Mirror Sync

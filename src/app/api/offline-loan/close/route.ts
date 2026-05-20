@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
 import NotificationService from '@/lib/notification-service';
 
 // GET - Calculate foreclosure data for an offline loan
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
       // CRITICAL FIX: replaced sequential per-EMI update loop with a single updateMany.
       // Old code did N await update() calls inside a transaction → N round-trips → timeout.
       // New code: 2 queries total regardless of how many EMIs exist.
-      await db.$transaction(async (tx) => {
+      await withRetry(() => db.$transaction(async (tx) => {
         if (unpaidEMIIds.length > 0) {
           await (tx.offlineLoanEMI as any).updateMany({
             where: { id: { in: unpaidEMIIds } },
@@ -226,7 +227,7 @@ export async function POST(request: NextRequest) {
           where: { id: loanId },
           data:  { status: 'CLOSED', closedAt: now }
         });
-      }, { maxWait: 5000, timeout: 10000 });
+      }, { maxWait: 5000, timeout: 10000 }));
 
       // ── ActionLog OUTSIDE transaction (fire-and-forget) ─────────────────
       db.actionLog.create({
@@ -321,7 +322,7 @@ export async function POST(request: NextRequest) {
     // CRITICAL FIX: replaced sequential per-EMI await update loop with a single updateMany.
     // Old code: N round-trips inside a transaction → DB_TIMEOUT on Hostinger (8s limit).
     // New code: 2 queries regardless of EMI count — easily completes in <1s.
-    await db.$transaction(async (tx) => {
+    await withRetry(() => db.$transaction(async (tx) => {
       if (unpaidEMIIds.length > 0) {
         await (tx.offlineLoanEMI as any).updateMany({
           where: { id: { in: unpaidEMIIds } },
@@ -342,7 +343,7 @@ export async function POST(request: NextRequest) {
         where: { id: loanId },
         data:  { status: 'CLOSED', closedAt: now }
       });
-    }, { maxWait: 5000, timeout: 10000 });
+    }, { maxWait: 5000, timeout: 10000 }));
 
     // ── Per-EMI exact amounts updated OUTSIDE transaction (fire-and-forget) ──
     // These are non-critical display fields; the loan is already CLOSED above.

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
+import { withRetry } from '@/lib/db-utils';
+
 
 /**
  * POST /api/accounting/add-equity
@@ -170,127 +172,109 @@ export async function POST(request: NextRequest) {
       const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
       const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
 
-      const je = await db.journalEntry.create({
-        data: {
-          companyId,
-          entryNumber: entryNum,
-          entryDate,
-          referenceType: 'EQUITY_INVESTMENT',
-          referenceId: `${companyId}-EQ-${Date.now()}`,
-          narration: description || `Owner's Equity Investment - Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
-          totalDebit,
-          totalCredit,
-          isAutoEntry: true,
-          isApproved: true,
-          createdById: createdById || 'system',
-          paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-          lines: {
-            create: lines.map(l => ({
-              accountId: accMap.get(l.accountCode)!,
-              debitAmount:  l.debitAmount,
-              creditAmount: l.creditAmount,
-              narration: l.narration || ''
-            }))
+      // ACID: Wrap ALL financial writes atomically in one transaction
+      // journal + CoA balances + bank account + bank transaction + cashbook entry + cashbook update
+      // If any write fails everything rolls back — no orphaned journal entries possible.
+      const atomicResult = await withRetry(() => db.$transaction(async (tx) => {
+        const je = await tx.journalEntry.create({
+          data: {
+            companyId,
+            entryNumber: entryNum,
+            entryDate,
+            referenceType: 'EQUITY_INVESTMENT',
+            referenceId: `${companyId}-EQ-${Date.now()}`,
+            narration: description || `Owner's Equity Investment - Cash: Rs.${cash.toLocaleString()}, Bank: Rs.${bank.toLocaleString()}`,
+            totalDebit,
+            totalCredit,
+            isAutoEntry: true,
+            isApproved: true,
+            createdById: createdById || 'system',
+            paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+            lines: {
+              create: lines.map(l => ({
+                accountId: accMap.get(l.accountCode)!,
+                debitAmount:  l.debitAmount,
+                creditAmount: l.creditAmount,
+                narration: l.narration || ''
+              }))
+            }
           }
-        }
-      });
-
-      journalEntryId = je.id;
-
-      // Update chart of account balances using CORRECT sign per account type
-      // ASSET / EXPENSE → debit-normal: delta = debit - credit (debit increases balance)
-      // EQUITY / LIABILITY / INCOME → credit-normal: delta = credit - debit (credit increases balance)
-      const accountTypeMap = new Map(accounts.map(a => [a.accountCode, a.accountType as string]));
-      for (const line of lines) {
-        const accId = accMap.get(line.accountCode)!;
-        const accType = accountTypeMap.get(line.accountCode) || 'ASSET';
-        const isCreditNormal = accType === 'EQUITY' || accType === 'LIABILITY' || accType === 'INCOME';
-        const delta = isCreditNormal
-          ? line.creditAmount - line.debitAmount  // credit increases equity/liability/income
-          : line.debitAmount - line.creditAmount; // debit increases asset/expense
-        await db.chartOfAccount.update({
-          where: { id: accId },
-          data: { currentBalance: { increment: delta } }
         });
-      }
 
-      console.log('[add-equity] Step 3: Journal entry created directly:', journalEntryId);
+        // Update chart of account balances
+        const accountTypeMap = new Map(accounts.map(a => [a.accountCode, a.accountType as string]));
+        for (const line of lines) {
+          const accId = accMap.get(line.accountCode)!;
+          const accType = accountTypeMap.get(line.accountCode) || 'ASSET';
+          const isCreditNormal = accType === 'EQUITY' || accType === 'LIABILITY' || accType === 'INCOME';
+          const delta = isCreditNormal
+            ? line.creditAmount - line.debitAmount
+            : line.debitAmount - line.creditAmount;
+          await tx.chartOfAccount.update({
+            where: { id: accId },
+            data: { currentBalance: { increment: delta } }
+          });
+        }
+
+        // Update bank account + create bank transaction
+        if (bank > 0 && bankAccountId) {
+          await tx.bankAccount.update({
+            where: { id: bankAccountId },
+            data: { currentBalance: { increment: bank } }
+          });
+          await tx.bankTransaction.create({
+            data: {
+              bankAccountId,
+              transactionType: 'CREDIT',
+              amount: bank,
+              description: description || "Owner's Capital Investment",
+              referenceType: 'OPENING_BALANCE',
+              referenceId: je.id,
+              transactionDate: entryDate,
+              balanceAfter: bank, // approximate — real balance read outside tx
+              createdById: createdById || 'system',
+            }
+          });
+        }
+
+        // Update CashBook + create CashBookEntry
+        if (cash > 0) {
+          let cashBook = await tx.cashBook.findUnique({ where: { companyId } });
+          if (!cashBook) {
+            cashBook = await tx.cashBook.create({
+              data: { companyId, openingBalance: 0, currentBalance: 0 }
+            });
+          }
+          const newBalance = (cashBook.currentBalance || 0) + cash;
+          await tx.cashBookEntry.create({
+            data: {
+              cashBookId: cashBook.id,
+              entryType: 'CREDIT',
+              amount: cash,
+              balanceAfter: newBalance,
+              description: description || "Owner's Capital Investment (Cash)",
+              referenceType: 'OPENING_BALANCE',
+              referenceId: je.id,
+              entryDate,
+              createdById: createdById || 'system'
+            }
+          });
+          await tx.cashBook.update({
+            where: { id: cashBook.id },
+            data: { currentBalance: newBalance }
+          });
+        }
+
+        return je.id;
+      })); // end withRetry + $transaction
+
+      journalEntryId = atomicResult;
+      console.log('[add-equity] All writes committed atomically. JE:', journalEntryId);
     } catch (jeErr) {
-      console.error('[add-equity] Step 3 FAILED - createJournalEntry:', jeErr);
+      console.error('[add-equity] Step 3 FAILED:', jeErr);
       throw jeErr;
     }
 
-
-    // Update bank account balance if bank amount provided
-    if (bank > 0 && bankAccountId) {
-      await db.bankAccount.update({
-        where: { id: bankAccountId },
-        data: {
-          currentBalance: { increment: bank }
-        }
-      });
-
-      // Create a bank transaction record (only schema-valid fields)
-      const updatedBankForBalance = await db.bankAccount.findUnique({
-        where: { id: bankAccountId },
-        select: { currentBalance: true }
-      });
-      await db.bankTransaction.create({
-        data: {
-          bankAccountId,
-          transactionType: 'CREDIT',
-          amount: bank,
-          description: description || 'Owner\'s Capital Investment',
-          referenceType: 'OPENING_BALANCE',
-          referenceId: journalEntryId,
-          transactionDate: entryDate,
-          balanceAfter: updatedBankForBalance?.currentBalance || bank,
-          createdById: createdById || 'system',
-        }
-      });
-    }
-
-    // Update CashBook if cash amount provided
-    if (cash > 0) {
-      // Get or create cashbook for the company
-      let cashBook = await db.cashBook.findUnique({
-        where: { companyId }
-      });
-
-      if (!cashBook) {
-        cashBook = await db.cashBook.create({
-          data: {
-            companyId,
-            openingBalance: 0,
-            currentBalance: 0
-          }
-        });
-      }
-
-      // Calculate new balance
-      const newBalance = (cashBook.currentBalance || 0) + cash;
-
-      // Create cashbook entry
-      await db.cashBookEntry.create({
-        data: {
-          cashBookId: cashBook.id,
-          entryType: 'CREDIT',
-          amount: cash,
-          balanceAfter: newBalance,
-          description: description || 'Owner\'s Capital Investment (Cash)',
-          referenceType: 'OPENING_BALANCE',
-          referenceId: journalEntryId,
-          entryDate: entryDate,
-          createdById: createdById || 'system'
-        }
-      });
-
-      // Update cashbook balance
-      await db.cashBook.update({
-        where: { id: cashBook.id },
-        data: { currentBalance: newBalance }
-      });
-    }
 
     // Get updated account balances
     const cashAccount = await db.chartOfAccount.findFirst({

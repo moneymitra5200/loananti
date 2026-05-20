@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
+
 
 /**
  * Returns the penalty per day based on the loan's disbursed/approved amount.
@@ -84,38 +86,38 @@ export async function POST(request: NextRequest) {
 
       // Only update if penalty changed
       if (Math.abs(newPenalty - emi.penaltyAmount) > 0.01) {
-        await db.eMISchedule.update({
-          where: { id: emi.id },
-          data: { penaltyAmount: newPenalty, daysOverdue, paymentStatus: 'OVERDUE' }
-        });
-
-        // Notify customer
-        if (settings.sendPenaltyNotify && emi.loanApplication?.customerId) {
-          const existingNotif = await db.notification.findFirst({
-            where: {
-              userId: emi.loanApplication.customerId,
-              type: 'PENALTY_ADDED',
-              data: { contains: emi.id },
-              createdAt: { gte: new Date(Date.now() - (settings.penaltyNotifyIntervalHrs || 24) * 3600000) }
-            }
+        // ACID: update + notify atomically — if notify fails, penalty rollsback too
+        await withRetry(() => db.$transaction(async (tx) => {
+          await tx.eMISchedule.update({
+            where: { id: emi.id },
+            data: { penaltyAmount: newPenalty, daysOverdue, paymentStatus: 'OVERDUE' }
           });
-
-          if (!existingNotif) {
-            await db.notification.create({
-              data: {
+          if (settings.sendPenaltyNotify && emi.loanApplication?.customerId) {
+            const existingNotif = await tx.notification.findFirst({
+              where: {
                 userId: emi.loanApplication.customerId,
                 type: 'PENALTY_ADDED',
-                category: 'EMI',
-                priority: 'HIGH',
-                title: `⚠️ EMI Penalty Updated — ${emi.loanApplication.applicationNo}`,
-                message: `Your EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Current penalty: ₹${newPenalty.toLocaleString('en-IN')} (₹${ratePerDay}/day). Total due: ₹${(emi.totalAmount - emi.paidAmount + newPenalty).toLocaleString('en-IN')}. Please pay immediately to avoid further penalty.`,
-                data: JSON.stringify({ emiId: emi.id, loanId: emi.loanApplicationId, daysOverdue, penaltyAmount: newPenalty, ratePerDay }),
-                actionUrl: `/loan/${emi.loanApplicationId}`,
-                actionText: 'Pay Now'
+                data: { contains: emi.id },
+                createdAt: { gte: new Date(Date.now() - (settings.penaltyNotifyIntervalHrs || 24) * 3600000) }
               }
             });
+            if (!existingNotif) {
+              await tx.notification.create({
+                data: {
+                  userId: emi.loanApplication.customerId,
+                  type: 'PENALTY_ADDED',
+                  category: 'EMI',
+                  priority: 'HIGH',
+                  title: `⚠️ EMI Penalty Updated — ${emi.loanApplication.applicationNo}`,
+                  message: `Your EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Penalty: ₹${newPenalty.toLocaleString('en-IN')} (₹${ratePerDay}/day).`,
+                  data: JSON.stringify({ emiId: emi.id, loanId: emi.loanApplicationId, daysOverdue, penaltyAmount: newPenalty, ratePerDay }),
+                  actionUrl: `/loan/${emi.loanApplicationId}`,
+                  actionText: 'Pay Now'
+                }
+              });
+            }
           }
-        }
+        }));
         updatedOnline++;
       }
     }
@@ -157,37 +159,38 @@ export async function POST(request: NextRequest) {
       }
 
       if (Math.abs(newPenalty - emi.penaltyAmount) > 0.01) {
-        await (db as any).offlineLoanEMI.update({
-          where: { id: emi.id },
-          data: { penaltyAmount: newPenalty, daysOverdue, paymentStatus: 'OVERDUE' }
-        });
-
-        if (settings.sendPenaltyNotify && emi.offlineLoan?.customerId) {
-          const existingNotif = await db.notification.findFirst({
-            where: {
-              userId: emi.offlineLoan.customerId,
-              type: 'PENALTY_ADDED',
-              data: { contains: emi.id },
-              createdAt: { gte: new Date(Date.now() - (settings.penaltyNotifyIntervalHrs || 24) * 3600000) }
-            }
+        // ACID: update + notify atomically
+        await withRetry(() => db.$transaction(async (tx) => {
+          await (tx as any).offlineLoanEMI.update({
+            where: { id: emi.id },
+            data: { penaltyAmount: newPenalty, daysOverdue, paymentStatus: 'OVERDUE' }
           });
-
-          if (!existingNotif) {
-            await db.notification.create({
-              data: {
+          if (settings.sendPenaltyNotify && emi.offlineLoan?.customerId) {
+            const existingNotif = await tx.notification.findFirst({
+              where: {
                 userId: emi.offlineLoan.customerId,
                 type: 'PENALTY_ADDED',
-                category: 'EMI',
-                priority: 'HIGH',
-                title: `⚠️ EMI Penalty — ${emi.offlineLoan.loanNumber}`,
-                message: `Your EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Penalty: ₹${newPenalty.toLocaleString('en-IN')} (₹${ratePerDay}/day). Pay immediately to avoid further charges.`,
-                data: JSON.stringify({ emiId: emi.id, offlineLoanId: emi.offlineLoanId, daysOverdue, penaltyAmount: newPenalty, ratePerDay }),
-                actionUrl: `/offline-loan/${emi.offlineLoanId}`,
-                actionText: 'Pay Now'
+                data: { contains: emi.id },
+                createdAt: { gte: new Date(Date.now() - (settings.penaltyNotifyIntervalHrs || 24) * 3600000) }
               }
             });
+            if (!existingNotif) {
+              await tx.notification.create({
+                data: {
+                  userId: emi.offlineLoan.customerId,
+                  type: 'PENALTY_ADDED',
+                  category: 'EMI',
+                  priority: 'HIGH',
+                  title: `⚠️ EMI Penalty — ${emi.offlineLoan.loanNumber}`,
+                  message: `Your EMI #${emi.installmentNumber} is ${daysOverdue} day(s) overdue. Penalty: ₹${newPenalty.toLocaleString('en-IN')} (₹${ratePerDay}/day).`,
+                  data: JSON.stringify({ emiId: emi.id, offlineLoanId: emi.offlineLoanId, daysOverdue, penaltyAmount: newPenalty, ratePerDay }),
+                  actionUrl: `/offline-loan/${emi.offlineLoanId}`,
+                  actionText: 'Pay Now'
+                }
+              });
+            }
           }
-        }
+        }));
         updatedOffline++;
       }
     }

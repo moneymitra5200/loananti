@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
 import { createEMIPaymentEntry } from '@/lib/accounting-service';
 
 // Local type definitions - Prisma schema uses strings, not enums

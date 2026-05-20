@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { withRetry } from '@/lib/db-utils';
 
 // Local type definitions - Prisma schema uses strings, not enums
 type EMIPaymentStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'PARTIALLY_PAID' | 'INTEREST_ONLY_PAID' | 'WAIVED';
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
     let newNextPaymentDate: Date | null = null;
 
     // Start transaction
-    const result = await db.$transaction(async (tx) => {
+    const result = await withRetry(() => db.$transaction(async (tx) => {
       if (paymentType === 'FULL_EMI') {
         // Full EMI Payment
         const paidPrincipal = principalAmount;
@@ -421,7 +422,7 @@ export async function POST(request: NextRequest) {
       });
 
       return updatedEmiSchedule;
-    });
+    })); // end withRetry + $transaction
 
     return NextResponse.json({
       success: true,

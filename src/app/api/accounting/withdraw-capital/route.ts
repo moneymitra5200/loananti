@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountType } from '@prisma/client';
+import { withRetry } from '@/lib/db-utils';
 
 /**
  * POST /api/accounting/withdraw-capital
@@ -188,111 +189,44 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ── Create journal entry ──────────────────────────────────────────────────
+    // ACID: Wrap all financial writes in one atomic transaction
+    // If any write fails (journalEntry, CoA update, bankTx, cashBook) everything rolls back.
     const jeCount = await db.journalEntry.count({ where: { companyId } });
     const entryNumber = `JE${String(jeCount + 1).padStart(6, '0')}`;
     const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
     const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
-
-    const je = await db.journalEntry.create({
-      data: {
-        companyId,
-        entryNumber,
-        entryDate,
-        referenceType: 'CAPITAL_WITHDRAWAL',
-        referenceId: `${companyId}-CW-${Date.now()}`,
-        narration: description || `Owner's Capital Withdrawal – Cash: ₹${cash.toLocaleString()}, Bank: ₹${bank.toLocaleString()}`,
-        totalDebit,
-        totalCredit,
-        isAutoEntry: true,
-        isApproved: true,
-        createdById: createdById || 'system',
-        paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-        lines: { create: lines },
-      },
-    });
-
-    // ── Update chartOfAccount balances ────────────────────────────────────────
-    await db.chartOfAccount.update({
-      where: { id: capitalAcc.id },
-      data: { currentBalance: { decrement: totalWithdrawal } },
-    });
-    if (cash > 0 && cashAcc) {
-      await db.chartOfAccount.update({
-        where: { id: cashAcc.id },
-        data: { currentBalance: { decrement: cash } },
-      });
-    }
-    if (bank > 0 && bankChartAcc) {
-      await db.chartOfAccount.update({
-        where: { id: bankChartAcc.id },
-        data: { currentBalance: { decrement: bank } },
-      });
-    }
-
-    // ── Write to EquityEntry table (source of truth for capital) ─────────────
-    await (db.equityEntry as any).create({
-      data: {
-        companyId,
-        entryType: 'WITHDRAWAL',
-        amount: totalWithdrawal,
-        description: description || "Owner's Capital Withdrawal",
-        referenceId: je.id,
-        createdAt: entryDate,
-      },
-    }).catch((err: Error) => {
-      console.warn('[withdraw-capital] EquityEntry create warn (non-fatal):', err.message);
-    });
-
-    // ── Update BankAccount + create BankTransaction ───────────────────────────
-    if (bank > 0 && bankAccountId) {
-      await db.bankAccount.update({
-        where: { id: bankAccountId },
-        data: { currentBalance: { decrement: bank } },
-      });
-      const updatedBank = await db.bankAccount.findUnique({
-        where: { id: bankAccountId },
-        select: { currentBalance: true },
-      });
-      await db.bankTransaction.create({
+    const je = await withRetry(() => db.$transaction(async (tx) => {
+      const journalEntry = await tx.journalEntry.create({
         data: {
-          bankAccountId,
-          transactionType: 'DEBIT',
-          amount: bank,
-          description: description || "Owner's Capital Withdrawal",
+          companyId, entryNumber, entryDate,
           referenceType: 'CAPITAL_WITHDRAWAL',
-          referenceId: je.id,
-          transactionDate: entryDate,
-          balanceAfter: updatedBank?.currentBalance || 0,
+          referenceId: companyId + '-CW-' + Date.now(),
+          narration: description || 'Owners Capital Withdrawal - Cash: ' + cash + ', Bank: ' + bank,
+          totalDebit, totalCredit, isAutoEntry: true, isApproved: true,
           createdById: createdById || 'system',
+          paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+          lines: { create: lines },
         },
       });
-    }
-
-    // ── Update CashBook + create CashBookEntry ────────────────────────────────
-    if (cash > 0) {
-      const cashBook = await db.cashBook.findUnique({ where: { companyId } });
-      if (cashBook) {
-        const newBalance = (cashBook.currentBalance || 0) - cash;
-        await db.cashBookEntry.create({
-          data: {
-            cashBookId: cashBook.id,
-            entryType: 'DEBIT',
-            amount: cash,
-            balanceAfter: newBalance,
-            description: description || "Owner's Capital Withdrawal (Cash)",
-            referenceType: 'CAPITAL_WITHDRAWAL',
-            referenceId: je.id,
-            entryDate,
-            createdById: createdById || 'system',
-          },
-        });
-        await db.cashBook.update({
-          where: { id: cashBook.id },
-          data: { currentBalance: newBalance },
-        });
+      await tx.chartOfAccount.update({ where: { id: capitalAcc.id }, data: { currentBalance: { decrement: totalWithdrawal } } });
+      if (cash > 0 && cashAcc) { await tx.chartOfAccount.update({ where: { id: cashAcc.id }, data: { currentBalance: { decrement: cash } } }); }
+      if (bank > 0 && bankChartAcc) { await tx.chartOfAccount.update({ where: { id: bankChartAcc.id }, data: { currentBalance: { decrement: bank } } }); }
+      await (tx as any).equityEntry.create({ data: { companyId, entryType: 'WITHDRAWAL', amount: totalWithdrawal, description: description || 'Owners Capital Withdrawal', referenceId: journalEntry.id, createdAt: entryDate } }).catch((err: Error) => { console.warn('[withdraw-capital] EquityEntry warn:', err.message); });
+      if (bank > 0 && bankAccountId) {
+        await tx.bankAccount.update({ where: { id: bankAccountId }, data: { currentBalance: { decrement: bank } } });
+        const updatedBank = await tx.bankAccount.findUnique({ where: { id: bankAccountId }, select: { currentBalance: true } });
+        await tx.bankTransaction.create({ data: { bankAccountId, transactionType: 'DEBIT', amount: bank, description: description || 'Owners Capital Withdrawal', referenceType: 'CAPITAL_WITHDRAWAL', referenceId: journalEntry.id, transactionDate: entryDate, balanceAfter: updatedBank?.currentBalance || 0, createdById: createdById || 'system' } });
       }
-    }
+      if (cash > 0) {
+        const cbRec = await tx.cashBook.findUnique({ where: { companyId } });
+        if (cbRec) {
+          const newBal = (cbRec.currentBalance || 0) - cash;
+          await tx.cashBookEntry.create({ data: { cashBookId: cbRec.id, entryType: 'DEBIT', amount: cash, balanceAfter: newBal, description: description || 'Owners Capital Withdrawal (Cash)', referenceType: 'CAPITAL_WITHDRAWAL', referenceId: journalEntry.id, entryDate, createdById: createdById || 'system' } });
+          await tx.cashBook.update({ where: { id: cbRec.id }, data: { currentBalance: newBal } });
+        }
+      }
+      return journalEntry;
+    })); // end withRetry + $transaction
 
     // ── Return updated equity balance ─────────────────────────────────────────
     const updatedCapital = await db.chartOfAccount.findFirst({
