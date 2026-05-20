@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+// ACID: retry on deadlock + duplicate guard
+import { withRetry } from '@/lib/db-utils';
 
 // POST - Collect monthly interest payment for INTEREST_ONLY loans
 export async function POST(request: NextRequest) {
@@ -101,172 +103,146 @@ export async function POST(request: NextRequest) {
     
     const receiptNo = `INT-${companyCode}-${nextNumber}`;
     console.log(`[Interest Payment] Generated receipt number: ${receiptNo}`);
-    
-    // Create payment record
-    const payment = await db.payment.create({
-      data: {
-        loanApplicationId: loanId,
-        customerId: loan.customerId,
-        amount: amount,
-        principalComponent: 0, // No principal in interest-only payment
-        interestComponent: amount, // Full amount is interest
-        paymentMode: paymentMode,
-        status: 'COMPLETED',
-        receiptNumber: receiptNo,
-        receiptGenerated: true,
-        paidById: collectedBy,
-        remarks: remarks || `Monthly interest collection for interest-only loan. Expected: ${expectedMonthlyInterest.toFixed(2)}`,
-        proofUrl: proofUrl,
-        paymentType: 'INTEREST_ONLY_PAYMENT'
-      }
-    });
-    
-    console.log(`[Interest Payment] Payment created: ${payment.id}`);
-    
-    // Update loan's totalInterestOnlyPaid
-    const updatedLoan = await db.loanApplication.update({
-      where: { id: loanId },
-      data: {
-        totalInterestOnlyPaid: { increment: amount }
-      }
-    });
-    
-    console.log(`[Interest Payment] Loan totalInterestOnlyPaid updated: ${updatedLoan.totalInterestOnlyPaid}`);
-    
-    // Create bank transaction for non-cash payments
-    if (paymentMode === 'BANK_TRANSFER' || paymentMode === 'ONLINE' || paymentMode === 'UPI') {
-      let bankAccount = await db.bankAccount.findFirst({
-        where: { 
-          companyId: loan.companyId || undefined,
-          isDefault: true, 
-          isActive: true 
-        }
+
+    // ── ACID: All writes in one atomic transaction ──────────────────────────
+    // withRetry: deadlock resilience (P2034) up to 3×
+    // DUPLICATE GUARD: re-reads for an INTEREST_ONLY_PAYMENT in the same month
+    //   INSIDE the transaction to prevent concurrent double-collection.
+    const { payment, updatedLoan } = await withRetry(() => db.$transaction(async (tx) => {
+      // ACID GUARD: check for duplicate interest collection in the same calendar month
+      const thisMonthStart = new Date();
+      thisMonthStart.setDate(1);
+      thisMonthStart.setHours(0, 0, 0, 0);
+      const existing = await tx.payment.findFirst({
+        where: {
+          loanApplicationId: loanId,
+          paymentType: 'INTEREST_ONLY_PAYMENT',
+          createdAt: { gte: thisMonthStart },
+        },
+        select: { id: true }
       });
-
-      if (!bankAccount) {
-        bankAccount = await db.bankAccount.findFirst({
-          where: { isDefault: true, isActive: true }
-        });
+      if (existing) {
+        const err: any = new Error('Duplicate interest payment this month');
+        err.code = 'DUPLICATE_INTEREST_PAYMENT';
+        throw err;
       }
 
-      if (bankAccount) {
-        await db.bankAccount.update({
-          where: { id: bankAccount.id },
-          data: {
-            currentBalance: { increment: amount }
-          }
-        });
-
-        await db.bankTransaction.create({
-          data: {
-            bankAccountId: bankAccount.id,
-            transactionType: 'CREDIT',
-            amount: amount,
-            balanceAfter: bankAccount.currentBalance + amount,
-            description: `Interest Collection (Interest-Only Phase) - ${loan.applicationNo}`,
-            referenceType: 'INTEREST_ONLY_PAYMENT',
-            referenceId: payment.id,
-            createdById: collectedBy
-          }
-        });
-        
-        console.log(`[Interest Payment] Bank transaction created`);
-      }
-    }
-    
-    // Update collector's credit based on payment mode
-    const isCashPayment = paymentMode === 'CASH';
-    
-    if (isCashPayment && loan.companyId) {
-      // Cash payment - increase company credit
-      const company = await db.company.findUnique({
-        where: { id: loan.companyId },
-        select: { companyCredit: true }
-      });
-      
-      const newCompanyCredit = (company?.companyCredit || 0) + amount;
-      
-      await db.creditTransaction.create({
+      // A. Create payment record
+      const payment = await tx.payment.create({
         data: {
-          userId: collectedBy,
-          transactionType: 'CREDIT_INCREASE',
-          amount: amount,
-          paymentMode: 'CASH',
-          creditType: 'COMPANY',
-          sourceType: 'INTEREST_ONLY_PAYMENT',
-          sourceId: payment.id,
-          balanceAfter: newCompanyCredit,
-          personalBalanceAfter: 0,
-          companyBalanceAfter: newCompanyCredit,
           loanApplicationId: loanId,
           customerId: loan.customerId,
-          customerName: loan.customer?.name,
-          loanApplicationNo: loan.applicationNo,
-          description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
-          transactionDate: new Date()
-        }
-      });
-      
-      await db.company.update({
-        where: { id: loan.companyId },
-        data: { companyCredit: newCompanyCredit }
-      });
-      
-      console.log(`[Interest Payment] Company credit updated: ${newCompanyCredit}`);
-    } else {
-      // Non-cash payment - increase collector's personal credit
-      const collector = await db.user.findUnique({
-        where: { id: collectedBy },
-        select: { personalCredit: true, companyCredit: true, credit: true, name: true }
-      });
-      
-      const newPersonalCredit = (collector?.personalCredit || 0) + amount;
-      const newTotalCredit = (collector?.credit || 0) + amount;
-      
-      await db.creditTransaction.create({
-        data: {
-          userId: collectedBy,
-          transactionType: 'PERSONAL_COLLECTION',
           amount: amount,
-          paymentMode: paymentMode as 'CASH' | 'CHEQUE' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'SYSTEM',
-          creditType: 'PERSONAL',
-          sourceType: 'INTEREST_ONLY_PAYMENT',
-          sourceId: payment.id,
-          balanceAfter: newTotalCredit,
-          personalBalanceAfter: newPersonalCredit,
-          companyBalanceAfter: collector?.companyCredit || 0,
-          loanApplicationId: loanId,
-          customerId: loan.customerId,
-          customerName: loan.customer?.name,
-          loanApplicationNo: loan.applicationNo,
-          description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
-          transactionDate: new Date()
+          principalComponent: 0,
+          interestComponent: amount,
+          paymentMode: paymentMode,
+          status: 'COMPLETED',
+          receiptNumber: receiptNo,
+          receiptGenerated: true,
+          paidById: collectedBy,
+          remarks: remarks || `Monthly interest collection. Expected: ₹${expectedMonthlyInterest.toFixed(2)}`,
+          proofUrl: proofUrl,
+          paymentType: 'INTEREST_ONLY_PAYMENT'
         }
       });
-      
-      await db.user.update({
-        where: { id: collectedBy },
-        data: {
-          personalCredit: newPersonalCredit,
-          credit: newTotalCredit
-        }
+
+      // B. Update loan's totalInterestOnlyPaid
+      const updatedLoan = await tx.loanApplication.update({
+        where: { id: loanId },
+        data: { totalInterestOnlyPaid: { increment: amount } }
       });
-      
-      console.log(`[Interest Payment] Personal credit updated for ${collectedBy}: ${newPersonalCredit}`);
-    }
-    
-    // Create workflow log
-    await db.workflowLog.create({
-      data: {
-        loanApplicationId: loanId,
-        actionById: collectedBy,
-        previousStatus: loan.status,
-        newStatus: loan.status,
-        action: 'INTEREST_PAYMENT_COLLECTED',
-        remarks: `Interest payment of ${amount} collected via ${paymentMode}`
+
+      // C. Bank / CashBook entry for non-cash payments
+      const isBankPayment = ['BANK_TRANSFER', 'ONLINE', 'UPI'].includes(paymentMode);
+      if (isBankPayment) {
+        let bankAccount = await tx.bankAccount.findFirst({
+          where: { companyId: loan.companyId || undefined, isDefault: true, isActive: true }
+        });
+        if (!bankAccount) {
+          bankAccount = await tx.bankAccount.findFirst({ where: { isDefault: true, isActive: true } });
+        }
+        if (bankAccount) {
+          await tx.bankAccount.update({
+            where: { id: bankAccount.id },
+            data: { currentBalance: { increment: amount } }
+          });
+          await tx.bankTransaction.create({
+            data: {
+              bankAccountId: bankAccount.id,
+              transactionType: 'CREDIT',
+              amount: amount,
+              balanceAfter: bankAccount.currentBalance + amount,
+              description: `Interest Collection (Interest-Only Phase) - ${loan.applicationNo}`,
+              referenceType: 'INTEREST_ONLY_PAYMENT',
+              referenceId: payment.id,
+              createdById: collectedBy
+            }
+          });
+        }
       }
-    });
-    
+
+      // D. Credit update (atomic — reads & writes in same tx)
+      const isCashPayment = !isBankPayment;
+      if (isCashPayment && loan.companyId) {
+        const company = await tx.company.findUnique({
+          where: { id: loan.companyId }, select: { companyCredit: true }
+        });
+        const newCompanyCredit = (company?.companyCredit || 0) + amount;
+        await tx.creditTransaction.create({
+          data: {
+            userId: collectedBy, transactionType: 'CREDIT_INCREASE', amount,
+            paymentMode: 'CASH', creditType: 'COMPANY', sourceType: 'INTEREST_ONLY_PAYMENT',
+            sourceId: payment.id, balanceAfter: newCompanyCredit, personalBalanceAfter: 0,
+            companyBalanceAfter: newCompanyCredit, loanApplicationId: loanId,
+            customerId: loan.customerId, customerName: loan.customer?.name,
+            loanApplicationNo: loan.applicationNo,
+            description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
+            transactionDate: new Date()
+          }
+        });
+        await tx.company.update({ where: { id: loan.companyId }, data: { companyCredit: newCompanyCredit } });
+      } else {
+        const collector = await tx.user.findUnique({
+          where: { id: collectedBy }, select: { personalCredit: true, companyCredit: true, credit: true }
+        });
+        const newPersonalCredit = (collector?.personalCredit || 0) + amount;
+        const newTotalCredit    = (collector?.credit        || 0) + amount;
+        await tx.creditTransaction.create({
+          data: {
+            userId: collectedBy, transactionType: 'PERSONAL_COLLECTION', amount,
+            paymentMode: paymentMode as any, creditType: 'PERSONAL',
+            sourceType: 'INTEREST_ONLY_PAYMENT', sourceId: payment.id,
+            balanceAfter: newTotalCredit, personalBalanceAfter: newPersonalCredit,
+            companyBalanceAfter: collector?.companyCredit || 0,
+            loanApplicationId: loanId, customerId: loan.customerId,
+            customerName: loan.customer?.name, loanApplicationNo: loan.applicationNo,
+            description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
+            transactionDate: new Date()
+          }
+        });
+        await tx.user.update({
+          where: { id: collectedBy },
+          data: { personalCredit: newPersonalCredit, credit: newTotalCredit }
+        });
+      }
+
+      // E. WorkflowLog inside transaction
+      await tx.workflowLog.create({
+        data: {
+          loanApplicationId: loanId,
+          actionById: collectedBy,
+          previousStatus: loan.status,
+          newStatus: loan.status,
+          action: 'INTEREST_PAYMENT_COLLECTED',
+          remarks: `Interest payment of ₹${amount} collected via ${paymentMode} (Receipt: ${receiptNo})`
+        }
+      });
+
+      return { payment, updatedLoan };
+    })); // end withRetry + $transaction
+
+    console.log(`[Interest Payment] ✅ All writes committed atomically.`);
+
     console.log(`[Interest Payment] ========== INTEREST COLLECTION COMPLETE ==========`);
     
     return NextResponse.json({
@@ -285,9 +261,15 @@ export async function POST(request: NextRequest) {
       }
     });
     
-  } catch (error) {
+  } catch (error: any) {
+    // ACID: 409 for duplicate monthly interest payment
+    if (error?.code === 'DUPLICATE_INTEREST_PAYMENT') {
+      return NextResponse.json({
+        error: 'Interest payment already collected for this month.',
+        code: 'DUPLICATE_INTEREST_PAYMENT',
+      }, { status: 409 });
+    }
     console.error('[Interest Payment] Error:', error);
-    console.error('[Interest Payment] Error details:', error instanceof Error ? error.message : 'Unknown error');
     return NextResponse.json({ 
       error: 'Failed to process interest payment', 
       details: error instanceof Error ? error.message : 'Unknown error' 

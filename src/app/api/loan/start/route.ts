@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
-
+// ACID: retry on deadlock
+import { withRetry } from '@/lib/db-utils';
 
 // POST - Start a loan (convert from interest-only to normal EMI)
 export async function POST(request: NextRequest) {
@@ -82,8 +83,19 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Loan] Principal: ${principalAmount}, Rate: ${interestRate}%, Tenure: ${tenure} months`);
     console.log(`[Start Loan] EMI: ${emiCalculation.emi}, Total Interest: ${emiCalculation.totalInterest}`);
 
-    // Start a transaction to update loan and create EMI schedules
-    const result = await db.$transaction(async (tx) => {
+    // ── ACID: Wrap loan start in atomic transaction with deadlock retry ──────
+    // withRetry: deadlock resilience (P2034) up to 3×
+    // Status guard inside tx: prevents double-start if two requests race
+    const result = await withRetry(() => db.$transaction(async (tx) => {
+      // ACID GUARD: re-read loan status inside tx to prevent race condition
+      const freshLoan = await tx.loanApplication.findUnique({
+        where: { id: loanId }, select: { status: true }
+      });
+      if (freshLoan?.status === 'ACTIVE' && loan.status !== 'ACTIVE') {
+        const err: any = new Error('Loan already started by concurrent request');
+        err.code = 'LOAN_ALREADY_STARTED';
+        throw err;
+      }
       // Delete any existing EMI schedules (from interest-only phase)
       await tx.eMISchedule.deleteMany({
         where: { loanApplicationId: loanId }
@@ -166,7 +178,7 @@ export async function POST(request: NextRequest) {
       });
 
       return { updatedLoan, emiSchedules };
-    });
+    })); // end withRetry + $transaction
 
     console.log(`[Start Loan] Successfully started loan ${loan.applicationNo}`);
     console.log(`[Start Loan] Created ${result.emiSchedules.length} EMI schedules`);

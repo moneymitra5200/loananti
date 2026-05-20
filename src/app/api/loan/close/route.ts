@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+// ACID: retry on deadlock
+import { withRetry } from '@/lib/db-utils';
+
 
 // GET - Calculate foreclosure amount for an online loan
 export async function GET(request: NextRequest) {
@@ -185,11 +188,8 @@ export async function POST(request: NextRequest) {
         ? totalRemainingPrincipal
         : totalRemainingPrincipal + totalRemainingInterest;
 
-      // ── Core DB ops — BATCH updateMany + single loan update ─────────────────
-      // CRITICAL FIX: replaced sequential per-EMI update loop with a single updateMany.
-      // Old code: N await tx.eMISchedule.update() calls = N round-trips = DB_TIMEOUT.
-      // New code: 2 queries total regardless of EMI count.
-      await db.$transaction(async (tx) => {
+      // ── ACID: Wrap LOSS close atomically with deadlock retry ──────────────
+      await withRetry(() => db.$transaction(async (tx) => {
         if (unpaidEMIIds.length > 0) {
           await tx.eMISchedule.updateMany({
             where: { id: { in: unpaidEMIIds } },
@@ -200,6 +200,11 @@ export async function POST(request: NextRequest) {
             }
           });
         }
+        // ACID GUARD: re-read to prevent double-close race
+        const freshLoan = await tx.loanApplication.findUnique({ where: { id: loanId }, select: { status: true } });
+        if (freshLoan?.status === 'CLOSED') {
+          const err: any = new Error('Loan already closed'); err.code = 'LOAN_ALREADY_CLOSED'; throw err;
+        }
         await tx.loanApplication.update({
           where: { id: loanId },
           data:  {
@@ -208,7 +213,7 @@ export async function POST(request: NextRequest) {
             rejectionReason: `Loan written off as irrecoverable loss (${writeOffInterestOnly ? 'Principal Only' : 'P+I'}). ₹${totalWriteOff.toFixed(2)} written off. ${remarks || ''}`
           }
         });
-      }, { maxWait: 5000, timeout: 10000 });
+      }, { maxWait: 5000, timeout: 10000 }));
 
       // ActionLog — fire-and-forget
       db.actionLog.create({
@@ -318,11 +323,14 @@ export async function POST(request: NextRequest) {
     }
     const totalForeclosureAmount = totalPrincipal + totalInterest;
 
-    // ── Core DB ops — BATCH updateMany + single loan update ─────────────────
-    // CRITICAL FIX: sequential per-EMI await loop replaced with updateMany.
-    // Old code: N await tx.eMISchedule.update() = N round-trips = DB_TIMEOUT on Hostinger.
-    // New code: 2 queries regardless of EMI count. Loan is CLOSED atomically in <1s.
-    const paymentRecord = await db.$transaction(async (tx) => {
+    // ── ACID: Core DB ops — BATCH updateMany + loan update + payment + credit ──
+    // withRetry: deadlock resilience; status guard prevents double-foreclosure
+    const paymentRecord = await withRetry(() => db.$transaction(async (tx) => {
+      // ACID GUARD: re-read loan status to prevent double-close race condition
+      const freshLoan = await tx.loanApplication.findUnique({ where: { id: loanId }, select: { status: true } });
+      if (freshLoan?.status === 'CLOSED') {
+        const err: any = new Error('Loan already closed'); err.code = 'LOAN_ALREADY_CLOSED'; throw err;
+      }
       if (unpaidEMIIds.length > 0) {
         await tx.eMISchedule.updateMany({
           where: { id: { in: unpaidEMIIds } },
@@ -392,7 +400,7 @@ export async function POST(request: NextRequest) {
       });
 
       return pmt;
-    }, { maxWait: 5000, timeout: 10000 });
+    }, { maxWait: 5000, timeout: 10000 })); // end withRetry + $transaction
 
     // ── Update per-EMI exact amounts OUTSIDE transaction (fire-and-forget) ──
     // paidAmount/paidPrincipal/paidInterest are display fields — non-critical.
@@ -495,6 +503,10 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error: any) {
+    // ACID: 409 for double-close attempts
+    if (error?.code === 'LOAN_ALREADY_CLOSED') {
+      return NextResponse.json({ error: 'Loan is already closed. Duplicate request blocked.', code: 'LOAN_ALREADY_CLOSED' }, { status: 409 });
+    }
     console.error('[OnlineLoan/Close POST]', error);
     return NextResponse.json({ error: 'Failed to close loan', details: error?.message }, { status: 500 });
   }
