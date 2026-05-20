@@ -7,6 +7,9 @@ import { emitReportInvalidate } from '@/lib/socket-emit';
 import { invalidateLoanCache, invalidatePaymentCache } from '@/lib/cache';
 import { notifyEvent } from '@/lib/event-notify';
 import { fireAudit } from '@/lib/audit';
+// ACID: retry on deadlock + duplicate EMI payment guard
+import { withRetry, guardOnlineEMIPayment } from '@/lib/db-utils';
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -313,12 +316,15 @@ export async function POST(request: NextRequest) {
       console.log(`[EMI Pay] PRINCIPAL_ONLY — collecting ₹${paidPrincipal}, writing off interest ₹${remainingInterest}`);
     }
 
-    // Update EMI status
+    // ── ACID: Wrap EMI update + Payment create atomically ──────────────────
+    // withRetry: retries on Prisma deadlock (P2034) up to 3×
+    // guardOnlineEMIPayment: re-reads EMI status INSIDE tx to prevent duplicate
+    //   payments when two concurrent requests both see 'PENDING' before writing.
     console.log(`[EMI Pay] ========== UPDATING EMI ==========`);
     console.log(`[EMI Pay] isPartialPayment: ${isPartialPayment}`);
     console.log(`[EMI Pay] nextPaymentDateValue: ${nextPaymentDateValue ? nextPaymentDateValue.toISOString() : 'null'}`);
     console.log(`[EMI Pay] Will update dueDate: ${isPartialPayment && nextPaymentDateValue ? 'YES' : 'NO'}`);
-    
+
     const updateData: Record<string, unknown> = {
       paymentStatus: newEmiStatus,
       paidAmount: (emi.paidAmount || 0) + paidAmount,
@@ -328,36 +334,65 @@ export async function POST(request: NextRequest) {
       paymentMode: paymentMode,
       proofUrl: proofUrl,
       notes: remarks,
-      // ── PENALTY ─────────────────────────────────────────────────────────────
-      // penaltyAmount: total charged (auto-calculated, editable by staff)
-      // penaltyPaid:   net collected after waiver
-      // waivedAmount:  amount waived
-      penaltyAmount: (emi.penaltyAmount || 0) + penaltyAmount,   // accumulate if multiple payments
-      penaltyPaid:   (emi.penaltyPaid   || 0) + netPenalty,      // net actually collected
-      waivedAmount:  (emi.waivedAmount  || 0) + penaltyWaiver,   // total waived
-      // ─────────────────────────────────────────────────────────────────────────
+      penaltyAmount: (emi.penaltyAmount || 0) + penaltyAmount,
+      penaltyPaid:   (emi.penaltyPaid   || 0) + netPenalty,
+      waivedAmount:  (emi.waivedAmount  || 0) + penaltyWaiver,
       isPartialPayment,
       isInterestOnly,
       principalDeferred,
-      // Increment partial payment count
       partialPaymentCount: isPartialPayment ? (emi.partialPaymentCount || 0) + 1 : (emi.partialPaymentCount || 0),
-      // Calculate remaining amount
       remainingAmount: isPartialPayment ? (emi.totalAmount - ((emi.paidAmount || 0) + paidAmount)) : 0
     };
-    
-    // For partial payment: Update both dueDate and nextPaymentDate to the new date
-    // ONLY this EMI's date changes - subsequent EMIs remain unchanged
     if (isPartialPayment && nextPaymentDateValue) {
       updateData.dueDate = nextPaymentDateValue;
       updateData.nextPaymentDate = nextPaymentDateValue;
       console.log(`[EMI Pay] Setting dueDate and nextPaymentDate to: ${nextPaymentDateValue.toISOString()}`);
     }
-    
-    const updatedEMI = await db.eMISchedule.update({
-      where: { id: emiId },
-      data: updateData
-    });
-    
+
+
+    // Compute receipt info BEFORE transaction (used inside tx.payment.create)
+    const shouldGenerateReceipt = newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID';
+    let receiptNo: string | null = null;
+    if (shouldGenerateReceipt) {
+      const companyCode = emi.loanApplication?.company?.code || 'MM';
+      receiptNo = `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
+      console.log(`[EMI Pay] Generated receipt number: ${receiptNo}`);
+    }
+    console.log(`[EMI Pay] Receipt: ${shouldGenerateReceipt ? 'YES' : 'NO'} (${newEmiStatus})`)
+
+    const { updatedEMI, payment } = await withRetry(() => db.$transaction(async (tx) => {
+      // ACID GUARD: Prevent duplicate payment (re-read status inside tx)
+      await guardOnlineEMIPayment(tx, emiId);
+
+      const updatedEMI = await tx.eMISchedule.update({
+        where: { id: emiId },
+        data: updateData
+      });
+
+      // Create payment record inside transaction
+      const payment = await tx.payment.create({
+        data: {
+          loanApplicationId: loanId,
+          emiScheduleId: emiId,
+          customerId: emi.loanApplication?.customerId || '',
+          amount: paidAmount,
+          principalComponent: paidPrincipal,
+          interestComponent: paidInterest,
+          penaltyComponent: netPenalty,
+          paymentMode: paymentMode,
+          status: 'COMPLETED',
+          receiptNumber: receiptNo,
+          receiptGenerated: shouldGenerateReceipt,
+          paidById: paidBy,
+          remarks: remarks,
+          proofUrl: proofUrl,
+          paymentType: paymentType as 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'
+        }
+      });
+
+      return { updatedEMI, payment };
+    }));
+
     // If partial payment, automatically disable interest only option in settings
     if (isPartialPayment) {
       await db.eMIPaymentSetting.upsert({
@@ -367,62 +402,21 @@ export async function POST(request: NextRequest) {
           loanApplicationId: loanId,
           enableFullPayment: true,
           enablePartialPayment: true,
-          enableInterestOnly: false, // Disable interest only after partial payment
+          enableInterestOnly: false,
           useDefaultCompanyPage: true
         },
         update: {
-          enableInterestOnly: false, // Disable interest only after partial payment
+          enableInterestOnly: false,
           lastModifiedAt: new Date()
         }
       });
       console.log(`[EMI Pay] Auto-disabled interest only option due to partial payment`);
     }
-    
+
     console.log(`[EMI Pay] ========== EMI UPDATED ==========`);
     console.log(`[EMI Pay] EMI #${emi.installmentNumber} status: ${emi.paymentStatus} → ${updatedEMI.paymentStatus}`);
-    console.log(`[EMI Pay] Paid Amount: ${updatedEMI.paidAmount}`);
-    console.log(`[EMI Pay] Paid Interest: ${updatedEMI.paidInterest}`);
-    console.log(`[EMI Pay] Is Interest Only: ${updatedEMI.isInterestOnly}`);
-
-    // Generate receipt when EMI is FULLY PAID or INTEREST ONLY PAID
-    const shouldGenerateReceipt = newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID';
-    
-    let receiptNo: string | null = null;
-    if (shouldGenerateReceipt) {
-      const companyCode = emi.loanApplication?.company?.code || 'MM';
-      
-      // Get the last receipt number for this company
-      receiptNo = `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
-      console.log(`[EMI Pay] Generated receipt number: ${receiptNo}`);
-    }
-
-    console.log(`[EMI Pay] Receipt Generation: ${shouldGenerateReceipt ? 'YES' : 'NO'} (Status: ${newEmiStatus})`);
-
-    // Create payment record
-    const payment = await db.payment.create({
-      data: {
-        loanApplicationId: loanId,
-        emiScheduleId: emiId,
-        customerId: emi.loanApplication?.customerId || '',
-        amount: paidAmount,
-        principalComponent: paidPrincipal,
-        interestComponent: paidInterest,
-        penaltyComponent: netPenalty,          // ← stores actual net penalty collected
-        paymentMode: paymentMode,
-        status: 'COMPLETED',
-        receiptNumber: receiptNo,
-        receiptGenerated: shouldGenerateReceipt,
-        paidById: paidBy,
-        remarks: remarks,
-        proofUrl: proofUrl,
-        paymentType: paymentType as 'FULL_EMI' | 'PARTIAL_PAYMENT' | 'INTEREST_ONLY' | 'PRINCIPAL_ONLY'
-      }
-    });
-
-    console.log(`[EMI Pay] Payment created: ${payment.id}`);
-    if (shouldGenerateReceipt) {
-      console.log(`[EMI Pay] Receipt Number: ${receiptNo}`);
-    }
+    console.log(`[EMI Pay] Paid Amount: ${updatedEMI.paidAmount} | Payment ID: ${payment.id}`);
+    if (shouldGenerateReceipt) console.log(`[EMI Pay] Receipt: ${receiptNo}`);
 
     // Bank transaction is handled by recordEMIPaymentAccounting below
     // which properly routes to mirror company's bank for mirror loans

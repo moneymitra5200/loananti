@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 import { sendPushNotificationToRoles } from '@/lib/push-notification-service';
+// ACID: retry on deadlock
+import { withRetry } from '@/lib/db-utils';
+
 
 // Loan type to code mapping
 const LOAN_TYPE_CODES: Record<string, string> = {
@@ -139,33 +142,52 @@ export async function POST(request: NextRequest) {
     // Generate initial application number (A00001 format)
     const applicationNo = await generateInitialApplicationNo();
 
-    const loan = await db.loanApplication.create({
-      data: {
-        applicationNo,
-        customerId,
-        companyId, // Default to Company 3
-        loanType: loanTypeValue,
-        requestedAmount: parseFloat(requestedAmount),
-        requestedTenure: isInterestOnly ? 0 : parseInt(requestedTenure || '0'), // 0 for interest-only loans (will be set later)
-        purpose,
-        status: 'SUBMITTED',
-        // Set interest-only flag for INTEREST_ONLY loans
-        isInterestOnlyLoan: isInterestOnly,
-        // interestOnlyMonthlyAmount will be calculated when interest rate is set during session/approval
-      }
-    });
+    // withRetry: handles Prisma deadlock (P2034) up to 3× with exponential backoff
+    const loan = await withRetry(() => db.$transaction(async (tx) => {
+      const newLoan = await tx.loanApplication.create({
+        data: {
+          applicationNo,
+          customerId,
+          companyId,
+          loanType: loanTypeValue,
+          requestedAmount: parseFloat(requestedAmount),
+          requestedTenure: isInterestOnly ? 0 : parseInt(requestedTenure || '0'),
+          purpose,
+          status: 'SUBMITTED',
+          isInterestOnlyLoan: isInterestOnly,
+        }
+      });
 
-    await db.auditLog.create({
-      data: {
-        userId: customerId,
-        action: 'CREATE',
-        module: 'LOAN',
-        description: `Loan application ${applicationNo} submitted for ${loanTypeValue}`,
-        recordId: loan.id,
-        recordType: 'LoanApplication',
-        ipAddress: request.headers.get('x-forwarded-for') || 'unknown'
-      }
-    });
+      // ActionLog inside transaction — ACID-safe
+      await tx.actionLog.create({
+        data: {
+          userId: customerId,
+          userRole: 'CUSTOMER',
+          actionType: 'CREATE',
+          module: 'LOAN',
+          recordId: newLoan.id,
+          recordType: 'LoanApplication',
+          previousData: null,
+          newData: JSON.stringify({ applicationNo, loanType: loanTypeValue, requestedAmount, companyId }),
+          description: `Loan application ${applicationNo} submitted for ${loanTypeValue}`,
+          canUndo: false,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: customerId,
+          action: 'CREATE',
+          module: 'LOAN',
+          description: `Loan application ${applicationNo} submitted for ${loanTypeValue}`,
+          recordId: newLoan.id,
+          recordType: 'LoanApplication',
+          ipAddress: request.headers.get('x-forwarded-for') || 'unknown'
+        }
+      });
+
+      return newLoan;
+    }));
 
     // ── Notify SUPER_ADMINs and COMPANY users (one notification per device, deduplicated) ──
     // sendPushNotificationToRoles fetches both roles in a SINGLE query → no duplicates

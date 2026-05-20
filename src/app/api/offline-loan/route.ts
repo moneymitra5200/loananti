@@ -758,117 +758,124 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create loan
-    const loan = await db.offlineLoan.create({
-      data: {
-        loanNumber,
-        createdById,
-        createdByRole,
-        companyId,
-        customerId,
-        customerName,
-        customerPhone,
-        customerEmail,
-        customerAadhaar,
-        customerPan,
-        customerAddress,
-        customerCity,
-        customerState,
-        customerPincode,
-        customerDOB: safeDate(customerDOB, 'customerDOB'),
-        customerOccupation,
-        customerMonthlyIncome,
-        reference1Name,
-        reference1Phone,
-        reference1Relation,
-        reference2Name,
-        reference2Phone,
-        reference2Relation,
-        loanType: loanType || 'PERSONAL',
-        interestType: actualInterestType,
-        productId: validatedProductId,
-        loanAmount,
-        interestRate,
-        tenure: isInterestOnlyLoan ? 0 : (tenure || 0),
-        emiAmount: calculatedEmiAmount,
-        processingFee: processingFee || 0,
-        disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
-        disbursementMode,
-        disbursementRef,
-        status: isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE',
-        startDate: requiredDate(startDate, 'startDate'),
-        notes,
-        internalNotes,
-        bankAccountId: bankAccountId || null,
-        // C3 non-mirror secondary payment page
-        secondaryPaymentPageId: secondaryPaymentPageId || null,
-        // Interest Only Loan fields
-        isInterestOnlyLoan,
-        interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
-        interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
-        partialPaymentEnabled: !isInterestOnlyLoan,
-        // Location
-        applicationLocation: customerLocation,
-        // Documents
-        ...docUrls
-      }
-    });
-
-    // Generate EMI schedule
-    if (isInterestOnlyLoan) {
-      // ============ INTEREST ONLY LOAN - Create FIRST Interest EMI ============
-      // Same logic as online loan: Create one EMI for monthly interest
-      // Due date: 5th of next month
-      const dueDate = requiredDate(disbursementDate, 'disbursementDate');
-      dueDate.setMonth(dueDate.getMonth() + 1);
-      dueDate.setDate(5);
-      dueDate.setHours(0, 0, 0, 0);
-
-      await db.offlineLoanEMI.create({
+    // ============ STEP: ATOMIC LOAN + EMI CREATION ============
+    // withRetry: handles Prisma deadlock (P2034) up to 3x.
+    // $transaction: ensures loan + entire EMI schedule are created atomically.
+    // If EMI creation fails, the loan record automatically rolls back.
+    const loan = await withRetry(() => db.$transaction(async (tx) => {
+      // Create loan
+      const newLoan = await tx.offlineLoan.create({
         data: {
-          offlineLoanId: loan.id,
-          installmentNumber: 1,
-          dueDate,
-          originalDueDate: dueDate,
-          principalAmount: 0, // No principal for interest-only EMI
-          interestAmount: monthlyInterestAmount,
-          totalAmount: monthlyInterestAmount,
-          outstandingPrincipal: loanAmount, // Principal remains outstanding
-          paymentStatus: 'PENDING' as const,
-          isInterestOnly: true,
-          interestOnlyAmount: monthlyInterestAmount
+          loanNumber,
+          createdById,
+          createdByRole,
+          companyId,
+          customerId,
+          customerName,
+          customerPhone,
+          customerEmail,
+          customerAadhaar,
+          customerPan,
+          customerAddress,
+          customerCity,
+          customerState,
+          customerPincode,
+          customerDOB: safeDate(customerDOB, 'customerDOB'),
+          customerOccupation,
+          customerMonthlyIncome,
+          reference1Name,
+          reference1Phone,
+          reference1Relation,
+          reference2Name,
+          reference2Phone,
+          reference2Relation,
+          loanType: loanType || 'PERSONAL',
+          interestType: actualInterestType,
+          productId: validatedProductId,
+          loanAmount,
+          interestRate,
+          tenure: isInterestOnlyLoan ? 0 : (tenure || 0),
+          emiAmount: calculatedEmiAmount,
+          processingFee: processingFee || 0,
+          disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
+          disbursementMode,
+          disbursementRef,
+          status: isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE',
+          startDate: requiredDate(startDate, 'startDate'),
+          notes,
+          internalNotes,
+          bankAccountId: bankAccountId || null,
+          secondaryPaymentPageId: secondaryPaymentPageId || null,
+          isInterestOnlyLoan,
+          interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
+          interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
+          partialPaymentEnabled: !isInterestOnlyLoan,
+          applicationLocation: customerLocation,
+          ...docUrls
         }
       });
 
-      console.log(`[Offline Loan] Created first Interest EMI for loan ${loanNumber}, Amount: ${monthlyInterestAmount}, Due: ${dueDate.toISOString()}`);
-    } else if (tenure > 0 && emiSchedule.length > 0) {
-      // ============ REGULAR LOAN - Create Full EMI Schedule ============
-      // Create EMI schedules with proper due dates (5th of each month, same as online loan)
-      const emis = emiSchedule.map((item, index) => {
-        // Set due date to 5th of each month (same as online loan)
-        const dueDate = requiredDate(startDate, 'startDate');
-        dueDate.setMonth(dueDate.getMonth() + index + 1);
+      // ActionLog inside transaction - ACID-safe (rolls back if tx fails)
+      await tx.actionLog.create({
+        data: {
+          userId: createdById,
+          userRole: createdByRole,
+          actionType: 'CREATE',
+          module: 'OFFLINE_LOAN',
+          recordId: newLoan.id,
+          recordType: 'OfflineLoan',
+          previousData: null,
+          newData: JSON.stringify({ loanNumber, loanAmount, interestRate, tenure, companyId, customerName }),
+          description: `Offline loan ${loanNumber} created for ${customerName}`,
+          canUndo: false,
+        },
+      });
+
+      // Generate EMI schedule inside the same transaction
+      if (isInterestOnlyLoan) {
+        const dueDate = requiredDate(disbursementDate, 'disbursementDate');
+        dueDate.setMonth(dueDate.getMonth() + 1);
         dueDate.setDate(5);
         dueDate.setHours(0, 0, 0, 0);
+        await tx.offlineLoanEMI.create({
+          data: {
+            offlineLoanId: newLoan.id,
+            installmentNumber: 1,
+            dueDate,
+            originalDueDate: dueDate,
+            principalAmount: 0,
+            interestAmount: monthlyInterestAmount,
+            totalAmount: monthlyInterestAmount,
+            outstandingPrincipal: loanAmount,
+            paymentStatus: 'PENDING' as const,
+            isInterestOnly: true,
+            interestOnlyAmount: monthlyInterestAmount
+          }
+        });
+        console.log(`[Offline Loan] Created first Interest EMI for loan ${loanNumber}`);
+      } else if (tenure > 0 && emiSchedule.length > 0) {
+        const emis = emiSchedule.map((item, index) => {
+          const dueDate = requiredDate(startDate, 'startDate');
+          dueDate.setMonth(dueDate.getMonth() + index + 1);
+          dueDate.setDate(5);
+          dueDate.setHours(0, 0, 0, 0);
+          return {
+            offlineLoanId: newLoan.id,
+            installmentNumber: item.installmentNumber,
+            dueDate,
+            principalAmount: item.principal,
+            interestAmount: item.interest,
+            totalAmount: item.totalAmount,
+            outstandingPrincipal: item.outstandingPrincipal,
+            paymentStatus: 'PENDING' as const
+          };
+        });
+        await tx.offlineLoanEMI.createMany({ data: emis as any });
+      }
 
-        return {
-          offlineLoanId: loan.id,
-          installmentNumber: item.installmentNumber,
-          dueDate,
-          principalAmount: item.principal,
-          interestAmount: item.interest,
-          totalAmount: item.totalAmount, // utils/helpers EMIScheduleItem has .totalAmount
-          outstandingPrincipal: item.outstandingPrincipal,
-          paymentStatus: 'PENDING' as const
-        };
-      });
+      return newLoan;
+    })); // end withRetry + $transaction
 
-      // Create all EMIs
-      await db.offlineLoanEMI.createMany({
-        data: emis as any
-      });
-    }
-    
     // Handle Mirror Loan creation - Create ACTUAL mirror loan (SAME AS ONLINE LOANS)
     // Online loans create a separate LoanApplication for mirror - we do the same for offline
     let mirrorLoanResult: { mirrorLoanId: string; mirrorLoanNumber: string; extraEMICount: number; disbursement?: { success: boolean; mode: string; newBalance: number; bankAmount?: number; cashAmount?: number } } | null = null;
