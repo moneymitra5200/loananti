@@ -2264,129 +2264,103 @@ export async function PUT(request: NextRequest) {
 
 
       // ============================================================
-      // ACCOUNTING: Record Interest-Only Payment as Interest Income
-      // Dr: Cash in Hand / Bank Account  = interestAmount (original company)
-      // Cr: Interest Income (4110)       = interestAmount (original company)
-      // ============================================================
-      if (loan.companyId) {
-        try {
-          const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
-          const { AccountingService: AccSvc, ACCOUNT_CODES: CODES } = await import('@/lib/accounting-service');
-          const accService = new AccSvc(loan.companyId);
-          await accService.initializeChartOfAccounts();
-
-          if (isOnlineMode) {
-            const { recordBankTransaction } = await import('@/lib/simple-accounting');
-            await recordBankTransaction({
-              companyId: loan.companyId, transactionType: 'CREDIT', amount: interestAmount,
-              description: `Interest-Only EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
-              referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
-            });
-          } else {
-            const { recordCashBookEntry } = await import('@/lib/simple-accounting');
-            await recordCashBookEntry({
-              companyId: loan.companyId, entryType: 'CREDIT', amount: interestAmount,
-              description: `Interest-Only EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
-              referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
-            });
-          }
-
-          await accService.createJournalEntry({
-            entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
-            narration: `Interest-Only EMI #${currentEMI.installmentNumber} for ${loan.loanNumber} — ₹${interestAmount}`,
-            lines: [
-              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: interestAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})` },
-              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: interestAmount, narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}` },
-            ],
-            createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
-          });
-
-          console.log(`[Interest-Only Accounting] ✓ Dr ${isOnlineMode ? 'Bank' : 'Cash'} ₹${interestAmount}, Cr Interest Income ₹${interestAmount}`);
-        } catch (accErr) {
-          console.error('[Interest-Only Accounting] Failed (non-critical):', accErr);
-        }
-      }
-
-      // ============================================================
-      // MIRROR ACCOUNTING: Record IO interest income in MIRROR company
-      // When original IO loan has a mirror, the mirror company must also
-      // record the interest income for that month — same as a normal loan.
-      // Dr: Cash in Hand (mirror company)   = mirrorInterestAmount
-      // Cr: Interest Income (mirror company) = mirrorInterestAmount
-      // Also: create next-month IO EMI on mirror loan to track payment.
+      // ACCOUNTING: Interest-Only Payment → Same rule as pay-emi
+      //   Mirror exists → entry in MIRROR company ONLY (mirror rate)
+      //   No mirror     → entry in ORIGINAL company ONLY
+      // Dr: Cash / Bank   = interestAmount
+      // Cr: Interest Income = interestAmount
       // ============================================================
       try {
+        const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
+        const { AccountingService: AccSvc, ACCOUNT_CODES: CODES } = await import('@/lib/accounting-service');
+        const { recordBankTransaction, recordCashBookEntry } = await import('@/lib/simple-accounting');
+
+        // Resolve mirror mapping
         const mirrorMapForIO = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: loanId, isOfflineLoan: true },
           select: { id: true, mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
         });
 
-        if (mirrorMapForIO?.mirrorLoanId && mirrorMapForIO.mirrorCompanyId) {
-          const mcId = mirrorMapForIO.mirrorCompanyId;
-          const mirrorLoanId = mirrorMapForIO.mirrorLoanId;
-          const mirrorMonthlyInterest = Math.round((loan.loanAmount * (mirrorMapForIO.mirrorInterestRate || 0) / 100 / 12) * 100) / 100;
+        const hasMirror = !!(mirrorMapForIO?.mirrorLoanId && mirrorMapForIO.mirrorCompanyId);
 
-          const { AccountingService: AccSvc2, ACCOUNT_CODES: CODES2 } = await import('@/lib/accounting-service');
-          const mirrorAccSvc = new AccSvc2(mcId);
-          await mirrorAccSvc.initializeChartOfAccounts();
+        // ── Target: mirror company if mirror exists, else original ────────────
+        const targetCompanyId = hasMirror ? mirrorMapForIO!.mirrorCompanyId : (loan.companyId || '');
+        const targetAmount    = hasMirror
+          ? Math.round((loan.loanAmount * (mirrorMapForIO!.mirrorInterestRate || 0) / 100 / 12) * 100) / 100
+          : interestAmount;
+        const targetRate = hasMirror ? mirrorMapForIO!.mirrorInterestRate : null;
 
-          // Journal entry in MIRROR company: Dr Cash → Cr Interest Income
-          await mirrorAccSvc.createJournalEntry({
-            entryDate: now,
-            referenceType: 'INTEREST_ONLY_PAYMENT',
-            referenceId: currentEMI.id,
-            narration: `Mirror IO Interest EMI #${currentEMI.installmentNumber} — ${loan.loanNumber} @ ${mirrorMapForIO.mirrorInterestRate}%`,
+        if (targetCompanyId) {
+          const accSvc = new AccSvc(targetCompanyId);
+          await accSvc.initializeChartOfAccounts();
+
+          // Cashbook / Bank entry
+          if (isOnlineMode) {
+            await recordBankTransaction({
+              companyId: targetCompanyId, transactionType: 'CREDIT', amount: targetAmount,
+              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}${hasMirror ? ' (mirror)' : ''}`,
+              referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
+            });
+          } else {
+            await recordCashBookEntry({
+              companyId: targetCompanyId, entryType: 'CREDIT', amount: targetAmount,
+              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}${hasMirror ? ' (mirror)' : ''}`,
+              referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
+            });
+          }
+
+          // Double-entry journal
+          await accSvc.createJournalEntry({
+            entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
+            narration: `IO EMI #${currentEMI.installmentNumber} — ${loan.loanNumber}${hasMirror ? ` @ ${targetRate}% (mirror)` : ''} ₹${targetAmount}`,
             lines: [
-              { accountCode: CODES2.CASH_IN_HAND, debitAmount: mirrorMonthlyInterest, creditAmount: 0, narration: `Mirror interest received` },
-              { accountCode: CODES2.INTEREST_INCOME, debitAmount: 0, creditAmount: mirrorMonthlyInterest, narration: `Mirror interest income — ${loan.loanNumber}` },
+              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})` },
+              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}` },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });
 
-          // Create next-month IO EMI on mirror loan (rolling, just like original)
-          const mirrorNextInstNum = currentEMI.installmentNumber + 1;
-          const mirrorNextDue = new Date(currentEMI.dueDate);
-          mirrorNextDue.setMonth(mirrorNextDue.getMonth() + 1);
+          console.log(`[IO Accounting] ✓ Entry in ${hasMirror ? 'MIRROR' : 'ORIGINAL'} company ${targetCompanyId} — ₹${targetAmount}`);
+        }
 
-          const existingMirrorEMI = await db.offlineLoanEMI.findFirst({
-            where: { offlineLoanId: mirrorLoanId, installmentNumber: mirrorNextInstNum }
-          });
-          if (!existingMirrorEMI) {
-            await db.offlineLoanEMI.create({
-              data: {
-                offlineLoanId: mirrorLoanId,
-                installmentNumber: mirrorNextInstNum,
-                dueDate: mirrorNextDue, originalDueDate: mirrorNextDue,
-                principalAmount: 0,
-                interestAmount: mirrorMonthlyInterest,
-                totalAmount: mirrorMonthlyInterest,
-                outstandingPrincipal: loan.loanAmount,
-                paymentStatus: 'PENDING',
-                isInterestOnly: true,
-                interestOnlyAmount: mirrorMonthlyInterest,
-              }
-            });
-          }
+        // ── Mirror EMI rolling sync (if mirror exists) ────────────────────────
+        if (hasMirror) {
+          const mirrorLoanId  = mirrorMapForIO!.mirrorLoanId!;
+          const mirrorInterest = targetAmount;
 
-          // Mark current mirror EMI as paid (auto-sync)
-          const currentMirrorEMI = await db.offlineLoanEMI.findFirst({
+          // Mark current mirror EMI as PAID
+          const curMirrorEMI = await db.offlineLoanEMI.findFirst({
             where: { offlineLoanId: mirrorLoanId, installmentNumber: currentEMI.installmentNumber }
           });
-          if (currentMirrorEMI) {
+          if (curMirrorEMI) {
             await db.offlineLoanEMI.update({
-              where: { id: currentMirrorEMI.id },
-              data: {
-                paymentStatus: 'PAID', paidAmount: mirrorMonthlyInterest,
-                paidInterest: mirrorMonthlyInterest, paidDate: now,
-                paymentMode: paymentMode || 'CASH', interestOnlyPaidAt: now,
-              }
+              where: { id: curMirrorEMI.id },
+              data: { paymentStatus: 'PAID', paidAmount: mirrorInterest, paidInterest: mirrorInterest, paidDate: now, paymentMode: paymentMode || 'CASH', interestOnlyPaidAt: now }
             });
           }
 
-          console.log(`[Mirror IO Accounting] ✓ Mirror interest ₹${mirrorMonthlyInterest} recorded in ${mcId}`);
+          // Create next-month IO EMI on mirror (rolling, indefinite)
+          const nextInstNum = currentEMI.installmentNumber + 1;
+          const nextDue = new Date(currentEMI.dueDate);
+          nextDue.setMonth(nextDue.getMonth() + 1);
+          const alreadyExists = await db.offlineLoanEMI.findFirst({
+            where: { offlineLoanId: mirrorLoanId, installmentNumber: nextInstNum }
+          });
+          if (!alreadyExists) {
+            await db.offlineLoanEMI.create({
+              data: {
+                offlineLoanId: mirrorLoanId, installmentNumber: nextInstNum,
+                dueDate: nextDue, originalDueDate: nextDue,
+                principalAmount: 0, interestAmount: mirrorInterest,
+                totalAmount: mirrorInterest, outstandingPrincipal: loan.loanAmount,
+                paymentStatus: 'PENDING', isInterestOnly: true, interestOnlyAmount: mirrorInterest,
+              }
+            });
+          }
+          console.log(`[IO Mirror Sync] ✓ Mirror EMI #${currentEMI.installmentNumber} PAID, EMI #${nextInstNum} created`);
         }
-      } catch (mirrorIOErr) {
-        console.error('[Mirror IO Accounting] Non-critical error:', mirrorIOErr);
+      } catch (accErr) {
+        console.error('[IO Accounting] Non-critical error:', accErr);
       }
 
 
