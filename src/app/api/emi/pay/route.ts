@@ -1431,7 +1431,25 @@ export async function POST(request: NextRequest) {
         const mirrorEmiForAcc = await db.eMISchedule.findFirst({
           where: { loanApplicationId: mirrorMappingForAccounting.mirrorLoanId, installmentNumber: emi.installmentNumber }
         });
-        if (mirrorEmiForAcc) {
+        if (!mirrorEmiForAcc) {
+          // Fallback: mirror EMI record not found (e.g. installmentNumber mismatch)
+          // For INTEREST_ONLY: use the actual session interest the customer just paid.
+          // For FULL/PARTIAL: calculate from mirror rate * outstanding principal.
+          const mirrorRate = (await db.mirrorLoanMapping.findFirst({
+            where: { id: mirrorMappingForAccounting.id },
+            select: { mirrorInterestRate: true }
+          }))?.mirrorInterestRate || 15;
+          if (paymentType === 'INTEREST_ONLY') {
+            mirrorInterestForAccounting  = paidInterest;
+            mirrorPrincipalForAccounting = 0;
+            console.log("[Accounting] ONLINE MIRROR IO Fallback: Using paidInterest (mirror EMI not found)");
+          } else {
+            const monthlyRate = mirrorRate / 100 / 12;
+            mirrorInterestForAccounting  = Math.round(Number(emi.outstandingPrincipal || 0) * monthlyRate * 100) / 100;
+            mirrorPrincipalForAccounting = Math.max(0, paidPrincipal);
+            console.log("[Accounting] ONLINE MIRROR Fallback (mirror EMI not found)");
+          }
+        } else {
           if (paymentType === 'PRINCIPAL_ONLY') {
             // PRINCIPAL_ONLY: principal is collected, interest is written off
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);

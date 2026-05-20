@@ -36,7 +36,7 @@ interface LedgerData {
   closingBalance: number; totalDebit: number; totalCredit: number;
 }
 
-export default function LedgerSection({ selectedCompanyId }: { selectedCompanyId: string }) {
+export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
   const [selectedAccount, setSelectedAccount] = useState('CASH');
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
@@ -47,16 +47,21 @@ export default function LedgerSection({ selectedCompanyId }: { selectedCompanyId
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/real-ledger?companyId=${selectedCompanyId}&account=${selectedAccount}&startDate=${startDate}&endDate=${endDate}`);
+      const res = await fetch(
+        `/api/accounting/real-ledger?companyId=${selectedCompanyId}&account=${selectedAccount}&startDate=${startDate}&endDate=${endDate}&_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        }
+      );
       const data = await res.json();
       if (data.success) setLedger(data.data);
     } catch { /* silent */ } finally { setLoading(false); }
-  }, [selectedCompanyId, selectedAccount, startDate, endDate]);
+  }, [selectedCompanyId, selectedAccount, startDate, endDate, refreshKey]);
 
-  // Auto-refresh every 30s once ledger has been loaded at least once
+  // Auto-refresh disabled — refreshes on socket update or mount
   const { lastUpdated: ldLastUpdated } = useAutoRefresh({
     onRefresh: load,
-    intervalMs: 30_000,
+    intervalMs: 0,
     enabled: !!selectedCompanyId && !!ledger,
   });
   const ldUpdatedLabel = useRelativeTime(ldLastUpdated);

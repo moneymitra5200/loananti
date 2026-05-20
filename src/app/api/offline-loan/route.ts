@@ -1954,6 +1954,10 @@ export async function POST(request: NextRequest) {
 
     emitDashboardRefresh({ companyId: loan.companyId || undefined });
     emitReportInvalidate({ companyId: loan.companyId || undefined, type: 'all' });
+    if (isMirrorLoan && mirrorCompanyId) {
+      emitDashboardRefresh({ companyId: mirrorCompanyId });
+      emitReportInvalidate({ companyId: mirrorCompanyId, type: 'all' });
+    }
 
     // Bust the server-side all-active loans cache so next fetch gets fresh data immediately
     try {
@@ -2270,6 +2274,8 @@ export async function PUT(request: NextRequest) {
       // Dr: Cash / Bank   = interestAmount
       // Cr: Interest Income = interestAmount
       // ============================================================
+      let hasMirrorOuter = false;
+      let mirrorCompanyIdOuter: string | null = null;
       try {
         const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
         const { AccountingService: AccSvc, ACCOUNT_CODES: CODES } = await import('@/lib/accounting-service');
@@ -2282,6 +2288,8 @@ export async function PUT(request: NextRequest) {
         });
 
         const hasMirror = !!(mirrorMapForIO?.mirrorLoanId && mirrorMapForIO.mirrorCompanyId);
+        hasMirrorOuter = hasMirror;
+        mirrorCompanyIdOuter = mirrorMapForIO?.mirrorCompanyId || null;
 
         // ── Target: mirror company if mirror exists, else original ────────────
         const targetCompanyId = hasMirror ? mirrorMapForIO!.mirrorCompanyId : (loan.companyId || '');
@@ -2367,6 +2375,10 @@ export async function PUT(request: NextRequest) {
       if (loan.companyId) {
         emitDashboardRefresh({ companyId: loan.companyId || undefined });
         emitReportInvalidate({ companyId: loan.companyId || undefined, type: 'all' });
+      }
+      if (hasMirrorOuter && mirrorCompanyIdOuter) {
+        emitDashboardRefresh({ companyId: mirrorCompanyIdOuter });
+        emitReportInvalidate({ companyId: mirrorCompanyIdOuter, type: 'all' });
       }
 
       return NextResponse.json({
@@ -3160,6 +3172,7 @@ export async function PUT(request: NextRequest) {
       //   Same rule as emi/pay/route.ts — both routes are consistent.
       //   No button, no retry, no manual call can create a duplicate.
       const accountingWarnings: string[] = [];
+      let isMirrorLoan = false; // declared here so it's visible after the try/catch block
 
       // ── STATUS GATE ─────────────────────────────────────────────────────────
       const isOfflineTerminalPaidState = (
@@ -3171,7 +3184,7 @@ export async function PUT(request: NextRequest) {
         console.log(`[Accounting] Skipping offline EMI accounting — status '${paymentStatus}' is not a terminal paid state.`);
       } else
       try {
-        const isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
+        isMirrorLoan = !!mirrorLoanMapping && !isExtraEMI;
 
         // ── Determine effective company for accounting ────────────────────────
         // For C3 (PD Rangani) non-mirror loans: ALWAYS go to C3 cashbook (no bank)
@@ -3650,6 +3663,10 @@ export async function PUT(request: NextRequest) {
 
       emitDashboardRefresh({ companyId: emi.offlineLoan.companyId || undefined });
       emitReportInvalidate({ companyId: emi.offlineLoan.companyId || undefined, type: 'all' });
+      if (isMirrorLoan && mirrorLoanMapping?.mirrorCompanyId) {
+        emitDashboardRefresh({ companyId: mirrorLoanMapping.mirrorCompanyId });
+        emitReportInvalidate({ companyId: mirrorLoanMapping.mirrorCompanyId, type: 'all' });
+      }
 
       // Broadcast real-time refresh
       setImmediate(() => {

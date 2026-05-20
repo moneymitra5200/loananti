@@ -25,6 +25,7 @@ interface PersonalLedgerTabProps {
   selectedCompanyIds: string[];
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
+  refreshKey?: number;
 }
 
 interface CustomerBasic {
@@ -91,7 +92,7 @@ interface StatementRow {
   emiNumber?: number;
 }
 
-function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, formatDate }: PersonalLedgerTabProps) {
+function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, formatDate, refreshKey = 0 }: PersonalLedgerTabProps) {
   const [loading, setLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerBasic[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,7 +105,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
   useEffect(() => {
     fetchCustomers();
-  }, [selectedCompanyIds]);
+  }, [selectedCompanyIds, refreshKey]);
 
   // ─── Fetch customer list (mirror-aware) ────────────────────────────────────
   const fetchCustomers = async () => {
@@ -117,13 +118,19 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
       if (selectedCompanyIds.length === 0) {
         // Fetch all — no company filter
-        const res = await fetch(`/api/accounting/personal-ledger`);
+        const res = await fetch(`/api/accounting/personal-ledger?_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
         const data = await res.json();
         if (data.success) allCustomers = data.borrowers || [];
       } else {
         // Fetch per company (mirror-aware) and merge
         const fetches = selectedCompanyIds.map(cid =>
-          fetch(`/api/accounting/personal-ledger?companyId=${cid}`).then(r => r.json())
+          fetch(`/api/accounting/personal-ledger?companyId=${cid}&_t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+          }).then(r => r.json())
         );
         const results = await Promise.all(fetches);
         const seen = new Set<string>();
@@ -162,7 +169,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     setSelectedLoan(null);
     try {
       const companyParam = selectedCompanyIds.length === 1 ? `&companyId=${selectedCompanyIds[0]}` : '';
-      const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}${companyParam}`);
+      const res = await fetch(`/api/accounting/personal-ledger?customerId=${customerId}${companyParam}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      });
       const data = await res.json();
 
       if (!data.success) {

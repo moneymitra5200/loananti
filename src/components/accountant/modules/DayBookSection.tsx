@@ -44,7 +44,7 @@ const modeColor = (m?: string) => ({
   CHEQUE: 'bg-amber-100 text-amber-700',
 }[m || ''] || 'bg-gray-100 text-gray-600');
 
-export default function DayBookSection({ selectedCompanyId, formatCurrency }: { selectedCompanyId: string; formatCurrency: (n: number) => string }) {
+export default function DayBookSection({ selectedCompanyId, formatCurrency, refreshKey = 0 }: { selectedCompanyId: string; formatCurrency: (n: number) => string; refreshKey?: number }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -57,19 +57,24 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency }: { 
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accounting/journal-entries?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}&limit=200&offset=0`);
+      const res = await fetch(
+        `/api/accounting/journal-entries?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}&limit=200&offset=0&_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        }
+      );
       const data = await res.json();
       setEntries(data.entries || []);
       setPage(1);
     } catch { /* silent */ } finally { setLoading(false); }
-  }, [selectedCompanyId, startDate, endDate]);
+  }, [selectedCompanyId, startDate, endDate, refreshKey]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Auto-refresh every 30 seconds — data stays live without hard refresh
+  // Auto-refresh disabled — refreshes on socket update or mount
   const { lastUpdated, forceRefresh } = useAutoRefresh({
     onRefresh: load,
-    intervalMs: 30_000,
+    intervalMs: 0,
     enabled: !!selectedCompanyId,
   });
   const updatedLabel = useRelativeTime(lastUpdated);

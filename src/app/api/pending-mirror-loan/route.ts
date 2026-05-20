@@ -965,6 +965,19 @@ export async function PUT(request: NextRequest) {
         }
       });
 
+      // Trigger instant UI refresh across the app
+      try {
+        const { emitDashboardRefresh, emitReportInvalidate } = await import('@/lib/socket-emit');
+        emitDashboardRefresh({ companyId: pendingLoan.mirrorCompanyId || undefined });
+        emitReportInvalidate({ companyId: pendingLoan.mirrorCompanyId || undefined, type: 'all' });
+        if (pendingLoan.originalCompanyId) {
+          emitDashboardRefresh({ companyId: pendingLoan.originalCompanyId || undefined });
+          emitReportInvalidate({ companyId: pendingLoan.originalCompanyId || undefined, type: 'all' });
+        }
+      } catch (err) {
+        console.error('[Mirror Loan] Socket emit failed:', err);
+      }
+
       console.log(`[Pending Mirror Loan] Disbursed: ${id}`);
       console.log(`[Mirror Loan] Created MIRROR LOAN ${mirrorApplicationNo} for original ${originalLoan.applicationNo}`);
 

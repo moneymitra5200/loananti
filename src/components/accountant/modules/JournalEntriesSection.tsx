@@ -131,7 +131,7 @@ const fmtShort = (d: string) => { try { return format(new Date(d), 'dd MMM yyyy'
 // ─────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────
-export default function JournalEntriesSection({ selectedCompanyId }: { selectedCompanyId: string }) {
+export default function JournalEntriesSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -149,9 +149,13 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
         companyId: selectedCompanyId,
         limit: String(LIMIT),
         offset: String(page * LIMIT),
+        _t: String(Date.now()),
       });
       if (filterType && filterType !== 'all') params.set('referenceType', filterType);
-      const res = await fetch(`/api/accounting/journal-entries?${params}`);
+      const res = await fetch(`/api/accounting/journal-entries?${params}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      });
       const data = await res.json();
       setEntries(data.entries || []);
       setTotal(data.total || 0);
@@ -160,15 +164,15 @@ export default function JournalEntriesSection({ selectedCompanyId }: { selectedC
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId, filterType, page]);
+  }, [selectedCompanyId, filterType, page, refreshKey]);
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
   useEffect(() => { setPage(0); }, [filterType, selectedCompanyId]);
 
-  // Auto-refresh every 30s — journal entries stay live
+  // Auto-refresh disabled — refreshes on socket update or mount
   const { lastUpdated: jeLastUpdated } = useAutoRefresh({
     onRefresh: loadEntries,
-    intervalMs: 30_000,
+    intervalMs: 0,
     enabled: !!selectedCompanyId,
   });
   const jeUpdatedLabel = useRelativeTime(jeLastUpdated);

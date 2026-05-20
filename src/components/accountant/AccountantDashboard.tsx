@@ -39,6 +39,7 @@ import CapitalWithdrawDialog from '@/components/accounting/CapitalWithdrawDialog
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
+import { RefreshProvider, useRefresh } from '@/contexts/RefreshContext';
 
 // ============================================
 // TYPES
@@ -156,13 +157,15 @@ const getCompanyType = (company: Company | undefined): 'COMPANY_1_2' | 'COMPANY_
 function DayBookSection({
   selectedCompanyId,
   formatCurrency,
+  refreshKey = 0,
   formatDateShort
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDateShort: (date: Date | string) => string;
+  refreshKey?: number;
 }) {
-  return <NewDayBookSection selectedCompanyId={selectedCompanyId} formatCurrency={formatCurrency} />;
+  return <NewDayBookSection selectedCompanyId={selectedCompanyId} formatCurrency={formatCurrency} refreshKey={refreshKey} />;
 }
 
 // Cash Book Section - For Company 3 (Cash Only)
@@ -193,7 +196,10 @@ function CashBookSection({
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/accountant/cashbook?companyId=${selectedCompanyId}`);
+      const res = await fetch(`/api/accountant/cashbook?companyId=${selectedCompanyId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      });
       const data = await res.json();
       setCashBook(data);
       setEntries(data.entries || []);
@@ -208,10 +214,10 @@ function CashBookSection({
     loadData();
   }, [loadData]);
 
-  // Auto-refresh every 30s — cash book stays live
+  // Auto-refresh disabled — refreshes on socket update or mount
   const { lastUpdated: cbLastUpdated } = useAutoRefresh({
     onRefresh: loadData,
-    intervalMs: 30_000,
+    intervalMs: 0,
     enabled: !!selectedCompanyId,
   });
   const cbUpdatedLabel = useRelativeTime(cbLastUpdated);
@@ -618,7 +624,10 @@ function BankSection({
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/accountant/bank-accounts?companyId=${selectedCompanyId}`);
+      const res = await fetch(`/api/accountant/bank-accounts?companyId=${selectedCompanyId}&_t=${Date.now()}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+      });
       const data = await res.json();
       setBankAccounts(data.bankAccounts || []);
       setTransactions(data.transactions || []);
@@ -633,10 +642,10 @@ function BankSection({
     loadData();
   }, [loadData]);
 
-  // Auto-refresh every 30s — bank section stays live
+  // Auto-refresh disabled — refreshes on socket update or mount
   const { lastUpdated: bankLastUpdated } = useAutoRefresh({
     onRefresh: loadData,
-    intervalMs: 30_000,
+    intervalMs: 0,
     enabled: !!selectedCompanyId && selectedCompanyId.length >= 10,
   });
   const bankUpdatedLabel = useRelativeTime(bankLastUpdated);
@@ -2677,7 +2686,7 @@ export default function UnifiedAccountantDashboard() {
     role: user?.role,
     companyId: selectedCompanyId,
     onDashboardRefresh: triggerRefresh,
-    pollInterval: 30_000, // Poll every 30s — keeps accounting data live without hard refresh
+    pollInterval: 0, // No polling — refresh happens via socket events only
   });
 
   const companyType = getCompanyType(selectedCompany);
@@ -2801,21 +2810,23 @@ export default function UnifiedAccountantDashboard() {
           <DayBookSection
             selectedCompanyId={selectedCompanyId}
             formatCurrency={formatCurrency}
+            refreshKey={refreshKey}
             formatDateShort={formatDateShort}
           />
         );
       case 'payment-audit':
-        return <JournalEntriesSection selectedCompanyId={selectedCompanyId} />;
+        return <JournalEntriesSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
       case 'day-book':
-        return <TradDayBookSection selectedCompanyId={selectedCompanyId} />;
+        return <TradDayBookSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
       case 'ledger':
-        return <LedgerSection selectedCompanyId={selectedCompanyId} />;
+        return <LedgerSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
       case 'personal-ledger':
         return (
           <PersonalLedgerTab
             selectedCompanyIds={selectedCompanyId ? [selectedCompanyId] : []}
             formatCurrency={formatCurrency}
             formatDate={formatDate}
+            refreshKey={refreshKey}
           />
         );
       case 'cash-book':

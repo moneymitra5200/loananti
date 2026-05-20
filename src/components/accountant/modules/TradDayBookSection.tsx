@@ -331,7 +331,7 @@ const PER_PAGE = 7;
 // ─────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────
-export default function TradDayBookSection({ selectedCompanyId }: { selectedCompanyId: string }) {
+export default function TradDayBookSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
   const [entries, setEntries] = useState<DayEntry[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -344,7 +344,10 @@ export default function TradDayBookSection({ selectedCompanyId }: { selectedComp
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/accounting/daybook?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}`
+        `/api/accounting/daybook?companyId=${selectedCompanyId}&startDate=${startDate}&endDate=${endDate}&_t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        }
       );
       const data = await res.json();
       setEntries(data.entries || []);
@@ -352,7 +355,7 @@ export default function TradDayBookSection({ selectedCompanyId }: { selectedComp
       setPage(1);
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [selectedCompanyId, startDate, endDate]);
+  }, [selectedCompanyId, startDate, endDate, refreshKey]);
 
   useEffect(() => { load(); }, [load]);
 
