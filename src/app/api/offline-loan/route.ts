@@ -1008,7 +1008,7 @@ export async function POST(request: NextRequest) {
             reference2Relation,
             loanType: loanType || 'PERSONAL',
             interestType: mirrorTypeInterest as 'FLAT' | 'REDUCING',
-            productId: productId || null,
+            productId: null, // productIds are company-specific; mirror company won't have the same product
             loanAmount,
             interestRate: mirrorRate,
             tenure: mirrorTenure,
