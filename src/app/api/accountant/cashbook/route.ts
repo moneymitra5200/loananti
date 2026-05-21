@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
+import { emitDashboardRefresh } from '@/lib/socket-emit';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,13 +12,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
     }
 
+    // ── Cache check FIRST (before any DB query) ──────────────────────────────
+    const cacheKey = `accountant:cashbook:${companyId}`;
+    const cached = cache.get<object>(cacheKey);
+    if (cached) return NextResponse.json(cached);
+
     // Get or create cashbook for the company
     let cashBook = await db.cashBook.findUnique({
       where: { companyId }
     });
 
     if (!cashBook) {
-      // Create cashbook if it doesn't exist
       cashBook = await db.cashBook.create({
         data: {
           companyId,
@@ -27,16 +32,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get cashbook entries
+    // Get cashbook entries (newest first)
     const entries = await db.cashBookEntry.findMany({
       where: { cashBookId: cashBook.id },
-      orderBy: { entryDate: 'desc' },
-      take: 100
+      orderBy: { createdAt: 'desc' },
+      take: 200
     });
-
-    const cacheKey = `accountant:cashbook:${companyId}`;
-    const cached = cache.get<object>(cacheKey);
-    if (cached) return NextResponse.json(cached);
 
     const result = {
       cashBookId: cashBook.id,
@@ -44,7 +45,7 @@ export async function GET(request: NextRequest) {
       currentBalance: cashBook.currentBalance,
       entries
     };
-    cache.set(cacheKey, result, CacheTTL.SHORT); // 30s — balance changes frequently
+    cache.set(cacheKey, result, CacheTTL.SHORT); // 30s
     return NextResponse.json(result);
 
   } catch (error) {
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { companyId, entryType, amount, description, createdById, setOpeningBalance } = body;
+    const { companyId, entryType, amount, description, createdById, setOpeningBalance, referenceType } = body;
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });
@@ -82,12 +83,16 @@ export async function POST(request: NextRequest) {
     if (setOpeningBalance) {
       const updated = await db.cashBook.update({
         where: { id: cashBook.id },
-        data: { 
+        data: {
           openingBalance: amount,
-          currentBalance: amount // Set current balance to opening balance initially
+          currentBalance: amount
         }
       });
-      
+
+      // Invalidate cache + broadcast
+      cache.delete(`accountant:cashbook:${companyId}`);
+      emitDashboardRefresh({ companyId });
+
       return NextResponse.json({
         success: true,
         message: 'Opening balance set successfully',
@@ -111,8 +116,8 @@ export async function POST(request: NextRequest) {
 
     // Calculate new balance
     const currentBalance = cashBook.currentBalance || 0;
-    const newBalance = entryType === 'CREDIT' 
-      ? currentBalance + amount 
+    const newBalance = entryType === 'CREDIT'
+      ? currentBalance + amount
       : currentBalance - amount;
 
     // Create entry and update balance
@@ -123,16 +128,21 @@ export async function POST(request: NextRequest) {
         amount,
         balanceAfter: newBalance,
         description,
-        referenceType: 'MANUAL_ENTRY',
+        referenceType: referenceType || 'MANUAL_ENTRY',
         createdById
       }
     });
 
-    // Update cashbook balance
     await db.cashBook.update({
       where: { id: cashBook.id },
       data: { currentBalance: newBalance }
     });
+
+    // Invalidate cache so next GET returns fresh data immediately
+    cache.delete(`accountant:cashbook:${companyId}`);
+
+    // Broadcast to all connected clients so the UI updates instantly
+    emitDashboardRefresh({ companyId });
 
     return NextResponse.json({
       success: true,
