@@ -438,10 +438,10 @@ export default function CashierDashboard() {
         setIsCompany3(companyIsCompany3);
         
         if (companyIsCompany3 && disbursementCompanyId) {
-          // Company 3: Fetch CashBook instead of BankAccounts
-          console.log('[Disbursement] Company 3 detected - using CashBook instead of BankAccounts');
+          // Company 3: Fetch CashBook and BankAccounts (to support both modes)
+          console.log('[Disbursement] Company 3 detected - using CashBook and BankAccounts');
           await fetchCashBook(disbursementCompanyId);
-          setBankAccounts([]); // Clear bank accounts
+          await fetchBankAccounts(disbursementCompanyId);
         } else {
           // Other companies: Fetch bank accounts
           if (disbursementCompanyId) {
@@ -592,7 +592,7 @@ export default function CashierDashboard() {
     try {
       // Determine the actual bank account ID (null for cash payments)
       const actualBankAccountId = isCashPayment ? null : disbursementForm.selectedBankAccountId;
-      const isCashDisbursement = isCashPayment || isCompany3;
+      const isCashDisbursement = isCashPayment || (isCompany3 && (!actualBankAccountId || String(actualBankAccountId).startsWith('cash_')));
       
       const requestBody = {
         loanId: selectedLoan.id,

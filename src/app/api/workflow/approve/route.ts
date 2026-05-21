@@ -591,10 +591,11 @@ async function processSingleApproval({
               }
               console.log(`[Split Disb. Journal] Bank ₹${disbursementData.bankAmount} + Cash ₹${disbursementData.cashAmount} recorded in ledger`);
             } catch (splitJEErr) {
-              console.error('[Split Disb. Journal] Failed (non-critical):', splitJEErr);
+              console.error('[Split Disb. Journal] Failed:', splitJEErr);
+              throw splitJEErr;
             }
           }
-        } else if (isCompany3 && company) {
+        } else if (isCompany3 && company && (!disbursementData?.bankAccountId || String(disbursementData.bankAccountId).startsWith('cash_'))) {
         // Company 3: Use CashBook instead of BankAccount
         // Get or create cash book for Company 3
         let cashBook = await tx.cashBook.findUnique({
@@ -711,7 +712,7 @@ async function processSingleApproval({
           });
           console.log(`[Disbursement] Bank deduction: ₹${disbursementData.amount}, New Balance: ₹${newBalance}`);
         } else {
-          console.warn(`[Disbursement] Bank account ${disbursementData.bankAccountId} not found — journal entry will still be created`);
+          throw new Error(`Bank account ${disbursementData.bankAccountId} not found`);
         }
       }
       
@@ -742,6 +743,7 @@ async function processSingleApproval({
           console.log(`[Disbursement] Journal Entry created via AccountingService for ${loan.applicationNo}`);
         } catch (accError) {
           console.error(`[Disbursement] Error creating journal entry:`, accError);
+          throw accError;
         }
       } else if (isSplitPayment) {
         console.log(`[Disbursement] SPLIT PAYMENT — skipping AccountingService (raw entries already created). Bank: ₹${disbursementData.bankAmount}, Cash: ₹${disbursementData.cashAmount}`);

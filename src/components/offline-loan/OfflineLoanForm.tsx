@@ -583,7 +583,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
           // Auto-select default
           const defaultSource = data.paymentSources.find((s: PaymentSource) => s.isDefault);
           if (defaultSource) {
-            setFormData(prev => ({ ...prev, bankAccountId: defaultSource.id }));
+            setFormData(prev => ({ 
+              ...prev, 
+              bankAccountId: defaultSource.id,
+              disbursementMode: defaultSource.type === 'CASH' ? 'CASH' : 'BANK_TRANSFER'
+            }));
           }
         }
       }

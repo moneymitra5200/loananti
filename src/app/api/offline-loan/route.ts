@@ -564,6 +564,8 @@ export async function GET(request: NextRequest) {
 
 // POST - Create a new offline loan
 export async function POST(request: NextRequest) {
+  let loanCreatedId: string | null = null;
+  let mirrorLoanCreatedId: string | null = null;
   try {
     const body = await request.json();
     const {
@@ -716,6 +718,9 @@ export async function POST(request: NextRequest) {
     let bankAccountIdUsed: string | null = isRealBankAccountId ? bankAccountId : null;
     let cashBookIdUsed: string | null = null;
 
+    const isCashDisbursement = disbursementMode === 'CASH' || (bankAccountId && bankAccountId.startsWith('cash_'));
+    const finalDisbursementMode = isCashDisbursement ? 'CASH' : 'BANK_TRANSFER';
+
     if (documents) {
       // Mapping documents to schema fields
       const docMapping: Record<string, string> = {
@@ -817,13 +822,13 @@ export async function POST(request: NextRequest) {
           emiAmount: calculatedEmiAmount,
           processingFee: processingFee || 0,
           disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
-          disbursementMode,
+          disbursementMode: finalDisbursementMode,
           disbursementRef,
           status: isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE',
           startDate: requiredDate(startDate, 'startDate'),
           notes,
           internalNotes,
-          bankAccountId: bankAccountId || null,
+          bankAccountId: bankAccountIdUsed,
           secondaryPaymentPageId: secondaryPaymentPageId || null,
           isInterestOnlyLoan,
           interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
@@ -894,6 +899,8 @@ export async function POST(request: NextRequest) {
 
       return newLoan;
     })); // end withRetry + $transaction
+
+    loanCreatedId = loan.id;
 
     // Handle Mirror Loan creation - Create ACTUAL mirror loan (SAME AS ONLINE LOANS)
     // Online loans create a separate LoanApplication for mirror - we do the same for offline
@@ -1026,6 +1033,8 @@ export async function POST(request: NextRequest) {
             partialPaymentEnabled: true
           }
         });
+
+        mirrorLoanCreatedId = mirrorLoan.id;
 
         // CREATE EMI SCHEDULE FOR MIRROR LOAN
         // ── FIX: For interest-only loans, create an interest-only schedule ──────────
@@ -1262,7 +1271,7 @@ export async function POST(request: NextRequest) {
           
           // Determine if we should attempt bank first based on the ORIGINAL disbursement mode from the request.
           // `disbursementMode` here is the value from the request body (CASH / BANK_TRANSFER / etc).
-          const shouldTryBankFirst = (disbursementMode || 'BANK_TRANSFER') !== 'CASH';
+          const shouldTryBankFirst = finalDisbursementMode !== 'CASH';
           
           // FIRST: Try bank deduction if not specifically CASH
           if (shouldTryBankFirst && mirrorBank) {
@@ -1483,7 +1492,7 @@ export async function POST(request: NextRequest) {
           extraEMICount,
           disbursement: {
             success: disbursementSuccess,
-            mode: disbursementMode,
+            mode: finalDisbursementMode,
             newBalance: newBalanceAfterDisbursement,
             bankAmount: actualBankAmount,
             cashAmount: actualCashAmount
@@ -1501,7 +1510,7 @@ export async function POST(request: NextRequest) {
 
       } catch (mirrorError) {
         console.error('Mirror loan creation failed:', mirrorError);
-        // Don't fail the main loan creation
+        throw mirrorError;
       }
     }
 
@@ -1694,9 +1703,9 @@ export async function POST(request: NextRequest) {
         // ============================================
         // SINGLE PAYMENT - Deduct from bank OR cash
         // ============================================
-        console.log(`[Disbursement] Single Payment Mode: ${disbursementMode}, Amount: ₹${loanAmount}`);
+        console.log(`[Disbursement] Single Payment Mode: ${finalDisbursementMode}, Amount: ₹${loanAmount}`);
 
-        if (disbursementMode === 'CASH') {
+        if (finalDisbursementMode === 'CASH') {
           // Deduct from cashbook
           try {
             cashbookResult = await recordCashBookEntry({
@@ -1781,51 +1790,20 @@ export async function POST(request: NextRequest) {
 
                 console.log(`[Disbursement] ✓ Bank deduction SUCCESS: ₹${loanAmount}, New Balance: ₹${newBalance}`);
               } else {
-                console.warn(`[Disbursement] WARNING: Could not get bank balance`);
+                throw new Error('Could not get bank balance');
               }
             } catch (bankError) {
               console.error(`[Disbursement] Bank deduction FAILED:`, bankError);
-              // Fallback to cash
-              try {
-                cashbookResult = await recordCashBookEntry({
-                  companyId: disbursementCompanyId,
-                  entryType: 'DEBIT',
-                  amount: loanAmount,
-                  description: `Offline Loan Disbursement (Cash Fallback) - ${loanNumber}`,
-                  referenceType: 'OFFLINE_LOAN',
-                  referenceId: loan.id,
-                  createdById
-                });
-                console.log(`[Disbursement] ✓ Cash fallback SUCCESS: ₹${loanAmount}`);
-              } catch (cashFallbackError) {
-                console.error(`[Disbursement] Cash fallback FAILED:`, cashFallbackError);
-              }
+              throw bankError;
             }
           } else {
-            console.warn(`[Disbursement] WARNING: No bank account found for disbursement - trying cash fallback`);
-            // Fallback to cash if no bank account
-            try {
-              const { getOrCreateCashBook } = await import('@/lib/simple-accounting');
-              await getOrCreateCashBook(disbursementCompanyId);
-              cashbookResult = await recordCashBookEntry({
-                companyId: disbursementCompanyId,
-                entryType: 'DEBIT',
-                amount: loanAmount,
-                description: `Offline Loan Disbursement (Cash Fallback) - ${loanNumber}`,
-                referenceType: 'OFFLINE_LOAN',
-                referenceId: loan.id,
-                createdById
-              });
-              console.log(`[Disbursement] ✓ Cash fallback SUCCESS after creating cash book: ₹${loanAmount}`);
-            } catch (cashFallbackError) {
-              console.error(`[Disbursement] Cash fallback FAILED:`, cashFallbackError);
-            }
+            throw new Error('No bank account found for disbursement');
           }
         }
       }
     } catch (disbursementError) {
       console.error('Disbursement transaction failed:', disbursementError);
-      // Don't fail the loan creation if disbursement fails
+      throw disbursementError;
     }
     } // End of else block for non-mirror loans
 
@@ -1841,7 +1819,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Accounting] SKIPPED original company journal for mirror loan — mirror company journal already recorded`);
     } else {
       // Regular loan - create accounting entries
-      const effectiveDisbursementMode = disbursementMode || 'CASH';
+      const effectiveDisbursementMode = finalDisbursementMode;
       
       // 1. Create Daybook Entry (for daybook view)
       try {
@@ -1859,6 +1837,7 @@ export async function POST(request: NextRequest) {
         console.log(`[Accounting] Created daybook entry for loan disbursement: ${loanNumber}`);
       } catch (daybookError) {
         console.error('Daybook entry creation failed:', daybookError);
+        throw daybookError;
       }
       
       // 2. Create Journal Entry (for Chart of Accounts)
@@ -1905,11 +1884,11 @@ export async function POST(request: NextRequest) {
             if (isPfOnline) {
               await pfBank({ companyId, transactionType: 'CREDIT', amount: processingFee,
                 description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
-                referenceId: `${loan.id}-PF`, createdById }).catch(e => console.error('[PF Bank]', e));
+                referenceId: `${loan.id}-PF`, createdById });
             } else {
               await pfCb({ companyId, entryType: 'CREDIT', amount: processingFee,
                 description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
-                referenceId: `${loan.id}-PF`, createdById }).catch(e => console.error('[PF CB]', e));
+                referenceId: `${loan.id}-PF`, createdById });
             }
             // 2. Double-entry journal for processing fee
             await accountingService.recordProcessingFee({
@@ -1927,10 +1906,12 @@ export async function POST(request: NextRequest) {
             console.log(`[Accounting] ✓ Processing fee: ₹${processingFee} for ${loanNumber}`);
           } catch (pfError) {
             console.error('[Accounting] Processing fee recording failed:', pfError);
+            throw pfError;
           }
         }
       } catch (accountingError) {
         console.error(`[Accounting] ❌ Journal entry creation FAILED for ${loanNumber}:`, accountingError);
+        throw accountingError;
       }
     } // end of else (non-mirror loan accounting)
 
@@ -2002,7 +1983,25 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Offline loan creation error:', error);
-    return NextResponse.json({ error: 'Failed to create offline loan' }, { status: 500 });
+    // Cleanup created records to ensure atomicity
+    if (loanCreatedId) {
+      try {
+        console.log(`[Offline Loan Cleanup] Cleaning up due to error:`, error);
+        if (mirrorLoanCreatedId) {
+          await db.mirrorLoanMapping.deleteMany({ where: { originalLoanId: loanCreatedId } }).catch(() => {});
+          await db.offlineLoanEMI.deleteMany({ where: { offlineLoanId: mirrorLoanCreatedId } }).catch(() => {});
+          await db.offlineLoan.delete({ where: { id: mirrorLoanCreatedId } }).catch(() => {});
+        }
+        await db.offlineLoanEMI.deleteMany({ where: { offlineLoanId: loanCreatedId } }).catch(() => {});
+        await db.goldLoanDetail.deleteMany({ where: { offlineLoanId: loanCreatedId } }).catch(() => {});
+        await db.vehicleLoanDetail.deleteMany({ where: { offlineLoanId: loanCreatedId } }).catch(() => {});
+        await db.offlineLoan.delete({ where: { id: loanCreatedId } }).catch(() => {});
+        console.log(`[Offline Loan Cleanup] Cleaned up loan ${loanCreatedId} successfully.`);
+      } catch (cleanupError) {
+        console.error(`[Offline Loan Cleanup] Cleanup error:`, cleanupError);
+      }
+    }
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to create offline loan' }, { status: 500 });
   }
 }
 
