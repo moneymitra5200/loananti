@@ -76,6 +76,7 @@ interface LoanDetail {
   loanType: string;
   loanAmount: number;
   interestRate: number;
+  interestType?: string;
   tenure: number;
   emiAmount: number;
   processingFee: number;
@@ -233,6 +234,12 @@ export default function OfflineLoanDetailPanel({
   const [startLoanDialogOpen, setStartLoanDialogOpen] = useState(false);
   const [startTenure, setStartTenure] = useState(12);
   const [startInterestRate, setStartInterestRate] = useState(12);
+  const [startInterestType, setStartInterestType] = useState<'FLAT' | 'REDUCING'>('FLAT');
+  const [startProcessingFee, setStartProcessingFee] = useState<string>('0');
+  const [startBankAccountId, setStartBankAccountId] = useState<string>('');
+  const [startSecondaryPageId, setStartSecondaryPageId] = useState<string>('');
+  const [startBankAccounts, setStartBankAccounts] = useState<any[]>([]);
+  const [startSecondaryPages, setStartSecondaryPages] = useState<any[]>([]);
   const [emiPreview, setEmiPreview] = useState<any>(null);
   const [startingLoan, setStartingLoan] = useState(false);
 
@@ -832,21 +839,51 @@ export default function OfflineLoanDetailPanel({
   };
 
   const openStartLoanDialog = async () => {
-    if (!loanId) return;
-    setStartLoanDialogOpen(true);
-    setStartInterestRate(loan?.interestRate || 12);
+    if (!loanId || !loan) return;
+    const defaultRate = loan.interestRate || 12;
+    const defaultType: 'FLAT' | 'REDUCING' = (loan.interestType === 'REDUCING' ? 'REDUCING' : 'FLAT');
+    setStartInterestRate(defaultRate);
     setStartTenure(12);
-    fetchEmiPreview(12, loan?.interestRate || 12);
+    setStartInterestType(defaultType);
+    setStartProcessingFee('0');
+    setStartBankAccountId('');
+    setStartSecondaryPageId('');
+    // Load bank accounts for this company
+    const companyId = loan.company?.id;
+    if (!companyId) { setStartLoanDialogOpen(true); fetchEmiPreview(12, defaultRate, defaultType); return; }
+    try {
+      const [baRes, spRes] = await Promise.all([
+        fetch(`/api/accounting/bank-accounts?companyId=${companyId}`),
+        fetch(`/api/secondary-payment-page?companyId=${companyId}`),
+      ]);
+      if (baRes.ok) {
+        const baData = await baRes.json();
+        const accounts = baData.bankAccounts || baData || [];
+        setStartBankAccounts(accounts);
+        if (accounts.length > 0) setStartBankAccountId(accounts[0].id);
+      }
+      if (spRes.ok) {
+        const spData = await spRes.json();
+        setStartSecondaryPages(spData.pages || spData || []);
+      }
+    } catch { /* non-fatal */ }
+    setStartLoanDialogOpen(true);
+    fetchEmiPreview(12, defaultRate, defaultType);
   };
 
-  const fetchEmiPreview = async (tenure: number, rate: number) => {
+  const fetchEmiPreview = async (tenure: number, rate: number, iType?: 'FLAT' | 'REDUCING') => {
     if (!loanId) return;
+    const resolvedType = iType || startInterestType;
     try {
-      const res = await fetch(`/api/offline-loan/start?loanId=${loanId}&tenure=${tenure}&interestRate=${rate}`);
+      const res = await fetch(`/api/offline-loan/start?loanId=${loanId}&tenure=${tenure}&interestRate=${rate}&interestType=${resolvedType}`);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
           setEmiPreview(data.preview);
+          // Auto-populate processing fee from mirror calculation
+          if (data.preview.processingFee > 0) {
+            setStartProcessingFee(String(data.preview.processingFee));
+          }
         }
       }
     } catch (error) {
@@ -876,6 +913,10 @@ export default function OfflineLoanDetailPanel({
           loanId,
           tenure: startTenure,
           interestRate: startInterestRate,
+          interestType: startInterestType,
+          processingFee: parseFloat(startProcessingFee) || 0,
+          bankAccountId: startBankAccountId || null,
+          secondaryPaymentPageId: startSecondaryPageId || null,
           startedBy: userId
         })
       });
@@ -3197,29 +3238,32 @@ export default function OfflineLoanDetailPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Start Loan Dialog */}
+      {/* Start Loan Dialog — Phase 2: same fields as normal loan creation */}
       <Dialog open={startLoanDialogOpen} onOpenChange={setStartLoanDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <PlayCircle className="h-5 w-5 text-purple-600" />
-              Start Loan - Convert to EMI
+              Start Loan — Phase 2 (Convert to EMI)
             </DialogTitle>
-            <DialogDescription>Configure loan parameters and start EMI payments.</DialogDescription>
+            <DialogDescription>Configure EMI parameters. Mirror loan will be updated automatically with the shifted schedule.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Principal Banner */}
             {loan && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-purple-800">Principal:</span>
-                  <span className="text-lg font-bold text-purple-900">{formatCurrency(loan.loanAmount)}</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-purple-800">Principal Amount:</span>
+                  <span className="text-xl font-bold text-purple-900">{formatCurrency(loan.loanAmount)}</span>
                 </div>
+                <p className="text-xs text-purple-600 mt-1">Same amount applies to both original and mirror loan.</p>
               </div>
             )}
 
             <Separator />
 
+            {/* Row 1: Tenure + Interest Rate */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Tenure (months)</Label>
@@ -3229,8 +3273,9 @@ export default function OfflineLoanDetailPanel({
                   max={120}
                   value={startTenure}
                   onChange={(e) => {
-                    setStartTenure(parseInt(e.target.value) || 12);
-                    setTimeout(() => fetchEmiPreview(parseInt(e.target.value) || 12, startInterestRate), 300);
+                    const v = parseInt(e.target.value) || 12;
+                    setStartTenure(v);
+                    setTimeout(() => fetchEmiPreview(v, startInterestRate, startInterestType), 300);
                   }}
                 />
               </div>
@@ -3243,13 +3288,91 @@ export default function OfflineLoanDetailPanel({
                   step={0.25}
                   value={startInterestRate}
                   onChange={(e) => {
-                    setStartInterestRate(parseFloat(e.target.value) || 12);
-                    setTimeout(() => fetchEmiPreview(startTenure, parseFloat(e.target.value) || 12), 300);
+                    const v = parseFloat(e.target.value) || 12;
+                    setStartInterestRate(v);
+                    setTimeout(() => fetchEmiPreview(startTenure, v, startInterestType), 300);
                   }}
                 />
               </div>
             </div>
 
+            {/* Row 2: Interest Type */}
+            <div className="space-y-2">
+              <Label>Interest Type</Label>
+              <div className="flex gap-3">
+                {(['FLAT', 'REDUCING'] as const).map(t => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setStartInterestType(t);
+                      setTimeout(() => fetchEmiPreview(startTenure, startInterestRate, t), 100);
+                    }}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${
+                      startInterestType === t
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-purple-300'
+                    }`}
+                  >
+                    {t === 'FLAT' ? '📊 Flat Rate' : '📉 Reducing Balance'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Processing Fee */}
+            <div className="space-y-2">
+              <Label>Processing Fee (₹)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={0.01}
+                value={startProcessingFee}
+                onChange={(e) => setStartProcessingFee(e.target.value)}
+                placeholder="Auto-calculated from mirror EMI diff"
+              />
+              {emiPreview?.processingFee > 0 && (
+                <p className="text-xs text-orange-600">
+                  Auto-calculated: ₹{emiPreview.processingFee.toFixed(2)} (originalEMI − lastMirrorEMI)
+                </p>
+              )}
+            </div>
+
+            {/* Bank / Payment Source */}
+            {startBankAccounts.length > 0 && (
+              <div className="space-y-2">
+                <Label>Payment Source (Bank / Cash)</Label>
+                <select
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  value={startBankAccountId}
+                  onChange={(e) => setStartBankAccountId(e.target.value)}
+                >
+                  <option value="">— Select Source —</option>
+                  {startBankAccounts.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.accountName} ({b.bankName}) — ₹{(b.currentBalance || 0).toLocaleString('en-IN')}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Secondary Payment Page */}
+            {startSecondaryPages.length > 0 && (
+              <div className="space-y-2">
+                <Label>Secondary Payment Page</Label>
+                <select
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  value={startSecondaryPageId}
+                  onChange={(e) => setStartSecondaryPageId(e.target.value)}
+                >
+                  <option value="">— None —</option>
+                  {startSecondaryPages.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.name || p.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* EMI Preview */}
             {emiPreview && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
                 <h4 className="text-sm font-medium text-emerald-800 mb-3 flex items-center gap-2">
@@ -3269,6 +3392,12 @@ export default function OfflineLoanDetailPanel({
                     <span className="text-sm text-emerald-700">Total Amount:</span>
                     <span className="text-sm font-medium text-emerald-900">{formatCurrency(emiPreview.totalAmount)}</span>
                   </div>
+                  {emiPreview.processingFee > 0 && (
+                    <div className="flex justify-between border-t border-emerald-200 pt-2">
+                      <span className="text-sm text-orange-700 font-medium">Processing Fee (Mirror EMI 1):</span>
+                      <span className="text-sm font-bold text-orange-800">{formatCurrency(emiPreview.processingFee)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -3285,7 +3414,7 @@ export default function OfflineLoanDetailPanel({
               ) : (
                 <>
                   <PlayCircle className="h-4 w-4 mr-2" />
-                  Start Loan
+                  Start Phase 2 Loan
                 </>
               )}
             </Button>
