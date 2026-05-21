@@ -202,6 +202,23 @@ export async function GET(request: NextRequest) {
       const mirrorCompanyName = mirrorInfo?.mirrorCompany?.name || null;
       const mirrorCompanyCode = mirrorInfo?.mirrorCompany?.code || null;
 
+      // Fetch original loan details if this is a mirror loan
+      let originalLoanStatus: string | null = null;
+      let originalLoanNumber: string | null = null;
+      if (isMirrorLoan) {
+        const origId = mirrorMappingAsMirror?.originalLoanId || loan.originalLoanId;
+        if (origId) {
+          const origLoan = await db.offlineLoan.findUnique({
+            where: { id: origId },
+            select: { status: true, loanNumber: true }
+          });
+          if (origLoan) {
+            originalLoanStatus = origLoan.status;
+            originalLoanNumber = origLoan.loanNumber;
+          }
+        }
+      }
+
       // Calculate summary
       const summary = {
         totalEMIs: loan.emis.length,
@@ -225,7 +242,9 @@ export async function GET(request: NextRequest) {
           mirrorLoanNumber, // The mirror loan number stored in mapping or from direct loan
           mirrorCompanyName, // Mirror company name for UI display
           mirrorCompanyCode, // Mirror company code for UI display
-          originalLoanId: mirrorMappingAsMirror?.originalLoanId || null,
+          originalLoanId: mirrorMappingAsMirror?.originalLoanId || loan.originalLoanId || null,
+          originalLoanStatus,
+          originalLoanNumber,
           mirrorLoanId: mirrorMappingAsOriginal?.mirrorLoanId || mirrorLoanDirect?.id || null,
           mirrorCompanyId: mirrorMappingAsOriginal?.mirrorCompanyId || mirrorLoanDirect?.companyId || null,
           mirrorInterestRate: mirrorMappingAsOriginal?.mirrorInterestRate || mirrorLoanDirect?.interestRate || null

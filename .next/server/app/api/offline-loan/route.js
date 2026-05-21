@@ -1,7 +1,7 @@
 var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/offline-loan/route.js")
 R.c("server/chunks/Desktop_reallll_src_lib_simple-accounting_ts_6d614b49._.js")
 R.c("server/chunks/Desktop_reallll_src_lib_accounting-service_ts_94db3376._.js")
-R.c("server/chunks/[root-of-the-server]__422efd2c._.js")
+R.c("server/chunks/[root-of-the-server]__3cc76f47._.js")
 R.c("server/chunks/d0a8e_next_dist_esm_build_templates_app-route_35697df8.js")
 R.c("server/chunks/[root-of-the-server]__d3d14498._.js")
 R.c("server/chunks/d0a8e_next_2c27abef._.js")

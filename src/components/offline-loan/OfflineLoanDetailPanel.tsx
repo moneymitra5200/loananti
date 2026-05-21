@@ -120,6 +120,8 @@ interface LoanDetail {
   mirrorCompanyCode?: string | null; // Mirror company code for UI display
   mirrorInterestRate?: number | null; // Mirror interest rate
   applicationLocation?: string | null; // Location captured during application
+  originalLoanStatus?: string | null; // Original loan status for mirror loans
+  originalLoanNumber?: string | null; // Original loan number for mirror loans
   goldLoanDetail?: {
     id: string; grossWeight: number; netWeight: number; goldRate: number;
     valuationAmount: number; loanAmount: number; ownerName?: string;
@@ -946,7 +948,7 @@ export default function OfflineLoanDetailPanel({
     }
   };
 
-  const isInterestOnlyLoan = loan?.isInterestOnlyLoan && loan?.status === 'INTEREST_ONLY';
+  const isInterestOnlyLoan = loan?.isInterestOnlyLoan && (loan?.status === 'INTEREST_ONLY' || (loan?.isMirrorLoan && loan?.originalLoanStatus === 'INTEREST_ONLY'));
 
   // Check if loan is from Company 3 and not mirrored
   // For Company 3 non-mirrored loans, Company Credit only shows CASH option (no bank account)
@@ -1583,19 +1585,25 @@ export default function OfflineLoanDetailPanel({
                                             </p>
                                             <p className="text-xs text-gray-500">Interest Amount Due</p>
                                           </div>
-                                          <Button
-                                            className="bg-amber-500 hover:bg-amber-600"
-                                            onClick={() => {
-                                              setSelectedEmi(pendingEmi);
-                                              setPaymentType('INTEREST_ONLY');
-                                              setPaymentAmount(pendingEmi.totalAmount);
-                                              setIsInterestOnlyPayment(true);
-                                              setPaymentDialogOpen(true);
-                                            }}
-                                          >
-                                            <IndianRupee className="h-4 w-4 mr-1" />
-                                            Pay Interest
-                                          </Button>
+                                          {!loan.isMirrorLoan ? (
+                                            <Button
+                                              className="bg-amber-500 hover:bg-amber-600"
+                                              onClick={() => {
+                                                setSelectedEmi(pendingEmi);
+                                                setPaymentType('INTEREST_ONLY');
+                                                setPaymentAmount(pendingEmi.totalAmount);
+                                                setIsInterestOnlyPayment(true);
+                                                setPaymentDialogOpen(true);
+                                              }}
+                                            >
+                                              <IndianRupee className="h-4 w-4 mr-1" />
+                                              Pay Interest
+                                            </Button>
+                                          ) : (
+                                            <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
+                                              Synced from original
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     );

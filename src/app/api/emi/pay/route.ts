@@ -390,6 +390,49 @@ export async function POST(request: NextRequest) {
         }
       });
 
+      // Check if all EMIs are paid/completed/waived inside transaction
+      const allEMIs = await tx.eMISchedule.findMany({ 
+        where: { loanApplicationId: loanId } 
+      });
+      
+      const allPaid = allEMIs.every(e => 
+        e.id === emiId 
+          ? (newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
+          : (e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
+      );
+      
+      if (allPaid) {
+        console.log(`[Auto-Close] ✅ Original loan ${loanId} all EMIs paid/waived inside transaction, marking as CLOSED`);
+        await tx.loanApplication.update({
+          where: { id: loanId },
+          data: { status: 'CLOSED' }
+        });
+
+        if (mirrorMapping?.mirrorLoanId) {
+          try {
+            const mirrorEMIsForClose = await tx.eMISchedule.findMany({
+              where: { loanApplicationId: mirrorMapping.mirrorLoanId },
+              select: { paymentStatus: true }
+            });
+            const mirrorAllPaid = mirrorEMIsForClose.length === 0 ||
+              mirrorEMIsForClose.every(e =>
+                e.paymentStatus === 'PAID' ||
+                e.paymentStatus === 'INTEREST_ONLY_PAID' ||
+                e.paymentStatus === 'WAIVED'
+              );
+            if (mirrorAllPaid) {
+              await tx.loanApplication.update({
+                where: { id: mirrorMapping.mirrorLoanId },
+                data: { status: 'CLOSED' }
+              });
+              console.log(`[Auto-Close] ✅ Mirror loan ${mirrorMapping.mirrorLoanId} also auto-closed inside transaction`);
+            }
+          } catch (mirrorCloseErr) {
+            console.error('[Auto-Close] Mirror loan close failed inside transaction (non-critical):', mirrorCloseErr);
+          }
+        }
+      }
+
       return { updatedEMI, payment };
     }));
 
@@ -833,7 +876,7 @@ export async function POST(request: NextRequest) {
     });
     
     // All EMIs must be fully paid (PAID or INTEREST_ONLY_PAID counts as paid)
-    const allPaid = allEMIs.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
+    const allPaid = allEMIs.every(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED');
     
     console.log(`[EMI Pay] Checking if all EMIs paid for loan ${loanId}: ${allPaid}`);
     console.log(`[EMI Pay] EMI Statuses: ${allEMIs.map(e => `${e.installmentNumber}:${e.paymentStatus}`).join(', ')}`);
