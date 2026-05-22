@@ -669,20 +669,26 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
 
-  // ── Get Loans Receivable account IDs ─────────────────────────────────────
+  // ── Get Loans Receivable and Interest Income account IDs ─────────────────
   const lrAccountIds = await getLRAccountIds(companyId);
+  const interestAccounts = await db.chartOfAccount.findMany({
+    where: { accountCode: { in: ['4110', '4100', '4001', '4002'] }, ...(companyId ? { companyId } : {}) },
+    select: { id: true }
+  });
+  const interestAccountIds = interestAccounts.map(a => a.id);
+  const allTargetAccountIds = [...lrAccountIds, ...interestAccountIds];
 
-  // ── Fetch Journal Entries that have a line touching LR for these loans ────
+  // ── Fetch Journal Entries that have a line touching LR or Interest for these loans ────
   // This is the "posting from journal to personal ledger" step
   let journalEntries: any[] = [];
-  if (lrAccountIds.length > 0) {
+  if (allTargetAccountIds.length > 0) {
     journalEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
         ...(companyId ? { companyId } : {}),
         lines: {
           some: {
-            accountId: { in: lrAccountIds },
+            accountId: { in: allTargetAccountIds },
             loanId: { in: validLoanIds },
           }
         }
@@ -735,9 +741,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // Group journal entries by loanId
   const entriesByLoan = new Map<string, any[]>();
   for (const je of journalEntries) {
-    // Find which loanId(s) this entry touches via its LR lines
+    // Find which loanId(s) this entry touches via its LR or Interest lines
     const rawLoanIds = je.lines
-        .filter((l: any) => lrAccountIds.includes(l.accountId) && l.loanId)
+        .filter((l: any) => allTargetAccountIds.includes(l.accountId) && l.loanId)
         .map((l: any) => String(l.loanId));
     const loanIdsInEntry: string[] = Array.from(new Set<string>(rawLoanIds));
     for (const lid of loanIdsInEntry) {
@@ -758,19 +764,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     const loanJEs = entriesByLoan.get(loanId) || [];
 
     for (const je of loanJEs) {
-      // Only iterate lines that touch LR account AND belong to this loan
+      // Only iterate lines that touch LR account or Interest Income AND belong to this loan
       const lrLines = je.lines.filter((l: any) =>
         lrAccountIds.includes(l.accountId) && l.loanId === loanId
       );
-      if (lrLines.length === 0) continue;
-
-      const principalPaid = lrLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-      const principalDisbursed = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
-
       // Interest is on other lines of same entry
       const interestLines = je.lines.filter((l: any) =>
         ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && l.loanId === loanId
       );
+
+      if (lrLines.length === 0 && interestLines.length === 0) continue;
+
+      const principalPaid = lrLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+      const principalDisbursed = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+
       const interestPaid = interestLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
 
       const totalPayment = (principalPaid > 0 || interestPaid > 0)
