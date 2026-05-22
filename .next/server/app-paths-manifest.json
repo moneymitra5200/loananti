@@ -168,6 +168,7 @@
   "/api/settlement/route": "app/api/settlement/route.js",
   "/api/stats/route": "app/api/stats/route.js",
   "/api/system-settings/route": "app/api/system-settings/route.js",
+  "/api/system/fix-io-ledger/route": "app/api/system/fix-io-ledger/route.js",
   "/api/system/reset/route": "app/api/system/reset/route.js",
   "/api/tickets/[ticketId]/messages/route": "app/api/tickets/[ticketId]/messages/route.js",
   "/api/tickets/[ticketId]/route": "app/api/tickets/[ticketId]/route.js",

@@ -220,7 +220,7 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
   const handleExportCSV = () => {
     let csv = 'Voucher No,Date,Description,Type,Cash In,Cash Out,Balance\n';
     entries.forEach(e => {
-      csv += `${e.voucherNo},${formatDate(e.entryDate)},"${e.description}",${e.referenceType || 'MANUAL'},${e.cashIn},${e.cashOut},${e.balance}\n`;
+      csv += `${e.voucherNo},${format(new Date(e.entryDate), 'dd/MM/yyyy HH:mm:ss')},"${e.description}",${e.referenceType || 'MANUAL'},${e.cashIn},${e.cashOut},${e.balance}\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -452,7 +452,7 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
                       }}
                     >
                       <TableCell className="font-mono text-sm">{entry.voucherNo}</TableCell>
-                      <TableCell>{formatDate(entry.entryDate)}</TableCell>
+                      <TableCell>{format(new Date(entry.entryDate), 'dd MMM yyyy HH:mm:ss')}</TableCell>
                       <TableCell className="max-w-[200px] truncate">{entry.description}</TableCell>
                       <TableCell>{getEntryTypeBadge(entry.referenceType)}</TableCell>
                       <TableCell className="text-right text-green-600 font-medium">
@@ -606,7 +606,7 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
                 </div>
                 <div>
                   <Label className="text-gray-500">Date</Label>
-                  <p>{formatDate(selectedEntry.entryDate)}</p>
+                  <p>{format(new Date(selectedEntry.entryDate), 'dd MMM yyyy HH:mm:ss')}</p>
                 </div>
               </div>
 

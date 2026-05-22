@@ -1165,6 +1165,12 @@
       "namedRegex": "^/api/stats(?:/)?$"
     },
     {
+      "page": "/api/system/fix-io-ledger",
+      "regex": "^/api/system/fix\\-io\\-ledger(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/system/fix\\-io\\-ledger(?:/)?$"
+    },
+    {
       "page": "/api/system/reset",
       "regex": "^/api/system/reset(?:/)?$",
       "routeKeys": {},

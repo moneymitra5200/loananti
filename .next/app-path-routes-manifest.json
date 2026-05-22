@@ -168,6 +168,7 @@
   "/api/settlement/route": "/api/settlement",
   "/api/stats/route": "/api/stats",
   "/api/system-settings/route": "/api/system-settings",
+  "/api/system/fix-io-ledger/route": "/api/system/fix-io-ledger",
   "/api/system/reset/route": "/api/system/reset",
   "/api/tickets/[ticketId]/messages/route": "/api/tickets/[ticketId]/messages",
   "/api/tickets/[ticketId]/route": "/api/tickets/[ticketId]",

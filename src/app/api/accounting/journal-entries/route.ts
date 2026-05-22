@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     const loanRefIds = [...new Set(
       entries
         .filter(e => e.referenceType && LOAN_REF_TYPES.has(e.referenceType) && e.referenceId)
-        .map(e => e.referenceId!)
+        .map(e => e.referenceId!.length >= 36 ? e.referenceId!.substring(0, 36) : e.referenceId!)
     )];
 
     // Lookup online loans
@@ -96,8 +96,8 @@ export async function GET(request: NextRequest) {
     // Also look up by EMI schedule id → loan
     const emiRefIds = [...new Set(
       entries
-        .filter(e => e.referenceType && LOAN_REF_TYPES.has(e.referenceType) && e.referenceId && !loanMap.has(e.referenceId!))
-        .map(e => e.referenceId!)
+        .filter(e => e.referenceType && LOAN_REF_TYPES.has(e.referenceType) && e.referenceId && !loanMap.has(e.referenceId!.length >= 36 ? e.referenceId!.substring(0, 36) : e.referenceId!))
+        .map(e => e.referenceId!.length >= 36 ? e.referenceId!.substring(0, 36) : e.referenceId!)
     )];
     if (emiRefIds.length > 0) {
       const emiSchedules = await db.eMISchedule.findMany({
@@ -121,26 +121,39 @@ export async function GET(request: NextRequest) {
     const LOANS_RECEIVABLE_CODES = new Set(['1200', '1201', '1210']);
 
     const enrichedEntries = entries.map(entry => {
-      if (!entry.referenceId) return entry;
-      const info = loanMap.get(entry.referenceId);
-      if (!info || !info.customerName) return entry;
+      if (!entry.referenceId) {
+        return { ...entry, narration: (entry.narration || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim() };
+      }
+      const baseRefId = entry.referenceId.length >= 36 ? entry.referenceId.substring(0, 36) : entry.referenceId;
+      const info = loanMap.get(baseRefId);
+      
+      let cleanNarration = (entry.narration || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim();
+      
+      if (!info || !info.customerName) {
+        return { ...entry, narration: cleanNarration };
+      }
 
       // 1. Enrich entry-level narration
-      const alreadyHasName = entry.narration?.includes(info.customerName);
+      const alreadyHasName = cleanNarration.includes(info.customerName);
       const narration = alreadyHasName
-        ? entry.narration
-        : `${entry.narration || ''}${info.loanNo && !entry.narration?.includes(info.loanNo) ? ` - ${info.loanNo}` : ''} [${info.customerName}]`.trim();
+        ? cleanNarration
+        : `${cleanNarration}${info.loanNo && !cleanNarration.includes(info.loanNo) ? ` - ${info.loanNo}` : ''} [${info.customerName}]`.trim();
 
       // 2. Enrich Loans Receivable line narrations with customer name
       // The UI uses line.narration to show sub-text under the account name.
       // We inject "[Customer: RAJ]" so the frontend can show "Loans Receivable – RAJ"
       const enrichedLines = entry.lines.map(line => {
-        if (!LOANS_RECEIVABLE_CODES.has(line.account?.accountCode || '')) return line;
+        let lineNarration = (line.narration || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim();
+        if (!LOANS_RECEIVABLE_CODES.has(line.account?.accountCode || '')) {
+          return { ...line, narration: lineNarration };
+        }
         // Don't double-add
-        if (line.narration?.includes(info.customerName)) return line;
+        if (lineNarration.includes(info.customerName)) {
+          return { ...line, narration: lineNarration };
+        }
         return {
           ...line,
-          narration: `${line.narration ? line.narration + ' ' : ''}[Customer: ${info.customerName}]`,
+          narration: `${lineNarration ? lineNarration + ' ' : ''}[Customer: ${info.customerName}]`,
         };
       });
 

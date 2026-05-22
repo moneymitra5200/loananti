@@ -1192,13 +1192,13 @@ export async function PUT(request: NextRequest) {
         // ── PROCESSING FEE JOURNAL ENTRY on first EMI (EMI #1) ──
         // Same logic as offline loans: when installment #1 is paid, record the processing fee
         const processingFeeAmount = emi.loanApplication?.sessionForm?.processingFee || 0;
-        if (emi.installmentNumber === 1 && processingFeeAmount > 0 && capturedCompanyId) {
+        if (emi.installmentNumber === 1 && processingFeeAmount > 0 && acctCompanyId) {
           try {
-            const pfService = new AccountingService(capturedCompanyId);
+            const pfService = new AccountingService(acctCompanyId);
             await pfService.initializeChartOfAccounts();
             // Check idempotency: don't create duplicate processing fee entry for same loan
             const existingPfEntry = await db.journalEntry.findFirst({
-              where: { companyId: capturedCompanyId, referenceId: loanId, referenceType: 'PROCESSING_FEE_COLLECTION', isReversed: false },
+              where: { companyId: acctCompanyId, referenceId: loanId, referenceType: 'PROCESSING_FEE_COLLECTION', isReversed: false },
               select: { id: true }
             });
             if (!existingPfEntry) {
@@ -1219,8 +1219,8 @@ export async function PUT(request: NextRequest) {
               const pfRef = `PF-${loanId}`;
               if (actualPaymentMode === 'CASH') {
                 // Cash → CashBook
-                let cashBook = await db.cashBook.findUnique({ where: { companyId: capturedCompanyId } });
-                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: capturedCompanyId, currentBalance: 0 } });
+                let cashBook = await db.cashBook.findUnique({ where: { companyId: acctCompanyId } });
+                if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: acctCompanyId, currentBalance: 0 } });
                 const newCashBal = cashBook.currentBalance + processingFeeAmount;
                 await db.cashBookEntry.create({
                   data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: processingFeeAmount, balanceAfter: newCashBal, description: pfDesc, referenceType: 'PROCESSING_FEE', referenceId: pfRef, createdById: userId, entryDate: new Date() }
@@ -1229,7 +1229,7 @@ export async function PUT(request: NextRequest) {
                 console.log(`[EMI API] ✅ Processing fee CashBook entry: +₹${processingFeeAmount}`);
               } else {
                 // Online/Cheque → BankAccount
-                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: capturedCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
+                const bankAcct = await db.bankAccount.findFirst({ where: { companyId: acctCompanyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
                 if (bankAcct) {
                   const newBankBal = bankAcct.currentBalance + processingFeeAmount;
                   await db.bankTransaction.create({

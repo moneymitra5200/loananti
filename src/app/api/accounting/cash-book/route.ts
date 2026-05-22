@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       companyId: (e.cashBook as any).companyId,
       entryDate: e.entryDate,
       voucherNo: `CB-${String(rawEntries.length - idx).padStart(4, '0')}`,
-      description: e.description || '',
+      description: (e.description || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim(),
       reference: e.referenceId || null,
       referenceType: e.referenceType || null,
       cashIn:  e.entryType === 'CREDIT' ? Number(e.amount) : 0,

@@ -236,7 +236,7 @@ async function getBankTransactions(accountId: string | null, startDate: string |
     return {
       date: t.journalEntry.entryDate,
       entryNumber: t.journalEntry.entryNumber,
-      narration: t.journalEntry.narration,
+      narration: (t.journalEntry.narration || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim(),
       referenceType: t.journalEntry.referenceType,
       debit: t.debitAmount,
       credit: t.creditAmount,

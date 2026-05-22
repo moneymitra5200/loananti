@@ -31,6 +31,7 @@ interface JournalEntry {
 
 const fmt = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(n || 0);
 const fmtDate = (d: string) => format(new Date(d), 'dd MMM yyyy');
+const fmtTime = (d: string) => format(new Date(d), 'HH:mm:ss');
 const refLabel = (t?: string) => ({
   EMI_PAYMENT: 'EMI Receipt', LOAN_DISBURSEMENT: 'Loan Disbursed', PROCESSING_FEE: 'Processing Fee',
   EXPENSE: 'Expense', EXPENSE_PAYMENT: 'Expense', EQUITY_INVESTMENT: 'Capital', BORROWED_MONEY: 'Borrowed',
@@ -196,7 +197,7 @@ export default function DayBookSection({ selectedCompanyId, formatCurrency, refr
                           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${modeColor(entry.paymentMode)}`}>{entry.paymentMode}</span>
                         )}
                       </div>
-                      <span className="text-xs text-gray-400">{fmtDate(entry.entryDate)}</span>
+                      <span className="text-xs text-gray-400">{fmtDate(entry.entryDate)} {fmtTime(entry.entryDate)}</span>
                     </CardHeader>
                     <CardContent className="px-0 py-0">
                       {/* Journal voucher Dr/Cr table */}

@@ -249,7 +249,7 @@ export default function BankSection({
                         {txns.map((txn) => (
                           <TableRow key={txn.id} className="hover:bg-gray-50">
                             <TableCell className="font-mono text-sm">
-                              {format(new Date(txn.transactionDate), 'HH:mm')}
+                              {format(new Date(txn.transactionDate), 'HH:mm:ss')}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col">

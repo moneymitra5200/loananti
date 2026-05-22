@@ -1577,6 +1577,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/system/fix-io-ledger/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/system/fix-io-ledger">> = Specific
+  const handler = {} as typeof import("../../src/app/api/system/fix-io-ledger/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/system/reset/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/system/reset">> = Specific

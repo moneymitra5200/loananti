@@ -20,6 +20,7 @@ import { exportPersonalLedgerCSV, exportAsPDF, exportAsImage, exportAsWord, prin
 
 
 import { toast } from '@/hooks/use-toast';
+import { format } from 'date-fns';
 
 interface PersonalLedgerTabProps {
   selectedCompanyIds: string[];
@@ -102,6 +103,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const [loadingLedger, setLoadingLedger] = useState(false);
   // Control account total for Loans Receivable
   const [totalLoansReceivable, setTotalLoansReceivable] = useState(0);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   useEffect(() => {
     fetchCustomers();
@@ -367,6 +370,14 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               {selectedLoan.isMirror && <Badge className="text-xs bg-purple-100 text-purple-700">Mirror Loan</Badge>}
             </p>
           </div>
+          {/* Date Filters */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-gray-500">From:</span>
+            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="h-8 w-36 text-sm" />
+            <span className="text-xs text-gray-500">To:</span>
+            <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="h-8 w-36 text-sm" />
+            <Button size="sm" variant="outline" className="h-8" onClick={() => { setStartDate(''); setEndDate(''); }}>Clear</Button>
+          </div>
           {/* Export */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -377,14 +388,27 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuLabel>Download Ledger As</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => exportPersonalLedgerCSV(
-                selectedLoan.rows.map(r => ({
-                  date: r.date, narration: r.description, referenceNo: r.referenceType,
-                  debit: r.totalPayment || 0, credit: 0
-                })),
-                `${selectedCustomer.name}_${selectedLoan.loanNumber}`,
-                selectedCompanyIds[0] || ''
-              )}>
+              <DropdownMenuItem onClick={() => {
+                let filteredRows = selectedLoan.rows;
+                if (startDate || endDate) {
+                  filteredRows = selectedLoan.rows.filter(r => {
+                    if (!r.date) return true;
+                    const d = new Date(r.date);
+                    let valid = true;
+                    if (startDate) valid = valid && d >= new Date(startDate);
+                    if (endDate) valid = valid && d <= new Date(endDate);
+                    return valid;
+                  });
+                }
+                exportPersonalLedgerCSV(
+                  filteredRows.map(r => ({
+                    date: r.date ? format(new Date(r.date), 'dd/MM/yyyy HH:mm:ss') : '', narration: r.description, referenceNo: r.referenceType,
+                    debit: r.totalPayment || 0, credit: 0
+                  })),
+                  `${selectedCustomer.name}_${selectedLoan.loanNumber}`,
+                  selectedCompanyIds[0] || ''
+                );
+              }}>
                 <FileSpreadsheet className="h-4 w-4 mr-2 text-green-600" /> Excel / CSV
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => exportAsPDF('personal-ledger-stmt', `Ledger_${selectedCustomer.name}`, `Loan Statement — ${selectedCustomer.name}`)}>
@@ -457,8 +481,20 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {selectedLoan.rows.map((row, idx) => {
-                  const isFirst = idx === 0;
+                {(() => {
+                  let filteredRows = selectedLoan.rows;
+                  if (startDate || endDate) {
+                    filteredRows = selectedLoan.rows.filter(r => {
+                      if (!r.date) return true;
+                      const d = new Date(r.date);
+                      let valid = true;
+                      if (startDate) valid = valid && d >= new Date(startDate);
+                      if (endDate) valid = valid && d <= new Date(endDate);
+                      return valid;
+                    });
+                  }
+                  return filteredRows.map((row, idx) => {
+                    const isFirst = idx === 0;
                   return (
                     <tr
                       key={idx}
@@ -468,7 +504,12 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                         : 'bg-slate-50/60 hover:bg-slate-100'
                       }`}
                     >
-                      <TableCell className="text-sm py-2 whitespace-nowrap">{formatDate(row.date)}</TableCell>
+                      <TableCell className="text-sm py-2 whitespace-nowrap">
+                        <div className="flex flex-col">
+                          <span>{format(new Date(row.date), 'dd MMM yyyy')}</span>
+                          <span className="text-xs text-slate-500">{format(new Date(row.date), 'HH:mm:ss')}</span>
+                        </div>
+                      </TableCell>
                       <TableCell className="py-2">
                         <span className={`text-sm font-medium ${isFirst ? 'text-slate-900' : 'text-slate-800'}`}>
                           {row.description}
@@ -498,7 +539,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                       </TableCell>
                     </tr>
                   );
-                })}
+                });
+              })()}
               </TableBody>
             </Table>
           </div>

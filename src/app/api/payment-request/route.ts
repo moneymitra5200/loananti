@@ -932,7 +932,7 @@ export async function PUT(request: NextRequest) {
         if (loan?.companyId) {
           const pType   = paymentRequest.paymentType;
           // Customer always pays online (UPI/bank transfer) — always BANK
-          const payMode = 'UPI';
+          const payMode: string = 'UPI';
 
           // ── Fetch the Payment record just created inside the transaction ───
           // CRITICAL: read principalComponent + interestComponent from the Payment
@@ -964,7 +964,7 @@ export async function PUT(request: NextRequest) {
             try {
               const { AccountingService: AccSvc } = await import('@/lib/accounting-service');
               const { recordBankTransaction } = await import('@/lib/simple-accounting');
-              const payMode = 'UPI';
+              const payMode: string = 'UPI';
               const pType = paymentRequest.paymentType;
 
               // Check if THIS loan is itself a mirror
@@ -1091,7 +1091,25 @@ export async function PUT(request: NextRequest) {
                   if (!existingPf) {
                     await accSvc.recordProcessingFee({ loanId: loan.id, customerId: paymentRequest.customerId,
                       amount: pfAmount, collectionDate: new Date(), createdById: reviewedById, paymentMode: payMode });
-                    console.log(`[PR Accounting] ✓ CASE C Processing fee ₹${pfAmount}`);
+                    
+                    
+                    const pfDesc = `Processing Fee Collection - ${loan.applicationNo}${loan.customer?.name ? ` [${loan.customer.name}]` : ''}`;
+                    const pfRef = `${loan.id}-PF-PR`;
+                    if (payMode === 'CASH') {
+                      let cashBook = await db.cashBook.findUnique({ where: { companyId: loan.companyId } });
+                      if (!cashBook) cashBook = await db.cashBook.create({ data: { companyId: loan.companyId, currentBalance: 0 } });
+                      const newCashBal = cashBook.currentBalance + pfAmount;
+                      await db.cashBookEntry.create({ data: { cashBookId: cashBook.id, entryType: 'CREDIT', amount: pfAmount, balanceAfter: newCashBal, description: pfDesc, referenceType: 'PROCESSING_FEE', referenceId: pfRef, createdById: reviewedById, entryDate: new Date() } });
+                      await db.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBal, lastUpdatedById: reviewedById, lastUpdatedAt: new Date() } });
+                    } else {
+                      const bankAcct = await db.bankAccount.findFirst({ where: { companyId: loan.companyId, isActive: true }, orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }] });
+                      if (bankAcct) {
+                        const newBankBal = bankAcct.currentBalance + pfAmount;
+                        await db.bankTransaction.create({ data: { bankAccountId: bankAcct.id, transactionType: 'CREDIT', amount: pfAmount, balanceAfter: newBankBal, description: pfDesc, referenceType: 'PROCESSING_FEE', referenceId: pfRef, createdById: reviewedById, transactionDate: new Date() } });
+                        await db.bankAccount.update({ where: { id: bankAcct.id }, data: { currentBalance: newBankBal } });
+                      }
+                    }
+                    console.log(`[PR Accounting] ✓ CASE C Processing fee ₹${pfAmount} (Journal + Passbook)`);
                   }
                 }
               }

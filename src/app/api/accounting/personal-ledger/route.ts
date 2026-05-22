@@ -91,11 +91,23 @@ async function getLRAccountIds(companyId: string | null): Promise<string[]> {
 // Source: Journal Entry Lines touching Loans Receivable account
 // ─────────────────────────────────────────────────────────────────────────────
 async function listCustomersForCompany(companyId: string | null) {
-  // 1. Get Loans Receivable account IDs
+  // 1. Get Loans Receivable and Interest account IDs
   const lrAccountIds = await getLRAccountIds(companyId);
+  let interestAccounts = await db.chartOfAccount.findMany({
+    where: { accountCode: { in: ['4110', '4100', '4001', '4002'] }, ...(companyId ? { companyId } : {}) },
+    select: { id: true }
+  });
+  if (interestAccounts.length === 0 && companyId) {
+    interestAccounts = await db.chartOfAccount.findMany({
+      where: { accountCode: { in: ['4110', '4100', '4001', '4002'] } },
+      select: { id: true }
+    });
+  }
+  const interestAccountIds = interestAccounts.map(a => a.id);
+  const allTargetAccountIds = [...lrAccountIds, ...interestAccountIds];
 
-  if (lrAccountIds.length === 0) {
-    // Fallback: use EMI data if no journal entries exist yet
+  if (allTargetAccountIds.length === 0) {
+    // Fallback: use EMI data if no accounts exist yet
     return listCustomersFallback(companyId);
   }
 
@@ -110,11 +122,11 @@ async function listCustomersForCompany(companyId: string | null) {
   });
   const journalIdSet = journalIds.map(j => j.id);
 
-  // 2b. Fetch all JournalEntryLines touching LR accounts within those journals
+  // 2b. Fetch all JournalEntryLines touching LR or Interest accounts within those journals
   const lines = journalIdSet.length > 0
     ? await db.journalEntryLine.findMany({
         where: {
-          accountId: { in: lrAccountIds },
+          accountId: { in: allTargetAccountIds },
           journalEntryId: { in: journalIdSet },
         },
         select: {
@@ -671,10 +683,16 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   // ── Get Loans Receivable and Interest Income account IDs ─────────────────
   const lrAccountIds = await getLRAccountIds(companyId);
-  const interestAccounts = await db.chartOfAccount.findMany({
+  let interestAccounts = await db.chartOfAccount.findMany({
     where: { accountCode: { in: ['4110', '4100', '4001', '4002'] }, ...(companyId ? { companyId } : {}) },
     select: { id: true }
   });
+  if (interestAccounts.length === 0 && companyId) {
+    interestAccounts = await db.chartOfAccount.findMany({
+      where: { accountCode: { in: ['4110', '4100', '4001', '4002'] } },
+      select: { id: true }
+    });
+  }
   const interestAccountIds = interestAccounts.map(a => a.id);
   const allTargetAccountIds = [...lrAccountIds, ...interestAccountIds];
 

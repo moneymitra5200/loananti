@@ -282,9 +282,11 @@ export async function GET(request: NextRequest) {
 
     // ── 7. Enrich descriptions with customer names ─────────────────────────
     // Collect all referenceIds that might be loan IDs
-    const refIds = allEntries
+    const refIds = [...new Set(allEntries
       .map(e => e.referenceId)
-      .filter((id): id is string => !!id);
+      .filter((id): id is string => !!id)
+      .map(id => id.length >= 36 ? id.substring(0, 36) : id)
+    )];
 
     // Build a lookup map: loanId → customerName + loanNumber
     const loanLookup = new Map<string, { customerName: string; loanNumber: string; loanType: string }>();
@@ -391,7 +393,8 @@ export async function GET(request: NextRequest) {
       // Remove "mirror" (case insensitive) from descriptions
       desc = desc.replace(/mirror\s*/gi, '').replace(/\s{2,}/g, ' ').trim();
 
-      const info = entry.referenceId ? loanLookup.get(entry.referenceId) : null;
+      const baseRefId = entry.referenceId && entry.referenceId.length >= 36 ? entry.referenceId.substring(0, 36) : entry.referenceId;
+      const info = baseRefId ? loanLookup.get(baseRefId) : null;
 
       if (info) {
         const customerName = info.customerName;

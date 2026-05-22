@@ -37,6 +37,7 @@ interface DayEntry {
 interface Voucher {
   entryId: string;
   dateStr: string;   // formatted – shown only on first displayed row
+  timeStr: string;
   drLines: { account: string; amount: number }[];
   crLines: { account: string; amount: number }[];
   narration: string;
@@ -258,6 +259,7 @@ function entryToVoucher(entry: DayEntry): Voucher {
   return {
     entryId: entry.id,
     dateStr: format(new Date(entry.entryDate), 'dd/MM'),
+    timeStr: format(new Date(entry.entryDate), 'HH:mm:ss'),
     drLines,
     crLines,
     narration: `Being ${entry.description || entry.referenceType?.replace(/_/g, ' ') || 'transaction'}`,
@@ -403,7 +405,7 @@ export default function TradDayBookSection({ selectedCompanyId, refreshKey = 0 }
                   const drAmt = v.drLines.reduce((s, l) => s + l.amount, 0);
                   const crAmt = v.crLines.reduce((s, l) => s + l.amount, 0);
                   rows.push({
-                    Date: format(new Date(g.dateKey), 'dd/MM/yyyy'),
+                    Date: `${format(new Date(g.dateKey), 'dd/MM/yyyy')} ${v.timeStr}`,
                     Narration: v.narration,
                     'Debit Account': v.drLines.map(l => l.account).join(' | '),
                     'Debit (₹)': drAmt > 0 ? fmtExcelINR(drAmt) : '',
@@ -600,7 +602,7 @@ export default function TradDayBookSection({ selectedCompanyId, refreshKey = 0 }
                           <tr className={`${isIncome ? 'bg-emerald-100/50' : 'bg-rose-100/50'} border-b border-dashed border-gray-300`}>
                             <td className="py-1.5 px-3 border-r border-gray-200"></td>
                             <td className="py-1.5 px-4 border-r border-gray-200" colSpan={3}>
-                              <span className="text-xs text-gray-500 italic">({v.narration})</span>
+                              <span className="text-xs text-gray-500 italic">({v.timeStr}) ({v.narration})</span>
                             </td>
                             <td className="py-1.5 px-3 text-center border-r border-gray-200">
                               {isIncome ? (

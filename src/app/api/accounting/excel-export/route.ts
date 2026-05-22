@@ -505,7 +505,7 @@ async function getTransactionData(companyIds: string[], startDate?: string | nul
         'Transaction Type': txn.transactionType,
         'Amount': txn.amount,
         'Balance After': txn.balanceAfter,
-        'Description': txn.description,
+        'Description': (txn.description || '').replace(/\(?mirror\)?/gi, '').replace(/\s{2,}/g, ' ').trim(),
         'Reference Type': txn.referenceType,
         'Reference ID': txn.referenceId || 'N/A',
         'Created At': format(new Date(txn.createdAt), 'dd/MM/yyyy HH:mm:ss')
