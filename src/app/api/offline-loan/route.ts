@@ -2343,8 +2343,8 @@ export async function PUT(request: NextRequest) {
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
             narration: `IO EMI #${currentEMI.installmentNumber} — ${loan.loanNumber}${hasMirror ? ` @ ${targetRate}% (mirror)` : ''} ₹${targetAmount}`,
             lines: [
-              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})` },
-              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}` },
+              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: loan.id },
+              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}`, loanId: loan.id },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });

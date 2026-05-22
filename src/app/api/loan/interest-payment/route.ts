@@ -350,11 +350,13 @@ export async function POST(request: NextRequest) {
               accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,
               debitAmount: acctAmount, creditAmount: 0,
               narration: `Interest received (${paymentMode})`,
+              loanId: loan.id,
             },
             {
               accountCode: ACCOUNT_CODES.INTEREST_INCOME,
               debitAmount: 0, creditAmount: acctAmount,
               narration: `Interest income — ${loan.applicationNo}`,
+              loanId: loan.id,
             },
           ],
           createdById: collectedBy,
