@@ -3083,7 +3083,7 @@ export async function PUT(request: NextRequest) {
                 if (isPfOnline) {
                   // ── ONLINE: route processing fee to BANK ACCOUNT ──────────────
                   const existingPF = await pfTx.bankTransaction.findFirst({
-                    where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
+                    where: { referenceType: 'PROCESSING_FEE', referenceId: `${emi.offlineLoanId}-PF-MIR` }
                   });
                   if (!existingPF) {
                     // Find mirror company's bank account
@@ -3101,7 +3101,7 @@ export async function PUT(request: NextRequest) {
                           balanceAfter: newBankBal,
                           description: `Processing Fee Collection - ${emi.offlineLoan.loanNumber} (Last EMI ₹${regularEMI - procFee} vs Regular EMI ₹${regularEMI})`,
                           referenceType: 'PROCESSING_FEE',
-                          referenceId: emi.offlineLoanId,
+                          referenceId: `${emi.offlineLoanId}-PF-MIR`,
                           createdById: userId
                         }
                       });
@@ -3115,7 +3115,7 @@ export async function PUT(request: NextRequest) {
                         data: {
                           cashBookId: cashBook.id, entryType: 'CREDIT', amount: procFee, balanceAfter: newBal,
                           description: `[Bank Fallback] Processing Fee - ${emi.offlineLoan.loanNumber}`,
-                          referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId, createdById: userId
+                          referenceType: 'PROCESSING_FEE', referenceId: `${emi.offlineLoanId}-PF-MIR`, createdById: userId
                         }
                       });
                       await pfTx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newBal } });
@@ -3129,7 +3129,7 @@ export async function PUT(request: NextRequest) {
                 } else {
                   // ── CASH: route processing fee to CASHBOOK ─────────────────────
                   const existingPF = await pfTx.cashBookEntry.findFirst({
-                    where: { referenceType: 'PROCESSING_FEE', referenceId: emi.offlineLoanId }
+                    where: { referenceType: 'PROCESSING_FEE', referenceId: `${emi.offlineLoanId}-PF-MIR` }
                   });
                   if (!existingPF) {
                     const cashBook = await pfTx.cashBook.findUnique({ where: { companyId: mirrorCoId } })
