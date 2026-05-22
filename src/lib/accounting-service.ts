@@ -693,14 +693,14 @@ export class AccountingService {
 
     // Build subsidiary ledger line narration with customer name
     const receivableNarration = params.customerName
-      ? `Loan principal disbursed [Customer: ${params.customerName}]`
-      : 'Loan principal disbursed';
+      ? `Loan Given - ${params.customerName}`
+      : 'Loan Given';
 
     return this.createJournalEntry({
       entryDate: params.disbursementDate,
       referenceType: 'LOAN_DISBURSEMENT',
       referenceId: params.loanId,
-      narration: `Loan disbursement - ${params.customerName || 'Customer'}: ₹${params.amount.toLocaleString()} (${params.paymentMode})`,
+      narration: `Loan Given - ${params.customerName || 'Customer'}`,
       lines: [
         {
           accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
@@ -794,8 +794,8 @@ export class AccountingService {
         loanId: params.loanId,
         customerId: params.customerId,
         narration: params.customerName
-          ? `Principal repayment [Customer: ${params.customerName}]`
-          : 'Principal repayment',
+          ? `Loan EMI - ${params.customerName} (Principal)`
+          : 'Loan EMI (Principal)',
       });
     }
     if (adjustedInterest > 0) {
@@ -805,7 +805,7 @@ export class AccountingService {
         creditAmount: adjustedInterest,
         loanId: params.loanId,
         customerId: params.customerId,
-        narration: 'Interest income earned',
+        narration: params.customerName ? `Loan EMI - ${params.customerName} (Interest)` : 'Loan EMI (Interest)',
       });
     }
     if (penalty > 0) {
@@ -827,7 +827,7 @@ export class AccountingService {
         creditAmount: params.totalAmount,
         loanId: params.loanId,
         customerId: params.customerId,
-        narration: 'EMI repayment',
+        narration: params.customerName ? `Loan EMI - ${params.customerName}` : 'Loan EMI',
       });
     }
 
@@ -843,7 +843,7 @@ export class AccountingService {
       entryDate: params.paymentDate,
       referenceType: 'EMI_PAYMENT',
       referenceId: params.paymentId,
-      narration: `EMI Payment - Loan: ${params.loanId}`,
+      narration: `Loan EMI - ${params.customerName || 'Customer'} (P+I)`,
       lines: [
         {
           accountCode: debitAccount,

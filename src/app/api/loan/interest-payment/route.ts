@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
               transactionType: 'CREDIT',
               amount: acctAmount,
               balanceAfter: bankAccount.currentBalance + acctAmount,
-              description: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ' (mirror)' : ''}`,
+              description: `IO Interest - ${loan.applicationNo} - ${loan.customer?.name || 'Customer'}`,
               referenceType: 'INTEREST_ONLY_PAYMENT',
               referenceId: payment.id,
               createdById: collectedBy
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
             companyId: acctCompanyId,
             entryType: 'CREDIT',
             amount: acctAmount,
-            description: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ' (mirror)' : ''}`,
+            description: `IO Interest - ${loan.applicationNo} - ${loan.customer?.name || 'Customer'}`,
             referenceType: 'INTEREST_ONLY_PAYMENT',
             referenceId: payment.id,
             createdById: collectedBy,
@@ -344,7 +344,7 @@ export async function POST(request: NextRequest) {
           entryDate: new Date(),
           referenceType: 'INTEREST_ONLY_PAYMENT',
           referenceId: payment.id,
-          narration: `IO Interest - ${loan.applicationNo}${mirrorMapForAcct ? ` @ ${mirrorMapForAcct.mirrorInterestRate}% (mirror)` : ''} ₹${acctAmount}`,
+          narration: `IO Interest - ${loan.applicationNo} - ${loan.customer?.name || 'Customer'}`,
           lines: [
             {
               accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND,

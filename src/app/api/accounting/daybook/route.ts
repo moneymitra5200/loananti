@@ -402,9 +402,11 @@ export async function GET(request: NextRequest) {
         const emiNum = emiMatch ? `EMI #${emiMatch[1]}` : '';
 
         if (refType.includes('DISBURSEMENT') || refType.includes('OFFLINE_LOAN') || refType.includes('ONLINE_LOAN')) {
-          desc = `Loan disbursed to ${customerName} — ${loanNum}`;
+          desc = `Loan Given - ${customerName}`;
+        } else if (refType.includes('INTEREST_ONLY')) {
+          desc = `IO ${emiNum || 'Payment'} - ${loanNum} - ${customerName}`;
         } else if (refType.includes('EMI_PAYMENT') || refType.includes('REPAYMENT')) {
-          desc = `EMI received from ${customerName} — ${loanNum}${emiNum ? ` — ${emiNum}` : ''}`;
+          desc = `Loan EMI - ${customerName} (P+I)`;
         } else if (refType.includes('PROCESSING_FEE')) {
           desc = `Processing fee from ${customerName} — ${loanNum}`;
         } else if (refType.includes('PENALTY')) {

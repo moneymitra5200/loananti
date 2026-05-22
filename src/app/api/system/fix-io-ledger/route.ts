@@ -16,14 +16,15 @@ export async function GET(request: NextRequest) {
     });
     
     let updated = 0;
-    const details = [];
+    const details: string[] = [];
     
     for (const je of entries) {
       if (!je.lines.some(l => !l.loanId)) continue;
       
-      let targetLoanId = null;
+      let targetLoanId: string | null = null;
+      if (!je.referenceId) continue;
       const offlineEmi = await db.offlineLoanEMI.findUnique({
-        where: { id: je.referenceId },
+        where: { id: je.referenceId as string },
         select: { offlineLoanId: true }
       });
       
@@ -31,7 +32,7 @@ export async function GET(request: NextRequest) {
         targetLoanId = offlineEmi.offlineLoanId;
       } else {
         const payment = await db.payment.findUnique({
-          where: { id: je.referenceId },
+          where: { id: je.referenceId as string },
           select: { loanApplicationId: true }
         });
         if (payment) targetLoanId = payment.loanApplicationId;
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
       if (targetLoanId) {
         await db.journalEntryLine.updateMany({
           where: { journalEntryId: je.id, loanId: null },
-          data: { loanId: targetLoanId }
+          data: { loanId: targetLoanId as string }
         });
         details.push(`Updated Journal Entry ${je.entryNumber} lines to point to loan ${targetLoanId}`);
         updated++;

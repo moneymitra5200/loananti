@@ -494,7 +494,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               accountId: cashAccId,
               debitAmount: mirrorCashPortion, creditAmount: 0,
               loanId: loanId || null, customerId: customerId || null,
-              narration: `Cash received - Mirror EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
+              narration: `Cash received - EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
             });
           }
           if (mirrorOnlinePortion > 0 && bankAccId) {
@@ -502,7 +502,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               accountId: bankAccId,
               debitAmount: mirrorOnlinePortion, creditAmount: 0,
               loanId: loanId || null, customerId: customerId || null,
-              narration: `Bank received - Mirror EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
+              narration: `Bank received - EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
             });
           }
           console.log(`[Accounting] MIRROR SPLIT Journal debit lines: Dr Cash ₹${mirrorCashPortion} + Dr Bank ₹${mirrorOnlinePortion}`);
@@ -517,8 +517,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             debitAmount: recordAmount, creditAmount: 0,
             loanId: loanId || null, customerId: customerId || null,
             narration: isOnlineMode
-              ? `Bank received - Mirror EMI #${installmentNumber}${partialSuffix}`
-              : `Cash received - Mirror EMI #${installmentNumber}${partialSuffix}`,
+              ? `Bank received - EMI #${installmentNumber}${partialSuffix}`
+              : `Cash received - EMI #${installmentNumber}${partialSuffix}`,
           });
         }
 
@@ -527,14 +527,14 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           accountId: interestAccId,
           debitAmount: 0, creditAmount: recordInterest,
           loanId: loanId || null, customerId: customerId || null,
-          narration: `Mirror interest income - EMI #${installmentNumber}${partialSuffix}`,
+          narration: `Interest income - EMI #${installmentNumber}${partialSuffix}`,
         });
         if (recordPrincipal > 0 && loanAccId) {
           directLines.push({
             accountId: loanAccId,
             debitAmount: 0, creditAmount: recordPrincipal,
             loanId: loanId || null, customerId: customerId || null,
-            narration: `Mirror principal repayment - EMI #${installmentNumber}${partialSuffix}`,
+            narration: `Principal repayment - EMI #${installmentNumber}${partialSuffix}`,
           });
         }
 

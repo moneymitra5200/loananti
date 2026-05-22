@@ -2327,13 +2327,13 @@ export async function PUT(request: NextRequest) {
           if (isOnlineMode) {
             await recordBankTransaction({
               companyId: targetCompanyId, transactionType: 'CREDIT', amount: targetAmount,
-              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}${hasMirror ? ' (mirror)' : ''}`,
+              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
               referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
             });
           } else {
             await recordCashBookEntry({
               companyId: targetCompanyId, entryType: 'CREDIT', amount: targetAmount,
-              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}${hasMirror ? ' (mirror)' : ''}`,
+              description: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
               referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id, createdById: userId,
             });
           }
@@ -2341,10 +2341,10 @@ export async function PUT(request: NextRequest) {
           // Double-entry journal
           await accSvc.createJournalEntry({
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
-            narration: `IO EMI #${currentEMI.installmentNumber} — ${loan.loanNumber}${hasMirror ? ` @ ${targetRate}% (mirror)` : ''} ₹${targetAmount}`,
+            narration: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
             lines: [
               { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: loan.id },
-              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income — ${loan.loanNumber} EMI #${currentEMI.installmentNumber}`, loanId: loan.id },
+              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });

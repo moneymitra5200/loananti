@@ -878,12 +878,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
 function buildDescription(refType: string, narration: string, emiNumber: number | undefined, loanNumber: string, customerName: string): string {
   const t = (refType || '').toUpperCase();
-  if (t === 'LOAN_DISBURSEMENT' || t === 'MIRROR_LOAN_DISBURSEMENT') return `Loan Disbursed — ${loanNumber}`;
-  if (t === 'EMI_PAYMENT' || t === 'MIRROR_EMI_PAYMENT') return emiNumber ? `Monthly EMI #${emiNumber}` : 'EMI Payment';
-  if (t === 'INTEREST_ONLY_PAYMENT') return `EMI #${emiNumber || '?'} — Interest Only`;
-  if (t === 'PARTIAL_EMI_PAYMENT') return `EMI #${emiNumber || '?'} — Partial Payment`;
-  if (t === 'PENALTY_COLLECTION') return 'Late Penalty';
-  if (t === 'EXTRA_EMI_PAYMENT') return `Extra EMI #${emiNumber || ''}`;
+  const name = customerName || 'Customer';
+  if (t === 'LOAN_DISBURSEMENT' || t === 'MIRROR_LOAN_DISBURSEMENT') return `Loan Given - ${name}`;
+  if (t === 'EMI_PAYMENT' || t === 'MIRROR_EMI_PAYMENT') return `Loan EMI - ${name} (P+I)`;
+  if (t === 'INTEREST_ONLY_PAYMENT') return emiNumber ? `IO EMI #${emiNumber} - ${name}` : `Interest Only - ${name}`;
+  if (t === 'PARTIAL_EMI_PAYMENT') return `EMI #${emiNumber || '?'} - Partial Payment - ${name}`;
+  if (t === 'PENALTY_COLLECTION') return `Late Penalty - ${name}`;
+  if (t === 'EXTRA_EMI_PAYMENT') return `Extra EMI #${emiNumber || ''} - ${name}`;
   return narration?.replace(/\[.*?\]/g, '').replace(/mirror/gi, '').trim() || refType?.replace(/_/g, ' ') || 'Transaction';
 }
 
@@ -910,7 +911,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       allEntries.push({
         id: `disb-${loan.id}`, date: fullLoan.disbursedAt, referenceType: 'LOAN_DISBURSEMENT',
         loanId: loan.id, loanNumber: loan.applicationNo,
-        description: `Loan Disbursed — ${loan.applicationNo}`,
+        description: `Loan Given - ${customer?.name || 'Customer'}`,
         principalDisbursed: loanAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
         lines: [
           { accountCode: '1200', accountName: receivableLabel, debitAmount: loanAmount, creditAmount: 0 },
@@ -935,7 +936,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
         referenceType: emi.isInterestOnly ? 'INTEREST_ONLY_PAYMENT' : 'EMI_PAYMENT',
         loanId: loan.id, loanNumber: loan.applicationNo,
         emiNumber: emi.installmentNumber,
-        description: emi.isInterestOnly ? `EMI #${emi.installmentNumber} — Interest Only` : `Monthly EMI #${emi.installmentNumber}`,
+        description: emi.isInterestOnly ? `IO EMI #${emi.installmentNumber} - ${customer?.name || 'Customer'}` : `Loan EMI - ${customer?.name || 'Customer'} (P+I)`,
         principalDisbursed: 0, principalPaid: pp, interestPaid: ip, totalPayment: pp + ip,
         lines: [
           { accountCode: '1102', accountName: 'Bank/Cash', debitAmount: emi.paidAmount, creditAmount: 0 },

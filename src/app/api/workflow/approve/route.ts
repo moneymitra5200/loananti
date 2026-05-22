@@ -225,6 +225,7 @@ async function processSingleApproval({
       status: true,
       applicationNo: true,
       customerId: true,
+      customer: { select: { name: true } },
       companyId: true,
       currentHandlerId: true,
       loanType: true,
@@ -574,7 +575,7 @@ async function processSingleApproval({
               await splitAccSvc.initializeChartOfAccounts();
               if ((disbursementData.bankAmount || 0) > 0) {
                 await splitAccSvc.recordLoanDisbursement({
-                  loanId, customerId: loan.customerId, amount: disbursementData.bankAmount!,
+                  loanId, customerId: loan.customerId, customerName: loan.customer?.name || 'Customer', amount: disbursementData.bankAmount!,
                   disbursementDate: new Date(), createdById: userId || 'SYSTEM',
                   bankAccountId: disbursementData.bankAccountId,
                   paymentMode: 'BANK_TRANSFER',
@@ -583,7 +584,7 @@ async function processSingleApproval({
               }
               if ((disbursementData.cashAmount || 0) > 0) {
                 await splitAccSvc.recordLoanDisbursement({
-                  loanId, customerId: loan.customerId, amount: disbursementData.cashAmount!,
+                  loanId, customerId: loan.customerId, customerName: loan.customer?.name || 'Customer', amount: disbursementData.cashAmount!,
                   disbursementDate: new Date(), createdById: userId || 'SYSTEM',
                   paymentMode: 'CASH',
                   reference: `Split Disbursement (Cash) - ${loan.applicationNo}`
@@ -731,6 +732,7 @@ async function processSingleApproval({
           await accountingService.recordLoanDisbursement({
             loanId,
             customerId: loan.customerId,
+            customerName: loan.customer?.name || 'Customer',
             amount: disbursementData.amount,
             disbursementDate: new Date(),
             createdById: userId || 'SYSTEM',
