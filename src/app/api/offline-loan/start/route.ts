@@ -252,38 +252,8 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // ── Journal entry in mirror company ──────────────────────────────────
-        try {
-          const mcId  = mirrorMapping.mirrorCompanyId;
-          const acctSvc = new AccountingService(mcId);
-          await acctSvc.initializeChartOfAccounts();
-          const entryNumber = await acctSvc.generateEntryNumber();
-
-          const loansRec = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1200' } });
-          const cashAcc  = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1101' } });
-
-          if (loansRec && cashAcc) {
-            await db.journalEntry.create({
-              data: {
-                companyId: mcId,
-                entryNumber,
-                entryDate: new Date(),
-                referenceType: 'LOAN_ACTIVATION',
-                referenceId: mirrorLoan.id,
-                narration: `Mirror loan activated (IO→EMI Phase 2): ${loan.loanNumber} | ${mirrorRate}% ${mirrorType} × ${mirrorTenure}mo | PF ₹${autoProcessingFee}`,
-                totalDebit: principalAmount, totalCredit: principalAmount,
-                isAutoEntry: true, isApproved: true,
-                createdById: startedBy || 'system',
-                lines: {
-                  create: [
-                    { accountId: loansRec.id, debitAmount: principalAmount, creditAmount: 0, loanId: mirrorLoan.id, narration: `Mirror activated (Phase 2): ${loan.loanNumber}` },
-                    { accountId: cashAcc.id,  debitAmount: 0, creditAmount: principalAmount, narration: `Offset — loan now earning mirror interest` },
-                  ]
-                }
-              }
-            });
-          }
-        } catch (je) { console.error('[Mirror Start] Journal entry failed (non-fatal):', je); }
+        // Note: No journal entry for disbursement is needed here because the loan 
+        // was already disbursed when it was created in Phase 1 (INTEREST_ONLY).
 
         console.log(`[Mirror Start] ✅ ${mirrorLoan.loanNumber} activated | ${mirrorRate}% ${mirrorType} | EMI ₹${mirrorCalc.mirrorLoan.emiAmount} × ${mirrorTenure}mo | shifted schedule | PF ₹${autoProcessingFee}`);
       } catch (e) {
