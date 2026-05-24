@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
-import { calculateMirrorLoan } from '@/utils/mirror-loan';
+import { calculateMirrorLoan } from '@/lib/mirror-loan';
 // ACID: retry on deadlock
 import { withRetry } from '@/lib/db-utils';
 import { AccountingService } from '@/lib/accounting-service';
