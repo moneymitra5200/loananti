@@ -487,26 +487,27 @@ export default function StaffDashboard() {
 
   const validateCurrentStep = (): boolean => {
     const errors: FormErrors = {};
+    const stepTitle = currentSteps[currentStep - 1]?.title;
     
-    switch (currentStep) {
-      case 1:
+    switch (stepTitle) {
+      case 'Personal Info':
         if (!loanForm.firstName.trim()) errors.firstName = 'First name is required';
         if (!loanForm.lastName.trim()) errors.lastName = 'Last name is required';
         break;
-      case 2:
+      case 'Contact':
         if (!loanForm.address.trim()) errors.address = 'Address is required';
         if (!loanForm.city.trim()) errors.city = 'City is required';
         if (!loanForm.state.trim()) errors.state = 'State is required';
         if (!loanForm.pincode.trim()) errors.pincode = 'Pincode is required';
         else if (!/^\d{6}$/.test(loanForm.pincode)) errors.pincode = 'Invalid pincode (6 digits required)';
         break;
-      case 3:
+      case 'KYC':
         if (!loanForm.panNumber.trim()) errors.panNumber = 'PAN number is required';
         else if (!validatePAN(loanForm.panNumber)) errors.panNumber = 'Invalid PAN format (e.g., ABCDE1234F)';
         if (!loanForm.aadhaarNumber.trim()) errors.aadhaarNumber = 'Aadhaar number is required';
         else if (!validateAadhaar(loanForm.aadhaarNumber)) errors.aadhaarNumber = 'Invalid Aadhaar (12 digits required)';
         break;
-      case 4:
+      case 'Employment':
         if (!loanForm.employmentType) errors.employmentType = 'Employment type is required';
         // Dynamic validation based on employment type
         if (loanForm.employmentType === 'Salaried') {
@@ -535,13 +536,17 @@ export default function StaffDashboard() {
         }
         if (loanForm.monthlyIncome && parseFloat(loanForm.monthlyIncome) <= 0) errors.monthlyIncome = 'Income must be greater than 0';
         break;
-      case 5:
+      case 'Family':
+        if (!loanForm.numberOfPeopleInHouse) errors.numberOfPeopleInHouse = 'Required';
+        if (!loanForm.numberOfEarningMembers) errors.numberOfEarningMembers = 'Required';
+        break;
+      case 'Bank':
         if (!loanForm.bankAccountNumber.trim()) errors.bankAccountNumber = 'Account number is required';
         if (!loanForm.bankIfsc.trim()) errors.bankIfsc = 'IFSC code is required';
         else if (!validateIFSC(loanForm.bankIfsc)) errors.bankIfsc = 'Invalid IFSC format (e.g., SBIN0001234)';
         if (!loanForm.bankName.trim()) errors.bankName = 'Bank name is required';
         break;
-      case 6:
+      case 'Guarantor':
         // Guardians are optional but if provided, need phone validation
         if (loanForm.ref1Phone && !validatePhone(loanForm.ref1Phone)) {
           errors.ref1Phone = 'Invalid phone number';
@@ -550,14 +555,7 @@ export default function StaffDashboard() {
           errors.ref2Phone = 'Invalid phone number';
         }
         break;
-      case 7:
-        // Documents - no validation for now
-        break;
-      case 8:
-        // Signature - optional for now
-        break;
-      case 9:
-        // Collateral Details - validate for GOLD/VEHICLE loans
+      case 'Collateral Details':
         if (isGoldLoan(selectedLoan?.loanType || '')) {
           if (!goldLoanData.netWeight) errors.netWeight = 'Net weight is required';
           if (!goldLoanData.goldRate) errors.goldRate = 'Gold rate is required';
@@ -570,8 +568,11 @@ export default function StaffDashboard() {
           if (!vehicleLoanData.loanAmount) errors.loanAmount = 'Loan amount is required';
         }
         break;
-      case 10:
-        // Final review - no additional validation
+      case 'Documents':
+      case 'Signature':
+      case 'Review':
+      default:
+        // No strict validation for these right now
         break;
     }
     
@@ -850,8 +851,8 @@ export default function StaffDashboard() {
           </DialogHeader>
 
           {/* Step Indicators */}
-          <div className="px-4 sm:px-6 py-3 border-b bg-gray-50 overflow-x-auto">
-            <div className="flex items-center justify-between min-w-max gap-1">
+          <div className="px-4 sm:px-6 py-4 border-b bg-gray-50">
+            <div className="flex flex-wrap items-center gap-y-3 gap-x-1 sm:gap-x-2">
               {currentSteps.map((step, index) => {
                 const StepIcon = step.icon;
                 return (
@@ -867,7 +868,7 @@ export default function StaffDashboard() {
                       }`}
                       disabled={currentStep <= step.id}
                     >
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium shrink-0 ${
                         currentStep === step.id 
                           ? 'bg-emerald-500 text-white' 
                           : currentStep > step.id 
@@ -876,10 +877,10 @@ export default function StaffDashboard() {
                       }`}>
                         {currentStep > step.id ? <CheckCircle className="h-4 w-4" /> : step.id}
                       </div>
-                      <span className="text-xs sm:text-sm font-medium hidden md:inline">{step.title}</span>
+                      <span className="text-xs sm:text-sm font-medium hidden sm:inline whitespace-nowrap">{step.title}</span>
                     </button>
                     {index < currentSteps.length - 1 && (
-                      <div className={`w-4 sm:w-8 h-0.5 mx-1 ${currentStep > step.id ? 'bg-emerald-500' : 'bg-gray-200'}`} />
+                      <div className={`w-2 sm:w-4 h-0.5 mx-0.5 sm:mx-1 ${currentStep > step.id ? 'bg-emerald-500' : 'bg-gray-200'}`} />
                     )}
                   </div>
                 );
