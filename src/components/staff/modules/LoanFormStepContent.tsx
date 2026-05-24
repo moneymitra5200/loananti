@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useState } from 'react';
-import { User, FileSearch, MapPin, Banknote, Users, Upload, FileText, CheckCircle, Info, AlertCircle, Sparkles, Car, Loader2, Briefcase, Building, Clock, Navigation, ExternalLink } from 'lucide-react';
+import { User, FileSearch, MapPin, Banknote, Users, Upload, FileText, CheckCircle, Info, AlertCircle, Sparkles, Car, Loader2, Briefcase, Building, Clock, Navigation, ExternalLink, Search } from 'lucide-react';
 import GoldLoanReceipt from '@/components/loan/GoldLoanReceipt';
 import VehicleLoanReceipt from '@/components/loan/VehicleLoanReceipt';
 import { toast } from '@/hooks/use-toast';
@@ -385,6 +385,43 @@ export default function LoanFormStepContent({
         );
       };
 
+      const locateFromAddress = async () => {
+        const queryParts = [loanForm.address, loanForm.city, loanForm.state, loanForm.pincode].filter(Boolean);
+        if (queryParts.length === 0) {
+          setGpsError('Please enter an address first to search for coordinates.');
+          return;
+        }
+        
+        setGpsLoading(true);
+        setGpsError(null);
+        try {
+          const query = encodeURIComponent(queryParts.join(', '));
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`, {
+            headers: { 'Accept-Language': 'en' }
+          });
+          const data = await res.json();
+          
+          if (data && data.length > 0) {
+            const { lat, lon, display_name } = data[0];
+            const now = new Date().toLocaleString('en-IN');
+            setLoanForm(prev => ({
+              ...prev,
+              gpsLatitude: String(parseFloat(lat).toFixed(6)),
+              gpsLongitude: String(parseFloat(lon).toFixed(6)),
+              gpsAddress: display_name,
+              gpsAccuracy: 'Address Search',
+              gpsCapturedAt: now,
+            }));
+          } else {
+            setGpsError('Could not find coordinates for this address. Try being more specific.');
+          }
+        } catch (err) {
+          setGpsError('Failed to search for coordinates. Please try again.');
+        } finally {
+          setGpsLoading(false);
+        }
+      };
+
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -427,19 +464,36 @@ export default function LoanFormStepContent({
                   <span className="font-semibold text-sm text-emerald-800">GPS Location Capture</span>
                   <Badge className="text-[10px] bg-emerald-100 text-emerald-700">Field Verification</Badge>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={captureGPS}
-                  disabled={gpsLoading}
-                >
-                  {gpsLoading ? (
-                    <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Locating...</>
-                  ) : (
-                    <><Navigation className="h-3.5 w-3.5 mr-1.5" />{loanForm.gpsLatitude ? 'Re-capture' : 'Get Location'}</>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    onClick={locateFromAddress}
+                    disabled={gpsLoading}
+                    title="Search coordinates using entered address (useful if GPS is inaccurate)"
+                  >
+                    {gpsLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <><Search className="h-3.5 w-3.5 mr-1.5" />Search Address</>
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    onClick={captureGPS}
+                    disabled={gpsLoading}
+                  >
+                    {gpsLoading ? (
+                      <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />Locating...</>
+                    ) : (
+                      <><Navigation className="h-3.5 w-3.5 mr-1.5" />{loanForm.gpsLatitude ? 'Re-capture' : 'Get Location'}</>
+                    )}
+                  </Button>
+                </div>
               </div>
 
               {gpsError && (
