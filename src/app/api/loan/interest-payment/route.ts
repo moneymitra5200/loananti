@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
     // withRetry: deadlock resilience (P2034) up to 3×
     // DUPLICATE GUARD: re-reads for an INTEREST_ONLY_PAYMENT in the same month
     //   INSIDE the transaction to prevent concurrent double-collection.
-    const { payment, updatedLoan } = await withRetry(() => db.$transaction(async (tx) => {
+    const { payment, updatedLoan, paidInstNum } = await withRetry(() => db.$transaction(async (tx) => {
       // ACID GUARD: check for duplicate interest collection in the same calendar month
       const thisMonthStart = new Date();
       thisMonthStart.setDate(1);
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      return { payment, updatedLoan };
+      return { payment, updatedLoan, paidInstNum: currentIOEmi?.installmentNumber };
     })); // end withRetry + $transaction
 
     console.log(`[Interest Payment] ✅ All writes committed atomically.`);
@@ -369,13 +369,9 @@ export async function POST(request: NextRequest) {
         if (mirrorMapForAcct?.mirrorLoanId) {
           try {
             const mirrorLoanId = mirrorMapForAcct.mirrorLoanId;
-            const currentEMI = await db.eMISchedule.findFirst({
-              where: { loanApplicationId: loanId, isInterestOnly: true, paymentStatus: { in: ['PENDING', 'OVERDUE'] } },
-              orderBy: { installmentNumber: 'asc' },
-            });
-            if (currentEMI) {
+            if (paidInstNum) {
               const mirrorEMI = await db.eMISchedule.findFirst({
-                where: { loanApplicationId: mirrorLoanId, installmentNumber: currentEMI.installmentNumber },
+                where: { loanApplicationId: mirrorLoanId, installmentNumber: paidInstNum },
               });
               if (mirrorEMI && mirrorEMI.paymentStatus !== 'PAID') {
                 await db.eMISchedule.update({

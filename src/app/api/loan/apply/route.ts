@@ -439,7 +439,7 @@ export async function PUT(request: NextRequest) {
       fraudFlag: Boolean(updateData.fraudFlag),
       fraudReason: updateData.fraudFlag ? updateData.verificationRemarks : null,
       verificationRemarks: updateData.verificationRemarks || null,
-      internalRemarks: updateData.verificationRemarks || null
+      internalRemarks: updateData.familyDetails ? JSON.stringify(updateData.familyDetails) : (updateData.verificationRemarks || null)
     };
 
     const existingLoanForm = await db.loanForm.findUnique({

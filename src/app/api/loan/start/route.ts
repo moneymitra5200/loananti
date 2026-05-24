@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
+import { calculateMirrorLoan } from '@/utils/mirror-loan';
 // ACID: retry on deadlock
 import { withRetry } from '@/lib/db-utils';
 import { AccountingService } from '@/lib/accounting-service';
@@ -163,6 +164,7 @@ export async function POST(request: NextRequest) {
           tenure,
           interestRate,
           emiAmount: emiCalculation.emi,
+          isInterestOnlyLoan: false,
         }
       });
 
@@ -214,13 +216,24 @@ export async function POST(request: NextRequest) {
         const mirrorTenure = tenure;
         const principal    = principalAmount;
 
-        const mc = calculateEMI(principal, mirrorRate, mirrorTenure, mirrorType, new Date());
+        // Calculate mirror loan using proper extraction
+        const mirrorCalc = calculateMirrorLoan(
+          principal,
+          emiCalculation.emi,
+          mirrorRate,
+          mirrorType
+        );
+
+        // shiftedSchedule: last (smallest) EMI moved to position 1
+        const shiftedSchedule = mirrorCalc.shiftedSchedule;
+        const autoProcessingFee = mirrorCalc.processingFee; // originalEMI - lastMirrorEMI
+        const actualMirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
 
         // Delete mirror's IO placeholder EMIs
         await db.eMISchedule.deleteMany({ where: { loanApplicationId: mirrorMapping.mirrorLoanId } });
 
-        // Build mirror amortizing schedule
-        const mirrorSchedule = mc.schedule.map((item, index) => {
+        // Build mirror's SHIFTED amortizing schedule (last EMI → first position)
+        const mirrorSchedule = shiftedSchedule.map((item, index) => {
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + index + 1);
           dueDate.setDate(5);
@@ -232,7 +245,7 @@ export async function POST(request: NextRequest) {
             originalDueDate: dueDate,
             principalAmount: item.principal,
             interestAmount: item.interest,
-            totalAmount: item.totalAmount,
+            totalAmount: item.emi,
             outstandingPrincipal: item.outstandingPrincipal,
             outstandingInterest: 0,
             paidAmount: 0, paidPrincipal: 0, paidInterest: 0,
@@ -248,58 +261,46 @@ export async function POST(request: NextRequest) {
         // Activate mirror loan
         await db.loanApplication.update({
           where: { id: mirrorMapping.mirrorLoanId! },
-          data: { status: 'ACTIVE', tenure: mirrorTenure, interestRate: mirrorRate, emiAmount: mc.emi, loanStartedAt: new Date() }
+          data: { 
+            status: 'ACTIVE', 
+            tenure: actualMirrorTenure, 
+            interestRate: mirrorRate, 
+            interestType: mirrorType,
+            emiAmount: mirrorCalc.mirrorLoan.emiAmount, 
+            loanStartedAt: new Date() 
+          }
         });
 
         // Update session form if exists
         if (mirrorLoan.sessionForm) {
           await db.sessionForm.update({
             where: { loanApplicationId: mirrorMapping.mirrorLoanId! },
-            data: { tenure: mirrorTenure, interestRate: mirrorRate, emiAmount: mc.emi, totalInterest: mc.totalInterest, totalAmount: mc.totalAmount }
+            data: { 
+              tenure: actualMirrorTenure, 
+              interestRate: mirrorRate, 
+              interestType: mirrorType,
+              emiAmount: mirrorCalc.mirrorLoan.emiAmount, 
+              totalInterest: mirrorCalc.mirrorLoan.totalInterest, 
+              totalAmount: mirrorCalc.mirrorLoan.totalAmount 
+            }
           });
         }
 
         // Update mapping
         await db.mirrorLoanMapping.update({
           where: { id: mirrorMapping.id },
-          data: { mirrorTenure, originalTenure: tenure }
+          data: { 
+            mirrorTenure: actualMirrorTenure, 
+            originalTenure: tenure,
+            mirrorProcessingFee: autoProcessingFee,
+            processingFeeRecorded: false,
+          }
         });
 
-        // ── Journal entry in mirror company ──────────────────────────────────
-        try {
-          const mcId    = mirrorMapping.mirrorCompanyId;
-          const acctSvc = new AccountingService(mcId);
+        // Note: No journal entry for disbursement is needed here because the loan 
+        // was already disbursed when it was created in Phase 1 (INTEREST_ONLY).
 
-          await acctSvc.initializeChartOfAccounts();
-          const entryNumber = await acctSvc.generateEntryNumber();
-
-          const loansRec = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1200' } });
-          const cashAcc  = await db.chartOfAccount.findFirst({ where: { companyId: mcId, accountCode: '1101' } });
-
-          if (loansRec && cashAcc) {
-            await db.journalEntry.create({
-              data: {
-                companyId: mcId,
-                entryNumber,
-                entryDate: new Date(),
-                referenceType: 'LOAN_ACTIVATION',
-                referenceId: mirrorMapping.mirrorLoanId!,
-                narration: `Mirror loan activated (IO→EMI): ${loan.applicationNo} | ${mirrorRate}% ${mirrorType} × ${mirrorTenure}mo`,
-                totalDebit: principal, totalCredit: principal,
-                isAutoEntry: true, isApproved: true,
-                createdById: startedBy || 'system',
-                lines: {
-                  create: [
-                    { accountId: loansRec.id, debitAmount: principal, creditAmount: 0, loanId: mirrorMapping.mirrorLoanId!, narration: `Mirror activated: ${loan.applicationNo}` },
-                    { accountId: cashAcc.id,  debitAmount: 0, creditAmount: principal, narration: `Offset — loan earning mirror interest` },
-                  ]
-                }
-              }
-            });
-          }
-        } catch (je) { console.error('[Mirror Start Online] Journal entry failed (non-fatal):', je); }
-
-        console.log(`[Mirror Start Online] ✅ ${mirrorLoan.applicationNo} activated | ${mirrorRate}% ${mirrorType} | EMI ₹${mc.emi} × ${mirrorTenure}mo`);
+        console.log(`[Mirror Start Online] ✅ ${mirrorLoan.applicationNo} activated | ${mirrorRate}% ${mirrorType} | EMI ₹${mirrorCalc.mirrorLoan.emiAmount} × ${actualMirrorTenure}mo | shifted schedule | PF ₹${autoProcessingFee}`);
       } catch (e) {
         console.error('[Mirror Start Online] Non-fatal error:', e);
       }

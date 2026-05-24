@@ -15,6 +15,7 @@ import GoldLoanReceipt from '@/components/loan/GoldLoanReceipt';
 import VehicleLoanReceipt from '@/components/loan/VehicleLoanReceipt';
 import { toast } from '@/hooks/use-toast';
 import EmploymentStepContent from './EmploymentStepContent';
+import FamilyDetailsStepContent from './FamilyDetailsStepContent';
 
 interface Loan {
   id: string; applicationNo: string; status: string; requestedAmount: number; loanType: string;
@@ -61,6 +62,10 @@ interface LoanFormData {
   gpsAddress: string;
   gpsAccuracy: string;
   gpsCapturedAt: string;
+  // Family Details
+  numberOfPeopleInHouse: string;
+  numberOfEarningMembers: string;
+  earningMembers: Array<{ name: string; jobField: string; income: string }>;
 }
 
 interface GoldLoanData {
@@ -448,17 +453,17 @@ export default function LoanFormStepContent({
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Latitude</p>
-                      <p className="text-sm font-mono font-semibold text-gray-800">{loanForm.gpsLatitude}</p>
+                      <Label className="text-[10px] text-gray-400 uppercase tracking-wider">Latitude</Label>
+                      <Input value={loanForm.gpsLatitude} onChange={(e) => setLoanForm({...loanForm, gpsLatitude: e.target.value})} className="mt-1 h-8 text-sm font-mono font-semibold text-gray-800" />
                     </div>
                     <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
-                      <p className="text-[10px] text-gray-400 uppercase tracking-wider">Longitude</p>
-                      <p className="text-sm font-mono font-semibold text-gray-800">{loanForm.gpsLongitude}</p>
+                      <Label className="text-[10px] text-gray-400 uppercase tracking-wider">Longitude</Label>
+                      <Input value={loanForm.gpsLongitude} onChange={(e) => setLoanForm({...loanForm, gpsLongitude: e.target.value})} className="mt-1 h-8 text-sm font-mono font-semibold text-gray-800" />
                     </div>
                   </div>
                   <div className="bg-white rounded-lg p-2.5 border border-emerald-100">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Detected Address</p>
-                    <p className="text-xs text-gray-700 leading-relaxed">{loanForm.gpsAddress}</p>
+                    <Label className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Detected Address</Label>
+                    <Textarea value={loanForm.gpsAddress} onChange={(e) => setLoanForm({...loanForm, gpsAddress: e.target.value})} className="mt-1 min-h-[60px] text-xs text-gray-700 leading-relaxed resize-none" />
                     <div className="flex items-center justify-between mt-1.5">
                       <span className="text-[10px] text-gray-400">Accuracy: {loanForm.gpsAccuracy} · {loanForm.gpsCapturedAt}</span>
                       <a
@@ -528,6 +533,9 @@ export default function LoanFormStepContent({
       return <EmploymentStepContent loanForm={loanForm} setLoanForm={setLoanForm} formErrors={formErrors} />;
 
     case 5:
+      return <FamilyDetailsStepContent loanForm={loanForm} setLoanForm={setLoanForm} />;
+
+    case 6:
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -577,7 +585,7 @@ export default function LoanFormStepContent({
         </div>
       );
 
-    case 6:
+    case 7:
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -650,7 +658,7 @@ export default function LoanFormStepContent({
         </div>
       );
 
-    case 7:
+    case 8:
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -740,7 +748,7 @@ export default function LoanFormStepContent({
         </div>
       );
 
-    case 8:
+    case 9:
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -860,8 +868,8 @@ export default function LoanFormStepContent({
         </div>
       );
 
-    case 9:
-      // This step is only for GOLD and VEHICLE loans
+    case 10:
+      // For GOLD and VEHICLE loans, this is Collateral
       // For other loan types, this case won't be reached
       if (isGoldLoan(selectedLoan?.loanType || '')) {
         return (
@@ -918,9 +926,9 @@ export default function LoanFormStepContent({
           </div>
         );
       }
-      // For non-GOLD/VEHICLE loans, case 9 falls through to Review (case 10)
+      // For non-GOLD/VEHICLE loans, case 10 falls through to Review (case 11)
       // fall through intentionally
-    case 10:
+    case 11:
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">

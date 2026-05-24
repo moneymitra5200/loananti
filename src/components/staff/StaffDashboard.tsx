@@ -57,10 +57,11 @@ const getStepsForLoanType = (loanType: string) => {
     { id: 2, title: 'Contact', icon: MapPin, description: 'Address & contact info' },
     { id: 3, title: 'KYC', icon: FileSearch, description: 'Identity documents' },
     { id: 4, title: 'Employment', icon: Briefcase, description: 'Work & income details' },
-    { id: 5, title: 'Bank', icon: Banknote, description: 'Bank account details' },
-    { id: 6, title: 'Guarantor', icon: Users, description: 'Guarantor details' },
-    { id: 7, title: 'Documents', icon: Upload, description: 'Upload documents' },
-    { id: 8, title: 'Signature', icon: ClipboardList, description: 'Applicant signature' },
+    { id: 5, title: 'Family', icon: Users, description: 'Family members details' },
+    { id: 6, title: 'Bank', icon: Banknote, description: 'Bank account details' },
+    { id: 7, title: 'Guarantor', icon: Users, description: 'Guarantor details' },
+    { id: 8, title: 'Documents', icon: Upload, description: 'Upload documents' },
+    { id: 9, title: 'Signature', icon: ClipboardList, description: 'Applicant signature' },
   ];
   
   // Add Collateral Details step for GOLD and VEHICLE loans
@@ -68,7 +69,7 @@ const getStepsForLoanType = (loanType: string) => {
   const isVehicle = isVehicleLoan(loanType);
   
   if (isGold || isVehicle) {
-    baseSteps.push({ id: 9, title: 'Collateral Details', icon: isGold ? Sparkles : Car, description: `${isGold ? 'Gold' : 'Vehicle'} item details` });
+    baseSteps.push({ id: 10, title: 'Collateral Details', icon: isGold ? Sparkles : Car, description: `${isGold ? 'Gold' : 'Vehicle'} item details` });
   }
   
   // Review is always the last step
@@ -276,6 +277,8 @@ export default function StaffDashboard() {
     applicantSignature: '',
     // GPS
     gpsLatitude: '', gpsLongitude: '', gpsAddress: '', gpsAccuracy: '', gpsCapturedAt: '',
+    // Family Details
+    numberOfPeopleInHouse: '', numberOfEarningMembers: '', earningMembers: [],
   });
 
   // Document upload state
@@ -469,6 +472,8 @@ export default function StaffDashboard() {
       applicantSignature: '',
       // GPS - reset on each new loan
       gpsLatitude: '', gpsLongitude: '', gpsAddress: '', gpsAccuracy: '', gpsCapturedAt: '',
+      // Family Details
+      numberOfPeopleInHouse: '', numberOfEarningMembers: '', earningMembers: [],
     });
     setUploadedDocs({});
     setCurrentStep(1);
@@ -632,6 +637,11 @@ export default function StaffDashboard() {
           // Include gold/vehicle loan details based on loan type
           ...(isGoldLoan(selectedLoan.loanType) && { goldLoanDetails: goldLoanData }),
           ...(isVehicleLoan(selectedLoan.loanType) && { vehicleLoanDetails: vehicleLoanData }),
+          familyDetails: {
+            numberOfPeopleInHouse: loanForm.numberOfPeopleInHouse,
+            numberOfEarningMembers: loanForm.numberOfEarningMembers,
+            earningMembers: loanForm.earningMembers
+          }
         })
       });
       
