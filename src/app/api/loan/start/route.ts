@@ -267,7 +267,6 @@ export async function POST(request: NextRequest) {
             status: 'ACTIVE', 
             tenure: actualMirrorTenure, 
             interestRate: mirrorRate, 
-            interestType: mirrorType,
             emiAmount: mirrorCalc.mirrorLoan.emiAmount, 
             loanStartedAt: new Date() 
           }
