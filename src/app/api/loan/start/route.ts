@@ -219,7 +219,9 @@ export async function POST(request: NextRequest) {
         // Calculate mirror loan using proper extraction
         const mirrorCalc = calculateMirrorLoan(
           principal,
-          emiCalculation.emi,
+          interestRate,
+          tenure,
+          (loan.sessionForm?.interestType as 'FLAT' | 'REDUCING') || 'FLAT',
           mirrorRate,
           mirrorType
         );
