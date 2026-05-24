@@ -251,7 +251,7 @@ export default function StaffDashboard() {
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);
   
   // Loan form state
-  const [loanForm, setLoanForm] = useState({
+  const [loanForm, setLoanForm] = useState<any>({
     title: '', firstName: '', lastName: '', middleName: '', fatherName: '', motherName: '',
     dateOfBirth: '', gender: '', maritalStatus: '', nationality: 'Indian',
     panNumber: '', aadhaarNumber: '', panVerified: false, aadhaarVerified: false,
