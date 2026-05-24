@@ -3509,8 +3509,8 @@ export async function PUT(request: NextRequest) {
               const debitCode = isOnlineMode ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND;
 
               const fbLines: any[] = [
-                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: emi.offlineLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - Mirror EMI #${emi.installmentNumber}` },
-                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: emi.offlineLoanId, narration: `Mirror interest income - EMI #${emi.installmentNumber}` },
+                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: emi.offlineLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - EMI #${emi.installmentNumber}` },
+                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: emi.offlineLoanId, narration: `Interest income - EMI #${emi.installmentNumber}` },
               ];
               if (effectiveP > 0) {
                 fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: emi.offlineLoanId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
@@ -3520,7 +3520,7 @@ export async function PUT(request: NextRequest) {
                 entryDate: new Date(),
                 referenceType: 'MIRROR_EMI_PAYMENT',
                 referenceId: uniquePaymentId,
-                narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} - ₹${effectiveTotal} (P:₹${effectiveP} + I:₹${effectiveI})`,
+                narration: `[FALLBACK] EMI #${emi.installmentNumber} - ${emi.offlineLoan.loanNumber} - ₹${effectiveTotal} (P:₹${effectiveP} + I:₹${effectiveI})`,
                 lines: fbLines,
                 createdById: userId || 'SYSTEM',
                 paymentMode: paymentMode || 'CASH',

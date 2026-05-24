@@ -813,7 +813,7 @@ export async function recordMirrorInterestIncome(params: {
       entryDate: new Date(),
       referenceType: 'MIRROR_INTEREST_INCOME',
       referenceId: paymentId,
-      narration: `Mirror Interest - ${loanNumber} EMI #${installmentNumber} - ₹${mirrorInterest}`,
+      narration: `Interest Income - ${loanNumber} EMI #${installmentNumber} - ₹${mirrorInterest}`,
       lines: [
         {
           accountCode: ACCOUNT_CODES.CASH_IN_HAND,
@@ -829,7 +829,7 @@ export async function recordMirrorInterestIncome(params: {
           creditAmount: mirrorInterest,
           loanId,
           customerId,
-          narration: 'Mirror interest income'
+          narration: 'Interest income'
         }
       ],
       createdById: userId,

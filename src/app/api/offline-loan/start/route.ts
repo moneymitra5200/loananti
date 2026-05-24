@@ -249,6 +249,7 @@ export async function POST(request: NextRequest) {
             mirrorTenure,
             originalTenure: tenure,
             mirrorProcessingFee: autoProcessingFee,
+            processingFeeRecorded: false,
           }
         });
 

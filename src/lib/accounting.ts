@@ -499,7 +499,7 @@ export async function postLoanDisbursementEntry(data: {
   return createJournalEntry({
     companyId: targetCompanyId,
     entryDate: new Date(),
-    narration: `Loan Disbursement - ${data.loanId} ${data.isMirrorLoan ? '(Mirror)' : ''}`,
+    narration: `Loan Disbursement - ${data.loanId}`,
     referenceType: data.isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
     referenceId: data.loanId,
     lines,
@@ -623,7 +623,7 @@ export async function postEMIPaymentEntry(data: {
   const entry = await createJournalEntry({
     companyId: targetCompanyId,
     entryDate: new Date(),
-    narration: data.narration || `EMI Payment - ${data.loanId} ${data.isMirrorLoan ? '(Mirror)' : ''}`,
+    narration: data.narration || `EMI Payment - ${data.loanId}`,
     referenceType: data.isMirrorLoan ? 'MIRROR_EMI_PAYMENT' : 'EMI_PAYMENT',
     referenceId: data.loanId,
     lines,
