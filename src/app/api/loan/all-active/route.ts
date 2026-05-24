@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
 
+export const dynamic = 'force-dynamic';
+
 
 // GET all active loans (both online and offline) with complete passbook data
 export async function GET(request: NextRequest) {

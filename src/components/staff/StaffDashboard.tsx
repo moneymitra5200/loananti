@@ -394,13 +394,13 @@ export default function StaffDashboard() {
     }
   }, [user?.id]);
 
-  const fetchLoans = async () => {
-    fetchAllData();
+  const fetchLoans = async (forceRefresh = true) => {
+    fetchAllData(forceRefresh);
   };
 
-  const fetchActiveLoans = async () => {
+  const fetchActiveLoans = async (forceRefresh = true) => {
     const store = useLoansStore.getState();
-    if (!store.activeNeedsRefresh() && store.activeLoans.length > 0) {
+    if (!forceRefresh && !store.activeNeedsRefresh() && store.activeLoans.length > 0) {
       setActiveLoans(store.activeLoans as Loan[]);
       return;
     }

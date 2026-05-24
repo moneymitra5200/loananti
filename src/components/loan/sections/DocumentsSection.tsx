@@ -1,18 +1,23 @@
 'use client';
 
+import { useState, useRef } from 'react';
 import { memo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   FileText, Eye, Banknote, Trophy, Car, Scale, Weight,
   IndianRupee, Calendar, User, Hash, Settings, Droplet,
-  Palette, Printer
+  Palette, Printer, Upload, Loader2, Plus
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import type { LoanDetails } from './types';
 import { openDoc } from '@/utils/openDoc';
 
 interface DocumentsSectionProps {
   loanDetails: LoanDetails | null;
+  onRefresh?: () => void;
 }
 
 
@@ -223,7 +228,70 @@ const openVehicleReceipt = (loanDetails: LoanDetails) => {
   w.document.close();
 };
 
-const DocumentsSection = memo(function DocumentsSection({ loanDetails }: DocumentsSectionProps) {
+const DocumentsSection = memo(function DocumentsSection({ loanDetails, onRefresh }: DocumentsSectionProps) {
+  const [uploading, setUploading] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedDocType || !loanDetails?.id) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File Too Large', description: 'Maximum size is 10MB', variant: 'destructive' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        
+        // 1. Upload to S3/local
+        const uploadRes = await fetch('/api/upload/document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file: base64,
+            filename: file.name,
+            documentType: selectedDocType,
+            fileType: file.type
+          })
+        });
+
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
+
+        // 2. Save document URL to LoanApplication
+        const saveRes = await fetch('/api/loan/document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            loanId: loanDetails.id,
+            documentField: selectedDocType,
+            documentUrl: uploadData.url
+          })
+        });
+
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save document link');
+
+        toast({ title: 'Success', description: 'Document uploaded successfully' });
+        if (onRefresh) onRefresh();
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to upload document', variant: 'destructive' });
+    } finally {
+      setUploading(false);
+      setSelectedDocType('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const documents = [
     { name: 'PAN Card', url: loanDetails?.panCardDoc },
     { name: 'Aadhaar Front', url: loanDetails?.aadhaarFrontDoc },
@@ -450,6 +518,53 @@ const DocumentsSection = memo(function DocumentsSection({ loanDetails }: Documen
             <div className="text-center py-12 text-gray-500">
               <FileText className="h-12 w-12 mx-auto mb-2 text-gray-300" />
               <p>No documents uploaded yet</p>
+            </div>
+          )}
+
+          {/* Missing Document Upload */}
+          {loanDetails?.id && (
+            <div className="mt-6 pt-6 border-t border-gray-100">
+              <h4 className="text-sm font-medium text-gray-800 mb-3 flex items-center gap-2">
+                <Plus className="h-4 w-4 text-emerald-600" /> Add Missing Document
+              </h4>
+              <div className="flex gap-3 items-end">
+                <div className="flex-1 space-y-1">
+                  <Select value={selectedDocType} onValueChange={setSelectedDocType}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Document Type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="panCardDoc">PAN Card</SelectItem>
+                      <SelectItem value="aadhaarFrontDoc">Aadhaar Front</SelectItem>
+                      <SelectItem value="aadhaarBackDoc">Aadhaar Back</SelectItem>
+                      <SelectItem value="incomeProofDoc">Income Proof</SelectItem>
+                      <SelectItem value="addressProofDoc">Address Proof</SelectItem>
+                      <SelectItem value="photoDoc">Photo</SelectItem>
+                      <SelectItem value="bankStatementDoc">Bank Statement</SelectItem>
+                      <SelectItem value="passbookDoc">Passbook</SelectItem>
+                      <SelectItem value="salarySlipDoc">Salary Slip</SelectItem>
+                      <SelectItem value="electionCardDoc">Election Card</SelectItem>
+                      <SelectItem value="otherDocs">Other Documents</SelectItem>
+                      <SelectItem value="disbursementProof">Disbursement Proof</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  onChange={handleFileUpload}
+                  accept=".pdf,.jpg,.jpeg,.png"
+                />
+                <Button 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!selectedDocType || uploading}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white w-[120px]"
+                >
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="h-4 w-4 mr-2" /> Upload</>}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Only select documents that are missing or need updating.</p>
             </div>
           )}
         </CardContent>

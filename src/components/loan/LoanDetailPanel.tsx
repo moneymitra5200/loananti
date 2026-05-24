@@ -422,7 +422,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       creditType: 'COMPANY',
       remarks: '',
       proofFile: null,
-      paymentType: 'FULL',
+      paymentType: emi.isInterestOnly ? 'INTEREST_ONLY' : 'FULL',
       remainingAmount: 0,
       remainingPaymentDate: '',
       newDueDate: '',
@@ -789,16 +789,37 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           </div>
           <div className="flex items-center gap-2">
             {loanDetails && getStatusBadge(loanDetails.status)}
-            {/* Start Loan Button for Interest-Only Loans */}
+            {/* Start Loan & Pay Interest Buttons for Interest-Only Loans */}
             {isInterestOnlyLoan && !isMirrorLoan && (
-              <Button
-                size="sm"
-                className="bg-white text-amber-600 hover:bg-amber-50"
-                onClick={openStartLoanDialog}
-              >
-                <PlayCircle className="h-4 w-4 mr-1" />
-                Start Loan
-              </Button>
+              <>
+                {currentUserRole !== 'ACCOUNTANT' && (
+                  <Button
+                    size="sm"
+                    className="bg-amber-500 text-white hover:bg-amber-600 border border-amber-400"
+                    onClick={() => {
+                      const pendingInterestEMI = emiSchedules
+                        .sort((a, b) => a.installmentNumber - b.installmentNumber)
+                        .find(e => e.paymentStatus === 'PENDING' && e.isInterestOnly);
+                      if (pendingInterestEMI) {
+                        openEMIPaymentDialog(pendingInterestEMI);
+                      } else {
+                        toast({ title: 'No Pending Interest EMI', description: 'There is no pending monthly interest to pay.', variant: 'default' });
+                      }
+                    }}
+                  >
+                    <IndianRupee className="h-4 w-4 mr-1" />
+                    Pay Monthly Interest
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="bg-white text-amber-600 hover:bg-amber-50"
+                  onClick={openStartLoanDialog}
+                >
+                  <PlayCircle className="h-4 w-4 mr-1" />
+                  Start Loan
+                </Button>
+              </>
             )}
             {/* FIX-03: Close Loan button — SA and Cashier on active loans */}
             {(currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'CASHIER') &&
@@ -924,7 +945,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
                 {/* Documents Tab */}
                 <TabsContent value="documents" className="flex-1 overflow-y-auto p-4 m-0">
-                  <DocumentsSection loanDetails={loanDetails} />
+                  <DocumentsSection loanDetails={loanDetails} onRefresh={fetchLoanDetails} />
                 </TabsContent>
 
                 {/* EMI Tab */}

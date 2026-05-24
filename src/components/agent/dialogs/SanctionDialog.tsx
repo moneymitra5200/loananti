@@ -33,8 +33,8 @@ export default function SanctionDialog({
   saving,
   onCreateSanction
 }: SanctionDialogProps) {
-  // Check if this is an INTEREST_ONLY loan
-  const isInterestOnlyLoan = selectedLoan?.loanType === 'INTEREST_ONLY';
+  // Check if this is an INTEREST_ONLY loan (uses boolean flag, not loanType)
+  const isInterestOnlyLoan = selectedLoan?.isInterestOnlyLoan === true || selectedLoan?.loanType === 'INTEREST_ONLY';
   
   // Calculate monthly interest for INTEREST_ONLY loans
   const monthlyInterest = isInterestOnlyLoan && sessionForm.approvedAmount && sessionForm.interestRate

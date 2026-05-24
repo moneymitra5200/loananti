@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheKeys, CacheTTL, invalidateLoanCache } from '@/lib/cache';
 
+export const dynamic = 'force-dynamic';
+
 
 // List select — includes document fields needed by DisbursementDialog
 const LOAN_LIST_SELECT = {

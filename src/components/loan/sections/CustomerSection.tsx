@@ -17,6 +17,17 @@ interface CustomerSectionProps {
 }
 
 const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: CustomerSectionProps) {
+  let familyDetails = null;
+  if (loanDetails?.loanForm?.internalRemarks) {
+    try {
+      if (loanDetails.loanForm.internalRemarks.includes('numberOfPeopleInHouse')) {
+        familyDetails = JSON.parse(loanDetails.loanForm.internalRemarks);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   return (
     <>
       {/* Customer Header */}
@@ -118,6 +129,34 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
           </div>
         </CardContent>
       </Card>
+
+      {/* Family Details */}
+      {familyDetails && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Users className="h-4 w-4 text-indigo-600" />
+              Family Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-500">People In House</p>
+                <p className="font-semibold">{familyDetails.numberOfPeopleInHouse || 'N/A'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Earning Members</p>
+                <p className="font-semibold">{familyDetails.numberOfEarningMembers || 'N/A'}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-gray-500">Details of Earning Members</p>
+                <p className="font-semibold">{familyDetails.earningMembers || 'N/A'}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KYC Documents */}
       <Card className="border-0 shadow-sm">

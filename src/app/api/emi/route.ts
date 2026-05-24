@@ -520,6 +520,13 @@ export async function PUT(request: NextRequest) {
           })
         };
 
+        // Fix: Treat FULL payment on an interest-only EMI as an INTEREST_ONLY payment
+        // so it triggers the next EMI generation and defers the principal (which is 0 anyway)
+        if (emi.isInterestOnly && normalizedPaymentType === 'FULL') {
+          normalizedPaymentType = 'INTEREST_ONLY';
+          updateData.paymentStatus = 'INTEREST_ONLY_PAID';
+        }
+
         // Calculate paidPrincipal / paidInterest from the EMI's own schedule values.
         // Do NOT use a ratio — the EMI record already has the correct split.
         // For a full payment: paidPrincipal = EMI's principalAmount, paidInterest = EMI's interestAmount
@@ -696,6 +703,8 @@ export async function PUT(request: NextRequest) {
               outstandingPrincipal: emi.principalAmount,
               outstandingInterest: freshInterest,
               paymentStatus: 'PENDING',
+              isInterestOnly: emi.isInterestOnly,
+              interestOnlyAmount: emi.isInterestOnly ? freshInterest : null,
               notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]}. P:₹${emi.principalAmount} I:₹${freshInterest} (fresh from ${loanRate}%/${loanType}). Day ${dueDateDay}`
             }
           });
@@ -811,6 +820,8 @@ export async function PUT(request: NextRequest) {
                   outstandingPrincipal: mirrorEmi.principalAmount,
                   outstandingInterest: mirrorEmi.interestAmount,
                   paymentStatus: 'PENDING',
+                  isInterestOnly: mirrorEmi.isInterestOnly,
+                  interestOnlyAmount: mirrorEmi.isInterestOnly ? mirrorEmi.interestAmount : null,
                   notes: `[NEW EMI SYNC] From EMI #${mirrorEmi.installmentNumber} (Interest Only). Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]} (EMI #${mirrorEmi.installmentNumber} due + 1 month). Due date pattern: Day ${mirrorDueDateDay}`
                 }
               });

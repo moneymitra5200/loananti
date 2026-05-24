@@ -155,9 +155,10 @@ export default function AgentDashboard() {
     setLoading(true);
     try {
       // PARALLEL FETCH
+      const ncParam = forceRefresh ? `&noCache=true` : '';
       const [loansRes, usersRes] = await Promise.all([
-        fetch(`/api/loan/list?role=AGENT&agentId=${user.id}`),
-        fetch('/api/user')
+        fetch(`/api/loan/list?role=AGENT&agentId=${user.id}${ncParam}&_t=${Date.now()}`),
+        fetch(`/api/user?_t=${Date.now()}`)
       ]);
 
       // Process responses in parallel
@@ -238,7 +239,8 @@ export default function AgentDashboard() {
 
   const handleCreateSanction = async () => {
     if (!selectedLoan) return;
-    if (!sessionForm.approvedAmount || !sessionForm.interestRate || !sessionForm.tenure) {
+    const isInterestOnly = selectedLoan.isInterestOnlyLoan === true || selectedLoan.loanType === 'INTEREST_ONLY';
+    if (!sessionForm.approvedAmount || !sessionForm.interestRate || (!isInterestOnly && !sessionForm.tenure)) {
       toast({ title: 'Error', description: 'Please fill all required fields', variant: 'destructive' });
       return;
     }
