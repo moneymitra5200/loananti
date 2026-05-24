@@ -159,13 +159,13 @@ export default function CustomerDashboard() {
     setLoading(true);
     try {
       // ── Phase 1: Critical data (user sees this first) ──────────────────
-      const loansRes = await fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`);
+      const loansRes = await fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}&_t=${Date.now()}`);
       const loansData = await loansRes.json();
       const loansList = loansData.loans || [];
       setLoans(loansList);
       useLoansStore.getState().setLoans(loansList);
 
-      const servicesRes = await fetch('/api/cms/product?isActive=true');
+      const servicesRes = await fetch(`/api/cms/product?isActive=true&_t=${Date.now()}`);
       const servicesData = await servicesRes.json();
       const products = (servicesData.products || []).map((p: any) => ({
         id: p.id,
@@ -185,7 +185,7 @@ export default function CustomerDashboard() {
       }));
       setServices(products);
 
-      const notificationsRes = await fetch(`/api/notification?userId=${user.id}&limit=50`);
+      const notificationsRes = await fetch(`/api/notification?userId=${user.id}&limit=50&_t=${Date.now()}`);
       const notificationsData = await notificationsRes.json();
       setNotifications(notificationsData.notifications || []);
 
@@ -193,11 +193,11 @@ export default function CustomerDashboard() {
       setLoading(false);
 
       // ── Phase 2: Non-critical data (deferred, user already sees the UI) ─
-      const offersRes = await fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}`);
+      const offersRes = await fetch(`/api/loan-features?action=pre-approved-offers&customerId=${user.id}&_t=${Date.now()}`);
       const offersData = await offersRes.json().catch(() => ({ success: false }));
       if (offersData.success) setPreApprovedOffers(offersData.offers || []);
 
-      const referralsRes = await fetch(`/api/loan-features?action=referrals&customerId=${user.id}`);
+      const referralsRes = await fetch(`/api/loan-features?action=referrals&customerId=${user.id}&_t=${Date.now()}`);
       const referralsData = await referralsRes.json().catch(() => ({ success: false }));
       if (referralsData.success) {
         const refs = referralsData.referrals || [];
@@ -208,7 +208,7 @@ export default function CustomerDashboard() {
         });
       }
 
-      const ticketsRes = await fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER`);
+      const ticketsRes = await fetch(`/api/tickets?userId=${user.id}&userRole=CUSTOMER&_t=${Date.now()}`);
       const ticketsData = await ticketsRes.json().catch(() => ({ success: false, tickets: [] }));
       if (ticketsData.success) setTickets(ticketsData.data || ticketsData.tickets || []);
 
@@ -273,7 +273,8 @@ export default function CustomerDashboard() {
     }
     
     try {
-      const response = await fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}`);
+      const ncParam = forceRefresh ? '&noCache=true' : '';
+      const response = await fetch(`/api/loan/list?role=CUSTOMER&customerId=${user.id}${ncParam}&_t=${Date.now()}`);
       const data = await response.json();
       const loansList = data.loans || [];
       setLoans(loansList);

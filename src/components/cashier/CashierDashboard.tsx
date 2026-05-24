@@ -267,10 +267,11 @@ export default function CashierDashboard() {
     setLoading(true);
     try {
       // PARALLEL FETCH
+      const ncParam = forceRefresh ? '?noCache=true&' : '?';
       const [loansRes, allActiveRes, bankAccountsRes] = await Promise.all([
-        fetch('/api/loan/list?role=CASHIER'),
-        fetch('/api/loan/all-active'),
-        fetch('/api/accounting/bank-accounts')
+        fetch(`/api/loan/list?role=CASHIER&${ncParam.replace('?', '')}_t=${Date.now()}`),
+        fetch(`/api/loan/all-active${ncParam}_t=${Date.now()}`),
+        fetch(`/api/accounting/bank-accounts?_t=${Date.now()}`)
       ]);
 
       // Process responses in parallel
@@ -315,7 +316,7 @@ export default function CashierDashboard() {
       return;
     }
     try {
-      const response = await fetch('/api/loan/all-active');
+      const response = await fetch(`/api/loan/all-active?_t=${Date.now()}`);
       const data = await response.json();
       store.setActiveLoans(data.loans || []);
       setActiveLoans(data.loans || []);

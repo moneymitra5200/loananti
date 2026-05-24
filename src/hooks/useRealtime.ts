@@ -135,19 +135,19 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
     // Small initial delay so the first data load completes before polling starts
+    // Disable constant polling to prevent random "without reason" updates.
+    // The dashboard will only refresh via explicit WebSocket events or manual refresh.
+    // We only keep the small startDelay in case WebSockets fail immediately on mount.
     const startDelay = setTimeout(() => {
-      intervalId = setInterval(() => {
-        // Only poll when the tab is visible to save battery / bandwidth
-        if (document.visibilityState === 'visible') {
-          callbacksRef.current.onDashboardRefresh?.();
-        }
-      }, pollInterval);
-    }, 5000); // wait 5s after mount before first poll
+      if (!socketInstance || !socketInstance.connected) {
+         if (document.visibilityState === 'visible') {
+            callbacksRef.current.onDashboardRefresh?.();
+         }
+      }
+    }, 5000);
 
-    // Cleanup BOTH the timeout and the interval
     return () => {
       clearTimeout(startDelay);
-      if (intervalId) clearInterval(intervalId);
     };
   }, [userId, pollInterval]);
 
@@ -171,7 +171,8 @@ export function useRealtime(options: UseRealtimeOptions = {}) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         const now = Date.now();
-        if (now - lastRefreshRef.current >= VISIBILITY_REFRESH_THROTTLE_MS) {
+        // Only refresh on visibility change IF websocket is dead, otherwise rely on realtime events
+        if ((!socketInstance || !socketInstance.connected) && now - lastRefreshRef.current >= VISIBILITY_REFRESH_THROTTLE_MS) {
           lastRefreshRef.current = now;
           callbacksRef.current.onDashboardRefresh?.();
         }

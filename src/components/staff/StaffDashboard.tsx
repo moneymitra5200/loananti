@@ -361,9 +361,11 @@ export default function StaffDashboard() {
     setLoading(true);
     try {
       // PARALLEL FETCH
+      const ncParam = forceRefresh ? '&noCache=true' : '';
+      const ncParamActive = forceRefresh ? '?noCache=true&' : '?';
       const [loansRes, allActiveRes] = await Promise.all([
-        fetch(`/api/loan/list?role=STAFF&staffId=${user.id}`),
-        fetch('/api/loan/all-active')
+        fetch(`/api/loan/list?role=STAFF&staffId=${user.id}${ncParam}&_t=${Date.now()}`),
+        fetch(`/api/loan/all-active${ncParamActive}_t=${Date.now()}`)
       ]);
 
       // Process responses
@@ -400,7 +402,7 @@ export default function StaffDashboard() {
       return;
     }
     try {
-      const response = await fetch('/api/loan/all-active');
+      const response = await fetch(`/api/loan/all-active?_t=${Date.now()}`);
       const data = await response.json();
       store.setActiveLoans(data.loans || []);
       setActiveLoans(data.loans || []);

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, lazy, Suspense, memo, useMemo, useCallback, useRef } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
@@ -293,12 +293,15 @@ export default function SuperAdminDashboard() {
       // SEQUENTIAL FETCH â€” prevents connection starvation (connection_limit=3)
       // Each API route opens DB connections; running all 6 in parallel exceeds the pool.
       const nc = forceRefresh ? '&noCache=true' : '';
-      const loansRes     = await fetch('/api/loan/list?role=SUPER_ADMIN');
-      const usersRes     = await fetch(`/api/user${forceRefresh ? '?noCache=true' : ''}`);
-      const companiesRes = await fetch(`/api/company?isActive=true${nc}`);
-      const productsRes  = await fetch('/api/cms/product');
-      const settingsRes  = await fetch('/api/settings');
-      const allActiveRes = await fetch('/api/loan/all-active');
+      const cacheBust = `&_t=${Date.now()}`;
+      const ncParam = forceRefresh ? `&noCache=true${cacheBust}` : cacheBust;
+      
+      const loansRes     = await fetch(`/api/loan/list?role=SUPER_ADMIN${ncParam}`);
+      const usersRes     = await fetch(`/api/user?${ncParam.replace('&', '')}`);
+      const companiesRes = await fetch(`/api/company?isActive=true${ncParam}`);
+      const productsRes  = await fetch(`/api/cms/product?${ncParam.replace('&', '')}`);
+      const settingsRes  = await fetch(`/api/settings?${ncParam.replace('&', '')}`);
+      const allActiveRes = await fetch(`/api/loan/all-active?${ncParam.replace('&', '')}`);
 
 
       // Process all responses in parallel
@@ -358,7 +361,7 @@ export default function SuperAdminDashboard() {
 
   const fetchCompanies = async () => {
     try {
-      const response = await fetch('/api/company?isActive=true');
+      const response = await fetch(`/api/company?isActive=true&_t=${Date.now()}`);
       const data = await response.json();
       const companiesList = data.companies || [];
       setCompanies(companiesList);
@@ -533,7 +536,8 @@ export default function SuperAdminDashboard() {
     }
     setLoading(true);
     try {
-      const response = await fetch('/api/loan/list?role=SUPER_ADMIN');
+      const ncParam = forceRefresh ? '&noCache=true' : '';
+      const response = await fetch(`/api/loan/list?role=SUPER_ADMIN${ncParam}&_t=${Date.now()}`);
       const data = await response.json();
       const loansList = data.loans || [];
       store.setLoans(loansList);
@@ -552,7 +556,8 @@ export default function SuperAdminDashboard() {
       return;
     }
     try {
-      const response = await fetch('/api/user');
+      const ncParam = forceRefresh ? '?noCache=true&' : '?';
+      const response = await fetch(`/api/user${ncParam}_t=${Date.now()}`);
       const data = await response.json();
       if (data.users && data.users.length > 0) {
         store.setUsers(data.users);
@@ -570,7 +575,7 @@ export default function SuperAdminDashboard() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch('/api/cms/product');
+      const response = await fetch(`/api/cms/product?_t=${Date.now()}`);
       const data = await response.json();
       setProducts(data.products || []);
     } catch (error) {
@@ -590,8 +595,8 @@ export default function SuperAdminDashboard() {
       // Pass ?noCache=true when force-refreshing so the server bypasses its 60s cache
       // This is critical after creating a new loan â€” without it the new loan won't appear for 60 seconds
       const url = forceRefresh
-        ? '/api/loan/all-active?noCache=true'
-        : '/api/loan/all-active';
+        ? `/api/loan/all-active?noCache=true&_t=${Date.now()}`
+        : `/api/loan/all-active?_t=${Date.now()}`;
       const response = await fetch(url);
       const data = await response.json();
       const activeLoansList = data.loans || [];

@@ -86,14 +86,20 @@ export async function GET(request: NextRequest) {
     const staffId = searchParams.get('staffId');
     const status = searchParams.get('status');
 
+    const noCache = searchParams.get('noCache') === 'true';
+
     // Generate cache key based on query params
     const cacheKey = CacheKeys.loansByRole(role || 'all') + 
       `:${customerId || ''}:${companyId || ''}:${agentId || ''}:${staffId || ''}:${status || ''}`;
 
-    // Try cache first
-    const cachedLoans = cache.get(cacheKey);
-    if (cachedLoans) {
-      return NextResponse.json({ loans: cachedLoans, cached: true });
+    if (noCache) {
+      cache.delete(cacheKey);
+    } else {
+      // Try cache first
+      const cachedLoans = cache.get(cacheKey);
+      if (cachedLoans) {
+        return NextResponse.json({ loans: cachedLoans, cached: true });
+      }
     }
 
     const where: Record<string, unknown> = {};
