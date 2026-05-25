@@ -294,15 +294,18 @@ export async function POST(request: NextRequest) {
 
 async function saveSession(sessionId: string | null, userId: string, userMsg: string, botMsg: string, intent: string, suggestedActions: any[]) {
   try {
-    let cSession: { id: string };
+    let cSession;
     if (sessionId) {
-      cSession = await db.chatbotSession.update({
+      // Use upsert to handle client-generated IDs that might not exist in the database yet
+      cSession = await db.chatbotSession.upsert({
         where: { id: sessionId },
-        data: { lastMessageAt: new Date(), messageCount: { increment: 2 } },
+        update: { lastMessageAt: new Date(), messageCount: { increment: 2 } },
+        create: { id: sessionId, customerId: userId, status: 'ACTIVE', messageCount: 2 },
       });
     } else {
       cSession = await db.chatbotSession.create({ data: { customerId: userId, status: 'ACTIVE', messageCount: 2 } });
     }
+    
     await db.chatbotMessage.createMany({
       data: [
         { sessionId: cSession.id, senderType: 'CUSTOMER', message: userMsg, intent },
@@ -310,5 +313,52 @@ async function saveSession(sessionId: string | null, userId: string, userMsg: st
       ],
     });
     return cSession.id;
-  } catch { return null; }
+  } catch (err) { 
+    console.error('saveSession error:', err);
+    return null; 
+  }
+}
+
+// ─── GET ──────────────────────────────────────────────────────────────────────
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const customerId = searchParams.get('customerId');
+    const sessionId = searchParams.get('sessionId');
+
+    if (!customerId) return NextResponse.json({ error: 'customerId is required' }, { status: 400 });
+
+    try {
+      const session = await db.chatbotSession.findFirst({
+        where: { customerId, ...(sessionId ? { id: sessionId } : {}) },
+        include: {
+          messages: {
+            orderBy: { createdAt: 'asc' },
+            take: 50,
+          }
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+
+      if (!session) {
+        return NextResponse.json({ success: true, history: [] });
+      }
+
+      // Format for AIChatbot.tsx
+      const formattedHistory = session.messages.map((m: any) => ({
+        id: m.id,
+        role: m.senderType === 'CUSTOMER' ? 'user' : 'assistant',
+        content: m.message,
+        intent: m.intent,
+        suggestedActions: m.suggestedActions ? JSON.parse(m.suggestedActions) : [],
+        timestamp: m.createdAt,
+      }));
+
+      return NextResponse.json({ success: true, history: formattedHistory, status: session.status });
+    } catch {
+      return NextResponse.json({ success: true, history: [] });
+    }
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to fetch chat history' }, { status: 500 });
+  }
 }

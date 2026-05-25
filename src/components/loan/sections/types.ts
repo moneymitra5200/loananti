@@ -249,6 +249,7 @@ export interface LoanDetails {
     fuelType?: string;
     color?: string;
     verificationDate?: string;
+    verifiedBy?: string;
     remarks?: string;
   };
   familyDetails?: {

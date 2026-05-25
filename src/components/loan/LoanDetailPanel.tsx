@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2, Calendar
+  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2, Calendar, IndianRupee
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -798,8 +798,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                     className="bg-amber-500 text-white hover:bg-amber-600 border border-amber-400"
                     onClick={() => {
                       const pendingInterestEMI = emiSchedules
-                        .sort((a, b) => a.installmentNumber - b.installmentNumber)
-                        .find(e => e.paymentStatus === 'PENDING' && e.isInterestOnly);
+                        .sort((a, b) => a.emiNumber - b.emiNumber)
+                        .find(e => e.status === 'PENDING' && e.isInterestOnly);
                       if (pendingInterestEMI) {
                         openEMIPaymentDialog(pendingInterestEMI);
                       } else {

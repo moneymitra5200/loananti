@@ -1,3 +1,0 @@
-module.exports=[870309,e=>{"use strict";function o(){try{e.g.io&&(e.g.io.emit("dashboard:refresh"),console.log("[Socket] Broadcasted dashboard:refresh to all clients"))}catch(e){console.error("[Socket] Failed to broadcast refresh:",e)}}e.s(["broadcastRefresh",()=>o])}];
-
-//# sourceMappingURL=Desktop_reallll_src_lib_socket-emitter_ts_b7c61207._.js.map

@@ -20,6 +20,7 @@ export interface Loan {
   requestedTenure?: number;
   requestedInterestRate?: number;
   currentHandlerId?: string;
+  isInterestOnlyLoan?: boolean;
 }
 
 export interface Staff {

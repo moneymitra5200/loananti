@@ -103,16 +103,20 @@ export default function AIChatbot() {
   const fetchHistory = async () => {
     if (!user?.id) return;
     try {
-      const response = await fetch(`/api/ai/chat?customerId=${user.id}&sessionId=${sessionIdRef.current}`);
+      const response = await fetch(`/api/chatbot?customerId=${user.id}&sessionId=${sessionIdRef.current}`);
       if (response.ok) {
         const data = await response.json();
         // Build prior messages from history if any
         if (data.history && data.history.length > 0) {
-          const msgs: ChatMessage[] = data.history.flatMap((h: any) => [
-            { id: `u-${h.id}`, role: 'user' as const, content: h.userMessage, timestamp: new Date(h.createdAt) },
-            { id: `a-${h.id}`, role: 'assistant' as const, content: h.aiResponse, intent: h.intent, timestamp: new Date(h.createdAt) },
-          ]);
-          setSession({ id: sessionIdRef.current, messages: msgs, status: 'ACTIVE' });
+          const msgs: ChatMessage[] = data.history.map((h: any) => ({
+            id: h.id,
+            role: h.role as 'user' | 'assistant',
+            content: h.content,
+            intent: h.intent,
+            suggestedActions: h.suggestedActions,
+            timestamp: new Date(h.timestamp),
+          }));
+          setSession({ id: sessionIdRef.current, messages: msgs, status: data.status || 'ACTIVE' });
           return;
         }
       }
@@ -165,7 +169,7 @@ export default function AIChatbot() {
     } : null);
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const response = await fetch('/api/chatbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -190,6 +194,7 @@ export default function AIChatbot() {
           role: 'assistant',
           content: data.response,
           intent: data.intent,
+          suggestedActions: data.suggestedActions,
           timestamp: new Date(),
         };
         return {
@@ -242,6 +247,7 @@ export default function AIChatbot() {
           id: Date.now().toString(),
           role: 'assistant',
           content: data.response,
+          suggestedActions: data.suggestedActions,
           timestamp: new Date(),
         };
         return {

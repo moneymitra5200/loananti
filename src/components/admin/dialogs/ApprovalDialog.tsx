@@ -39,6 +39,7 @@ interface Loan {
   status: string;
   requestedAmount: number;
   loanType: string;
+  isInterestOnlyLoan?: boolean;
   createdAt: string;
   riskScore: number;
   fraudFlag: boolean;
@@ -206,7 +207,11 @@ export default function ApprovalDialog({
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-gray-500">Tenure:</span>
-                                <span className="font-medium">{selectedLoan.requestedTenure || 'N/A'} months</span>
+                                <span className="font-medium">
+                                  {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                                    ? 'N/A' 
+                                    : `${selectedLoan.requestedTenure || 'N/A'} months`}
+                                </span>
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-gray-500">Interest:</span>
@@ -223,7 +228,11 @@ export default function ApprovalDialog({
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-gray-500">Tenure:</span>
-                                <span className="font-bold text-emerald-700">{selectedLoan.sessionForm.tenure} months</span>
+                                <span className="font-bold text-emerald-700">
+                                  {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                                    ? 'N/A' 
+                                    : `${selectedLoan.sessionForm.tenure} months`}
+                                </span>
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-gray-500">Interest:</span>
@@ -239,16 +248,22 @@ export default function ApprovalDialog({
                         <h4 className="font-semibold text-blue-800 mb-3">EMI & Charges</h4>
                         <div className="grid grid-cols-3 gap-4 text-sm">
                           <div>
-                            <p className="text-blue-600">Monthly EMI</p>
+                            <p className="text-blue-600">
+                              {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? 'Monthly Interest' : 'Monthly EMI'}
+                            </p>
                             <p className="text-xl font-bold text-blue-800">{formatCurrency(selectedLoan.sessionForm.emiAmount)}</p>
                           </div>
                           <div>
                             <p className="text-blue-600">Total Interest</p>
-                            <p className="text-xl font-bold text-blue-800">{formatCurrency(selectedLoan.sessionForm.totalInterest)}</p>
+                            <p className="text-xl font-bold text-blue-800">
+                              {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? 'N/A' : formatCurrency(selectedLoan.sessionForm.totalInterest)}
+                            </p>
                           </div>
                           <div>
                             <p className="text-blue-600">Total Repayment</p>
-                            <p className="text-xl font-bold text-blue-800">{formatCurrency(selectedLoan.sessionForm.totalAmount)}</p>
+                            <p className="text-xl font-bold text-blue-800">
+                              {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? 'N/A' : formatCurrency(selectedLoan.sessionForm.totalAmount)}
+                            </p>
                           </div>
                         </div>
                         {/* Interest Type Display */}
@@ -461,7 +476,11 @@ export default function ApprovalDialog({
                                             </div>
                                             <div className="flex justify-between">
                                               <span className="text-gray-500">Tenure:</span>
-                                              <span className="font-medium">{selectedLoan.sessionForm.tenure} mo</span>
+                                              <span className="font-medium">
+                                                {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                                                  ? 'N/A' 
+                                                  : `${selectedLoan.sessionForm.tenure} mo`}
+                                              </span>
                                             </div>
                                             <div className="flex justify-between">
                                               <span className="text-gray-500">Rate:</span>
@@ -496,7 +515,11 @@ export default function ApprovalDialog({
                                             </div>
                                             <div className="flex justify-between">
                                               <span className="text-gray-500">Tenure:</span>
-                                              <span className="font-medium">{mirrorPreview.mirrorLoan.schedule.length} mo</span>
+                                              <span className="font-medium">
+                                                {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                                                  ? 'N/A' 
+                                                  : `${mirrorPreview.mirrorLoan.schedule.length} mo`}
+                                              </span>
                                             </div>
                                             <div className="flex justify-between">
                                               <span className="text-gray-500">Rate:</span>
@@ -541,7 +564,7 @@ export default function ApprovalDialog({
                                           >
                                             <span className="font-medium text-red-800 flex items-center gap-2">
                                               <Building2 className="h-4 w-4" />
-                                              Original Loan Schedule ({selectedLoan.sessionForm.tenure} months)
+                                              Original Loan Schedule {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? '' : `(${selectedLoan.sessionForm.tenure} months)`}
                                             </span>
                                             {showOriginalSchedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                                           </button>
@@ -636,7 +659,11 @@ export default function ApprovalDialog({
                         </div>
                         <div>
                           <p className="text-gray-500">Tenure</p>
-                          <p className="font-semibold">{selectedLoan.requestedTenure || 'N/A'} months</p>
+                          <p className="font-semibold">
+                            {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                              ? 'N/A' 
+                              : `${selectedLoan.requestedTenure || 'N/A'} months`}
+                          </p>
                         </div>
                         <div>
                           <p className="text-gray-500">Purpose</p>

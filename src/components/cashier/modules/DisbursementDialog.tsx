@@ -787,12 +787,16 @@ export default function DisbursementDialog({
                           <div className="p-4 bg-gray-50 rounded-lg text-center">
                             <p className="text-xs text-gray-500 mb-1">Requested</p>
                             <p className="text-xl font-bold">{formatCurrency(selectedLoan.requestedAmount)}</p>
-                            <p className="text-xs text-gray-400">{selectedLoan.requestedTenure} mo @ {selectedLoan.requestedInterestRate}%</p>
+                            <p className="text-xs text-gray-400">
+                              {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? 'N/A' : selectedLoan.requestedTenure} mo @ {selectedLoan.requestedInterestRate}%
+                            </p>
                           </div>
                           <div className="p-4 bg-emerald-50 rounded-lg text-center border-2 border-emerald-200">
                             <p className="text-xs text-emerald-600 mb-1">Approved</p>
                             <p className="text-xl font-bold text-emerald-700">{formatCurrency(selectedLoan.sessionForm?.approvedAmount || selectedLoan.requestedAmount)}</p>
-                            <p className="text-xs text-emerald-500">{selectedLoan.sessionForm?.tenure} mo @ {selectedLoan.sessionForm?.interestRate}%</p>
+                            <p className="text-xs text-emerald-500">
+                              {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? 'N/A' : selectedLoan.sessionForm?.tenure} mo @ {selectedLoan.sessionForm?.interestRate}%
+                            </p>
                           </div>
                           <div className="p-4 bg-blue-50 rounded-lg text-center">
                             <p className="text-xs text-blue-600 mb-1">EMI Amount</p>
@@ -1265,15 +1269,27 @@ export default function DisbursementDialog({
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-4 p-3 bg-white/70 rounded-lg">
                       <div className="text-center">
                         <p className="text-xs text-gray-500">Original Tenure</p>
-                        <p className="font-bold text-gray-800">{mirrorLoanInfo.originalTenure || selectedLoan.sessionForm?.tenure} EMIs</p>
+                        <p className="font-bold text-gray-800">
+                          {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                            ? 'N/A' 
+                            : `${mirrorLoanInfo.originalTenure || selectedLoan.sessionForm?.tenure} EMIs`}
+                        </p>
                       </div>
                       <div className="text-center">
                         <p className="text-xs text-gray-500">Mirror Tenure</p>
-                        <p className="font-bold text-purple-700">{mirrorLoanInfo.mirrorTenure || '?'} EMIs</p>
+                        <p className="font-bold text-purple-700">
+                          {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                            ? 'N/A' 
+                            : `${mirrorLoanInfo.mirrorTenure || '?'} EMIs`}
+                        </p>
                       </div>
                       <div className="text-center">
                         <p className="text-xs text-gray-500">Extra EMIs</p>
-                        <p className="font-bold text-green-600">{mirrorLoanInfo.extraEMICount || '?'} EMIs</p>
+                        <p className="font-bold text-green-600">
+                          {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
+                            ? 'N/A' 
+                            : `${mirrorLoanInfo.extraEMICount || '?'} EMIs`}
+                        </p>
                       </div>
                     </div>
 

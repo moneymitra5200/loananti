@@ -363,7 +363,7 @@ export async function PUT(request: NextRequest) {
       }
 
       // Normalize payment type values (frontend uses different values)
-      const normalizedPaymentType = paymentType === 'FULL_EMI' ? 'FULL' : 
+      let normalizedPaymentType = paymentType === 'FULL_EMI' ? 'FULL' : 
                                     paymentType === 'PARTIAL_PAYMENT' ? 'PARTIAL' : 
                                     paymentType;
 
@@ -704,7 +704,7 @@ export async function PUT(request: NextRequest) {
               outstandingInterest: freshInterest,
               paymentStatus: 'PENDING',
               isInterestOnly: emi.isInterestOnly,
-              interestOnlyAmount: emi.isInterestOnly ? freshInterest : null,
+              ...(emi.isInterestOnly && { interestOnlyAmount: freshInterest }),
               notes: `[NEW EMI] Created from EMI #${emi.installmentNumber} (Interest Only Payment). Due: ${newEmiDueDate.toISOString().split('T')[0]}. P:₹${emi.principalAmount} I:₹${freshInterest} (fresh from ${loanRate}%/${loanType}). Day ${dueDateDay}`
             }
           });
@@ -821,7 +821,7 @@ export async function PUT(request: NextRequest) {
                   outstandingInterest: mirrorEmi.interestAmount,
                   paymentStatus: 'PENDING',
                   isInterestOnly: mirrorEmi.isInterestOnly,
-                  interestOnlyAmount: mirrorEmi.isInterestOnly ? mirrorEmi.interestAmount : null,
+                  ...(mirrorEmi.isInterestOnly && { interestOnlyAmount: mirrorEmi.interestAmount }),
                   notes: `[NEW EMI SYNC] From EMI #${mirrorEmi.installmentNumber} (Interest Only). Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]} (EMI #${mirrorEmi.installmentNumber} due + 1 month). Due date pattern: Day ${mirrorDueDateDay}`
                 }
               });

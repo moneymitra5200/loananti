@@ -17,7 +17,7 @@ interface CustomerSectionProps {
 }
 
 const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: CustomerSectionProps) {
-  let familyDetails = null;
+  let familyDetails: any = null;
   if (loanDetails?.loanForm?.internalRemarks) {
     try {
       if (loanDetails.loanForm.internalRemarks.includes('numberOfPeopleInHouse')) {
