@@ -433,8 +433,10 @@ export async function PUT(request: NextRequest) {
       // For IO loans: status = ACTIVE_INTEREST_ONLY (no EMI schedule until Start Loan)
       // For normal loans: status = ACTIVE (full EMI schedule created immediately)
       const isIOLoan = originalLoan.isInterestOnlyLoan || originalLoan.loanType === 'INTEREST_ONLY';
+      // For IO loans, the mirror loan MUST charge the ORIGINAL interest amount 
+      // so the customer sees the correct amount (e.g. 700 instead of 437.5) in Phase 1.
       const monthlyMirrorInterest = isIOLoan
-        ? Math.round((pendingLoan.principalAmount * pendingLoan.mirrorInterestRate / 100 / 12) * 100) / 100
+        ? Math.round((pendingLoan.principalAmount * pendingLoan.originalInterestRate / 100 / 12) * 100) / 100
         : 0;
 
       const mirrorLoan = await db.loanApplication.create({

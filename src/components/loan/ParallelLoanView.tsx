@@ -238,9 +238,9 @@ export function ParallelLoanView({
                 EMI: {formatCurrency(loan.emiAmount)}/mo
               </p>
             )}
-            {loan.isInterestOnlyLoan && loan.interestOnlyMonthlyAmount && (
+            {loan.isInterestOnlyLoan && (loan.interestOnlyMonthlyAmount || (!isOriginal && originalLoan.interestOnlyMonthlyAmount)) && (
               <p className="text-xs text-purple-600 font-medium">
-                Monthly Interest: {formatCurrency(loan.interestOnlyMonthlyAmount)}
+                Monthly Interest: {formatCurrency(!isOriginal ? (originalLoan.interestOnlyMonthlyAmount || loan.interestOnlyMonthlyAmount) : loan.interestOnlyMonthlyAmount)}
               </p>
             )}
           </div>
