@@ -1478,7 +1478,7 @@ export default function DisbursementDialog({
             <Button 
               className="bg-green-500 hover:bg-green-600" 
               onClick={onDisburse}
-              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)}
+              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)}
             >
               {saving ? (
                 <>
