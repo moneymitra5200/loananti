@@ -390,6 +390,72 @@ export async function POST(request: NextRequest) {
         }
       });
 
+      // ============ PHASE 1 ROLLING EMI LOGIC ============
+      // For ACTIVE_INTEREST_ONLY loans, if the EMI being paid is an interest-only EMI,
+      // we need to create the next month's EMI. (Rolling schedule)
+      const isPhase1IO = emi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
+      if (isPhase1IO && newEmiStatus === 'INTEREST_ONLY_PAID') {
+        console.log(`[EMI Pay] Phase 1 IO Payment - Creating next rolling EMI`);
+        const nextInstNum = emi.installmentNumber + 1;
+        const nextDue = new Date(emi.dueDate);
+        nextDue.setMonth(nextDue.getMonth() + 1);
+        
+        const existingNextEMI = await tx.eMISchedule.findFirst({
+          where: { loanApplicationId: loanId, installmentNumber: nextInstNum }
+        });
+        
+        if (!existingNextEMI) {
+          await tx.eMISchedule.create({
+            data: {
+              loanApplicationId: loanId,
+              installmentNumber: nextInstNum,
+              dueDate: nextDue,
+              originalDueDate: nextDue,
+              principalAmount: 0,
+              interestAmount: emi.interestAmount,
+              totalAmount: emi.interestAmount,
+              outstandingPrincipal: emi.outstandingPrincipal,
+              outstandingInterest: emi.interestAmount,
+              paymentStatus: 'PENDING',
+              isInterestOnly: true,
+              interestOnlyAmount: emi.interestAmount,
+            }
+          });
+          console.log(`[EMI Pay] Phase 1 IO: Created next EMI #${nextInstNum} due on ${nextDue.toISOString().split('T')[0]}`);
+        }
+        
+        // Do the same for mirror loan
+        if (mirrorMapping?.mirrorLoanId) {
+          const existingMirrorNextEMI = await tx.eMISchedule.findFirst({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: nextInstNum }
+          });
+          if (!existingMirrorNextEMI) {
+            const curMirrorEMI = await tx.eMISchedule.findFirst({
+              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+            });
+            if (curMirrorEMI) {
+              await tx.eMISchedule.create({
+                data: {
+                  loanApplicationId: mirrorMapping.mirrorLoanId,
+                  installmentNumber: nextInstNum,
+                  dueDate: nextDue,
+                  originalDueDate: nextDue,
+                  principalAmount: 0,
+                  interestAmount: curMirrorEMI.interestAmount,
+                  totalAmount: curMirrorEMI.interestAmount,
+                  outstandingPrincipal: curMirrorEMI.outstandingPrincipal,
+                  outstandingInterest: curMirrorEMI.interestAmount,
+                  paymentStatus: 'PENDING',
+                  isInterestOnly: true,
+                  interestOnlyAmount: curMirrorEMI.interestAmount,
+                }
+              });
+              console.log(`[EMI Pay] Phase 1 IO: Created next mirror EMI #${nextInstNum}`);
+            }
+          }
+        }
+      }
+
       // Check if all EMIs are paid/completed/waived inside transaction
       const allEMIs = await tx.eMISchedule.findMany({ 
         where: { loanApplicationId: loanId } 

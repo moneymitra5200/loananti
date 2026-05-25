@@ -1011,7 +1011,7 @@ export default function CustomerLoanDetailPage() {
                               isInterestOnly: true
                             };
                             setSelectedEmi(interestEmi);
-                            setSelectedPaymentType('INTEREST_ONLY');
+                            setSelectedPaymentType('FULL_EMI');
                             setShowPaymentPage(true);
                           }}
                         >

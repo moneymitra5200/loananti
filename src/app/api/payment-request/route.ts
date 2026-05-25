@@ -500,6 +500,8 @@ export async function PUT(request: NextRequest) {
           const remainingInterest    = Math.max(0, emi.interestAmount  - alreadyPaidInterest);
           const remainingPrincipal   = Math.max(0, emi.principalAmount - alreadyPaidPrincipal);
 
+          const newEmiStatus = emi.isInterestOnly ? 'INTEREST_ONLY_PAID' : 'PAID';
+
           // Mark EMI as fully paid
           await tx.eMISchedule.update({
             where: { id: emi.id },
@@ -507,13 +509,74 @@ export async function PUT(request: NextRequest) {
               paidAmount: emi.totalAmount,
               paidPrincipal: emi.principalAmount,
               paidInterest: emi.interestAmount,
-              paymentStatus: 'PAID',
+              paymentStatus: newEmiStatus,
               paidDate: new Date(),
               paymentMode: paymentRequest.paymentMethod,
               utrNumber: paymentRequest.utrNumber,
               proofUrl: paymentRequest.proofUrl
             }
           });
+
+          // ============ PHASE 1 ROLLING EMI LOGIC ============
+          const isPhase1IO = loan.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
+          if (isPhase1IO && newEmiStatus === 'INTEREST_ONLY_PAID') {
+            console.log(`[PR Pay] Phase 1 IO Payment - Creating next rolling EMI`);
+            const nextInstNum = emi.installmentNumber + 1;
+            const nextDue = new Date(emi.dueDate);
+            nextDue.setMonth(nextDue.getMonth() + 1);
+            
+            const existingNextEMI = await tx.eMISchedule.findFirst({
+              where: { loanApplicationId: loan.id, installmentNumber: nextInstNum }
+            });
+            
+            if (!existingNextEMI) {
+              await tx.eMISchedule.create({
+                data: {
+                  loanApplicationId: loan.id,
+                  installmentNumber: nextInstNum,
+                  dueDate: nextDue,
+                  originalDueDate: nextDue,
+                  principalAmount: 0,
+                  interestAmount: emi.interestAmount,
+                  totalAmount: emi.interestAmount,
+                  outstandingPrincipal: emi.outstandingPrincipal,
+                  outstandingInterest: emi.interestAmount,
+                  paymentStatus: 'PENDING',
+                  isInterestOnly: true,
+                  interestOnlyAmount: emi.interestAmount,
+                }
+              });
+            }
+            
+            if (ioMirrorMapping?.mirrorLoanId) {
+              const existingMirrorNextEMI = await tx.eMISchedule.findFirst({
+                where: { loanApplicationId: ioMirrorMapping.mirrorLoanId, installmentNumber: nextInstNum }
+              });
+              if (!existingMirrorNextEMI) {
+                const curMirrorEMI = await tx.eMISchedule.findFirst({
+                  where: { loanApplicationId: ioMirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+                });
+                if (curMirrorEMI) {
+                  await tx.eMISchedule.create({
+                    data: {
+                      loanApplicationId: ioMirrorMapping.mirrorLoanId,
+                      installmentNumber: nextInstNum,
+                      dueDate: nextDue,
+                      originalDueDate: nextDue,
+                      principalAmount: 0,
+                      interestAmount: curMirrorEMI.interestAmount,
+                      totalAmount: curMirrorEMI.interestAmount,
+                      outstandingPrincipal: curMirrorEMI.outstandingPrincipal,
+                      outstandingInterest: curMirrorEMI.interestAmount,
+                      paymentStatus: 'PENDING',
+                      isInterestOnly: true,
+                      interestOnlyAmount: curMirrorEMI.interestAmount,
+                    }
+                  });
+                }
+              }
+            }
+          }
 
           // Create payment record — only for what's actually being paid now, not the full EMI again
           await tx.payment.create({

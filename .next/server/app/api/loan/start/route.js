@@ -1,8 +1,0 @@
-var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/loan/start/route.js")
-R.c("server/chunks/d0a8e_next_dist_esm_build_templates_app-route_603f1806.js")
-R.c("server/chunks/[root-of-the-server]__cb42a2c1._.js")
-R.c("server/chunks/[root-of-the-server]__d3d14498._.js")
-R.c("server/chunks/d0a8e_next_2c27abef._.js")
-R.c("server/chunks/Desktop_reallll__next-internal_server_app_api_loan_start_route_actions_82f009b1.js")
-R.m(283480)
-module.exports=R.m(283480).exports

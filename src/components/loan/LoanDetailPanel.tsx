@@ -440,10 +440,12 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   };
 
   // Handle form change with debounced EMI calculation
-  const handleStartFormChange = (field: 'tenure' | 'interestRate', value: number) => {
+  const handleStartFormChange = (field: keyof typeof startLoanForm, value: string | number) => {
     setStartLoanForm(prev => ({ ...prev, [field]: value }));
     // Debounce EMI calculation
-    setTimeout(() => calculateEmiPreview(), 300);
+    if (field === 'tenure' || field === 'interestRate') {
+      setTimeout(() => calculateEmiPreview(), 300);
+    }
   };
 
   const openEMIPaymentDialog = (emi: EMISchedule) => {
@@ -458,7 +460,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       creditType: 'COMPANY',
       remarks: '',
       proofFile: null,
-      paymentType: emi.isInterestOnly ? 'INTEREST_ONLY' : 'FULL',
+      paymentType: 'FULL',
       remainingAmount: 0,
       remainingPaymentDate: '',
       newDueDate: '',
