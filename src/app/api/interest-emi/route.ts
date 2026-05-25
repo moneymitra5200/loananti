@@ -40,10 +40,14 @@ export async function GET(request: NextRequest) {
     const interestRate = loan.sessionForm?.interestRate || 12;
     const monthlyInterestAmount = (principalAmount * interestRate / 100) / 12;
 
-    // Fix loan status if needed - if this is an Interest Only loan but status is not ACTIVE_INTEREST_ONLY
+    // Fix loan status if needed - if this is an Interest Only loan but status is not ACTIVE_INTEREST_ONLY.
+    // Covers any pre-active state: DISBURSED, ACTIVE, FINAL_APPROVED, SESSION_CREATED, etc.
+    const nonActiveIOStatuses = ['DISBURSED', 'ACTIVE', 'FINAL_APPROVED', 'SESSION_CREATED',
+      'CUSTOMER_SESSION_APPROVED', 'LOAN_FORM_COMPLETED', 'SA_APPROVED', 'COMPANY_APPROVED',
+      'AGENT_APPROVED_STAGE1'];
     if ((loan.isInterestOnlyLoan || loan.loanType === 'INTEREST_ONLY') && 
         loan.status !== 'ACTIVE_INTEREST_ONLY' && 
-        (loan.status === 'DISBURSED' || loan.status === 'ACTIVE')) {
+        nonActiveIOStatuses.includes(loan.status as string)) {
       console.log(`[Interest EMI] Fixing loan status from ${loan.status} to ACTIVE_INTEREST_ONLY for loan ${loan.applicationNo}`);
       await db.loanApplication.update({
         where: { id: loanId },
@@ -56,50 +60,64 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'history') {
-      // Get interest payment history
+      // Get interest payment history — includes both INTEREST_ONLY_PAYMENT (offline) and
+      // FULL_EMI payments on isInterestOnly EMIs (online Phase 1 IO payments)
+      const isOnlineLoan = !!(loan.isInterestOnlyLoan);
       const interestPayments = await db.payment.findMany({
         where: {
           loanApplicationId: loanId,
-          paymentType: 'INTEREST_ONLY_PAYMENT'
+          OR: [
+            { paymentType: 'INTEREST_ONLY_PAYMENT' },
+            // Online IO loans: FULL_EMI payments on interest-only EMIs
+            { paymentType: 'FULL_EMI', emiSchedule: { isInterestOnly: true } }
+          ]
         },
         orderBy: { createdAt: 'desc' },
         include: {
-          cashier: {
-            select: { name: true }
-          }
+          cashier: { select: { name: true } },
+          emiSchedule: { select: { isInterestOnly: true } }
         }
       });
 
       // Check if there's a pending interest EMI
       let currentEMI = loan.emiSchedules.find(e => e.paymentStatus === 'PENDING');
 
-      // If no pending EMI, create one for the next month
+      // If no pending EMI exists, check if the last one was paid (PAID or INTEREST_ONLY_PAID)
+      // and create the next month's EMI as a fallback (normally rolling EMI in emi/pay handles this).
       if (!currentEMI && loan.emiSchedules.length > 0) {
         const lastEMI = loan.emiSchedules[0];
-        if (lastEMI.paymentStatus === 'PAID') {
+        if (lastEMI.paymentStatus === 'PAID' || lastEMI.paymentStatus === 'INTEREST_ONLY_PAID') {
           // Create new EMI for next month
           const nextInstallmentNumber = lastEMI.installmentNumber + 1;
           const newDueDate = new Date(lastEMI.dueDate);
           newDueDate.setMonth(newDueDate.getMonth() + 1);
 
-          currentEMI = await db.eMISchedule.create({
-            data: {
-              loanApplicationId: loanId,
-              installmentNumber: nextInstallmentNumber,
-              dueDate: newDueDate,
-              originalDueDate: newDueDate,
-              principalAmount: 0,
-              interestAmount: monthlyInterestAmount,
-              totalAmount: monthlyInterestAmount,
-              outstandingPrincipal: principalAmount,
-              outstandingInterest: 0,
-              paymentStatus: 'PENDING',
-              isInterestOnly: true,
-              interestOnlyAmount: monthlyInterestAmount
-            }
+          // Check if it already exists (in case rolling EMI already created it)
+          const existing = await db.eMISchedule.findFirst({
+            where: { loanApplicationId: loanId, installmentNumber: nextInstallmentNumber }
           });
-
-          console.log(`[Interest EMI] Created new interest EMI #${nextInstallmentNumber} for loan ${loan.applicationNo}`);
+          if (!existing) {
+            currentEMI = await db.eMISchedule.create({
+              data: {
+                loanApplicationId: loanId,
+                installmentNumber: nextInstallmentNumber,
+                dueDate: newDueDate,
+                originalDueDate: newDueDate,
+                principalAmount: 0,
+                interestAmount: monthlyInterestAmount,
+                totalAmount: monthlyInterestAmount,
+                outstandingPrincipal: principalAmount,
+                outstandingInterest: 0,
+                paymentStatus: 'PENDING',
+                isInterestOnly: true,
+                interestOnlyAmount: monthlyInterestAmount
+              }
+            });
+            console.log(`[Interest EMI] Fallback: Created next EMI #${nextInstallmentNumber} for loan ${loan.applicationNo}`);
+          } else {
+            currentEMI = existing;
+            console.log(`[Interest EMI] Fallback: Using existing next EMI #${nextInstallmentNumber}`);
+          }
         }
       }
 
