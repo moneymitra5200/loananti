@@ -456,186 +456,223 @@ export default function ApprovalDialog({
                                         EMI Structure Comparison
                                       </h5>
                                       
-                                      {/* Summary Cards */}
-                                      <div className="grid grid-cols-2 gap-4">
-                                        {/* Original Loan Summary */}
-                                        <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                                          <div className="flex items-center gap-2 mb-2">
-                                            <Building2 className="h-4 w-4 text-red-600" />
-                                            <span className="font-medium text-red-800 text-sm">Original Loan</span>
-                                            <Badge className="bg-red-100 text-red-700 text-xs">{selectedLoan.sessionForm.interestType || 'FLAT'}</Badge>
-                                          </div>
-                                          <div className="space-y-1 text-xs">
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Principal:</span>
-                                              <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
+                                      {(selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY') ? (
+                                        <div className="space-y-4">
+                                          <div className="grid grid-cols-2 gap-4">
+                                            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                                              <p className="text-xs font-semibold text-red-800 uppercase mb-2">Original Setup</p>
+                                              <div className="flex justify-between text-sm">
+                                                <span className="text-gray-600">Principal:</span>
+                                                <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
+                                              </div>
+                                              <div className="flex justify-between text-sm mt-1">
+                                                <span className="text-gray-600">Interest Rate:</span>
+                                                <span className="font-medium text-gray-800">{selectedLoan.sessionForm.interestRate}%</span>
+                                              </div>
+                                              <div className="flex justify-between text-sm mt-1">
+                                                <span className="text-gray-600">Monthly Interest:</span>
+                                                <span className="font-bold text-red-700">{formatCurrency(selectedLoan.sessionForm.emiAmount)}</span>
+                                              </div>
                                             </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">EMI:</span>
-                                              <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.emiAmount)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Tenure:</span>
-                                              <span className="font-medium">
-                                                {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
-                                                  ? 'N/A' 
-                                                  : `${selectedLoan.sessionForm.tenure} mo`}
-                                              </span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Rate:</span>
-                                              <span className="font-medium">{selectedLoan.sessionForm.interestRate}%</span>
-                                            </div>
-                                            <div className="flex justify-between border-t pt-1 mt-1">
-                                              <span className="text-gray-500">Total Interest:</span>
-                                              <span className="font-bold text-red-600">{formatCurrency(mirrorPreview.originalLoan.totalInterest)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Total Repayment:</span>
-                                              <span className="font-bold text-red-600">{formatCurrency(mirrorPreview.originalLoan.totalAmount)}</span>
+                                            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                              <p className="text-xs font-semibold text-emerald-800 uppercase mb-2">Mirror Setup</p>
+                                              <div className="flex justify-between text-sm">
+                                                <span className="text-gray-600">Principal:</span>
+                                                <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
+                                              </div>
+                                              <div className="flex justify-between text-sm mt-1">
+                                                <span className="text-gray-600">Interest Rate:</span>
+                                                <span className="font-medium text-gray-800">{mirrorPreview.appliedMirrorRate || selectedLoan.sessionForm.interestRate}%</span>
+                                              </div>
+                                              <div className="flex justify-between text-sm mt-1">
+                                                <span className="text-gray-600">Monthly Interest:</span>
+                                                <span className="font-bold text-emerald-700">{formatCurrency(mirrorPreview.mirrorLoan.emiAmount)}</span>
+                                              </div>
                                             </div>
                                           </div>
-                                        </div>
-                                        
-                                        {/* Mirror Loan Summary */}
-                                        <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                                          <div className="flex items-center gap-2 mb-2">
-                                            <Building2 className="h-4 w-4 text-emerald-600" />
-                                            <span className="font-medium text-emerald-800 text-sm">Mirror Loan</span>
-                                            <Badge className="bg-green-100 text-green-700 text-xs">REDUCING</Badge>
-                                          </div>
-                                          <div className="space-y-1 text-xs">
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Principal:</span>
-                                              <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">EMI:</span>
-                                              <span className="font-medium">{formatCurrency(mirrorPreview.mirrorLoan.emiAmount)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Tenure:</span>
-                                              <span className="font-medium">
-                                                {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' 
-                                                  ? 'N/A' 
-                                                  : `${mirrorPreview.mirrorLoan.schedule.length} mo`}
-                                              </span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Rate:</span>
-                                              <span className="font-medium">{mirrorPreview.appliedMirrorRate || selectedLoan.sessionForm.interestRate}%</span>
-                                            </div>
-                                            <div className="flex justify-between border-t pt-1 mt-1">
-                                              <span className="text-gray-500">Total Interest:</span>
-                                              <span className="font-bold text-emerald-600">{formatCurrency(mirrorPreview.mirrorLoan.totalInterest)}</span>
-                                            </div>
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-500">Total Repayment:</span>
-                                              <span className="font-bold text-emerald-600">{formatCurrency(mirrorPreview.mirrorLoan.totalAmount)}</span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      {/* Interest Savings */}
-                                      <div className="p-3 bg-purple-100 rounded-lg border border-purple-300">
-                                        <div className="flex items-center justify-between">
-                                          <div>
-                                            <p className="text-xs text-purple-600">Interest Savings with Mirror Loan</p>
-                                            <p className="text-lg font-bold text-purple-800">
-                                              {formatCurrency(mirrorPreview.originalLoan.totalInterest - mirrorPreview.mirrorLoan.totalInterest)}
+                                          <div className="p-3 bg-purple-100 rounded-lg border border-purple-300">
+                                            <p className="text-sm text-purple-800">
+                                              <Building2 className="h-4 w-4 inline mr-1" />
+                                              This interest-only loan will be mirrored. Monthly interest collection will be based on the mirror interest rate. No amortized EMI schedule is generated.
                                             </p>
                                           </div>
-                                          <Badge className="bg-purple-200 text-purple-800">
-                                            {((1 - mirrorPreview.mirrorLoan.totalInterest / mirrorPreview.originalLoan.totalInterest) * 100).toFixed(1)}% saved
-                                          </Badge>
                                         </div>
-                                      </div>
-
-                                      {/* EMI Schedule Comparison */}
-                                      <div className="space-y-3">
-                                        <h6 className="font-semibold text-gray-800">EMI Schedule Comparison</h6>
-                                        
-                                        {/* Original EMI Schedule */}
-                                        <div className="border rounded-lg overflow-hidden">
-                                          <button
-                                            className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors"
-                                            onClick={() => setShowOriginalSchedule(!showOriginalSchedule)}
-                                          >
-                                            <span className="font-medium text-red-800 flex items-center gap-2">
-                                              <Building2 className="h-4 w-4" />
-                                              Original Loan Schedule {selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY' ? '' : `(${selectedLoan.sessionForm.tenure} months)`}
-                                            </span>
-                                            {showOriginalSchedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                          </button>
-                                          {showOriginalSchedule && (
-                                            <div className="max-h-60 overflow-y-auto">
-                                              <Table>
-                                                <TableHeader className="sticky top-0 bg-white">
-                                                  <TableRow>
-                                                    <TableHead className="text-xs">Month</TableHead>
-                                                    <TableHead className="text-xs">EMI</TableHead>
-                                                    <TableHead className="text-xs">Principal</TableHead>
-                                                    <TableHead className="text-xs">Interest</TableHead>
-                                                    <TableHead className="text-xs">Balance</TableHead>
-                                                  </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                  {mirrorPreview.originalLoan.schedule.map((row: any, idx: number) => (
-                                                    <TableRow key={idx} className="text-xs">
-                                                      <TableCell>{row.month}</TableCell>
-                                                      <TableCell>{formatCurrency(row.emi)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.principal)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.interest)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.balance)}</TableCell>
-                                                    </TableRow>
-                                                  ))}
-                                                </TableBody>
-                                              </Table>
+                                      ) : (
+                                        <>
+                                          {/* Summary Cards */}
+                                          <div className="grid grid-cols-2 gap-4">
+                                            {/* Original Loan Summary */}
+                                            <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                                              <div className="flex items-center gap-2 mb-2">
+                                                <Building2 className="h-4 w-4 text-red-600" />
+                                                <span className="font-medium text-red-800 text-sm">Original Loan</span>
+                                                <Badge className="bg-red-100 text-red-700 text-xs">{selectedLoan.sessionForm.interestType || 'FLAT'}</Badge>
+                                              </div>
+                                              <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Principal:</span>
+                                                  <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">EMI:</span>
+                                                  <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.emiAmount)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Tenure:</span>
+                                                  <span className="font-medium">{selectedLoan.sessionForm.tenure} mo</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Rate:</span>
+                                                  <span className="font-medium">{selectedLoan.sessionForm.interestRate}%</span>
+                                                </div>
+                                                <div className="flex justify-between border-t pt-1 mt-1">
+                                                  <span className="text-gray-500">Total Interest:</span>
+                                                  <span className="font-bold text-red-600">{formatCurrency(mirrorPreview.originalLoan.totalInterest)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Total Repayment:</span>
+                                                  <span className="font-bold text-red-600">{formatCurrency(mirrorPreview.originalLoan.totalAmount)}</span>
+                                                </div>
+                                              </div>
                                             </div>
-                                          )}
-                                        </div>
-
-                                        {/* Mirror EMI Schedule */}
-                                        <div className="border rounded-lg overflow-hidden">
-                                          <button
-                                            className="w-full flex items-center justify-between p-3 bg-emerald-50 hover:bg-emerald-100 transition-colors"
-                                            onClick={() => setShowMirrorSchedule(!showMirrorSchedule)}
-                                          >
-                                            <span className="font-medium text-emerald-800 flex items-center gap-2">
-                                              <Building2 className="h-4 w-4" />
-                                              Mirror Loan Schedule ({mirrorPreview.mirrorLoan.schedule.length} months)
-                                            </span>
-                                            {showMirrorSchedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                          </button>
-                                          {showMirrorSchedule && (
-                                            <div className="max-h-60 overflow-y-auto">
-                                              <Table>
-                                                <TableHeader className="sticky top-0 bg-white">
-                                                  <TableRow>
-                                                    <TableHead className="text-xs">Month</TableHead>
-                                                    <TableHead className="text-xs">EMI</TableHead>
-                                                    <TableHead className="text-xs">Principal</TableHead>
-                                                    <TableHead className="text-xs">Interest</TableHead>
-                                                    <TableHead className="text-xs">Balance</TableHead>
-                                                  </TableRow>
-                                                </TableHeader>
-                                                <TableBody>
-                                                  {mirrorPreview.mirrorLoan.schedule.map((row: any, idx: number) => (
-                                                    <TableRow key={idx} className="text-xs">
-                                                      <TableCell>{row.month}</TableCell>
-                                                      <TableCell>{formatCurrency(row.emi)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.principal)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.interest)}</TableCell>
-                                                      <TableCell>{formatCurrency(row.balance)}</TableCell>
-                                                    </TableRow>
-                                                  ))}
-                                                </TableBody>
-                                              </Table>
+                                            
+                                            {/* Mirror Loan Summary */}
+                                            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                                              <div className="flex items-center gap-2 mb-2">
+                                                <Building2 className="h-4 w-4 text-emerald-600" />
+                                                <span className="font-medium text-emerald-800 text-sm">Mirror Loan</span>
+                                                <Badge className="bg-green-100 text-green-700 text-xs">REDUCING</Badge>
+                                              </div>
+                                              <div className="space-y-1 text-xs">
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Principal:</span>
+                                                  <span className="font-medium">{formatCurrency(selectedLoan.sessionForm.approvedAmount)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">EMI:</span>
+                                                  <span className="font-medium">{formatCurrency(mirrorPreview.mirrorLoan.emiAmount)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Tenure:</span>
+                                                  <span className="font-medium">{mirrorPreview.mirrorLoan.schedule.length} mo</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Rate:</span>
+                                                  <span className="font-medium">{mirrorPreview.appliedMirrorRate || selectedLoan.sessionForm.interestRate}%</span>
+                                                </div>
+                                                <div className="flex justify-between border-t pt-1 mt-1">
+                                                  <span className="text-gray-500">Total Interest:</span>
+                                                  <span className="font-bold text-emerald-600">{formatCurrency(mirrorPreview.mirrorLoan.totalInterest)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-500">Total Repayment:</span>
+                                                  <span className="font-bold text-emerald-600">{formatCurrency(mirrorPreview.mirrorLoan.totalAmount)}</span>
+                                                </div>
+                                              </div>
                                             </div>
-                                          )}
-                                        </div>
-                                      </div>
+                                          </div>
+                                          
+                                          {/* Interest Savings */}
+                                          <div className="p-3 bg-purple-100 rounded-lg border border-purple-300">
+                                            <div className="flex items-center justify-between">
+                                              <div>
+                                                <p className="text-xs text-purple-600">Interest Savings with Mirror Loan</p>
+                                                <p className="text-lg font-bold text-purple-800">
+                                                  {formatCurrency(mirrorPreview.originalLoan.totalInterest - mirrorPreview.mirrorLoan.totalInterest)}
+                                                </p>
+                                              </div>
+                                              <Badge className="bg-purple-200 text-purple-800">
+                                                {((1 - mirrorPreview.mirrorLoan.totalInterest / mirrorPreview.originalLoan.totalInterest) * 100).toFixed(1)}% saved
+                                              </Badge>
+                                            </div>
+                                          </div>
+
+                                          {/* EMI Schedule Comparison */}
+                                          <div className="space-y-3">
+                                            <h6 className="font-semibold text-gray-800">EMI Schedule Comparison</h6>
+                                            
+                                            {/* Original EMI Schedule */}
+                                            <div className="border rounded-lg overflow-hidden">
+                                              <button
+                                                className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors"
+                                                onClick={() => setShowOriginalSchedule(!showOriginalSchedule)}
+                                              >
+                                                <span className="font-medium text-red-800 flex items-center gap-2">
+                                                  <Building2 className="h-4 w-4" />
+                                                  Original Loan Schedule ({selectedLoan.sessionForm.tenure} months)
+                                                </span>
+                                                {showOriginalSchedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                              </button>
+                                              {showOriginalSchedule && (
+                                                <div className="max-h-60 overflow-y-auto">
+                                                  <Table>
+                                                    <TableHeader className="sticky top-0 bg-white">
+                                                      <TableRow>
+                                                        <TableHead className="text-xs">Month</TableHead>
+                                                        <TableHead className="text-xs">EMI</TableHead>
+                                                        <TableHead className="text-xs">Principal</TableHead>
+                                                        <TableHead className="text-xs">Interest</TableHead>
+                                                        <TableHead className="text-xs">Balance</TableHead>
+                                                      </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                      {mirrorPreview.originalLoan.schedule.map((row: any, idx: number) => (
+                                                        <TableRow key={idx} className="text-xs">
+                                                          <TableCell>{row.month}</TableCell>
+                                                          <TableCell>{formatCurrency(row.emi)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.principal)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.interest)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.balance)}</TableCell>
+                                                        </TableRow>
+                                                      ))}
+                                                    </TableBody>
+                                                  </Table>
+                                                </div>
+                                              )}
+                                            </div>
+
+                                            {/* Mirror EMI Schedule */}
+                                            <div className="border rounded-lg overflow-hidden">
+                                              <button
+                                                className="w-full flex items-center justify-between p-3 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                                onClick={() => setShowMirrorSchedule(!showMirrorSchedule)}
+                                              >
+                                                <span className="font-medium text-emerald-800 flex items-center gap-2">
+                                                  <Building2 className="h-4 w-4" />
+                                                  Mirror Loan Schedule ({mirrorPreview.mirrorLoan.schedule.length} months)
+                                                </span>
+                                                {showMirrorSchedule ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                              </button>
+                                              {showMirrorSchedule && (
+                                                <div className="max-h-60 overflow-y-auto">
+                                                  <Table>
+                                                    <TableHeader className="sticky top-0 bg-white">
+                                                      <TableRow>
+                                                        <TableHead className="text-xs">Month</TableHead>
+                                                        <TableHead className="text-xs">EMI</TableHead>
+                                                        <TableHead className="text-xs">Principal</TableHead>
+                                                        <TableHead className="text-xs">Interest</TableHead>
+                                                        <TableHead className="text-xs">Balance</TableHead>
+                                                      </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                      {mirrorPreview.mirrorLoan.schedule.map((row: any, idx: number) => (
+                                                        <TableRow key={idx} className="text-xs">
+                                                          <TableCell>{row.month}</TableCell>
+                                                          <TableCell>{formatCurrency(row.emi)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.principal)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.interest)}</TableCell>
+                                                          <TableCell>{formatCurrency(row.balance)}</TableCell>
+                                                        </TableRow>
+                                                      ))}
+                                                    </TableBody>
+                                                  </Table>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                   )}
                                 </>

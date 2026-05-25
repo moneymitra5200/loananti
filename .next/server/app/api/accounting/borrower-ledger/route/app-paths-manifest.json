@@ -1,0 +1,3 @@
+{
+  "/api/accounting/borrower-ledger/route": "app/api/accounting/borrower-ledger/route.js"
+}
