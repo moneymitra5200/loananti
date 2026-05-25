@@ -118,6 +118,35 @@ export async function GET(request: NextRequest) {
             currentEMI = existing;
             console.log(`[Interest EMI] Fallback: Using existing next EMI #${nextInstallmentNumber}`);
           }
+          
+          // ── MIRROR SYNC: Generate mirror EMI for fallback ──
+          const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+            where: { originalLoanId: loanId }
+          });
+          if (mirrorMapping?.mirrorLoanId) {
+            const mirrorMonthlyInterest = Math.round((principalAmount * (mirrorMapping.mirrorInterestRate || 12) / 100 / 12) * 100) / 100;
+            const existingMirrorEMI = await db.eMISchedule.findFirst({
+              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: nextInstallmentNumber }
+            });
+            if (!existingMirrorEMI) {
+              await db.eMISchedule.create({
+                data: {
+                  loanApplicationId: mirrorMapping.mirrorLoanId,
+                  installmentNumber: nextInstallmentNumber,
+                  dueDate: nextDue,
+                  originalDueDate: nextDue,
+                  principalAmount: 0,
+                  interestAmount: mirrorMonthlyInterest,
+                  totalAmount: mirrorMonthlyInterest,
+                  outstandingPrincipal: principalAmount,
+                  outstandingInterest: 0,
+                  paymentStatus: 'PENDING',
+                  isInterestOnly: true,
+                  interestOnlyAmount: mirrorMonthlyInterest
+                }
+              });
+            }
+          }
         }
       }
 
@@ -145,6 +174,35 @@ export async function GET(request: NextRequest) {
         });
 
         console.log(`[Interest EMI] Created first interest EMI for loan ${loan.applicationNo}`);
+
+        // ── MIRROR SYNC: Generate first mirror EMI ──
+        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId }
+        });
+        if (mirrorMapping?.mirrorLoanId) {
+          const mirrorMonthlyInterest = Math.round((principalAmount * (mirrorMapping.mirrorInterestRate || 12) / 100 / 12) * 100) / 100;
+          const existingMirrorEMI = await db.eMISchedule.findFirst({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: 1 }
+          });
+          if (!existingMirrorEMI) {
+            await db.eMISchedule.create({
+              data: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                installmentNumber: 1,
+                dueDate,
+                originalDueDate: dueDate,
+                principalAmount: 0,
+                interestAmount: mirrorMonthlyInterest,
+                totalAmount: mirrorMonthlyInterest,
+                outstandingPrincipal: principalAmount,
+                outstandingInterest: 0,
+                paymentStatus: 'PENDING',
+                isInterestOnly: true,
+                interestOnlyAmount: mirrorMonthlyInterest
+              }
+            });
+          }
+        }
       }
 
       return NextResponse.json({
@@ -287,6 +345,38 @@ export async function POST(request: NextRequest) {
         interestOnlyAmount: monthlyInterestAmount
       }
     });
+
+    // ── MIRROR SYNC: Generate mirror EMI if applicable ──
+    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId }
+    });
+
+    if (mirrorMapping?.mirrorLoanId) {
+      const mirrorMonthlyInterest = Math.round((principalAmount * (mirrorMapping.mirrorInterestRate || 12) / 100 / 12) * 100) / 100;
+      const existingMirrorEMI = await db.eMISchedule.findFirst({
+        where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: nextInstallmentNumber }
+      });
+
+      if (!existingMirrorEMI) {
+        await db.eMISchedule.create({
+          data: {
+            loanApplicationId: mirrorMapping.mirrorLoanId,
+            installmentNumber: nextInstallmentNumber,
+            dueDate,
+            originalDueDate: dueDate,
+            principalAmount: 0,
+            interestAmount: mirrorMonthlyInterest,
+            totalAmount: mirrorMonthlyInterest,
+            outstandingPrincipal: principalAmount,
+            outstandingInterest: 0,
+            paymentStatus: 'PENDING',
+            isInterestOnly: true,
+            interestOnlyAmount: mirrorMonthlyInterest
+          }
+        });
+        console.log(`[Interest EMI] Created mirror EMI #${nextInstallmentNumber} for loan ${mirrorMapping.mirrorLoanId}`);
+      }
+    }
 
     // Create audit log
     await db.auditLog.create({

@@ -1263,16 +1263,20 @@ export async function PUT(request: NextRequest) {
               });
               console.log(`[PR Accounting] ✓ Bank CREDIT ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company`);
 
-              // 2. Mark mirror EMI as fully PAID
+              // 2. Mark mirror EMI as fully PAID (or INTEREST_ONLY_PAID if Phase 1)
               await db.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: 'PAID',
+                  paymentStatus: mirrorEmi.isInterestOnly ? 'INTEREST_ONLY_PAID' : 'PAID',
                   paidAmount:    mirrorTotal,
                   paidPrincipal: mirrorPrincipal,
                   paidInterest:  mirrorInterest,
                   paidDate:      new Date(),
                   paymentMode:   payMode,
+                  isInterestOnly: mirrorEmi.isInterestOnly || undefined,
+                  interestOnlyPaidAt: mirrorEmi.isInterestOnly ? new Date() : undefined,
+                  interestOnlyAmount: mirrorEmi.isInterestOnly ? mirrorTotal : undefined,
+                  principalDeferred: mirrorEmi.isInterestOnly ? true : undefined,
                   notes:         `[MIRROR SYNC via PR] ${paymentRequest.requestNumber}`
                 }
               });
@@ -1298,7 +1302,7 @@ export async function PUT(request: NextRequest) {
                     receiptNumber:      `RCP-MIRROR-${Date.now()}`,
                     paidById:           reviewedById,
                     remarks:            `Auto-synced via PR ${paymentRequest.requestNumber}`,
-                    paymentType:        'FULL_EMI'
+                    paymentType:        mirrorEmi.isInterestOnly ? 'INTEREST_ONLY_PAYMENT' : 'FULL_EMI'
                   }
                 });
               }

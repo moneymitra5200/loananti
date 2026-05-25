@@ -107,10 +107,17 @@ export async function POST(request: NextRequest) {
         err.code = 'LOAN_ALREADY_STARTED';
         throw err;
       }
-      // Delete any existing EMI schedules (from interest-only phase)
+      // Delete only PENDING EMI schedules (from interest-only phase) to avoid FK constraint violations
       await tx.eMISchedule.deleteMany({
-        where: { loanApplicationId: loanId }
+        where: { loanApplicationId: loanId, paymentStatus: 'PENDING' }
       });
+
+      // Find the highest installment number to start the new amortizing EMIs after
+      const lastEmi = await tx.eMISchedule.findFirst({
+        where: { loanApplicationId: loanId },
+        orderBy: { installmentNumber: 'desc' }
+      });
+      const startingInstallmentOffset = lastEmi ? lastEmi.installmentNumber : 0;
 
       // Create new EMI schedules
       const emiSchedules = emiCalculation.schedule.map((item, index) => {
@@ -122,7 +129,7 @@ export async function POST(request: NextRequest) {
 
         return {
           loanApplicationId: loanId,
-          installmentNumber: item.installmentNumber,
+          installmentNumber: startingInstallmentOffset + item.installmentNumber,
           dueDate,
           originalDueDate: dueDate,
           principalAmount: item.principal,
@@ -297,8 +304,15 @@ export async function POST(request: NextRequest) {
         const autoProcessingFee = mirrorCalc.processingFee; // originalEMI - lastMirrorEMI
         const actualMirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
 
-        // Delete mirror's IO placeholder EMIs
-        await db.eMISchedule.deleteMany({ where: { loanApplicationId: mirrorMapping.mirrorLoanId } });
+        // Delete mirror's pending IO placeholder EMIs to avoid FK constraints on paid EMIs
+        await db.eMISchedule.deleteMany({ where: { loanApplicationId: mirrorMapping.mirrorLoanId, paymentStatus: 'PENDING' } });
+
+        // Find the highest installment number to start the new amortizing EMIs after
+        const lastMirrorEmi = await db.eMISchedule.findFirst({
+          where: { loanApplicationId: mirrorMapping.mirrorLoanId },
+          orderBy: { installmentNumber: 'desc' }
+        });
+        const startingMirrorOffset = lastMirrorEmi ? lastMirrorEmi.installmentNumber : 0;
 
         // Build mirror's SHIFTED amortizing schedule (last EMI → first position)
         const mirrorSchedule = shiftedSchedule.map((item, index) => {
@@ -308,7 +322,7 @@ export async function POST(request: NextRequest) {
           dueDate.setHours(0, 0, 0, 0);
           return {
             loanApplicationId: mirrorMapping.mirrorLoanId!,
-            installmentNumber: item.installmentNumber,
+            installmentNumber: startingMirrorOffset + item.installmentNumber,
             dueDate,
             originalDueDate: dueDate,
             principalAmount: item.principal,
