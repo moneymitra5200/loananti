@@ -175,12 +175,16 @@ export default function AIChatbot() {
         body: JSON.stringify({
           message,
           sessionId: sessionIdRef.current,
-          customerId: user.id,
+          userId: user.id,
           customerName: user.name,
         }),
       });
 
       const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to send message');
+      }
 
       // Track AI fail count
       if (typeof data.aiFailCount === 'number') setAiFailCount(data.aiFailCount);
