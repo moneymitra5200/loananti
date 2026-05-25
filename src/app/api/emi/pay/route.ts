@@ -219,36 +219,47 @@ export async function POST(request: NextRequest) {
     console.log(`[EMI Pay] EMI #${emi.installmentNumber} Due: ${emiDueDate.toISOString().split('T')[0]}, Current: ${currentDate.toISOString().split('T')[0]}, Is Advance: ${isEmiAdvancePayment}`);
 
     if (paymentType === 'FULL_EMI') {
-      // When isAdvancePayment is explicitly TRUE (only sent by multi-EMI "Select All" for future-month EMIs),
-      // collect principal only. For all single EMI payments, isAdvancePayment=false so this never triggers.
       if (isAdvancePayment === true) {
         // ADVANCE (multi-EMI select all) - Principal Only for future-month EMI
         paidPrincipal = remainingPrincipal;
         paidInterest  = 0;
         paidAmount    = remainingPrincipal;
         newEmiStatus  = 'PAID';
-        console.log(`[EMI Pay] ADVANCE (multi-select) - Principal only: ₹${paidPrincipal}`);
+        console.log(`[EMI Pay] ADVANCE (multi-select) - Principal only: \u20b9${paidPrincipal}`);
       } else {
         // REGULAR FULL PAYMENT - always collect Principal + Interest
         paidPrincipal = remainingPrincipal;
         paidInterest  = remainingInterest;
         paidAmount    = remainingAmount;
         newEmiStatus  = 'PAID';
-        // Apply staff-edited interest (original loans only)
         if (editedInterest !== null && !isNaN(editedInterest) && editedInterest >= 0) {
           paidInterest = editedInterest;
           paidAmount   = paidPrincipal + paidInterest;
-          console.log(`[EMI Pay] Staff-edited interest applied: ₹${paidInterest} (was ₹${remainingInterest})`);
+          console.log(`[EMI Pay] Staff-edited interest applied: \u20b9${paidInterest} (was \u20b9${remainingInterest})`);
         }
-        console.log(`[EMI Pay] FULL payment - Principal: ₹${paidPrincipal}, Interest: ₹${paidInterest}`);
+        console.log(`[EMI Pay] FULL payment - Principal: \u20b9${paidPrincipal}, Interest: \u20b9${paidInterest}`);
       }
+
+      // ── PHASE 1 IO OVERRIDE ────────────────────────────────────────────────
+      // If this is an interest-only EMI on an ACTIVE_INTEREST_ONLY loan,
+      // the "FULL" payment is actually a monthly interest settlement.
+      // Must use INTEREST_ONLY_PAID so rolling EMI logic triggers correctly.
+      const isPhase1IOEmi = emi.isInterestOnly && emi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
+      if (isPhase1IOEmi) {
+        newEmiStatus  = 'INTEREST_ONLY_PAID';
+        paidPrincipal = 0;
+        paidInterest  = remainingInterest;
+        paidAmount    = remainingInterest;
+        console.log(`[EMI Pay] Phase 1 IO override — INTEREST_ONLY_PAID, interest: \u20b9${paidInterest}`);
+      }
+      // ─────────────────────────────────────────────────────────────────────
     } else if (paymentType === 'ADVANCE') {
       // Explicit ADVANCE type: always principal only
       paidPrincipal = remainingPrincipal;
       paidInterest  = 0;
       paidAmount    = remainingPrincipal;
       newEmiStatus  = 'PAID';
-      console.log(`[EMI Pay] ADVANCE payment - Principal only: ₹${paidPrincipal}`);
+      console.log(`[EMI Pay] ADVANCE payment - Principal only: \u20b9${paidPrincipal}`);
     } else if (paymentType === 'PARTIAL_PAYMENT') {
       // Partial payment - INTEREST FIRST, THEN PRINCIPAL
       console.log(`[EMI Pay] Processing PARTIAL_PAYMENT:`, { partialAmount, nextPaymentDate, remainingAmount, remainingInterest });
@@ -392,7 +403,7 @@ export async function POST(request: NextRequest) {
 
       // ============ PHASE 1 ROLLING EMI LOGIC ============
       // For ACTIVE_INTEREST_ONLY loans, if the EMI being paid is an interest-only EMI,
-      // we need to create the next month's EMI. (Rolling schedule)
+      // we need to create the next month's EMI. (Rolling schedule — same as offline loan)
       const isPhase1IO = emi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
       if (isPhase1IO && newEmiStatus === 'INTEREST_ONLY_PAID') {
         console.log(`[EMI Pay] Phase 1 IO Payment - Creating next rolling EMI`);
@@ -422,6 +433,8 @@ export async function POST(request: NextRequest) {
             }
           });
           console.log(`[EMI Pay] Phase 1 IO: Created next EMI #${nextInstNum} due on ${nextDue.toISOString().split('T')[0]}`);
+        } else {
+          console.log(`[EMI Pay] Phase 1 IO: Next EMI #${nextInstNum} already exists — skipping creation`);
         }
         
         // Do the same for mirror loan
@@ -456,47 +469,58 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Check if all EMIs are paid/completed/waived inside transaction
-      const allEMIs = await tx.eMISchedule.findMany({ 
-        where: { loanApplicationId: loanId } 
-      });
-      
-      const allPaid = allEMIs.every(e => 
-        e.id === emiId 
-          ? (newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
-          : (e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
-      );
-      
-      if (allPaid) {
-        console.log(`[Auto-Close] ✅ Original loan ${loanId} all EMIs paid/waived inside transaction, marking as CLOSED`);
-        await tx.loanApplication.update({
-          where: { id: loanId },
-          data: { status: 'CLOSED' }
-        });
+      // ============ AUTO-CLOSE CHECK ============
+      // CRITICAL: Phase 1 ACTIVE_INTEREST_ONLY loans MUST NEVER auto-close here.
+      // They only close when cashier explicitly clicks "Close Loan" after Start Loan.
+      // Offline loan has same logic — interest payments never trigger auto-close.
+      const loanStatusForClose = emi.loanApplication?.status;
+      const shouldSkipAutoClose = loanStatusForClose === 'ACTIVE_INTEREST_ONLY';
 
-        if (mirrorMapping?.mirrorLoanId) {
-          try {
-            const mirrorEMIsForClose = await tx.eMISchedule.findMany({
-              where: { loanApplicationId: mirrorMapping.mirrorLoanId },
-              select: { paymentStatus: true }
-            });
-            const mirrorAllPaid = mirrorEMIsForClose.length === 0 ||
-              mirrorEMIsForClose.every(e =>
-                e.paymentStatus === 'PAID' ||
-                e.paymentStatus === 'INTEREST_ONLY_PAID' ||
-                e.paymentStatus === 'WAIVED'
-              );
-            if (mirrorAllPaid) {
-              await tx.loanApplication.update({
-                where: { id: mirrorMapping.mirrorLoanId },
-                data: { status: 'CLOSED' }
+      if (!shouldSkipAutoClose) {
+        // Check if all EMIs are paid/completed/waived inside transaction
+        const allEMIs = await tx.eMISchedule.findMany({ 
+          where: { loanApplicationId: loanId } 
+        });
+        
+        const allPaid = allEMIs.every(e =>
+          e.id === emiId 
+            ? (newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
+            : (e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED')
+        );
+        
+        if (allPaid) {
+          console.log(`[Auto-Close] ✅ Original loan ${loanId} all EMIs paid/waived inside transaction, marking as CLOSED`);
+          await tx.loanApplication.update({
+            where: { id: loanId },
+            data: { status: 'CLOSED' }
+          });
+
+          if (mirrorMapping?.mirrorLoanId) {
+            try {
+              const mirrorEMIsForClose = await tx.eMISchedule.findMany({
+                where: { loanApplicationId: mirrorMapping.mirrorLoanId },
+                select: { paymentStatus: true }
               });
-              console.log(`[Auto-Close] ✅ Mirror loan ${mirrorMapping.mirrorLoanId} also auto-closed inside transaction`);
+              const mirrorAllPaid = mirrorEMIsForClose.length === 0 ||
+                mirrorEMIsForClose.every(e =>
+                  e.paymentStatus === 'PAID' ||
+                  e.paymentStatus === 'INTEREST_ONLY_PAID' ||
+                  e.paymentStatus === 'WAIVED'
+                );
+              if (mirrorAllPaid) {
+                await tx.loanApplication.update({
+                  where: { id: mirrorMapping.mirrorLoanId },
+                  data: { status: 'CLOSED' }
+                });
+                console.log(`[Auto-Close] ✅ Mirror loan ${mirrorMapping.mirrorLoanId} also auto-closed inside transaction`);
+              }
+            } catch (mirrorCloseErr) {
+              console.error('[Auto-Close] Mirror loan close failed inside transaction (non-critical):', mirrorCloseErr);
             }
-          } catch (mirrorCloseErr) {
-            console.error('[Auto-Close] Mirror loan close failed inside transaction (non-critical):', mirrorCloseErr);
           }
         }
+      } else {
+        console.log(`[Auto-Close] ⏭️ Skipping auto-close — loan is in ACTIVE_INTEREST_ONLY (Phase 1) mode`);
       }
 
       return { updatedEMI, payment };

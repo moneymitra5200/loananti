@@ -469,9 +469,10 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'EMI schedule not found for this payment request' }, { status: 400 });
       }
 
-      // Pre-fetch mirror mapping for INTEREST_ONLY — needed for mirror sync after transaction
+      // Pre-fetch mirror mapping — needed for Phase 1 IO rolling EMI and INTEREST_ONLY deferred EMI
       let ioMirrorMapping: any = null;
-      if (paymentRequest.paymentType === 'INTEREST_ONLY') {
+      if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
+          (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: paymentRequest.loanApplicationId }
         });
@@ -723,11 +724,45 @@ export async function PUT(request: NextRequest) {
         return updated;
       }, { timeout: 30000 })); // 30 second timeout for complex payment processing
 
-      // ═══════════════════════════════════════════════════════════════════
-      // INTEREST_ONLY POST-TRANSACTION: EMI Shifting + Mirror Sync
-      // Matches emi/pay/route.ts exactly — runs OUTSIDE transaction to avoid
-      // unique constraint conflicts when shifting installmentNumber values.
-      // ═══════════════════════════════════════════════════════════════════
+      // ============ AUTO-CLOSE AFTER APPROVAL ============
+      // CRITICAL: Phase 1 ACTIVE_INTEREST_ONLY loans MUST NEVER auto-close on payment approval.
+      // They only close when cashier explicitly clicks "Close Loan" after Phase 2 Start Loan.
+      // This matches the exact same logic in offline loan interest-only payments.
+      if (paymentRequest.loanApplication.status !== 'ACTIVE_INTEREST_ONLY') {
+        const allEMIsCheck = await db.eMISchedule.findMany({
+          where: { loanApplicationId: paymentRequest.loanApplicationId },
+          select: { id: true, paymentStatus: true }
+        });
+        const allPaidCheck = allEMIsCheck.length > 0 && allEMIsCheck.every(e =>
+          e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
+        );
+        if (allPaidCheck) {
+          await db.loanApplication.update({
+            where: { id: paymentRequest.loanApplicationId },
+            data: { status: 'CLOSED' }
+          });
+          console.log(`[PR Auto-Close] ✅ Loan ${paymentRequest.loanApplicationId} auto-closed after all EMIs paid`);
+          // Mirror auto-close
+          if (ioMirrorMapping?.mirrorLoanId) {
+            const mirrorEmisCheck = await db.eMISchedule.findMany({
+              where: { loanApplicationId: ioMirrorMapping.mirrorLoanId },
+              select: { paymentStatus: true }
+            });
+            const mirrorAllPaid = mirrorEmisCheck.length === 0 || mirrorEmisCheck.every(e =>
+              e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
+            );
+            if (mirrorAllPaid) {
+              await db.loanApplication.update({
+                where: { id: ioMirrorMapping.mirrorLoanId }, data: { status: 'CLOSED' }
+              });
+              console.log(`[PR Auto-Close] ✅ Mirror loan also auto-closed`);
+            }
+          }
+        }
+      } else {
+        console.log(`[PR Auto-Close] ⏭️ Skipping auto-close — loan is ACTIVE_INTEREST_ONLY (Phase 1)`);
+      }
+
       if (paymentRequest.paymentType === 'INTEREST_ONLY') {
         try {
           const loanId = paymentRequest.loanApplicationId;
