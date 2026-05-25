@@ -40,6 +40,8 @@ interface Loan {
   };
   loanForm?: any; company?: any;
   requestedTenure?: number; emiAmount?: number;
+  isInterestOnlyLoan?: boolean;
+  interestOnlyMonthlyAmount?: number;
 }
 
 interface EMISchedule {
@@ -1048,7 +1050,9 @@ export default function CustomerDashboard() {
             {formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount)}
           </p>
           {loan.sessionForm && (
-            <p className="text-xs text-gray-500">{loan.sessionForm.tenure} months</p>
+            <p className="text-xs text-gray-500">
+              {loan.isInterestOnlyLoan ? 'Interest Only Phase' : `${loan.sessionForm.tenure} months`}
+            </p>
           )}
         </div>
       </div>
@@ -1565,12 +1569,12 @@ export default function CustomerDashboard() {
                     {latestLoan.sessionForm && (
                       <>
                         <div className="p-3 bg-gray-50 rounded-lg">
-                          <p className="text-xs text-gray-500">EMI Amount</p>
-                          <p className="font-semibold text-sm text-emerald-700">{formatCurrency(latestLoan.sessionForm.emiAmount)}/mo</p>
+                          <p className="text-xs text-gray-500">{latestLoan.isInterestOnlyLoan ? 'Interest Amount' : 'EMI Amount'}</p>
+                          <p className="font-semibold text-sm text-emerald-700">{formatCurrency(latestLoan.isInterestOnlyLoan ? (latestLoan.interestOnlyMonthlyAmount || 0) : latestLoan.sessionForm.emiAmount)}/mo</p>
                         </div>
                         <div className="p-3 bg-gray-50 rounded-lg">
                           <p className="text-xs text-gray-500">Tenure</p>
-                          <p className="font-semibold text-sm">{latestLoan.sessionForm.tenure} months</p>
+                          <p className="font-semibold text-sm">{latestLoan.isInterestOnlyLoan ? 'Interest Only Phase' : `${latestLoan.sessionForm.tenure} months`}</p>
                         </div>
                       </>
                     )}

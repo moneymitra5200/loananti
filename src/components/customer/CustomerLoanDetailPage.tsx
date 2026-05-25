@@ -1143,7 +1143,7 @@ export default function CustomerLoanDetailPage() {
                           </div>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <p className="font-semibold">EMI #{emi.installmentNumber}</p>
+                              <p className="font-semibold">{emi.isInterestOnly ? `Interest Payment #${emi.installmentNumber}` : `EMI #${emi.installmentNumber}`}</p>
                               {isInProcessing
                                 ? <Badge className="bg-blue-500 text-white text-xs animate-pulse">⏳ In Processing</Badge>
                                 : getStatusBadge(emi.paymentStatus)
@@ -1281,7 +1281,7 @@ export default function CustomerLoanDetailPage() {
       }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Pay EMI #{selectedEmi?.installmentNumber}</DialogTitle>
+            <DialogTitle>{selectedEmi?.isInterestOnly ? `Pay Interest Payment #${selectedEmi?.installmentNumber}` : `Pay EMI #${selectedEmi?.installmentNumber}`}</DialogTitle>
             <DialogDescription>
               Due: {selectedEmi && formatDate(selectedEmi.dueDate)} • Total: {selectedEmi && formatCurrency(selectedEmi.totalAmount)}
             </DialogDescription>
@@ -1410,7 +1410,7 @@ export default function CustomerLoanDetailPage() {
                 {selectedPaymentType === 'INTEREST_ONLY' && 'Interest Only Payment'}
               </DialogTitle>
               <DialogDescription className="text-emerald-100">
-                EMI #{selectedEmi?.installmentNumber} • {selectedEmi && formatDate(selectedEmi.dueDate)}
+                {selectedEmi?.isInterestOnly ? `Interest Payment #${selectedEmi?.installmentNumber}` : `EMI #${selectedEmi?.installmentNumber}`} • {selectedEmi && formatDate(selectedEmi.dueDate)}
               </DialogDescription>
             </DialogHeader>
           </div>
