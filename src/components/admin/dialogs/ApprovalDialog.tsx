@@ -486,7 +486,11 @@ export default function ApprovalDialog({
                                               </div>
                                               <div className="flex justify-between text-sm mt-1">
                                                 <span className="text-gray-600">Monthly Interest:</span>
-                                                <span className="font-bold text-emerald-700">{formatCurrency(mirrorPreview.mirrorLoan.emiAmount)}</span>
+                                                <span className="font-bold text-emerald-700">
+                                                  {formatCurrency(
+                                                    Math.round(selectedLoan.sessionForm.approvedAmount * ((mirrorPreview.appliedMirrorRate || selectedLoan.sessionForm.interestRate) / 100) / 12)
+                                                  )}
+                                                </span>
                                               </div>
                                             </div>
                                           </div>
