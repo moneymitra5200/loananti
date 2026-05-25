@@ -1,5 +1,5 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/accounting/excel-export/route.js")
-R.c("server/chunks/[root-of-the-server]__34d2c061._.js")
+R.c("server/chunks/[root-of-the-server]__eac6155b._.js")
 R.c("server/chunks/d0a8e_next_dist_esm_build_templates_app-route_979fe20a.js")
 R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
 R.c("server/chunks/d0a8e_date-fns_format_a17d12a3.js")

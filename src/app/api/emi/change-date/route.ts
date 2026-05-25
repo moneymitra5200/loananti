@@ -96,51 +96,107 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Batch update all subsequent EMIs using updateMany with raw SQL for date math
-      // PostgreSQL: dueDate + INTERVAL 'N days'
-      // To prevent SQL injection with interval string interpolation, we use:
-      // dueDate + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day'
-      await db.$executeRaw`
-        UPDATE "EMISchedule" 
-        SET "dueDate" = "dueDate" + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day',
-            "originalDueDate" = CASE WHEN "originalDueDate" IS NULL THEN "dueDate" ELSE "originalDueDate" END,
-            "notes" = 'Auto-shifted by ' || CAST(${daysDiff} AS TEXT) || ' days (from EMI #' || CAST(${emi.installmentNumber} AS TEXT) || ' change)'
-        WHERE "loanApplicationId" = ${emi.loanApplicationId}
-        AND "installmentNumber" > ${emi.installmentNumber}
-        AND "paymentStatus" != 'PAID'
-      `;
+    // We compute the new dates sequentially by adding months
+    function addMonths(date: Date, months: number) {
+      const d = new Date(date);
+      const day = d.getDate();
+      d.setMonth(d.getMonth() + months);
+      if (d.getDate() !== day) {
+        d.setDate(0);
+      }
+      return d;
+    }
 
-    // Sync mirror loan in parallel
+    const updates: any[] = [];
+    const mirrorUpdates: any[] = [];
+    
+    // Sort subsequent EMIs by installment number just to be safe
+    subsequentEmis.sort((a, b) => a.installmentNumber - b.installmentNumber);
+
+    for (let i = 0; i < subsequentEmis.length; i++) {
+      const sEmi = subsequentEmis[i];
+      const nextDate = addMonths(newDate, i + 1);
+      nextDate.setHours(12, 0, 0, 0);
+      
+      updates.push(
+        db.eMISchedule.update({
+          where: { id: sEmi.id },
+          data: {
+            dueDate: nextDate,
+            originalDueDate: sEmi.originalDueDate || sEmi.dueDate,
+            notes: `Auto-shifted to match new day of month (from EMI #${emi.installmentNumber} change)`
+          }
+        })
+      );
+    }
+
+    // Mirror loan sync
     let mirrorSyncCount = 0;
     if (mirrorMapping?.mirrorLoanId) {
       try {
-        const result = await db.$executeRaw`
-          UPDATE "EMISchedule" 
-          SET "dueDate" = "dueDate" + CAST(${daysDiff} AS INTEGER) * INTERVAL '1 day',
-              "originalDueDate" = CASE WHEN "originalDueDate" IS NULL THEN "dueDate" ELSE "originalDueDate" END,
-              "notes" = 'Synced from original loan, shifted by ' || CAST(${daysDiff} AS TEXT) || ' days'
-          WHERE "loanApplicationId" = ${mirrorMapping.mirrorLoanId}
-          AND "installmentNumber" >= ${emi.installmentNumber}
-          AND "paymentStatus" != 'PAID'
-        `;
-        mirrorSyncCount = result;
-        console.log(`[EMI Date Change] Synced ${mirrorSyncCount} mirror loan EMIs`);
+        const mirrorEmis = await db.eMISchedule.findMany({
+          where: {
+            loanApplicationId: mirrorMapping.mirrorLoanId,
+            installmentNumber: { gte: emi.installmentNumber },
+            paymentStatus: { not: 'PAID' }
+          },
+          orderBy: { installmentNumber: 'asc' },
+          select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
+        });
+        
+        for (let i = 0; i < mirrorEmis.length; i++) {
+          const mEmi = mirrorEmis[i];
+          const mDate = addMonths(newDate, mEmi.installmentNumber - emi.installmentNumber);
+          mDate.setHours(12, 0, 0, 0);
+          
+          mirrorUpdates.push(
+            db.eMISchedule.update({
+              where: { id: mEmi.id },
+              data: {
+                dueDate: mDate,
+                originalDueDate: mEmi.originalDueDate || mEmi.dueDate,
+                notes: `Synced from original loan, shifted to new day of month`
+              }
+            })
+          );
+        }
+        mirrorSyncCount = mirrorUpdates.length;
       } catch (mirrorError) {
         console.error('[EMI Date Change] Mirror sync error:', mirrorError);
       }
     }
 
-    // Create workflow log (non-blocking)
+    // Execute all updates in a transaction
+    await db.$transaction([...updates, ...mirrorUpdates]);
+
+    // Create workflow log (non-blocking) - Super Admin will see this in the Audit Log
     db.workflowLog.create({
       data: {
         loanApplicationId: emi.loanApplicationId,
         action: 'EMI_DATE_CHANGE',
         previousStatus: emi.paymentStatus,
         newStatus: emi.paymentStatus,
-        remarks: `EMI #${emi.installmentNumber}: ${oldDueDate.toISOString().split('T')[0]} → ${newDate.toISOString().split('T')[0]} (${daysDiff > 0 ? '+' : ''}${daysDiff} days). Reason: ${reason}`,
+        remarks: `EMI Date globally changed! EMI #${emi.installmentNumber} moved to ${newDate.toISOString().split('T')[0]}. All remaining EMIs shifted accordingly. Reason: ${reason}`,
         actionById: userId
       }
     }).catch(() => {}); // Ignore log errors
+
+    // Notify Super Admin if the person changing the date is not a SUPER_ADMIN
+    // Actually, create a notification in the system
+    db.user.findMany({
+      where: { role: 'SUPER_ADMIN' }
+    }).then(superAdmins => {
+      const notifications = superAdmins.map(sa => ({
+        userId: sa.id,
+        title: 'EMI Date Changed',
+        message: `EMI Date changed for loan ${emi.loanApplicationId}. New Date: ${newDate.toISOString().split('T')[0]}`,
+        type: 'SYSTEM',
+        read: false
+      }));
+      if (notifications.length > 0) {
+        db.notification.createMany({ data: notifications }).catch(() => {});
+      }
+    }).catch(() => {});
 
     const duration = Date.now() - startTime;
     const totalUpdated = 1 + subsequentEmis.length;
@@ -148,7 +204,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `✅ Updated ${totalUpdated} EMIs by ${daysDiff > 0 ? '+' : ''}${daysDiff} days${mirrorSyncCount > 0 ? ` (and ${mirrorSyncCount} mirror EMIs)` : ''}`,
+      message: `✅ Updated ${totalUpdated} EMIs successfully to match the new day of month${mirrorSyncCount > 0 ? ` (and ${mirrorSyncCount} mirror EMIs)` : ''}`,
       daysShifted: daysDiff,
       totalEMIsUpdated: totalUpdated,
       mirrorSynced: mirrorSyncCount,

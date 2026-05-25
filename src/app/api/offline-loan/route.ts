@@ -2016,8 +2016,11 @@ export async function PUT(request: NextRequest) {
     // 2. Mark it as PAID
     // 3. Create next month's interest EMI
     if (action === 'pay-interest-only-loan' && loanId && userId) {
-      const { paymentMode, paymentReference, bankAccountId, creditType } = body;
-
+      const { paymentMode, paymentReference, bankAccountId, creditType, penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode } = body;
+      const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
+      const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
+      const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
+      const penaltyPaymentMode = rawPenaltyMode || 'CASH';
       // Get the loan with interest EMIs
       const loan = await db.offlineLoan.findUnique({
         where: { id: loanId },
@@ -2153,7 +2156,9 @@ export async function PUT(request: NextRequest) {
             collectedById: userId,
             collectedByName: user.name,
             collectedAt: now,
-            interestOnlyPaidAt: now
+            interestOnlyPaidAt: now,
+            penaltyAmount: (currentEMI!.penaltyAmount || 0) + penaltyAmount,
+            penaltyPaid: (currentEMI!.penaltyPaid || 0) + netPenalty
           }
         });
 
@@ -2350,6 +2355,37 @@ export async function PUT(request: NextRequest) {
           });
 
           console.log(`[IO Accounting] ✓ Entry in ${hasMirror ? 'MIRROR' : 'ORIGINAL'} company ${targetCompanyId} — ₹${targetAmount}`);
+
+          // Penalty Accounting
+          if (netPenalty > 0) {
+            try {
+              if (penaltyPaymentMode === 'BANK') {
+                await recordBankTransaction({
+                  companyId: targetCompanyId, transactionType: 'CREDIT', amount: netPenalty,
+                  description: `Penalty for IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
+                  referenceType: 'LATE_FEE_COLLECTION', referenceId: currentEMI.id, createdById: userId,
+                });
+              } else {
+                await recordCashBookEntry({
+                  companyId: targetCompanyId, entryType: 'CREDIT', amount: netPenalty,
+                  description: `Penalty for IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
+                  referenceType: 'LATE_FEE_COLLECTION', referenceId: currentEMI.id, createdById: userId,
+                });
+              }
+              await accSvc.createJournalEntry({
+                entryDate: now, referenceType: 'LATE_FEE_COLLECTION', referenceId: currentEMI.id,
+                narration: `Late Fee Collected - IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
+                lines: [
+                  { accountCode: penaltyPaymentMode === 'BANK' ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty received (${penaltyPaymentMode})`, loanId: loan.id },
+                  { accountCode: CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income - ${loan.loanNumber}`, loanId: loan.id },
+                ],
+                createdById: userId, paymentMode: penaltyPaymentMode, isAutoEntry: true,
+              });
+              console.log(`[IO Accounting] ✓ Penalty Entry in company ${targetCompanyId} — ₹${netPenalty}`);
+            } catch (penaltyAccErr) {
+              console.error('[IO Accounting] Penalty recording error:', penaltyAccErr);
+            }
+          }
         }
 
         // ── Mirror EMI rolling sync (if mirror exists) ────────────────────────

@@ -9,6 +9,7 @@ import { notifyEvent } from '@/lib/event-notify';
 import { fireAudit } from '@/lib/audit';
 // ACID: retry on deadlock + duplicate EMI payment guard
 import { withRetry, guardOnlineEMIPayment } from '@/lib/db-utils';
+import { generateSequentialReceiptNumber } from '@/lib/sequence';
 
 
 export async function POST(request: NextRequest) {
@@ -366,7 +367,7 @@ export async function POST(request: NextRequest) {
     let receiptNo: string | null = null;
     if (shouldGenerateReceipt) {
       const companyCode = emi.loanApplication?.company?.code || 'MM';
-      receiptNo = `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
+      receiptNo = await generateSequentialReceiptNumber(`RCP-${companyCode}`);
       console.log(`[EMI Pay] Generated receipt number: ${receiptNo}`);
     }
     console.log(`[EMI Pay] Receipt: ${shouldGenerateReceipt ? 'YES' : 'NO'} (${newEmiStatus})`)
@@ -1275,7 +1276,7 @@ export async function POST(request: NextRequest) {
                   interestComponent:  mirrorInterest,
                   paymentMode: paymentMode,
                   status: 'COMPLETED',
-                  receiptNumber: `RCP-MIRROR-${Date.now()}`,
+                  receiptNumber: await generateSequentialReceiptNumber(`RCP-MIRROR`),
                   paidById: paidBy,
                   remarks: `Auto-synced from original loan ${emi.loanApplication?.applicationNo}`,
                   paymentType: 'FULL_EMI'
@@ -1324,7 +1325,7 @@ export async function POST(request: NextRequest) {
                 interestComponent:  0,
                 paymentMode:       paymentMode,
                 status:            'COMPLETED',
-                receiptNumber:     `RCP-MIRROR-PO-${Date.now()}`,
+                receiptNumber: await generateSequentialReceiptNumber(`RCP-MIRROR-PO`),
                 paidById:          paidBy,
                 remarks: `[MIRROR P-ONLY SYNC] P:₹${mirrorP} collected, I:₹${mirrorI} written off. From ${emi.loanApplication?.applicationNo}`,
                 paymentType: 'PRINCIPAL_ONLY'

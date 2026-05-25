@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { startOfMonth, subMonths, endOfMonth } from 'date-fns';
+import { startOfMonth, subMonths, endOfMonth, startOfYear } from 'date-fns';
 
 function periodMetrics(loans: any[]) {
   const disbursed = loans.filter(l =>
@@ -24,21 +24,15 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const companyId = searchParams.get('companyId') || undefined;
+    const type = searchParams.get('type') || 'AGENT';
 
     const now = new Date();
-    const since3M = startOfMonth(subMonths(now, 3));
+    // We need 12 months deep data
+    const since12M = startOfMonth(subMonths(now, 11));
 
-    // Define 4 periods
-    const periods = {
-      current:        { start: startOfMonth(now),              end: now },
-      lastMonth:      { start: startOfMonth(subMonths(now, 1)), end: endOfMonth(subMonths(now, 1)) },
-      twoMonthsAgo:   { start: startOfMonth(subMonths(now, 2)), end: endOfMonth(subMonths(now, 2)) },
-      threeMonthsAgo: { start: startOfMonth(subMonths(now, 3)), end: endOfMonth(subMonths(now, 3)) },
-    };
-
-    // Fetch all active agents
+    // Fetch all active agents/staff
     const agents = await db.user.findMany({
-      where: { role: 'AGENT', isActive: true },
+      where: { role: type as any, isActive: true },
       select: {
         id: true,
         name: true,
@@ -72,7 +66,7 @@ export async function GET(req: NextRequest) {
     const sessionForms = await db.sessionForm.findMany({
       where: {
         agentId:    { in: agentIds },
-        createdAt:  { gte: since3M },
+        createdAt:  { gte: since12M },
         deletedAt:  null,
         loanApplication: companyId ? { companyId } : undefined,
       },
@@ -93,8 +87,8 @@ export async function GET(req: NextRequest) {
     const offlineLoans = await db.offlineLoan.findMany({
       where: {
         createdById:   { in: agentIds },
-        createdByRole: 'AGENT',
-        createdAt:     { gte: since3M },
+        createdByRole: type as any,
+        createdAt:     { gte: since12M },
         ...(companyId ? { companyId } : {}),
       },
       select: {
@@ -133,10 +127,38 @@ export async function GET(req: NextRequest) {
       const inPeriod = (start: Date, end: Date) =>
         allLoans.filter(l => { const d = new Date(l.createdAt); return d >= start && d <= end; });
 
+      // Periods for the quick overview
+      const periods = {
+        current:        { start: startOfMonth(now),              end: now },
+        lastMonth:      { start: startOfMonth(subMonths(now, 1)), end: endOfMonth(subMonths(now, 1)) },
+        twoMonthsAgo:   { start: startOfMonth(subMonths(now, 2)), end: endOfMonth(subMonths(now, 2)) },
+        threeMonthsAgo: { start: startOfMonth(subMonths(now, 3)), end: endOfMonth(subMonths(now, 3)) },
+      };
+
       const pCurrent        = periodMetrics(inPeriod(periods.current.start,        periods.current.end));
       const pLastMonth      = periodMetrics(inPeriod(periods.lastMonth.start,      periods.lastMonth.end));
       const pTwoMonthsAgo   = periodMetrics(inPeriod(periods.twoMonthsAgo.start,   periods.twoMonthsAgo.end));
       const pThreeMonthsAgo = periodMetrics(inPeriod(periods.threeMonthsAgo.start, periods.threeMonthsAgo.end));
+
+      // Deep Monthly Data
+      const monthlyData = Array.from({ length: 12 }, (_, i) => {
+        const d = startOfMonth(subMonths(now, 11 - i));
+        const endD = endOfMonth(subMonths(now, 11 - i));
+        return {
+          month: d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' }),
+          ...periodMetrics(inPeriod(d, endD))
+        };
+      });
+
+      // Yearly Data
+      const currentYearStart = startOfYear(now);
+      const lastYearStart = startOfYear(subMonths(now, 12));
+      const lastYearEnd = endOfMonth(subMonths(currentYearStart, 1));
+      
+      const yearlyData = [
+        { year: (now.getFullYear() - 1).toString(), ...periodMetrics(inPeriod(lastYearStart, lastYearEnd)) },
+        { year: now.getFullYear().toString(), ...periodMetrics(inPeriod(currentYearStart, now)) },
+      ];
 
       // Growth score: last month vs 2 months ago
       const growthScore = pLastMonth.disbursed > 0 && pTwoMonthsAgo.disbursed > 0
@@ -177,6 +199,8 @@ export async function GET(req: NextRequest) {
           twoMonthsAgo:   pTwoMonthsAgo,
           threeMonthsAgo: pThreeMonthsAgo,
         },
+        monthlyData,
+        yearlyData,
         trend,
         growthScore,
         momentum,
@@ -207,9 +231,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Agent Analytics]', error);
+    console.error(`[Agent Analytics]`, error);
     return NextResponse.json(
-      { error: 'Failed to fetch agent analytics', details: error instanceof Error ? error.message : 'Unknown' },
+      { error: 'Failed to fetch analytics', details: error instanceof Error ? error.message : 'Unknown' },
       { status: 500 }
     );
   }

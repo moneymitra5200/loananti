@@ -16,8 +16,9 @@ import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
-  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle
+  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar
 } from 'lucide-react';
+import { EMIDateChangeDialog } from '../loan/sections';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -222,6 +223,55 @@ export default function OfflineLoanDetailPanel({
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
+
+  // Date Change State
+  const [showDateChangeDialog, setShowDateChangeDialog] = useState(false);
+  const [dateChangeEMI, setDateChangeEMI] = useState<EMI | null>(null);
+  const [newEMIDate, setNewEMIDate] = useState('');
+  const [dateChangeReason, setDateChangeReason] = useState('');
+  const [changingDate, setChangingDate] = useState(false);
+
+  const handleEMIDateChange = async () => {
+    if (!dateChangeEMI || !newEMIDate) {
+      toast({ title: 'Error', description: 'Please select a new date', variant: 'destructive' });
+      return;
+    }
+
+    if (!dateChangeReason.trim()) {
+      toast({ title: 'Error', description: 'Please provide a reason for the date change', variant: 'destructive' });
+      return;
+    }
+
+    setChangingDate(true);
+    try {
+      const response = await fetch('/api/emi/change-date', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emiId: dateChangeEMI.id,
+          newDate: newEMIDate,
+          reason: dateChangeReason,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        toast({ title: 'Success', description: 'EMI date updated and schedule adjusted' });
+        setShowDateChangeDialog(false);
+        setDateChangeEMI(null);
+        setNewEMIDate('');
+        setDateChangeReason('');
+        await fetchLoanDetails();
+        if (onPaymentSuccess) onPaymentSuccess();
+      } else {
+        throw new Error(data.error || 'Failed to update date');
+      }
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } finally {
+      setChangingDate(false);
+    }
+  };
 
   // Penalty state
   const [editedPenaltyAmount, setEditedPenaltyAmount] = useState<string>('');
@@ -1136,15 +1186,34 @@ export default function OfflineLoanDetailPanel({
                 )}
                 {/* Close Loan button — visible for ACTIVE loans */}
                 {loan && loan.status === 'ACTIVE' && !loan.isMirrorLoan && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-white hover:bg-red-500/80 gap-1 text-xs"
-                    onClick={() => setCloseLoanDialogOpen(true)}
-                  >
-                    <XCircle className="h-4 w-4" />
-                    <span className="hidden sm:inline">Close Loan</span>
-                  </Button>
+                  <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-white hover:bg-red-500/80 gap-1 text-xs"
+                      onClick={() => setCloseLoanDialogOpen(true)}
+                    >
+                      <XCircle className="h-4 w-4" />
+                      <span className="hidden sm:inline">Close Loan</span>
+                    </Button>
+                    
+                    {/* Global Change Date Button for Offline Loans */}
+                    {loan.emis && loan.emis.some(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID') && (
+                      <Button
+                        size="sm"
+                        className="bg-white/20 text-white hover:bg-white/30 border border-white/30"
+                        onClick={() => {
+                          const firstPending = [...loan.emis].sort((a,b) => a.installmentNumber - b.installmentNumber).find(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID');
+                          if (firstPending) {
+                            setDateChangeEMI(firstPending);
+                            setShowDateChangeDialog(true);
+                          }
+                        }}
+                      >
+                        <Calendar className="h-4 w-4 mr-1" /> Change Date
+                      </Button>
+                    )}
+                  </>
                 )}
                 <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
                   <X className="h-5 w-5" />
@@ -3261,6 +3330,19 @@ export default function OfflineLoanDetailPanel({
         </DialogContent>
       </Dialog>
 
+      {/* EMI Date Change Dialog */}
+      <EMIDateChangeDialog
+        open={showDateChangeDialog}
+        onOpenChange={setShowDateChangeDialog}
+        dateChangeEMI={dateChangeEMI as any}
+        newEMIDate={newEMIDate}
+        setNewEMIDate={setNewEMIDate}
+        dateChangeReason={dateChangeReason}
+        setDateChangeReason={setDateChangeReason}
+        changingDate={changingDate}
+        onChangeDate={handleEMIDateChange}
+      />
+
       {/* Start Loan Dialog — Phase 2: same fields as normal loan creation */}
       <Dialog open={startLoanDialogOpen} onOpenChange={setStartLoanDialogOpen}>
         <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
@@ -3353,6 +3435,7 @@ export default function OfflineLoanDetailPanel({
                 value={startProcessingFee}
                 onChange={(e) => setStartProcessingFee(e.target.value)}
                 placeholder="Auto-calculated from mirror EMI diff"
+                disabled
               />
               {emiPreview?.processingFee > 0 && (
                 <p className="text-xs text-orange-600">

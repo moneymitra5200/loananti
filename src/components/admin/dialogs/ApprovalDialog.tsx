@@ -126,12 +126,11 @@ export default function ApprovalDialog({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showOriginalSchedule, setShowOriginalSchedule] = useState(false);
   const [showMirrorSchedule, setShowMirrorSchedule] = useState(false);
-  const [fastApprove, setFastApprove] = useState(false);
 
   const onAction = async () => {
     setIsProcessing(true);
     try {
-      await handleApproval(fastApprove);
+      await handleApproval(false);
     } finally {
       setIsProcessing(false);
     }
@@ -798,25 +797,7 @@ export default function ApprovalDialog({
                     <Textarea placeholder="Add remarks..." value={remarks} onChange={(e) => setRemarks(e.target.value)} />
                   </div>
 
-                  {/* Fast Forward Option for Super Admin */}
-                  {approvalAction === 'approve' && (
-                    <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg flex items-center gap-3">
-                      <Checkbox 
-                        id="fast-approve" 
-                        checked={fastApprove} 
-                        onCheckedChange={(checked) => setFastApprove(checked === true)} 
-                        className="h-5 w-5"
-                      />
-                      <div className="space-y-1">
-                        <Label htmlFor="fast-approve" className="text-purple-900 font-bold cursor-pointer">
-                          Skip intermediate steps (Fast Forward)
-                        </Label>
-                        <p className="text-xs text-purple-600">
-                          Directly move to Final Approval. Use this for offline-verified loans.
-                        </p>
-                      </div>
-                    </div>
-                  )}
+                  {/* Fast Forward Option removed as per request */}
                 </>
               )}
             </div>

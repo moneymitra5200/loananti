@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-// Receipt number: timestamp + 4-digit random = collision-safe, no DB round-trip needed
+import { generateSequentialReceiptNumber } from '@/lib/sequence';
+
 async function generateReceiptNumber(companyCode: string): Promise<string> {
-  return `RCP-${companyCode}-${Date.now()}-${Math.floor(Math.random() * 9000) + 1000}`;
+  return generateSequentialReceiptNumber(`RCP-${companyCode}`);
 }
 
 

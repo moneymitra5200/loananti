@@ -366,13 +366,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   };
 
   // Calculate EMI preview when form changes
-  const calculateEmiPreview = async () => {
+  const calculateEmiPreview = async (
+    tenure = startLoanForm.tenure,
+    interestRate = startLoanForm.interestRate
+  ) => {
     if (!loanId) return;
 
     setLoadingPreview(true);
     try {
       const response = await fetch(
-        `/api/loan/start?loanId=${loanId}&tenure=${startLoanForm.tenure}&interestRate=${startLoanForm.interestRate}`
+        `/api/loan/start?loanId=${loanId}&tenure=${tenure}&interestRate=${interestRate}`
       );
       const data = await response.json();
 
@@ -381,7 +384,11 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           emiAmount: data.preview.emiAmount,
           totalInterest: data.preview.totalInterest,
           totalAmount: data.preview.totalAmount,
-          processingFee: prev?.processingFee || 0
+          processingFee: data.preview.processingFee || prev?.processingFee || 0
+        }));
+        setStartLoanForm(prev => ({
+          ...prev,
+          processingFee: data.preview.processingFee || prev.processingFee
         }));
       }
     } catch (error) {
@@ -441,11 +448,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
   // Handle form change with debounced EMI calculation
   const handleStartFormChange = (field: keyof typeof startLoanForm, value: string | number) => {
-    setStartLoanForm(prev => ({ ...prev, [field]: value }));
-    // Debounce EMI calculation
-    if (field === 'tenure' || field === 'interestRate') {
-      setTimeout(() => calculateEmiPreview(), 300);
-    }
+    setStartLoanForm(prev => {
+      const newState = { ...prev, [field]: value };
+      
+      // Debounce EMI calculation
+      if (field === 'tenure' || field === 'interestRate') {
+        setTimeout(() => calculateEmiPreview(newState.tenure, newState.interestRate), 300);
+      }
+      
+      return newState;
+    });
   };
 
   const openEMIPaymentDialog = (emi: EMISchedule) => {
@@ -1169,9 +1181,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                   <Input
                     type="number"
                     min="0"
-                    className="pl-8"
+                    className="pl-8 bg-gray-50 text-gray-500 cursor-not-allowed"
                     value={startLoanForm.processingFee}
-                    onChange={(e) => handleStartFormChange('processingFee', parseFloat(e.target.value) || 0)}
+                    readOnly
                   />
                 </div>
               </div>
