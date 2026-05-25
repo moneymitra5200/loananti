@@ -1046,9 +1046,6 @@ export default function CustomerLoanDetailPage() {
                                     Payment #{interestEmiData.payments!.length - index}
                                   </p>
                                   <p className="text-xs text-gray-500">{formatDate(payment.createdAt)}</p>
-                                  {payment.receiptNumber && (
-                                    <p className="text-xs text-gray-400">Receipt: {payment.receiptNumber}</p>
-                                  )}
                                 </div>
                                 <div className="text-right">
                                   <p className="font-bold text-green-600">{formatCurrency(payment.amount)}</p>
