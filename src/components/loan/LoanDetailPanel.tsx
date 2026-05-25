@@ -33,6 +33,7 @@ import {
   DocumentsSection,
   EMISection,
   HistorySection,
+  InterestOnlyEMISection,
   EMIPaymentDialog,
   EMIDateChangeDialog,
   FormSection
@@ -950,19 +951,29 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
                 {/* EMI Tab */}
                 <TabsContent value="emi" className="p-4 m-0">
-                  <EMISection 
-                    emiSchedules={emiSchedules}
-                    currentUserRole={currentUserRole}
-                    currentUserId={currentUserId}
-                    loanApplicationId={loanDetails?.id || ''}
-                    companyId={loanDetails?.company?.id}
-                    loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
-                    onPayEMI={openEMIPaymentDialog}
-                    onPayMultiEMI={openMultiEMIPaymentDialog}
-                    onChangeDate={openDateChangeDialog}
-                    isMirrorLoan={isMirrorLoan}
-                    hasMirrorLoan={hasMirrorLoan}
-                  />
+                  {isInterestOnlyLoan && loanDetails ? (
+                    <InterestOnlyEMISection
+                      loanDetails={loanDetails}
+                      emiSchedules={emiSchedules}
+                      currentUserRole={currentUserRole}
+                      onPayEMI={openEMIPaymentDialog}
+                      isMirrorLoan={isMirrorLoan}
+                    />
+                  ) : (
+                    <EMISection 
+                      emiSchedules={emiSchedules}
+                      currentUserRole={currentUserRole}
+                      currentUserId={currentUserId}
+                      loanApplicationId={loanDetails?.id || ''}
+                      companyId={loanDetails?.company?.id}
+                      loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
+                      onPayEMI={openEMIPaymentDialog}
+                      onPayMultiEMI={openMultiEMIPaymentDialog}
+                      onChangeDate={openDateChangeDialog}
+                      isMirrorLoan={isMirrorLoan}
+                      hasMirrorLoan={hasMirrorLoan}
+                    />
+                  )}
                 </TabsContent>
 
                 {/* Receipt Tab - Only for Mirror Loans */}

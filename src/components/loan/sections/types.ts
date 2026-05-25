@@ -54,6 +54,7 @@ export interface LoanDetails {
   tenure?: number;
   interestRate?: number;
   emiAmount?: number;
+  interestOnlyMonthlyAmount?: number;
   processingFee?: number;
   reference1Name?: string;
   reference1Phone?: string;
