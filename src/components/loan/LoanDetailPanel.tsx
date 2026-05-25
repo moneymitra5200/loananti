@@ -108,14 +108,20 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
 
   // Start Loan State
   const [showStartLoanDialog, setShowStartLoanDialog] = useState(false);
+  const [startBankAccounts, setStartBankAccounts] = useState<any[]>([]);
+  const [startSecondaryPages, setStartSecondaryPages] = useState<any[]>([]);
   const [startLoanForm, setStartLoanForm] = useState({
     tenure: 12,
-    interestRate: 15
+    interestRate: 15,
+    processingFee: 0,
+    bankAccountId: '',
+    secondaryPaymentPageId: ''
   });
   const [emiPreview, setEmiPreview] = useState<{
     emiAmount: number;
     totalInterest: number;
     totalAmount: number;
+    processingFee: number;
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
@@ -307,19 +313,44 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     setShowStartLoanDialog(true);
 
     try {
+      const companyId = loanDetails?.company?.id;
+      if (companyId) {
+        try {
+          const [baRes, spRes] = await Promise.all([
+            fetch(`/api/accounting/bank-accounts?companyId=${companyId}`),
+            fetch(`/api/secondary-payment-page?companyId=${companyId}`),
+          ]);
+          if (baRes.ok) {
+            const baData = await baRes.json();
+            const accounts = baData.bankAccounts || baData || [];
+            setStartBankAccounts(accounts);
+            if (accounts.length > 0) {
+              setStartLoanForm(prev => ({ ...prev, bankAccountId: accounts[0].id }));
+            }
+          }
+          if (spRes.ok) {
+            const spData = await spRes.json();
+            setStartSecondaryPages(spData.pages || spData || []);
+          }
+        } catch { /* non-fatal */ }
+      }
+
       // Fetch loan details and EMI preview
       const response = await fetch(`/api/loan/start?loanId=${loanId}`);
       const data = await response.json();
 
       if (data.success) {
-        setStartLoanForm({
+        setStartLoanForm(prev => ({
+          ...prev,
           tenure: data.preview.tenure,
-          interestRate: data.preview.interestRate
-        });
+          interestRate: data.preview.interestRate,
+          processingFee: data.preview.processingFee || 0
+        }));
         setEmiPreview({
           emiAmount: data.preview.emiAmount,
           totalInterest: data.preview.totalInterest,
-          totalAmount: data.preview.totalAmount
+          totalAmount: data.preview.totalAmount,
+          processingFee: data.preview.processingFee || 0
         });
       }
     } catch (error) {
@@ -346,11 +377,12 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       const data = await response.json();
 
       if (data.success) {
-        setEmiPreview({
+        setEmiPreview(prev => ({
           emiAmount: data.preview.emiAmount,
           totalInterest: data.preview.totalInterest,
-          totalAmount: data.preview.totalAmount
-        });
+          totalAmount: data.preview.totalAmount,
+          processingFee: prev?.processingFee || 0
+        }));
       }
     } catch (error) {
       console.error('Error calculating EMI preview:', error);
@@ -372,6 +404,9 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           loanId,
           tenure: startLoanForm.tenure,
           interestRate: startLoanForm.interestRate,
+          processingFee: startLoanForm.processingFee,
+          bankAccountId: startLoanForm.bankAccountId,
+          secondaryPaymentPageId: startLoanForm.secondaryPaymentPageId,
           startedBy: currentUserId
         })
       });
@@ -760,35 +795,41 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           className="fixed right-0 top-0 h-full w-full md:w-[600px] lg:w-[700px] bg-white shadow-2xl z-50 flex flex-col"
         >
         {/* Header */}
-        <div className={`flex items-center justify-between p-4 border-b text-white ${
+        <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-b text-white gap-4 ${
           isInterestOnlyLoan
             ? 'bg-gradient-to-r from-amber-500 to-orange-600'
             : isMirrorLoan 
               ? 'bg-gradient-to-r from-amber-500 to-orange-600' 
               : 'bg-gradient-to-r from-emerald-600 to-teal-600'
         }`}>
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-              <FileText className="h-5 w-5" />
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-bold text-lg flex items-center gap-2 flex-wrap">
+                  {isInterestOnlyLoan 
+                    ? 'Interest-Only Loan' 
+                    : isMirrorLoan 
+                      ? 'Mirror Loan (Read-Only)' 
+                      : 'Online Loan Details'}
+                  {/* Mode indicator */}
+                  {!isMirrorLoan && !isInterestOnlyLoan && (
+                    <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal shrink-0">
+                      🌐 ONLINE MODE
+                    </span>
+                  )}
+                </h2>
+                <p className="text-sm text-white/80">{loanDetails?.applicationNo || 'Loading...'}</p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                {isInterestOnlyLoan 
-                  ? 'Interest-Only Loan' 
-                  : isMirrorLoan 
-                    ? 'Mirror Loan (Read-Only)' 
-                    : 'Online Loan Details'}
-                {/* Mode indicator */}
-                {!isMirrorLoan && !isInterestOnlyLoan && (
-                  <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal">
-                    🌐 ONLINE MODE
-                  </span>
-                )}
-              </h2>
-              <p className="text-sm text-white/80">{loanDetails?.applicationNo || 'Loading...'}</p>
-            </div>
+            {/* Close button for mobile when header wraps */}
+            <Button variant="ghost" size="icon" onClick={onClose} className="sm:hidden text-white hover:bg-white/20 shrink-0">
+              <X className="h-5 w-5" />
+            </Button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap sm:justify-end">
             {loanDetails && getStatusBadge(loanDetails.status)}
             {/* Start Loan & Pay Interest Buttons for Interest-Only Loans */}
             {isInterestOnlyLoan && !isMirrorLoan && (
@@ -856,13 +897,13 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
               <Button
                 size="sm"
                 variant="ghost"
-                className="bg-red-500/20 text-white hover:bg-red-500/40 border border-red-300/30"
+                className="bg-red-500/20 text-white hover:bg-red-500/40 border border-red-300/30 shrink-0"
                 onClick={() => setShowDeleteDialog(true)}
               >
                 <Trash2 className="h-4 w-4 mr-1" /> Delete
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
+            <Button variant="ghost" size="icon" onClick={onClose} className="hidden sm:flex text-white hover:bg-white/20 shrink-0">
               <X className="h-5 w-5" />
             </Button>
           </div>
@@ -1104,6 +1145,52 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 />
                 <p className="text-xs text-gray-500">Range: 1-50%</p>
               </div>
+            </div>
+
+            <Separator />
+
+            {/* Accounting Fields */}
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  Processing Fee
+                  {emiPreview?.processingFee ? (
+                    <span className="text-xs font-normal text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
+                      Auto-calculated: {formatCurrency(emiPreview.processingFee)} (original − mirror EMI diff)
+                    </span>
+                  ) : null}
+                </Label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-500">₹</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    className="pl-8"
+                    value={startLoanForm.processingFee}
+                    onChange={(e) => handleStartFormChange('processingFee', parseFloat(e.target.value) || 0)}
+                  />
+                </div>
+              </div>
+
+              {startBankAccounts.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Processing Fee Payment To</Label>
+                  <select
+                    className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    value={startLoanForm.bankAccountId}
+                    onChange={(e) => handleStartFormChange('bankAccountId', e.target.value)}
+                  >
+                    <option value="">Cash In Hand</option>
+                    {startBankAccounts.map((b: any) => (
+                      <option key={b.id} value={b.id}>
+                        {b.bankName} - {b.accountNumber}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <Separator />

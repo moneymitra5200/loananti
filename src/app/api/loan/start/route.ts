@@ -5,12 +5,21 @@ import { calculateMirrorLoan } from '@/lib/mirror-loan';
 // ACID: retry on deadlock
 import { withRetry } from '@/lib/db-utils';
 import { AccountingService } from '@/lib/accounting-service';
+import { recordBankTransaction, recordCashBookEntry } from '@/lib/simple-accounting';
 
 // POST - Start a loan (convert from interest-only to normal EMI)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { loanId, tenure, interestRate, startedBy } = body;
+    const { 
+      loanId, 
+      tenure, 
+      interestRate, 
+      startedBy,
+      processingFee,
+      bankAccountId,
+      secondaryPaymentPageId
+    } = body;
 
     // Validate required fields
     if (!loanId || !tenure || !interestRate) {
@@ -185,6 +194,63 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Start Loan] Successfully started loan ${loan.applicationNo}`);
     console.log(`[Start Loan] Created ${result.emiSchedules.length} EMI schedules`);
+
+    // ── Record processing fee for online loan (Phase 2 startup) ──────────────────
+    const parsedProcessingFee = parseFloat(processingFee) || 0;
+    if (parsedProcessingFee > 0 && loan.companyId) {
+      try {
+        const pfPaymentMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
+        const pfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;
+
+        // Bank credit for processing fee
+        if (pfPaymentMode === 'BANK_TRANSFER' && pfBankId) {
+          await recordBankTransaction({
+            companyId: loan.companyId,
+            bankAccountId: pfBankId,
+            transactionType: 'CREDIT',
+            amount: parsedProcessingFee,
+            description: `Processing Fee - ${loan.applicationNo}`,
+            referenceType: 'PROCESSING_FEE',
+            referenceId: loanId,
+            createdById: startedBy || 'system',
+          });
+        } else {
+          // Cash credit
+          await recordCashBookEntry({
+            companyId: loan.companyId,
+            entryType: 'CREDIT',
+            amount: parsedProcessingFee,
+            description: `Processing Fee - ${loan.applicationNo}`,
+            referenceType: 'PROCESSING_FEE',
+            referenceId: loanId,
+            createdById: startedBy || 'system',
+          });
+        }
+
+        // Accounting journal entry for processing fee
+        const accountingService = new AccountingService(loan.companyId);
+        await accountingService.initializeChartOfAccounts();
+        await accountingService.recordProcessingFee({
+          loanId,
+          customerId: loan.customerId || loanId,
+          amount: parsedProcessingFee,
+          collectionDate: new Date(),
+          createdById: startedBy || 'system',
+          paymentMode: pfPaymentMode,
+          bankAccountId: pfBankId,
+        });
+
+        // Update the mirror mapping to mark it recorded
+        await db.mirrorLoanMapping.updateMany({
+          where: { originalLoanId: loanId, isOfflineLoan: false },
+          data: { processingFeeRecorded: true, mirrorProcessingFee: parsedProcessingFee }
+        });
+        
+        console.log(`[Start Loan] ✅ Processing fee ₹${parsedProcessingFee} recorded for ${loan.applicationNo}`);
+      } catch (pfErr) {
+        console.error('[Start Loan] Processing fee recording failed (non-fatal):', pfErr);
+      }
+    }
 
     // Broadcast real-time refresh
     setImmediate(() => {
@@ -401,6 +467,24 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Calculate processing fee from mirror mapping if it exists
+    let processingFeePreview = 0;
+    let mirrorRateUsed = 0;
+    try {
+      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId, isOfflineLoan: false }
+      });
+      if (mirrorMapping) {
+        const mirrorRate = mirrorMapping.mirrorInterestRate || defaultRate;
+        const mirrorType = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
+        mirrorRateUsed = mirrorRate;
+        const mirrorCalc = calculateMirrorLoan(
+          principalAmount, defaultRate, defaultTenure, interestType, mirrorRate, mirrorType
+        );
+        processingFeePreview = mirrorCalc.processingFee;
+      }
+    } catch { /* non-fatal — no mirror mapping */ }
+
     return NextResponse.json({
       success: true,
       loan: {
@@ -422,7 +506,10 @@ export async function GET(request: NextRequest) {
         totalAmount: emiCalculation.totalAmount,
         tenure: defaultTenure,
         interestRate: defaultRate,
+        interestType,
         principalAmount,
+        processingFee: processingFeePreview,
+        mirrorRate: mirrorRateUsed,
         schedulePreview: emiCalculation.schedule.slice(0, 3) // First 3 EMIs
       },
       productDefaults

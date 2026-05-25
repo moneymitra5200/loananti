@@ -69,7 +69,10 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
             <div className="p-3 bg-white rounded-lg border border-amber-200">
               <p className="text-xs text-gray-500">Monthly Interest</p>
               <p className="text-lg font-bold text-amber-700">
-                {formatCurrency(loanDetails.interestOnlyMonthlyAmount || 0)}
+                {formatCurrency(
+                  loanDetails.interestOnlyMonthlyAmount || 
+                  ((loanDetails.sessionForm?.approvedAmount || loanDetails.requestedAmount || 0) * (loanDetails.sessionForm?.interestRate || 0) / 100 / 12)
+                )}
               </p>
             </div>
           </div>
