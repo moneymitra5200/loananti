@@ -227,7 +227,11 @@ export function ParallelLoanView({
           <div>
             <p className="text-lg font-bold text-gray-900">{formatCurrency(getLoanAmount(loan))}</p>
             <p className="text-xs text-gray-500">
-              @{loan.interestRate}% for {loan.tenure} months
+              {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
+                `@${loan.interestRate}% (Interest Only Phase)`
+              ) : (
+                `@${loan.interestRate}% for ${loan.tenure} months`
+              )}
             </p>
             {loan.emiAmount > 0 && (
               <p className="text-xs text-emerald-600 font-medium">
@@ -298,7 +302,11 @@ export function ParallelLoanView({
               {mirrorMapping.mirrorTenure && (
                 <div>
                   <span className="text-gray-500">Mirror Tenure:</span>
-                  <span className="ml-1 font-medium">{mirrorMapping.mirrorTenure} mo</span>
+                  <span className="ml-1 font-medium">
+                    {loan?.status === 'ACTIVE_INTEREST_ONLY' || loan?.status === 'INTEREST_ONLY' 
+                      ? '(Interest Only Phase)' 
+                      : `${mirrorMapping.mirrorTenure} mo`}
+                  </span>
                 </div>
               )}
               {mirrorMapping.extraEMICount && mirrorMapping.extraEMICount > 0 && (

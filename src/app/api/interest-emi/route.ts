@@ -133,8 +133,8 @@ export async function GET(request: NextRequest) {
                 data: {
                   loanApplicationId: mirrorMapping.mirrorLoanId,
                   installmentNumber: nextInstallmentNumber,
-                  dueDate: nextDue,
-                  originalDueDate: nextDue,
+                  dueDate: newDueDate,
+                  originalDueDate: newDueDate,
                   principalAmount: 0,
                   interestAmount: mirrorMonthlyInterest,
                   totalAmount: mirrorMonthlyInterest,
