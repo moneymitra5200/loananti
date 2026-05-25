@@ -1100,11 +1100,34 @@ export default function OfflineLoanDetailPanel({
               </div>
               <div className="flex items-center gap-2">
                 {loan && getStatusBadge(loan.status)}
-                {isInterestOnlyLoan && (
-                  <Button size="sm" className="bg-white text-purple-600 hover:bg-purple-50" onClick={openStartLoanDialog}>
-                    <PlayCircle className="h-4 w-4 mr-1" />
-                    Start Loan
-                  </Button>
+                {isInterestOnlyLoan && !loan?.isMirrorLoan && (
+                  <>
+                    {userRole !== 'ACCOUNTANT' && (
+                      <Button
+                        size="sm"
+                        className="bg-purple-500 text-white hover:bg-purple-600 border border-purple-400"
+                        onClick={() => {
+                          const pendingEmi = loan?.emis.find(e => e.paymentStatus === 'PENDING' && e.isInterestOnly);
+                          if (pendingEmi) {
+                            setSelectedEmi(pendingEmi);
+                            setPaymentType('INTEREST_ONLY');
+                            setPaymentAmount(pendingEmi.totalAmount);
+                            setIsInterestOnlyPayment(true);
+                            setPaymentDialogOpen(true);
+                          } else {
+                            toast({ title: 'No Pending Interest EMI', description: 'There is no pending monthly interest to pay.', variant: 'default' });
+                          }
+                        }}
+                      >
+                        <IndianRupee className="h-4 w-4 mr-1" />
+                        Pay Monthly Interest
+                      </Button>
+                    )}
+                    <Button size="sm" className="bg-white text-purple-600 hover:bg-purple-50 border border-purple-200" onClick={openStartLoanDialog}>
+                      <PlayCircle className="h-4 w-4 mr-1" />
+                      Start Loan
+                    </Button>
+                  </>
                 )}
                 {userRole === 'SUPER_ADMIN' && (
                   <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={() => setDeleteDialogOpen(true)}>
