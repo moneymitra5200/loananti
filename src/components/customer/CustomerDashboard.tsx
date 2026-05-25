@@ -911,6 +911,8 @@ export default function CustomerDashboard() {
       CUSTOMER_SESSION_APPROVED:  { className: 'bg-emerald-100 text-emerald-700', label: 'Awaiting Disbursement' },
       FINAL_APPROVED:             { className: 'bg-emerald-100 text-emerald-700', label: 'Final Approved' },
       ACTIVE:                     { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
+      ACTIVE_INTEREST_ONLY:       { className: 'bg-purple-100 text-purple-700',   label: '💜 Interest Only' },
+      DISBURSED:                  { className: 'bg-emerald-100 text-emerald-700', label: 'Active' },
       CLOSED:                     { className: 'bg-gray-100 text-gray-700',    label: 'Closed' },
       REJECTED_BY_SA:             { className: 'bg-red-100 text-red-700',      label: 'Rejected' },
       REJECTED_BY_COMPANY:        { className: 'bg-red-100 text-red-700',      label: 'Rejected' },
@@ -933,10 +935,14 @@ export default function CustomerDashboard() {
     return <Badge className={c.className}>{c.label}</Badge>;
   };
 
-  // Filter loans
+  // Filter loans by category
+  // ACTIVE_INTEREST_ONLY = Phase 1 (customer can pay interest) → belongs in Active tab, NOT In Progress
   const pendingSanctionLoans = loans.filter(l => l.status === 'SESSION_CREATED');
-  const activeLoans = loans.filter(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
-  const inProgressLoans = loans.filter(l => !['SUBMITTED', 'ACTIVE', 'DISBURSED', 'CLOSED', 'REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED'].includes(l.status));
+  const activeLoans = loans.filter(l => ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'].includes(l.status));
+  const inProgressLoans = loans.filter(l => ![
+    'SUBMITTED', 'ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY',
+    'CLOSED', 'REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED'
+  ].includes(l.status));
   const rejectedLoans = loans.filter(l => ['REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED'].includes(l.status));
 
   // Calculate totals
@@ -1025,7 +1031,8 @@ export default function CustomerDashboard() {
       animate={{ opacity: 1, y: 0 }}
       className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm cursor-pointer hover:shadow-md transition-all"
       onClick={() => {
-        if (['ACTIVE', 'DISBURSED'].includes(loan.status)) {
+        // ACTIVE, DISBURSED, ACTIVE_INTEREST_ONLY → all go to pay page
+        if (['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'].includes(loan.status)) {
           router.push(`/customer/loan/${loan.id}`);
         } else if (loan.status === 'SESSION_CREATED') {
           setSelectedLoan(loan);

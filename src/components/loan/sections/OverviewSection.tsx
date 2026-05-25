@@ -68,12 +68,16 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
             <div className="p-3 bg-gray-50 rounded-lg text-center">
               <p className="text-xs text-gray-500">Requested</p>
               <p className="font-bold text-lg">{formatCurrency(loanDetails?.requestedAmount || 0)}</p>
-              <p className="text-xs text-gray-400">{loanDetails?.requestedTenure} months @ {loanDetails?.requestedInterestRate}%</p>
+              <p className="text-xs text-gray-400">
+                {loanDetails?.status === 'ACTIVE_INTEREST_ONLY' ? 'Interest Only Phase' : `${loanDetails?.requestedTenure} months`} @ {loanDetails?.requestedInterestRate}%
+              </p>
             </div>
             <div className="p-3 bg-emerald-50 rounded-lg text-center">
               <p className="text-xs text-emerald-600">Approved</p>
               <p className="font-bold text-lg text-emerald-700">{formatCurrency(loanDetails?.sessionForm?.approvedAmount || 0)}</p>
-              <p className="text-xs text-emerald-500">{loanDetails?.sessionForm?.tenure} months @ {loanDetails?.sessionForm?.interestRate}%</p>
+              <p className="text-xs text-emerald-500">
+                {loanDetails?.status === 'ACTIVE_INTEREST_ONLY' ? 'Interest Only Phase' : `${loanDetails?.sessionForm?.tenure} months`} @ {loanDetails?.sessionForm?.interestRate}%
+              </p>
             </div>
             <div className="p-3 bg-purple-50 rounded-lg text-center">
               <p className="text-xs text-purple-600">Disbursed</p>
@@ -101,7 +105,9 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
               </div>
               <div>
                 <p className="text-xs text-gray-500">Tenure</p>
-                <p className="font-semibold">{loanDetails.sessionForm.tenure} months</p>
+                <p className="font-semibold">
+                  {loanDetails.status === 'ACTIVE_INTEREST_ONLY' ? 'Interest Only Phase' : `${loanDetails.sessionForm.tenure} months`}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500">EMI Amount</p>
