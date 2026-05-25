@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertTriangle, CheckCircle, ArrowLeft, Calculator, RefreshCw, Building2, Loader2, X, ChevronDown, ChevronUp, Percent } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ArrowLeft, Calculator, RefreshCw, Building2, Loader2, X, ChevronDown, ChevronUp, Percent, Users2 } from 'lucide-react';
 
 // Helper function for currency formatting
 const formatCurrency = (amount: number) => {
@@ -741,6 +741,52 @@ export default function ApprovalDialog({
                     </div>
                   )}
                   
+
+                  {/* Family Details */}
+                  {(() => {
+                    let familyDetails: any = null;
+                    try {
+                      if (selectedLoan.loanForm?.internalRemarks) {
+                        const parsed = JSON.parse(selectedLoan.loanForm.internalRemarks);
+                        if (parsed && typeof parsed === 'object' && ('numberOfPeopleInHouse' in parsed || 'earningMembers' in parsed)) {
+                          familyDetails = parsed;
+                        }
+                      }
+                    } catch (e) {
+                      // ignore parse error
+                    }
+                    
+                    if (!familyDetails) return null;
+                    
+                    return (
+                      <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+                        <h4 className="font-semibold text-emerald-800 mb-3 flex items-center gap-2">
+                          <Users2 className="h-4 w-4" /> Family Details
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-xs text-emerald-600">Total Members</p>
+                            <p className="font-medium text-emerald-900">{familyDetails.numberOfPeopleInHouse || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-emerald-600">Earning Members</p>
+                            <p className="font-medium text-emerald-900">{familyDetails.numberOfEarningMembers || '0'}</p>
+                          </div>
+                          {familyDetails.earningMembers && familyDetails.earningMembers.length > 0 && (
+                            <div className="col-span-2 space-y-2 mt-2">
+                              <p className="text-xs font-semibold text-emerald-700 border-b border-emerald-200 pb-1">Earnings Breakdown</p>
+                              {familyDetails.earningMembers.map((member: any, idx: number) => (
+                                <div key={idx} className="flex justify-between items-center bg-white/60 p-2 rounded text-xs border border-emerald-100">
+                                  <span className="font-medium text-emerald-900">{member.name || 'Member'} <span className="text-emerald-600">({member.jobField || 'Job'})</span></span>
+                                  <span className="font-bold text-emerald-700">{member.income ? formatCurrency(parseFloat(member.income)) : 'N/A'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Remarks */}
                   <div>

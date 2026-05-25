@@ -393,6 +393,52 @@ export default function DisbursementDialog({
                           </div>
                         </div>
 
+                        {/* Family Details */}
+                        {(() => {
+                          let familyDetails: any = null;
+                          try {
+                            if (selectedLoan.loanForm?.internalRemarks) {
+                              const parsed = JSON.parse(selectedLoan.loanForm.internalRemarks);
+                              if (parsed && typeof parsed === 'object' && ('numberOfPeopleInHouse' in parsed || 'earningMembers' in parsed)) {
+                                familyDetails = parsed;
+                              }
+                            }
+                          } catch (e) {
+                            // ignore parse error
+                          }
+                          
+                          if (!familyDetails) return null;
+                          
+                          return (
+                            <div className="py-4 border-b">
+                              <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+                                <Users2 className="h-4 w-4" /> Family Details
+                              </h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div className="p-3 bg-emerald-50 rounded-lg">
+                                  <p className="text-xs text-emerald-700">Total Members</p>
+                                  <p className="font-medium text-emerald-900">{familyDetails.numberOfPeopleInHouse || 'N/A'}</p>
+                                </div>
+                                <div className="p-3 bg-emerald-50 rounded-lg">
+                                  <p className="text-xs text-emerald-700">Earning Members</p>
+                                  <p className="font-medium text-emerald-900">{familyDetails.numberOfEarningMembers || '0'}</p>
+                                </div>
+                                {familyDetails.earningMembers && familyDetails.earningMembers.length > 0 && (
+                                  <div className="p-3 bg-emerald-50 rounded-lg col-span-2 space-y-2">
+                                    <p className="text-xs text-emerald-700 border-b border-emerald-200 pb-1">Earnings Breakdown</p>
+                                    {familyDetails.earningMembers.map((member: any, idx: number) => (
+                                      <div key={idx} className="flex justify-between items-center text-xs">
+                                        <span className="font-medium">{member.name || 'Member'} <span className="text-emerald-600">({member.jobField || 'Job'})</span></span>
+                                        <span className="font-bold">{member.income ? formatCurrency(parseFloat(member.income)) : 'N/A'}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Employment Details — show only relevant fields based on employment type */}
                         <div className="py-4 border-b">
                           <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
@@ -1249,8 +1295,8 @@ export default function DisbursementDialog({
                   </div>
                 </div>
 
-                {/* Extra EMI Payment Page Selection - only when extra EMIs exist */}
-                {mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && (
+                {/* Extra EMI Payment Page Selection - only when extra EMIs exist (and not interest-only) */}
+                {mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && (
                   <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 rounded-lg">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="p-2 bg-purple-100 rounded-lg">
@@ -1413,7 +1459,7 @@ export default function DisbursementDialog({
               <span className="text-sm text-red-700">
                 {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source. " : ""}
                 {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed. " : ""}
-                {mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
+                {mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
               </span>
             </div>
           )}
