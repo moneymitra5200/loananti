@@ -1453,7 +1453,7 @@ export default function DisbursementDialog({
 
         <SheetFooter className="p-5 border-t flex-shrink-0 flex-col gap-2">
           {/* Show missing requirements warning */}
-          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)) && (
+          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)) && (
             <div className="w-full p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600" />
               <span className="text-sm text-red-700">
