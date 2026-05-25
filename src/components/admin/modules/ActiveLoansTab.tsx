@@ -409,6 +409,8 @@ export default function ActiveLoansTab({
       status: string;
       loanType?: string;
       company?: { id: string; name: string; code: string };
+      isInterestOnlyLoan?: boolean;
+      interestOnlyMonthlyAmount?: number;
       createdAt: string;
     } | null = null;
     
@@ -433,6 +435,8 @@ export default function ActiveLoansTab({
           name: ml.company.name,
           code: ml.company.code || ''
         } : undefined,
+        isInterestOnlyLoan: ml.isInterestOnlyLoan,
+        interestOnlyMonthlyAmount: ml.interestOnlyMonthlyAmount,
         createdAt: ml.createdAt || new Date().toISOString()
       };
     } else if (mapping?.offlineMirrorLoan) {
@@ -480,7 +484,7 @@ export default function ActiveLoansTab({
             setShowLoanDetailPanel(true); 
           }}
           onPayEmi={(loanData) => handlePayEmi({ ...loan, nextEmi: loan.nextEmi })}
-          showPayButton={!isInterestOnly}
+          showPayButton={true}
           showEmiProgress={true}
         />
         

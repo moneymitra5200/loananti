@@ -244,7 +244,7 @@ export function ParallelLoanView({
           {/* Action Buttons */}
           <div className="flex gap-2">
             {/* Pay button ONLY on Original side — Mirror is read-only */}
-            {showPayButton && onPayEmi && isOriginal && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY') && (
+            {showPayButton && onPayEmi && isOriginal && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY' || loan.status === 'ACTIVE_INTEREST_ONLY') && (
               <Button
                 size="sm"
                 className="bg-emerald-500 hover:bg-emerald-600 text-white"

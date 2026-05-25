@@ -432,7 +432,7 @@ export async function PUT(request: NextRequest) {
       // Create the actual MIRROR LOAN APPLICATION
       // For IO loans: status = ACTIVE_INTEREST_ONLY (no EMI schedule until Start Loan)
       // For normal loans: status = ACTIVE (full EMI schedule created immediately)
-      const isIOLoan = pendingLoan.originalTenure === 0;
+      const isIOLoan = originalLoan.isInterestOnlyLoan || originalLoan.loanType === 'INTEREST_ONLY';
       const monthlyMirrorInterest = isIOLoan
         ? Math.round((pendingLoan.principalAmount * pendingLoan.mirrorInterestRate / 100 / 12) * 100) / 100
         : 0;
@@ -508,7 +508,7 @@ export async function PUT(request: NextRequest) {
       if (isIOLoan) {
         const firstDue = new Date();
         firstDue.setMonth(firstDue.getMonth() + 1);
-        firstDue.setDate(5);
+        firstDue.setDate(1); // Issue 8 Fix: 1st of next month to match original loan
         firstDue.setHours(0, 0, 0, 0);
         await db.eMISchedule.create({
           data: {
