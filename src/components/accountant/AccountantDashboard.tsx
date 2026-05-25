@@ -2895,6 +2895,7 @@ export default function UnifiedAccountantDashboard() {
           <RoleAuditPanel
             userId={user?.id}
             userRole={user?.role || 'ACCOUNTANT'}
+            hideUndo={true}
           />
         );
       default:

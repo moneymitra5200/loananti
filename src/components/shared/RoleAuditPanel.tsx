@@ -58,6 +58,8 @@ interface Props {
   userRole: string;
   /** If true, no userId filter → Super Admin sees everything */
   isAdmin?: boolean;
+  /** If true, the Undo Actions tab is hidden */
+  hideUndo?: boolean;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -88,7 +90,7 @@ const getModuleIcon  = (mod: string): React.ElementType => MODULE_ICONS[mod] || 
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
-export default function RoleAuditPanel({ userId, userRole, isAdmin = false }: Props) {
+export default function RoleAuditPanel({ userId, userRole, isAdmin = false, hideUndo = false }: Props) {
   const [tab, setTab] = useState<'history' | 'undo'>('history');
 
   // Audit log state
@@ -257,9 +259,10 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false }: Pr
           </div>
 
           {/* Tab switcher */}
-          <div className="flex gap-2 mt-4">
-            {(['history', 'undo'] as const).map(t => (
-              <button
+          {!hideUndo && (
+            <div className="flex gap-2 mt-4">
+              {(['history', 'undo'] as const).map(t => (
+                <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
@@ -275,7 +278,8 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false }: Pr
                 )}
               </button>
             ))}
-          </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -34,6 +34,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  suggestions?: string[];
 }
 
 // Props for the component
@@ -157,7 +158,8 @@ export default function AIChatAssistant({ customerId, customerName }: AIChatAssi
           id: generateMessageId(),
           role: 'assistant',
           content: data.response,
-          timestamp: new Date()
+          timestamp: new Date(),
+          suggestions: data.suggestions
         };
         setMessages(prev => [...prev, assistantMessage]);
       } else {
@@ -285,9 +287,9 @@ export default function AIChatAssistant({ customerId, customerName }: AIChatAssi
                       <ScrollArea className="h-[380px]" ref={scrollRef}>
                         <div className="p-4 space-y-4">
                           {displayMessages.map((message) => (
-                            <motion.div
-                              key={message.id}
-                              initial={{ opacity: 0, y: 10 }}
+                            <div key={message.id} className="flex flex-col gap-2">
+                              <motion.div
+                                initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
                               className={cn(
                                 'flex gap-2',
@@ -334,6 +336,23 @@ export default function AIChatAssistant({ customerId, customerName }: AIChatAssi
                                 </div>
                               )}
                             </motion.div>
+                            {message.suggestions && message.suggestions.length > 0 && (
+                              <div className="pl-12 flex flex-wrap gap-2">
+                                {message.suggestions.map((suggestion, idx) => (
+                                  <Button
+                                    key={idx}
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleQuickAction(suggestion)}
+                                    disabled={isLoading}
+                                    className="h-7 text-xs bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200"
+                                  >
+                                    {suggestion}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                            </div>
                           ))}
 
                           {/* Typing indicator */}

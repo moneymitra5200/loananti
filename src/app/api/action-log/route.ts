@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // last 24h
       };
       // Non-admin: only their own
-      if (userId && userRole !== 'SUPER_ADMIN') where.userId = userId;
+      // if (userId && userRole !== 'SUPER_ADMIN') where.userId = userId;
+      // requested by user: all roles should see undo actions (except we hide the tab for accountant)
 
       const actions = await db.actionLog.findMany({
         where,
