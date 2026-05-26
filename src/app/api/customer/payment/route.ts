@@ -362,56 +362,125 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Shift the EMI to next month - add principal to next EMI
-        const nextEmis = await tx.eMISchedule.findMany({
+        // ── CORRECT IO LOGIC: Shift all subsequent EMIs +1 and create new deferred EMI ──
+        // Get due date day pattern from first pending EMI
+        const firstPendingForIO = await tx.eMISchedule.findFirst({
           where: {
             loanApplicationId: loanId,
-            paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] }
+            paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
           },
-          orderBy: { installmentNumber: 'asc' }
+          orderBy: { installmentNumber: 'asc' },
+          select: { dueDate: true }
+        });
+        const dueDateDay = firstPendingForIO?.dueDate?.getDate() || emiSchedule.dueDate.getDate() || 15;
+
+        // New deferred EMI due date = current EMI due date + 1 month
+        const newEmiDueDate = new Date(emiSchedule.dueDate);
+        newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
+        newEmiDueDate.setDate(dueDateDay);
+
+        // Shift all subsequent EMIs (installmentNumber > current) by +1, DESCENDING to avoid unique clash
+        const subsequentEmis = await tx.eMISchedule.findMany({
+          where: {
+            loanApplicationId: loanId,
+            installmentNumber: { gt: emiSchedule.installmentNumber }
+          },
+          orderBy: { installmentNumber: 'desc' }
         });
 
-        if (nextEmis.length > 0) {
-          const nextEmi = nextEmis[0];
-          const nextDueDate = new Date(nextEmi.dueDate);
-          nextDueDate.setMonth(nextDueDate.getMonth() + 1);
-
+        for (const sub of subsequentEmis) {
+          const shiftedDue = new Date(sub.dueDate);
+          shiftedDue.setMonth(shiftedDue.getMonth() + 1);
+          shiftedDue.setDate(dueDateDay);
           await tx.eMISchedule.update({
-            where: { id: nextEmi.id },
+            where: { id: sub.id },
             data: {
-              dueDate: nextDueDate,
-              originalDueDate: nextEmi.originalDueDate || nextEmi.dueDate,
-              principalAmount: { increment: deferredPrincipal },
-              totalAmount: { increment: deferredPrincipal },
-              notes: `Includes deferred principal from EMI #${emiSchedule.installmentNumber}`
+              installmentNumber: sub.installmentNumber + 1,
+              dueDate: shiftedDue,
+              originalDueDate: sub.originalDueDate || sub.dueDate
             }
           });
-        } else {
-          // No more EMIs - create a new one for the deferred principal
-          const lastEmi = await tx.eMISchedule.findFirst({
-            where: { loanApplicationId: loanId },
-            orderBy: { installmentNumber: 'desc' }
+        }
+
+        // Create deferred EMI at N+1 with SAME P+I as current EMI (no recalculation)
+        await tx.eMISchedule.create({
+          data: {
+            loanApplicationId: loanId,
+            installmentNumber: emiSchedule.installmentNumber + 1,
+            dueDate: newEmiDueDate,
+            originalDueDate: newEmiDueDate,
+            principalAmount: deferredPrincipal,
+            interestAmount: emiSchedule.interestAmount,
+            totalAmount: Math.round((deferredPrincipal + emiSchedule.interestAmount) * 100) / 100,
+            outstandingPrincipal: deferredPrincipal,
+            outstandingInterest: emiSchedule.interestAmount,
+            paymentStatus: 'PENDING',
+            principalDeferred: true,
+            notes: `Deferred from customer IO on EMI #${emiSchedule.installmentNumber}. P:₹${deferredPrincipal} + I:₹${emiSchedule.interestAmount}. Due: ${newEmiDueDate.toISOString().split('T')[0]}`
+          }
+        });
+
+        // ── Mirror Loan Sync ──────────────────────────────────────────────────
+        const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: loanId }
+        });
+        if (mirrorMapping?.mirrorLoanId) {
+          const mirrorEMI = await tx.eMISchedule.findFirst({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emiSchedule.installmentNumber }
           });
+          if (mirrorEMI && mirrorEMI.paymentStatus !== 'PAID' && mirrorEMI.paymentStatus !== 'INTEREST_ONLY_PAID') {
+            const mirrorInterest  = Number(mirrorEMI.interestAmount  || 0);
+            const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
 
-          const newDueDate = new Date();
-          newDueDate.setMonth(newDueDate.getMonth() + 1);
+            await tx.eMISchedule.update({
+              where: { id: mirrorEMI.id },
+              data: {
+                paymentStatus: 'INTEREST_ONLY_PAID',
+                paidAmount: mirrorInterest,
+                paidPrincipal: 0,
+                paidInterest: mirrorInterest,
+                paidDate: new Date(),
+                isInterestOnly: true,
+                principalDeferred: true,
+                notes: `[MIRROR SYNC] Customer IO: I:₹${mirrorInterest} collected, P:₹${mirrorPrincipal} deferred`
+              }
+            });
 
-          await tx.eMISchedule.create({
-            data: {
-              loanApplicationId: loanId,
-              installmentNumber: (lastEmi?.installmentNumber || 0) + 1,
-              dueDate: newDueDate,
-              originalDueDate: newDueDate,
-              principalAmount: deferredPrincipal,
-              interestAmount: 0,
-              totalAmount: deferredPrincipal,
-              outstandingPrincipal: deferredPrincipal,
-              outstandingInterest: 0,
-              paymentStatus: 'PENDING',
-              paidAmount: 0,
-              notes: 'Deferred principal from interest-only payment'
+            const mirrorDueDateDay = mirrorEMI.dueDate.getDate() || dueDateDay;
+            const subsequentMirrorEmis = await tx.eMISchedule.findMany({
+              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: { gt: mirrorEMI.installmentNumber } },
+              orderBy: { installmentNumber: 'desc' }
+            });
+            for (const ms of subsequentMirrorEmis) {
+              const mDue = new Date(ms.dueDate);
+              mDue.setMonth(mDue.getMonth() + 1);
+              mDue.setDate(mirrorDueDateDay);
+              await tx.eMISchedule.update({
+                where: { id: ms.id },
+                data: { installmentNumber: ms.installmentNumber + 1, dueDate: mDue, originalDueDate: ms.originalDueDate || ms.dueDate }
+              });
             }
-          });
+
+            const newMirrorDueDate = new Date(mirrorEMI.dueDate);
+            newMirrorDueDate.setMonth(newMirrorDueDate.getMonth() + 1);
+            newMirrorDueDate.setDate(mirrorDueDateDay);
+            await tx.eMISchedule.create({
+              data: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                installmentNumber: mirrorEMI.installmentNumber + 1,
+                dueDate: newMirrorDueDate,
+                originalDueDate: newMirrorDueDate,
+                principalAmount: mirrorPrincipal,
+                interestAmount: mirrorInterest,
+                totalAmount: Math.round((mirrorPrincipal + mirrorInterest) * 100) / 100,
+                outstandingPrincipal: mirrorPrincipal,
+                outstandingInterest: mirrorInterest,
+                paymentStatus: 'PENDING',
+                principalDeferred: true,
+                notes: `[MIRROR] Deferred from customer IO on EMI #${mirrorEMI.installmentNumber}. P:₹${mirrorPrincipal} + I:₹${mirrorInterest}. Due: ${newMirrorDueDate.toISOString().split('T')[0]}`
+              }
+            });
+          }
         }
       }
 
