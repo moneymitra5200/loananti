@@ -464,8 +464,19 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false, hide
                           {action.previousData && (
                             <p className="text-xs text-gray-500 mt-1.5 bg-white rounded px-2 py-1 border border-gray-100 truncate">
                               Will restore: {(() => {
-                                try { const d = JSON.parse(action.previousData); return Object.entries(d).slice(0, 2).map(([k,v]) => `${k}=${v}`).join(', '); }
-                                catch { return action.previousData.substring(0, 60); }
+                                try {
+                                  const prev = JSON.parse(action.previousData);
+                                  const curr = action.newData ? JSON.parse(action.newData) : {};
+                                  if (action.actionType === 'PAY') {
+                                    const amountPaid = (curr.paidAmount || 0) - (prev.paidAmount || 0);
+                                    if (amountPaid > 0) return `Reverse payment of ₹${amountPaid}`;
+                                    if (curr.paymentAmount) return `Reverse payment of ₹${curr.paymentAmount}`;
+                                    return `Reverse payment action`;
+                                  }
+                                  return Object.entries(prev).slice(0, 2).map(([k,v]) => `${k}=${v}`).join(', ');
+                                } catch {
+                                  return action.previousData.substring(0, 60);
+                                }
                               })()}
                             </p>
                           )}

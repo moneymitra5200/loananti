@@ -21,6 +21,7 @@ import {
 import { EMIDateChangeDialog } from '../loan/sections';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Dialog,
@@ -203,6 +204,9 @@ export default function OfflineLoanDetailPanel({
   onLoanStarted,
   onLoanDeleted
 }: OfflineLoanDetailPanelProps) {
+  const { user } = useAuth();
+  const currentUserId = userId || user?.id || '';
+
   const [loading, setLoading] = useState(false);
   const [loan, setLoan] = useState<LoanDetail | null>(null);
   const [summary, setSummary] = useState<any>(null);
@@ -251,7 +255,7 @@ export default function OfflineLoanDetailPanel({
           emiId: dateChangeEMI.id,
           newDueDate: newEMIDate,
           reason: dateChangeReason,
-          userId: userId,
+          userId: currentUserId,
         }),
       });
 
