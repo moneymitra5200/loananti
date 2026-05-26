@@ -56,12 +56,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'EMI already paid' }, { status: 400 });
     }
 
-    // Sequential Payment Validation - Check if previous EMIs are paid
+    // Sequential Payment Validation - INTEREST_ONLY_PAID counts as "handled" for prior EMIs
     const previousEmis = await db.eMISchedule.findMany({
       where: {
         loanApplicationId: loanId,
         installmentNumber: { lt: emiSchedule.installmentNumber },
-        paymentStatus: { not: 'PAID' }
+        paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID', 'WAIVED'] }
       }
     });
 
@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
     const loan = emiSchedule.loanApplication;
     const paymentAmount = parseFloat(amount.toString());
     const totalAmount = emiSchedule.totalAmount;
-    const principalAmount = emiSchedule.principalAmount;
-    const interestAmount = emiSchedule.interestAmount;
+    const principalAmount = Number(emiSchedule.principalAmount || 0);
+    const interestAmount = Number(emiSchedule.interestAmount || 0);
 
     let updatedEmiSchedule: Awaited<ReturnType<typeof db.eMISchedule.update>> | null = null;
     let remainingAmount = 0;
@@ -133,7 +133,6 @@ export async function POST(request: NextRequest) {
         // Create credit transaction for agent (if agent exists)
         const agentId = loan.sessionForm?.agentId || loan.sessionForm?.agent?.id;
         if (agentId) {
-          // Get agent's current credit balance
           const agent = await tx.user.findUnique({
             where: { id: agentId },
             select: { personalCredit: true, companyCredit: true, credit: true }
@@ -170,7 +169,6 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          // Update agent's credit
           await tx.user.update({
             where: { id: agentId },
             data: {
@@ -207,7 +205,6 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // Create payment record for partial payment
         await tx.payment.create({
           data: {
             loanApplicationId: loanId,
@@ -224,10 +221,8 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // Create credit transaction for partial payment
         const partialAgentId = loan.sessionForm?.agentId || loan.sessionForm?.agent?.id;
         if (partialAgentId) {
-          // Get agent's current credit balance
           const partialAgent = await tx.user.findUnique({
             where: { id: partialAgentId },
             select: { personalCredit: true, companyCredit: true, credit: true }
@@ -264,7 +259,6 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          // Update agent's credit
           await tx.user.update({
             where: { id: partialAgentId },
             data: {
@@ -275,14 +269,21 @@ export async function POST(request: NextRequest) {
         }
 
       } else if (paymentType === 'INTEREST_ONLY') {
-        // Interest Only Payment - defer principal to next month
+        // ── INTEREST ONLY PAYMENT ─────────────────────────────────────────────
+        // Customer pays only interest for this month.
+        // Rule: mark current EMI as INTEREST_ONLY_PAID (NOT 'PAID'),
+        //       shift all subsequent EMIs +1, create a NEW EMI at position N+1
+        //       with the SAME P+I as the current EMI (no recalculation).
+        //       Mirror loan gets the same treatment using its OWN P+I values.
         const paidInterest = interestAmount;
         const deferredPrincipal = principalAmount;
 
+        // CRITICAL: use INTEREST_ONLY_PAID — using 'PAID' was wrong and broke
+        //           sequential validation for subsequent EMIs.
         updatedEmiSchedule = await tx.eMISchedule.update({
           where: { id: emiScheduleId },
           data: {
-            paymentStatus: 'PAID',
+            paymentStatus: 'INTEREST_ONLY_PAID',
             paidAmount: interestAmount,
             paidPrincipal: 0,
             paidInterest: paidInterest,
@@ -291,11 +292,12 @@ export async function POST(request: NextRequest) {
             outstandingPrincipal: deferredPrincipal,
             outstandingInterest: 0,
             paidDate: new Date(),
-            notes: 'Interest only payment - principal deferred to next EMI'
+            paymentMode: 'ONLINE',
+            notes: `[IO PAID] Customer portal. I:\u20b9${paidInterest} collected, P:\u20b9${deferredPrincipal} deferred`
           }
         });
 
-        // Create payment record
+        // Payment record
         await tx.payment.create({
           data: {
             loanApplicationId: loanId,
@@ -308,14 +310,13 @@ export async function POST(request: NextRequest) {
             status: 'COMPLETED',
             paymentType: 'INTEREST_ONLY',
             paidById: customerId,
-            remarks: 'Interest only payment - principal deferred'
+            remarks: `Interest only payment - P:\u20b9${deferredPrincipal} deferred`
           }
         });
 
-        // Create credit transaction for interest payment
+        // Credit transaction for the collecting agent
         const interestAgentId = loan.sessionForm?.agentId || loan.sessionForm?.agent?.id;
         if (interestAgentId) {
-          // Get agent's current credit balance
           const interestAgent = await tx.user.findUnique({
             where: { id: interestAgentId },
             select: { personalCredit: true, companyCredit: true, credit: true }
@@ -352,7 +353,6 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          // Update agent's credit
           await tx.user.update({
             where: { id: interestAgentId },
             data: {
@@ -362,24 +362,16 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // ── CORRECT IO LOGIC: Shift all subsequent EMIs +1 and create new deferred EMI ──
-        // Get due date day pattern from first pending EMI
-        const firstPendingForIO = await tx.eMISchedule.findFirst({
-          where: {
-            loanApplicationId: loanId,
-            paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
-          },
-          orderBy: { installmentNumber: 'asc' },
-          select: { dueDate: true }
-        });
-        const dueDateDay = firstPendingForIO?.dueDate?.getDate() || emiSchedule.dueDate.getDate() || 15;
+        // ── ORIGINAL LOAN: Shift subsequent EMIs +1, create deferred EMI ────
+        // Due date day pattern from the current EMI
+        const dueDateDay = emiSchedule.dueDate.getDate() || 15;
 
         // New deferred EMI due date = current EMI due date + 1 month
         const newEmiDueDate = new Date(emiSchedule.dueDate);
         newEmiDueDate.setMonth(newEmiDueDate.getMonth() + 1);
         newEmiDueDate.setDate(dueDateDay);
 
-        // Shift all subsequent EMIs (installmentNumber > current) by +1, DESCENDING to avoid unique clash
+        // Shift all subsequent EMIs (installmentNumber > current) — DESCENDING order to avoid unique clash
         const subsequentEmis = await tx.eMISchedule.findMany({
           where: {
             loanApplicationId: loanId,
@@ -402,7 +394,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Create deferred EMI at N+1 with SAME P+I as current EMI (no recalculation)
+        // Create deferred EMI at N+1 — SAME P+I as current (no recalculation)
         await tx.eMISchedule.create({
           data: {
             loanApplicationId: loanId,
@@ -410,28 +402,36 @@ export async function POST(request: NextRequest) {
             dueDate: newEmiDueDate,
             originalDueDate: newEmiDueDate,
             principalAmount: deferredPrincipal,
-            interestAmount: emiSchedule.interestAmount,
-            totalAmount: Math.round((deferredPrincipal + emiSchedule.interestAmount) * 100) / 100,
+            interestAmount: interestAmount,
+            totalAmount: Math.round((deferredPrincipal + interestAmount) * 100) / 100,
             outstandingPrincipal: deferredPrincipal,
-            outstandingInterest: emiSchedule.interestAmount,
+            outstandingInterest: interestAmount,
             paymentStatus: 'PENDING',
             principalDeferred: true,
-            notes: `Deferred from customer IO on EMI #${emiSchedule.installmentNumber}. P:₹${deferredPrincipal} + I:₹${emiSchedule.interestAmount}. Due: ${newEmiDueDate.toISOString().split('T')[0]}`
+            notes: `Deferred from customer IO on EMI #${emiSchedule.installmentNumber}. P:\u20b9${deferredPrincipal} + I:\u20b9${interestAmount}. Due: ${newEmiDueDate.toISOString().split('T')[0]}`
           }
         });
 
-        // ── Mirror Loan Sync ──────────────────────────────────────────────────
+        // ── MIRROR LOAN SYNC ──────────────────────────────────────────────────
+        // Mirror uses its OWN stored P+I (different from original because it's
+        // 15% reducing vs 24% flat). We never copy original values to mirror.
         const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: loanId }
+          where: { originalLoanId: loanId, isOfflineLoan: false }
         });
         if (mirrorMapping?.mirrorLoanId) {
           const mirrorEMI = await tx.eMISchedule.findFirst({
-            where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emiSchedule.installmentNumber }
+            where: {
+              loanApplicationId: mirrorMapping.mirrorLoanId,
+              installmentNumber: emiSchedule.installmentNumber
+            }
           });
           if (mirrorEMI && mirrorEMI.paymentStatus !== 'PAID' && mirrorEMI.paymentStatus !== 'INTEREST_ONLY_PAID') {
+            // Use mirror's OWN interest and principal amounts
             const mirrorInterest  = Number(mirrorEMI.interestAmount  || 0);
             const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
+            const mirrorDueDateDay = mirrorEMI.dueDate.getDate() || dueDateDay;
 
+            // Mark mirror EMI as INTEREST_ONLY_PAID
             await tx.eMISchedule.update({
               where: { id: mirrorEMI.id },
               data: {
@@ -442,13 +442,17 @@ export async function POST(request: NextRequest) {
                 paidDate: new Date(),
                 isInterestOnly: true,
                 principalDeferred: true,
-                notes: `[MIRROR SYNC] Customer IO: I:₹${mirrorInterest} collected, P:₹${mirrorPrincipal} deferred`
+                paymentMode: 'ONLINE',
+                notes: `[MIRROR SYNC] Customer IO: I:\u20b9${mirrorInterest} collected, P:\u20b9${mirrorPrincipal} deferred`
               }
             });
 
-            const mirrorDueDateDay = mirrorEMI.dueDate.getDate() || dueDateDay;
+            // Shift mirror's subsequent EMIs — DESCENDING order
             const subsequentMirrorEmis = await tx.eMISchedule.findMany({
-              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: { gt: mirrorEMI.installmentNumber } },
+              where: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                installmentNumber: { gt: mirrorEMI.installmentNumber }
+              },
               orderBy: { installmentNumber: 'desc' }
             });
             for (const ms of subsequentMirrorEmis) {
@@ -461,6 +465,7 @@ export async function POST(request: NextRequest) {
               });
             }
 
+            // Create deferred mirror EMI at N+1 — mirror's OWN P+I
             const newMirrorDueDate = new Date(mirrorEMI.dueDate);
             newMirrorDueDate.setMonth(newMirrorDueDate.getMonth() + 1);
             newMirrorDueDate.setDate(mirrorDueDateDay);
@@ -477,7 +482,7 @@ export async function POST(request: NextRequest) {
                 outstandingInterest: mirrorInterest,
                 paymentStatus: 'PENDING',
                 principalDeferred: true,
-                notes: `[MIRROR] Deferred from customer IO on EMI #${mirrorEMI.installmentNumber}. P:₹${mirrorPrincipal} + I:₹${mirrorInterest}. Due: ${newMirrorDueDate.toISOString().split('T')[0]}`
+                notes: `[MIRROR] Deferred from customer IO on EMI #${mirrorEMI.installmentNumber}. P:\u20b9${mirrorPrincipal} + I:\u20b9${mirrorInterest}. Due: ${newMirrorDueDate.toISOString().split('T')[0]}`
               }
             });
           }
