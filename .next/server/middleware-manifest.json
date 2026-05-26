@@ -1,5 +1,5 @@
 {
-  "sorted_middleware": [],
+  "version": 3,
   "middleware": {
     "/": {
       "files": [
@@ -11,7 +11,7 @@
       "page": "/",
       "matchers": [
         {
-          "regexp": "/:nextData(_next/data/[^/]{1,})?/api/:path*{(\\\\.json)}?",
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/api(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\\\.json)?[\\/#\\?]?$",
           "originalSource": "/api/:path*"
         }
       ],
@@ -26,6 +26,8 @@
       }
     }
   },
-  "instrumentation": null,
+  "sortedMiddleware": [
+    "/"
+  ],
   "functions": {}
 }

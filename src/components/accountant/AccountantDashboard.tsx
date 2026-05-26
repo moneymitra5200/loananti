@@ -173,12 +173,14 @@ function CashBookSection({
   selectedCompanyId,
   formatCurrency,
   refreshKey = 0,
-  formatDateShort
+  formatDateShort,
+  companyType
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDateShort: (date: Date | string) => string;
   refreshKey?: number;
+  companyType?: 'COMPANY_1_2' | 'COMPANY_3';
 }) {
   const { user } = useAuth();
   const [cashBook, setCashBook] = useState<any>(null);
@@ -347,28 +349,32 @@ function CashBookSection({
               Live · {cbUpdatedLabel}
             </span>
           )}
-          <Button variant="outline" onClick={() => setShowOpeningDialog(true)}>
-            <PiggyBank className="h-4 w-4 mr-2" />
-            Opening Balance
-          </Button>
-          <Button onClick={() => {
-            setAddEntryType('CREDIT');
-            setAddAmount('');
-            setAddDescription('');
-            setShowAddDialog(true);
-          }} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            <ArrowDownRight className="h-4 w-4 mr-2" />
-            Add Money
-          </Button>
-          <Button onClick={() => {
-            setAddEntryType('DEBIT');
-            setAddAmount('');
-            setAddDescription('');
-            setShowAddDialog(true);
-          }} className="bg-red-600 hover:bg-red-700 text-white">
-            <ArrowUpRight className="h-4 w-4 mr-2" />
-            Withdraw Money
-          </Button>
+          {companyType === 'COMPANY_3' && (
+            <>
+              <Button variant="outline" onClick={() => setShowOpeningDialog(true)}>
+                <PiggyBank className="h-4 w-4 mr-2" />
+                Opening Balance
+              </Button>
+              <Button onClick={() => {
+                setAddEntryType('CREDIT');
+                setAddAmount('');
+                setAddDescription('');
+                setShowAddDialog(true);
+              }} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                <ArrowDownRight className="h-4 w-4 mr-2" />
+                Add Money
+              </Button>
+              <Button onClick={() => {
+                setAddEntryType('DEBIT');
+                setAddAmount('');
+                setAddDescription('');
+                setShowAddDialog(true);
+              }} className="bg-red-600 hover:bg-red-700 text-white">
+                <ArrowUpRight className="h-4 w-4 mr-2" />
+                Withdraw Money
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -2833,6 +2839,7 @@ export default function UnifiedAccountantDashboard() {
             formatCurrency={formatCurrency}
             refreshKey={refreshKey}
             formatDateShort={formatDateShort}
+            companyType={companyType}
           />
         );
       case 'bank':
