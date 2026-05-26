@@ -34,6 +34,16 @@ function OverviewTabComponent({
     ? companies.filter(c => selectedCompanyIds.includes(c.id)).map(c => c.name).join(', ')
     : 'All Companies';
 
+  const cleanText = (txt?: string) => {
+    if (!txt) return '';
+    return txt.replace(/\(Last EMI.*?vs Regular EMI.*?\)/gi, '')
+              .replace(/mirror/gi, '')
+              .replace(/MR-/gi, '')
+              .replace(/-\s*\(\)/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+  };
+
   return (
     <div className="space-y-6">
       {/* Company Selection Banner */}
@@ -305,7 +315,7 @@ function OverviewTabComponent({
                     </div>
                     <div>
                       <p className="font-medium">{entry.entryNumber}</p>
-                      <p className="text-sm text-muted-foreground">{entry.narration}</p>
+                      <p className="text-sm text-muted-foreground">{cleanText(entry.narration)}</p>
                     </div>
                   </div>
                   <div className="text-right">

@@ -137,6 +137,16 @@ function BorrowerLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const totalOutstanding = borrowers.reduce((sum, b) => sum + b.totalOutstanding, 0);
   const totalPaid = borrowers.reduce((sum, b) => sum + b.totalPaid, 0);
 
+  const cleanText = (txt?: string) => {
+    if (!txt) return '';
+    return txt.replace(/\(Last EMI.*?vs Regular EMI.*?\)/gi, '')
+              .replace(/mirror/gi, '')
+              .replace(/MR-/gi, '')
+              .replace(/-\s*\(\)/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -448,7 +458,7 @@ function BorrowerLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                                 {txn.type}
                               </Badge>
                             </TableCell>
-                            <TableCell className="max-w-[200px] truncate">{txn.description}</TableCell>
+                            <TableCell className="max-w-[200px] truncate">{cleanText(txn.description)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(txn.principal)}</TableCell>
                             <TableCell className="text-right">{formatCurrency(txn.interest)}</TableCell>
                             <TableCell className="text-right font-medium">{formatCurrency(txn.amount)}</TableCell>

@@ -19,6 +19,16 @@ function JournalEntriesTabComponent({
   formatDate,
   getReferenceTypeLabel,
 }: JournalEntriesTabProps) {
+  const cleanText = (txt?: string) => {
+    if (!txt) return '';
+    return txt.replace(/\(Last EMI.*?vs Regular EMI.*?\)/gi, '')
+              .replace(/mirror/gi, '')
+              .replace(/MR-/gi, '')
+              .replace(/-\s*\(\)/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-between items-start gap-3">
@@ -81,7 +91,7 @@ function JournalEntriesTabComponent({
                     <TableCell className="font-mono font-bold">{entry.entryNumber}</TableCell>
                     <TableCell>{formatDate(entry.entryDate)}</TableCell>
                     <TableCell><Badge variant="outline">{getReferenceTypeLabel(entry.referenceType)}</Badge></TableCell>
-                    <TableCell className="max-w-[200px] truncate">{entry.narration}</TableCell>
+                    <TableCell className="max-w-[200px] truncate">{cleanText(entry.narration)}</TableCell>
                     <TableCell className="text-right font-mono">{formatCurrency(entry.totalDebit)}</TableCell>
                     <TableCell className="text-right font-mono">{formatCurrency(entry.totalCredit)}</TableCell>
                     <TableCell>

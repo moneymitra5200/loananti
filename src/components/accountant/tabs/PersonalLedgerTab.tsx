@@ -211,6 +211,16 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+      const cleanText = (txt?: string) => {
+        if (!txt) return '';
+        return txt.replace(/\(Last EMI.*?vs Regular EMI.*?\)/gi, '')
+                  .replace(/mirror/gi, '')
+                  .replace(/MR-/gi, '')
+                  .replace(/-\s*\(\)/g, '')
+                  .replace(/\s+/g, ' ')
+                  .trim();
+      };
+
       const rows: StatementRow[] = [];
       // Start balance = loan amount (from disbursement)
       let runningBalance = loan.amount || loan.loanAmount || 0;
@@ -280,9 +290,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         runningBalance -= totalPayment;
         const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
         
+        let desc = (entry as any).description || buildRowDescription(entry);
+        
         rows.push({
           date: entry.date,
-          description: `${paymentMethod} — ${(entry as any).description || buildRowDescription(entry)}`,
+          description: `${paymentMethod} — ${cleanText(desc)}`,
           totalPayment,
           interestPaid,
           principalPaid,
@@ -306,6 +318,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const rowTotalInterestPaid  = rows.filter(r => r.debit && r.debit > 0).reduce((s, r) => s + (r.debit || 0), 0);
       const rowTotalPrincipalPaid = actualPayments.reduce((s, r) => s + (r.principalPaid || 0), 0);
 
+      // The final row's remaining balance is the most accurate because it guarantees
+      // we account for the initial loan amount disbursement correctly.
+      const lastRowBalance = rows.length > 0 ? rows[rows.length - 1].remainingBalance : (loan.amount || loan.loanAmount || 0);
+
       return {
         loanId:            loan.id,
         loanNumber:        loan.loanNumber,
@@ -317,11 +333,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         disbursementDate:  loan.disbursementDate,
         isMirror:          loan.isMirror || false,
         rows,
-        // Prefer API-computed values (from journal entries); fall back to row computation
-        outstanding:       apiOutstanding       ?? Math.max(0, (loan.amount || 0) - rowTotalPrincipalPaid),
-        totalPaid:         apiTotalPaid         ?? rowTotalPaid,
-        totalInterestPaid: apiTotalInterestPaid ?? rowTotalInterestPaid,
-        totalPrincipalPaid:apiTotalPrincipalPaid?? rowTotalPrincipalPaid,
+        outstanding:       lastRowBalance,
+        totalPaid:         rowTotalPaid,
+        totalInterestPaid: rowTotalInterestPaid,
+        totalPrincipalPaid:rowTotalPrincipalPaid,
       };
     });
   };

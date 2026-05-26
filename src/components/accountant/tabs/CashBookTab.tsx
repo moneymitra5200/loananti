@@ -151,6 +151,24 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
     }
   };
 
+  const calculateBalances = (entries: CashBookEntry[]) => {
+    let balance = 0;
+    return entries.map(entry => {
+      balance += (entry.cashIn - entry.cashOut);
+      return { ...entry, balance };
+    });
+  };
+
+  const cleanText = (txt?: string) => {
+    if (!txt) return '';
+    return txt.replace(/\(Last EMI.*?vs Regular EMI.*?\)/gi, '')
+              .replace(/mirror/gi, '')
+              .replace(/MR-/gi, '')
+              .replace(/-\s*\(\)/g, '')
+              .replace(/\s+/g, ' ')
+              .trim();
+  };
+
   const handleRefresh = () => {
     setRefreshing(true);
     fetchCashBookData();
@@ -470,8 +488,8 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
                     >
                       <TableCell className="font-mono text-sm">{entry.voucherNo}</TableCell>
                       <TableCell>{format(new Date(entry.entryDate), 'dd MMM yyyy HH:mm:ss')}</TableCell>
-                      <TableCell className="max-w-[200px] truncate">{entry.description}</TableCell>
-                      <TableCell>{getEntryTypeBadge(entry.referenceType)}</TableCell>
+                      <TableCell className="max-w-[200px] truncate">{cleanText(entry.description)}</TableCell>
+                      <TableCell><Badge variant="outline" className="text-[10px]">{entry.referenceType || 'MANUAL'}</Badge></TableCell>
                       <TableCell className="text-right text-green-600 font-medium">
                         {entry.cashIn > 0 ? formatCurrency(entry.cashIn) : '-'}
                       </TableCell>
