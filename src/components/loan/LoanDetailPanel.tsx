@@ -535,7 +535,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           emiId: dateChangeEMI.id,
           newDueDate: newEMIDate,
           reason: dateChangeReason,
-          userId: user?.id
+          userId: currentUserId
         })
       });
 

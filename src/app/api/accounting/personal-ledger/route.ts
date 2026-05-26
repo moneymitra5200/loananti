@@ -619,37 +619,43 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // ── When viewing from mirror company: also fetch mirror loans via MirrorLoanMapping ──
   // The mirror LoanApplication might not have the same customerId, so we fetch explicitly.
   let extraMirrorOnlineLoans: any[] = [];
-  if (companyId) {
-    // Find all mappings where mirrorCompanyId = current company AND original loan belongs to this customer
-    const customerMirrorMappings = mirrorMappings.filter(m => m.mirrorCompanyId === companyId && m.mirrorLoanId);
-    for (const mapping of customerMirrorMappings) {
-      // If the mirror loan is NOT already in allOnlineLoans (different customerId)
-      if (!allOnlineLoans.find(l => l.id === mapping.mirrorLoanId)) {
-        const mirrorLoan = await db.loanApplication.findUnique({
-          where: { id: mapping.mirrorLoanId! },
-          select: {
-            id: true, applicationNo: true, status: true, companyId: true,
-            requestedAmount: true, disbursedAt: true,
-            sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true } },
-            company: { select: { id: true, name: true } },
-          }
-        });
-        if (mirrorLoan) extraMirrorOnlineLoans.push({ ...mirrorLoan, _isMirrorRecord: true });
-      }
+  
+  // Find all mappings matching the company filter (or all if companyId is null)
+  const relevantMirrorMappings = mirrorMappings.filter(m => !companyId || m.mirrorCompanyId === companyId);
+  
+  const customerMirrorMappings = relevantMirrorMappings.filter(m => m.mirrorLoanId);
+  for (const mapping of customerMirrorMappings) {
+    if (!allOnlineLoans.find(l => l.id === mapping.mirrorLoanId)) {
+      const mirrorLoan = await db.loanApplication.findUnique({
+        where: { id: mapping.mirrorLoanId! },
+        select: {
+          id: true, applicationNo: true, status: true, companyId: true,
+          requestedAmount: true, disbursedAt: true,
+          sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true } },
+          company: { select: { id: true, name: true } },
+        }
+      });
+      if (mirrorLoan) extraMirrorOnlineLoans.push({ ...mirrorLoan, _isMirrorRecord: true });
     }
-    // Also check: mirror company but NO mirrorLoanId — use original loan data with mirror flag
-    const nullMirrorMappings = mirrorMappings.filter(m => m.mirrorCompanyId === companyId && !m.mirrorLoanId);
-    for (const mapping of nullMirrorMappings) {
-      const origLoan = allOnlineLoans.find(l => l.id === mapping.originalLoanId);
-      if (origLoan) extraMirrorOnlineLoans.push({ ...origLoan, _isMirrorRecord: true });
-    }
+  }
+  
+  // Also check: mirror company but NO mirrorLoanId — use original loan data with mirror flag
+  const nullMirrorMappings = relevantMirrorMappings.filter(m => !m.mirrorLoanId);
+  for (const mapping of nullMirrorMappings) {
+    const origLoan = allOnlineLoans.find(l => l.id === mapping.originalLoanId);
+    if (origLoan) extraMirrorOnlineLoans.push({ ...origLoan, _isMirrorRecord: true });
   }
 
   // Filter: hide originals that have mirrors; show mirror loan records
   const validOnlineLoans = [
-    // From customer's own loans — exclude mirrored originals, keep mirror records and regular loans
+    // From customer's own loans — exclude mirrored originals unless viewing original company
     ...allOnlineLoans.filter(l => {
-      if (mirroredIds.has(l.id)) return false; // always hide original
+      if (mirroredIds.has(l.id)) {
+        // If viewing the original company, SHOW the original!
+        if (companyId && l.companyId === companyId) return true;
+        // Otherwise (All Companies or Mirror Company), hide the original (we show mirror via extraMirrorOnlineLoans)
+        return false; 
+      }
       if (mirrorLoanIds.has(l.id)) return !companyId || l.companyId === companyId;
       return !companyId || l.companyId === companyId;
     }),
@@ -670,7 +676,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     if (!companyId) return true;
     if (mirroredOfflineIds.has(l.id)) {
       // Show offline original for its MIRROR company
-      return offlineMirrorCoMap.get(l.id) === companyId;
+      if (offlineMirrorCoMap.get(l.id) === companyId) return true;
+      // Show offline original for its ORIGINAL company
+      if (l.companyId === companyId) return true;
+      return false;
     }
     return l.companyId === companyId;
   });
