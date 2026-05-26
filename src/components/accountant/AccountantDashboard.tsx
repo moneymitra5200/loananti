@@ -348,9 +348,23 @@ function CashBookSection({
             <PiggyBank className="h-4 w-4 mr-2" />
             Opening Balance
           </Button>
-          <Button onClick={() => setShowAddDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Entry
+          <Button onClick={() => {
+            setAddEntryType('CREDIT');
+            setAddAmount('');
+            setAddDescription('');
+            setShowAddDialog(true);
+          }} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <ArrowDownRight className="h-4 w-4 mr-2" />
+            Add Money
+          </Button>
+          <Button onClick={() => {
+            setAddEntryType('DEBIT');
+            setAddAmount('');
+            setAddDescription('');
+            setShowAddDialog(true);
+          }} className="bg-red-600 hover:bg-red-700 text-white">
+            <ArrowUpRight className="h-4 w-4 mr-2" />
+            Withdraw Money
           </Button>
         </div>
       </div>
@@ -501,31 +515,11 @@ function CashBookSection({
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Cash Entry</DialogTitle>
-            <div className="text-sm text-gray-500">Record a manual cash receipt or payment in the cash book.</div>
+            <DialogTitle>{addEntryType === 'CREDIT' ? 'Add Money' : 'Withdraw Money'}</DialogTitle>
+            <div className="text-sm text-gray-500">Record a manual cash {addEntryType === 'CREDIT' ? 'receipt' : 'payment'} in the cash book.</div>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Entry Type *</Label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={addEntryType === 'CREDIT' ? 'default' : 'outline'}
-                  className={addEntryType === 'CREDIT' ? 'bg-emerald-600 hover:bg-emerald-700' : ''}
-                  onClick={() => setAddEntryType('CREDIT')}
-                >
-                  <Plus className="h-4 w-4 mr-1" /> Cash In (Receipt)
-                </Button>
-                <Button
-                  type="button"
-                  variant={addEntryType === 'DEBIT' ? 'default' : 'outline'}
-                  className={addEntryType === 'DEBIT' ? 'bg-red-600 hover:bg-red-700' : ''}
-                  onClick={() => setAddEntryType('DEBIT')}
-                >
-                  Cash Out (Payment)
-                </Button>
-              </div>
-            </div>
+            {/* Entry type selection is hidden since we have explicit buttons */}
             <div className="space-y-2">
               <Label>Amount (₹) *</Label>
               <Input

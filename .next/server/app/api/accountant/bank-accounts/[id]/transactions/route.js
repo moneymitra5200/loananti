@@ -1,7 +1,6 @@
 var R=require("../../../../../../chunks/[turbopack]_runtime.js")("server/app/api/accountant/bank-accounts/[id]/transactions/route.js")
 R.c("server/chunks/[root-of-the-server]__b6405e44._.js")
-R.c("server/chunks/[root-of-the-server]__d3d14498._.js")
-R.c("server/chunks/d0a8e_next_2c27abef._.js")
+R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
 R.c("server/chunks/f2c39_app_api_accountant_bank-accounts_[id]_transactions_route_actions_bf393a03.js")
 R.m(252478)
 module.exports=R.m(252478).exports
