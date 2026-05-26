@@ -1340,73 +1340,100 @@ export async function POST(request: NextRequest) {
         console.error('[Mirror PO Sync] ❌ Failed (non-critical):', poSyncErr?.message);
       }
     }
-    // ── INTEREST_ONLY → Mirror EMI sync (matching offline route lines 2632-2669) ──────────
+    // ── INTEREST_ONLY → Mirror EMI sync ──────────────────────────────────────────────────────
     // For INTEREST_ONLY: mark mirror EMI as INTEREST_ONLY_PAID and create deferred principal EMI.
-    // Pre-sync values are captured here (all zeros since mirror wasn't touched yet).
-    // The session-delta in the accounting block reads post-sync minus these pre-sync values.
+    // NOTE: Block 1 (lines ~706-830) may have already handled this for the mirror loan.
+    //   - If Block 1 ran: mirror EMI is already INTEREST_ONLY_PAID → we only capture pre-sync
+    //     values for accounting (they will be the post-Block-1 values, i.e. interest already paid).
+    //   - If Block 1 did NOT run (mirrorEMI was null there): mirror EMI is still PENDING → we
+    //     handle the full sync here.
+    // CRITICAL FIX: The deferred EMI must use the FULL stored principalAmount and interestAmount
+    // from the mirror EMI record (NOT mirrorRemPrin which is reduced by any prior partial pay).
+    // This ensures deferred EMI #N+1 always carries the same P+I as the Interest-Only EMI #N.
     if (mirrorMapping?.mirrorLoanId && paymentType === 'INTEREST_ONLY') {
       try {
         const mirrorEMIForIO = await db.eMISchedule.findFirst({
           where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
         });
-        if (mirrorEMIForIO && (mirrorEMIForIO.paymentStatus === 'PENDING' || mirrorEMIForIO.paymentStatus === 'PARTIALLY_PAID')) {
-          // Capture PRE-SYNC (for session-delta in accounting block)
-          mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIForIO.paidInterest  || 0);
-          mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIForIO.paidPrincipal || 0);
+        if (mirrorEMIForIO) {
+          if (mirrorEMIForIO.paymentStatus === 'INTEREST_ONLY_PAID') {
+            // Block 1 already handled the mirror sync. Just capture pre-sync values for accounting.
+            // Since Block 1 already updated paidInterest, pre-sync = 0 (nothing paid before this request).
+            mirrorEmiPreSyncPaidInterest  = 0;
+            mirrorEmiPreSyncPaidPrincipal = 0;
+            console.log(`[Mirror IO Sync] Block 1 already handled mirror EMI #${emi.installmentNumber}. Accounting pre-sync = 0.`);
+          } else if (mirrorEMIForIO.paymentStatus === 'PENDING' || mirrorEMIForIO.paymentStatus === 'PARTIALLY_PAID') {
+            // Block 1 did NOT run for this mirror EMI → handle full sync here.
+            // Capture PRE-SYNC (for session-delta in accounting block)
+            mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIForIO.paidInterest  || 0);
+            mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIForIO.paidPrincipal || 0);
 
-          const mirrorRemInt  = Math.max(0, Number(mirrorEMIForIO.interestAmount  || 0) - mirrorEmiPreSyncPaidInterest);
-          const mirrorRemPrin = Math.max(0, Number(mirrorEMIForIO.principalAmount || 0) - mirrorEmiPreSyncPaidPrincipal);
+            const mirrorRemInt = Math.max(0, Number(mirrorEMIForIO.interestAmount  || 0) - mirrorEmiPreSyncPaidInterest);
+            // CRITICAL FIX: Use FULL stored principalAmount (not remaining) for deferred EMI.
+            // Deferred EMI #N+1 must carry the SAME P+I as the Interest-Only EMI #N.
+            const mirrorFullPrincipal = Number(mirrorEMIForIO.principalAmount || 0);
+            const mirrorFullInterest  = Number(mirrorEMIForIO.interestAmount  || 0);
 
-          // Mark mirror EMI as INTEREST_ONLY_PAID
-          await db.eMISchedule.update({
-            where: { id: mirrorEMIForIO.id },
-            data: {
-              paymentStatus: 'INTEREST_ONLY_PAID',
-              paidAmount:    (Number(mirrorEMIForIO.paidAmount   || 0)) + mirrorRemInt,
-              paidInterest:  mirrorEmiPreSyncPaidInterest + mirrorRemInt,
-              paidPrincipal: mirrorEmiPreSyncPaidPrincipal,   // principal unchanged
-              paidDate:      new Date(),
-              paymentMode,
-              notes: `[MIRROR SYNC] Interest-Only: I:₹${mirrorRemInt} collected, principal deferred`
-            }
-          });
-
-          // Create deferred principal EMI on mirror loan (same as offline lines 2647-2668)
-          if (mirrorRemPrin > 0.01) {
-            const mNextInst = mirrorEMIForIO.installmentNumber + 1;
-            const mExisting = await db.eMISchedule.findFirst({
-              where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: mNextInst }
+            // Mark mirror EMI as INTEREST_ONLY_PAID
+            await db.eMISchedule.update({
+              where: { id: mirrorEMIForIO.id },
+              data: {
+                paymentStatus: 'INTEREST_ONLY_PAID',
+                paidAmount:    (Number(mirrorEMIForIO.paidAmount || 0)) + mirrorRemInt,
+                paidInterest:  mirrorEmiPreSyncPaidInterest + mirrorRemInt,
+                paidPrincipal: mirrorEmiPreSyncPaidPrincipal,   // principal unchanged
+                paidDate:      new Date(),
+                paymentMode,
+                isInterestOnly: true,
+                principalDeferred: true,
+                notes: `[MIRROR SYNC] Interest-Only: I:₹${mirrorRemInt} collected, P:₹${mirrorFullPrincipal} deferred`
+              }
             });
-            if (mExisting) {
-              // Shift subsequent mirror EMIs +1 (highest first to avoid unique clash)
+
+            // Create deferred EMI: carries SAME P+I as the Interest-Only EMI (not recalculated).
+            // CRITICAL FIX: use `gt` (not `gte`) to avoid shifting the newly-created deferred EMI.
+            if (mirrorFullPrincipal > 0.01) {
+              const mNextInst = mirrorEMIForIO.installmentNumber + 1;
+
+              // Shift subsequent mirror EMIs +1 in DESCENDING order (highest first → no unique clash)
+              // Use `gt` (strictly greater than mNextInst - 1) i.e. `gte mNextInst` would
+              // include the slot we're about to fill. We need EMIs already at mNextInst+ to shift.
               const mSubs = await db.eMISchedule.findMany({
-                where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: { gte: mNextInst } },
+                where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: { gt: mirrorEMIForIO.installmentNumber } },
                 orderBy: { installmentNumber: 'desc' }
               });
               for (const ms of mSubs) {
                 const mDue = new Date(ms.dueDate); mDue.setMonth(mDue.getMonth() + 1);
-                await db.eMISchedule.update({ where: { id: ms.id }, data: { installmentNumber: ms.installmentNumber + 1, dueDate: mDue } });
+                await db.eMISchedule.update({
+                  where: { id: ms.id },
+                  data: { installmentNumber: ms.installmentNumber + 1, dueDate: mDue, originalDueDate: ms.originalDueDate || ms.dueDate }
+                });
               }
+
+              const mNewDue = new Date(mirrorEMIForIO.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
+              await db.eMISchedule.create({
+                data: {
+                  loanApplicationId: mirrorMapping.mirrorLoanId,
+                  installmentNumber: mNextInst,
+                  dueDate: mNewDue,
+                  originalDueDate: mNewDue,
+                  // SAME P+I as the deferred EMI — never recalculate from rate
+                  principalAmount:      mirrorFullPrincipal,
+                  interestAmount:       mirrorFullInterest,
+                  outstandingPrincipal: mirrorFullPrincipal,
+                  outstandingInterest:  mirrorFullInterest,
+                  totalAmount:          Math.round((mirrorFullPrincipal + mirrorFullInterest) * 100) / 100,
+                  paymentStatus:   'PENDING',
+                  principalDeferred: true,
+                  originalEMIId:      mirrorEMIForIO.id,
+                  duplicatedEMINumber: mirrorEMIForIO.installmentNumber,
+                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEMIForIO.installmentNumber}. P:₹${mirrorFullPrincipal.toFixed(2)} + I:₹${mirrorFullInterest.toFixed(2)}. Due: ${mNewDue.toISOString().split('T')[0]}`
+                }
+              });
+              console.log(`[Mirror IO Sync] ✅ Created deferred mirror EMI #${mNextInst}: P:₹${mirrorFullPrincipal} + I:₹${mirrorFullInterest} (same as EMI #${mirrorEMIForIO.installmentNumber}). ${mSubs.length} subsequent EMIs shifted.`);
             }
-            const mNewDue = new Date(mirrorEMIForIO.dueDate); mNewDue.setMonth(mNewDue.getMonth() + 1);
-            await db.eMISchedule.create({
-              data: {
-                loanApplicationId: mirrorMapping.mirrorLoanId,
-                installmentNumber: mNextInst,
-                dueDate: mNewDue,
-                originalDueDate: mNewDue,
-                principalAmount: mirrorRemPrin,
-                interestAmount: Number(mirrorEMIForIO.interestAmount || 0),
-                outstandingInterest: Number(mirrorEMIForIO.interestAmount || 0),
-                totalAmount: mirrorRemPrin + Number(mirrorEMIForIO.interestAmount || 0),
-                outstandingPrincipal: Number(mirrorEMIForIO.outstandingPrincipal || 0),
-                paymentStatus: 'PENDING',
-                notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEMIForIO.installmentNumber} — P:₹${mirrorRemPrin.toFixed(2)} + I:₹${(mirrorEMIForIO.interestAmount||0).toFixed(2)}`
-              }
-            });
-            console.log(`[Mirror IO Deferred] Created deferred mirror EMI #${mNextInst}: P:₹${mirrorRemPrin} + I:₹${mirrorEMIForIO.interestAmount}`);
+            console.log(`[Mirror IO Sync] EMI #${emi.installmentNumber}: pre=I:₹${mirrorEmiPreSyncPaidInterest} → collected I:₹${mirrorRemInt}, principal deferred`);
           }
-          console.log(`[Mirror IO Sync] EMI #${emi.installmentNumber}: pre=I:₹${mirrorEmiPreSyncPaidInterest} → collected I:₹${mirrorRemInt}, principal deferred`);
         }
       } catch (ioMirrorErr) {
         console.error('[Mirror IO Sync] Failed (non-critical):', ioMirrorErr);
