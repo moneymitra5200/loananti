@@ -1114,23 +1114,14 @@ export default function OfflineLoanDetailPanel({
           >
             {/* Header */}
             <div 
-              className={`flex items-center justify-between p-4 border-b text-white ${
-                loan?.isMirrorLoan 
-                  ? 'bg-gradient-to-r from-orange-500 to-amber-600'
-                  : isInterestOnlyLoan
-                    ? 'bg-gradient-to-r from-purple-500 to-violet-600'
-                    : 'bg-gradient-to-r from-emerald-600 to-teal-600'
-              }`}
-              style={loan?.displayColor ? { 
-                background: `linear-gradient(to right, ${loan.displayColor}dd, ${loan.displayColor})` 
-              } : {}}
+              className="flex flex-wrap items-center justify-between p-4 border-b text-white bg-gradient-to-r from-[#737301] to-[#b0a828] gap-4"
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
                   <Receipt className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-lg flex items-center gap-2">
+                  <h2 className="font-bold text-lg flex flex-wrap items-center gap-2">
                     {loan?.isMirrorLoan ? 'Mirror Loan' : isInterestOnlyLoan ? 'Interest-Only Loan' : 'Offline Loan Details'}
                     {loan?.isMirrorLoan && (
                       <Badge className="bg-white/30 text-white border-white/50">Synced from Original</Badge>
@@ -1148,7 +1139,7 @@ export default function OfflineLoanDetailPanel({
                   <p className="text-sm text-white/80">{loan?.loanNumber || 'Loading...'}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
                 {loan && getStatusBadge(loan.status)}
                 {isInterestOnlyLoan && !loan?.isMirrorLoan && (
                   <>
