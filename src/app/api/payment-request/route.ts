@@ -501,7 +501,7 @@ export async function PUT(request: NextRequest) {
           const remainingInterest    = Math.max(0, emi.interestAmount  - alreadyPaidInterest);
           const remainingPrincipal   = Math.max(0, emi.principalAmount - alreadyPaidPrincipal);
 
-          const newEmiStatus = emi.isInterestOnly ? 'INTEREST_ONLY_PAID' : 'PAID';
+          const newEmiStatus = 'PAID';
 
           // Mark EMI as fully paid
           await tx.eMISchedule.update({
@@ -520,7 +520,7 @@ export async function PUT(request: NextRequest) {
 
           // ============ PHASE 1 ROLLING EMI LOGIC ============
           const isPhase1IO = loan.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
-          if (isPhase1IO && newEmiStatus === 'INTEREST_ONLY_PAID') {
+          if (isPhase1IO && newEmiStatus === 'PAID') {
             console.log(`[PR Pay] Phase 1 IO Payment - Creating next rolling EMI`);
             const nextInstNum = emi.installmentNumber + 1;
             const nextDue = new Date(emi.dueDate);
@@ -1263,20 +1263,17 @@ export async function PUT(request: NextRequest) {
               });
               console.log(`[PR Accounting] ✓ Bank CREDIT ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company`);
 
-              // 2. Mark mirror EMI as fully PAID (or INTEREST_ONLY_PAID if Phase 1)
+              // 2. Mark mirror EMI as fully PAID
               await db.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: mirrorEmi.isInterestOnly ? 'INTEREST_ONLY_PAID' : 'PAID',
+                  paymentStatus: 'PAID',
                   paidAmount:    mirrorTotal,
                   paidPrincipal: mirrorPrincipal,
                   paidInterest:  mirrorInterest,
                   paidDate:      new Date(),
                   paymentMode:   payMode,
                   isInterestOnly: mirrorEmi.isInterestOnly || undefined,
-                  interestOnlyPaidAt: mirrorEmi.isInterestOnly ? new Date() : undefined,
-                  interestOnlyAmount: mirrorEmi.isInterestOnly ? mirrorTotal : undefined,
-                  principalDeferred: mirrorEmi.isInterestOnly ? true : undefined,
                   notes:         `[MIRROR SYNC via PR] ${paymentRequest.requestNumber}`
                 }
               });

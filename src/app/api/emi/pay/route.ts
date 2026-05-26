@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getCompany3Id, recordEMIPaymentAccounting, recordCashBookEntry, recordBankTransaction } from '@/lib/simple-accounting';
 import { AccountingService, ACCOUNT_CODES } from '@/lib/accounting-service';
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
       // Must use INTEREST_ONLY_PAID so rolling EMI logic triggers correctly.
       const isPhase1IOEmi = emi.isInterestOnly && emi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
       if (isPhase1IOEmi) {
-        newEmiStatus  = 'INTEREST_ONLY_PAID';
+        newEmiStatus  = 'PAID';
         paidPrincipal = 0;
         paidInterest  = remainingInterest;
         paidAmount    = remainingInterest;
@@ -406,7 +406,7 @@ export async function POST(request: NextRequest) {
       // For ACTIVE_INTEREST_ONLY loans, if the EMI being paid is an interest-only EMI,
       // we need to create the next month's EMI. (Rolling schedule â€” same as offline loan)
       const isPhase1IO = emi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
-      if (isPhase1IO && newEmiStatus === 'INTEREST_ONLY_PAID') {
+      if (isPhase1IO && newEmiStatus === 'PAID') {
         console.log(`[EMI Pay] Phase 1 IO Payment - Creating next rolling EMI`);
         const nextInstNum = emi.installmentNumber + 1;
         const nextDue = new Date(emi.dueDate);
