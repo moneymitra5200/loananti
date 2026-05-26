@@ -180,6 +180,7 @@ function CashBookSection({
   formatDateShort: (date: Date | string) => string;
   refreshKey?: number;
 }) {
+  const { user } = useAuth();
   const [cashBook, setCashBook] = useState<any>(null);
   const [entries, setEntries] = useState<CashBookEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -243,7 +244,8 @@ function CashBookSection({
           entryType: addEntryType,
           amount,
           description: addDescription,
-          referenceType: 'MANUAL_ENTRY'
+          referenceType: 'MANUAL_ENTRY',
+          createdById: user?.id || 'system'
         })
       });
 
@@ -283,7 +285,8 @@ function CashBookSection({
           entryType: 'CREDIT',
           amount,
           description: 'Opening Balance',
-          referenceType: 'OPENING_BALANCE'
+          referenceType: 'OPENING_BALANCE',
+          createdById: user?.id || 'system'
         })
       });
 

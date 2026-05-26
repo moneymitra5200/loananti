@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { useAuth } from '@/contexts/AuthContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -70,6 +71,7 @@ const ENTRY_TYPES = [
 ];
 
 function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }: CashBookTabProps) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]   = useState<string | null>(null);
@@ -186,13 +188,22 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
         return;
       }
 
+      const entryType = newEntry.cashIn > 0 ? 'CREDIT' : 'DEBIT';
+      const amount = newEntry.cashIn > 0 ? newEntry.cashIn : newEntry.cashOut;
+
       const res = await fetch('/api/accounting/cash-book', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId,
-          ...newEntry,
-          entryDate: newEntry.entryDate
+          entryType,
+          amount,
+          description: newEntry.description,
+          referenceType: newEntry.referenceType,
+          referenceId: newEntry.reference,
+          notes: newEntry.notes,
+          entryDate: newEntry.entryDate,
+          createdById: user?.id || 'system'
         })
       });
 

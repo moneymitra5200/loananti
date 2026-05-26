@@ -130,6 +130,7 @@ async function listCustomersForCompany(companyId: string | null) {
           journalEntryId: { in: journalIdSet },
         },
         select: {
+          accountId:      true,
           debitAmount:    true,
           creditAmount:   true,
           loanId:         true,
@@ -235,7 +236,7 @@ async function listCustomersForCompany(companyId: string | null) {
   // 7. Apply mirror rule and group by customer
   type CustomerAccum = {
     id: string; name: string; phone: string; email: string;
-    totalDebits: number; totalCredits: number; loans: Set<string>;
+    lrDebits: number; lrCredits: number; interestCredits: number; loans: Set<string>;
     isMirror: boolean;
   };
   const byCustomer = new Map<string, CustomerAccum>();
@@ -270,13 +271,17 @@ async function listCustomersForCompany(companyId: string | null) {
     if (!byCustomer.has(customer.id)) {
       byCustomer.set(customer.id, {
         id: customer.id, name: customer.name, phone: customer.phone, email: customer.email,
-        totalDebits: 0, totalCredits: 0, loans: new Set(),
+        lrDebits: 0, lrCredits: 0, interestCredits: 0, loans: new Set(),
         isMirror,
       });
     }
     const acc = byCustomer.get(customer.id)!;
-    acc.totalDebits  += line.debitAmount;
-    acc.totalCredits += line.creditAmount;
+    if (lrAccountIds.includes(line.accountId)) {
+      acc.lrDebits  += line.debitAmount;
+      acc.lrCredits += line.creditAmount;
+    } else {
+      acc.interestCredits += line.creditAmount;
+    }
     if (line.loanId) acc.loans.add(line.loanId);
   }
 
@@ -286,8 +291,8 @@ async function listCustomersForCompany(companyId: string | null) {
     phone:            c.phone,
     email:            c.email,
     totalLoans:       c.loans.size,
-    totalOutstanding: Math.max(0, c.totalDebits - c.totalCredits),
-    totalPaid:        c.totalCredits,
+    totalOutstanding: Math.max(0, c.lrDebits - c.lrCredits),
+    totalPaid:        c.lrCredits + c.interestCredits,
     isMirror:         c.isMirror,
   })).filter(c => c.totalLoans > 0 || c.totalOutstanding > 0);
 

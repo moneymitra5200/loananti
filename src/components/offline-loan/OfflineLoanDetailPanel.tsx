@@ -249,8 +249,9 @@ export default function OfflineLoanDetailPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emiId: dateChangeEMI.id,
-          newDate: newEMIDate,
+          newDueDate: newEMIDate,
           reason: dateChangeReason,
+          userId: userId,
         }),
       });
 
