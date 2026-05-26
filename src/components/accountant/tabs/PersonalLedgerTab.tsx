@@ -315,7 +315,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       // Note: we only sum the credit lines that are actual payments
       const actualPayments = rows.filter(r => r.credit && r.credit > 0);
       const rowTotalPaid          = actualPayments.reduce((s, r) => s + (r.credit || 0), 0);
-      const rowTotalInterestPaid  = rows.filter(r => r.debit && r.debit > 0).reduce((s, r) => s + (r.debit || 0), 0);
+      const rowTotalInterestPaid  = actualPayments.reduce((s, r) => s + (r.interestPaid || 0), 0);
       const rowTotalPrincipalPaid = actualPayments.reduce((s, r) => s + (r.principalPaid || 0), 0);
 
       // The final row's remaining balance is the most accurate because it guarantees
