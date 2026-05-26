@@ -93,6 +93,7 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
 
   // Dialog states
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [dialogMode, setDialogMode] = useState<'ADD' | 'WITHDRAW'>('ADD');
   const [showDetailDialog, setShowDetailDialog] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<CashBookEntry | null>(null);
 
@@ -257,10 +258,26 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
           <Button
             size="sm"
             className="bg-green-500 hover:bg-green-600"
-            onClick={() => setShowAddDialog(true)}
+            onClick={() => {
+              setDialogMode('ADD');
+              setNewEntry(prev => ({ ...prev, cashIn: 0, cashOut: 0, referenceType: 'MANUAL' }));
+              setShowAddDialog(true);
+            }}
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Entry
+            <ArrowDownCircle className="h-4 w-4 mr-2" />
+            Add Money
+          </Button>
+          <Button
+            size="sm"
+            className="bg-red-500 hover:bg-red-600"
+            onClick={() => {
+              setDialogMode('WITHDRAW');
+              setNewEntry(prev => ({ ...prev, cashIn: 0, cashOut: 0, referenceType: 'MANUAL' }));
+              setShowAddDialog(true);
+            }}
+          >
+            <ArrowUpCircle className="h-4 w-4 mr-2" />
+            Withdraw Money
           </Button>
         </div>
       </div>
@@ -481,11 +498,14 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-green-500" />
-              Add Cash Book Entry
+              {dialogMode === 'ADD' ? (
+                <><ArrowDownCircle className="h-5 w-5 text-green-500" /> Add Money</>
+              ) : (
+                <><ArrowUpCircle className="h-5 w-5 text-red-500" /> Withdraw Money</>
+              )}
             </DialogTitle>
             <DialogDescription>
-              Record a new cash transaction
+              {dialogMode === 'ADD' ? 'Record money received into the Cash Book' : 'Record money withdrawn from the Cash Book'}
             </DialogDescription>
           </DialogHeader>
 
@@ -527,9 +547,9 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            {dialogMode === 'ADD' ? (
               <div>
-                <Label>Cash In</Label>
+                <Label>Amount to Add (Cash In) *</Label>
                 <Input
                   type="number"
                   placeholder="0"
@@ -541,8 +561,9 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
                   }))}
                 />
               </div>
+            ) : (
               <div>
-                <Label>Cash Out</Label>
+                <Label>Amount to Withdraw (Cash Out) *</Label>
                 <Input
                   type="number"
                   placeholder="0"
@@ -554,7 +575,7 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
                   }))}
                 />
               </div>
-            </div>
+            )}
 
             <div>
               <Label>Reference (Optional)</Label>
@@ -580,11 +601,11 @@ function CashBookTabComponent({ selectedCompanyIds, formatCurrency, formatDate }
               Cancel
             </Button>
             <Button
-              className="bg-green-500 hover:bg-green-600"
+              className={dialogMode === 'ADD' ? "bg-green-500 hover:bg-green-600" : "bg-red-500 hover:bg-red-600"}
               onClick={handleAddEntry}
               disabled={!newEntry.description || (newEntry.cashIn === 0 && newEntry.cashOut === 0)}
             >
-              Add Entry
+              {dialogMode === 'ADD' ? 'Add Money' : 'Withdraw Money'}
             </Button>
           </DialogFooter>
         </DialogContent>
