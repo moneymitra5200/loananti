@@ -42,9 +42,9 @@ const EMIDateChangeDialog = memo(function EMIDateChangeDialog({
             Change EMI Due Date
           </DialogTitle>
           <DialogDescription>
-            EMI #{dateChangeEMI?.emiNumber} - Current Due: {formatDate(dateChangeEMI?.dueDate || new Date())}
+            EMI #{dateChangeEMI?.emiNumber || (dateChangeEMI as any)?.installmentNumber} - Current Due: {formatDate(dateChangeEMI?.dueDate || new Date())}
             <br />
-            Amount: ₹{formatCurrency(dateChangeEMI?.emiAmount || 0)}
+            Amount: {formatCurrency(dateChangeEMI?.emiAmount || (dateChangeEMI as any)?.totalAmount || 0)}
           </DialogDescription>
         </DialogHeader>
 

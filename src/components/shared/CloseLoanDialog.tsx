@@ -413,19 +413,30 @@ export default function CloseLoanDialog({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Payment Mode</p>
-                    <p className="text-[10px] text-amber-600 font-semibold bg-amber-100 px-2 py-0.5 rounded">
-                      Loan closing — CASH only (no online)
-                    </p>
                   </div>
-                  {/* CASH only for loan closing — no online payments allowed */}
-                  <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                    <div className="flex items-center gap-2 text-green-800">
-                      <Banknote className="h-5 w-5" />
-                      <span className="font-semibold">CASH</span>
-                    </div>
-                    <p className="text-xs text-green-600 mt-1">
-                      Loan closing payments are recorded as CASH only — no online/bank transfer allowed.
-                    </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setPaymentMode('CASH')}
+                      className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                        paymentMode === 'CASH'
+                          ? 'border-green-400 bg-green-50 text-green-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      <Banknote className="h-4 w-4" />
+                      CASH
+                    </button>
+                    <button
+                      onClick={() => setPaymentMode('ONLINE')}
+                      className={`flex items-center gap-2 rounded-xl border-2 px-3 py-2.5 text-sm font-medium transition-all ${
+                        paymentMode === 'ONLINE'
+                          ? 'border-blue-400 bg-blue-50 text-blue-700'
+                          : 'border-gray-200 text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      ONLINE / BANK
+                    </button>
                   </div>
                 </div>
               </div>
