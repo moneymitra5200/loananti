@@ -474,7 +474,7 @@ export async function PUT(request: NextRequest) {
       if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
           (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: paymentRequest.loanApplicationId }
+          where: { originalLoanId: paymentRequest.loanApplicationId, isOfflineLoan: false }
         });
       }
 
@@ -809,8 +809,8 @@ export async function PUT(request: NextRequest) {
               principalAmount: deferredPrincipal,
               interestAmount: Math.round(deferredInterest * 100) / 100,
               totalAmount: Math.round((deferredPrincipal + deferredInterest) * 100) / 100,
-              outstandingPrincipal: emi.outstandingPrincipal,
-              outstandingInterest: 0,
+              outstandingPrincipal: deferredPrincipal,
+              outstandingInterest: Math.round(deferredInterest * 100) / 100,
               paymentStatus: 'PENDING',
               principalDeferred: true,
               originalEMIId: emi.id,
@@ -896,7 +896,7 @@ export async function PUT(request: NextRequest) {
                   principalAmount: mPrincipal,
                   interestAmount: Math.round(mInterest * 100) / 100,
                   totalAmount: Math.round((mPrincipal + mInterest) * 100) / 100,
-                  outstandingPrincipal: mirrorEMI.outstandingPrincipal, outstandingInterest: 0,
+                  outstandingPrincipal: mPrincipal, outstandingInterest: Math.round(mInterest * 100) / 100,
                   paymentStatus: 'PENDING', principalDeferred: true,
                   originalEMIId: mirrorEMI.id, duplicatedEMINumber: mirrorEMI.installmentNumber,
                   notes: `Mirror deferred EMI from Interest-Only PR ${paymentRequest.requestNumber}`
