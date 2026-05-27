@@ -1189,6 +1189,7 @@ export async function PUT(request: NextRequest) {
             installmentNumber:  emi.installmentNumber,
             userId,
             customerId:         emi.loanApplication?.customerId || undefined,
+            customerName:       [emi.loanApplication?.firstName, emi.loanApplication?.lastName].filter(Boolean).join(' ') || undefined,
             mirrorLoanId:       acctIsMirror ? acctMirrorLoanId    : undefined,
             mirrorPrincipal:    acctIsMirror ? (acctMirrorPrincipal ?? 0) : undefined,
             mirrorInterest:     acctIsMirror ? (acctMirrorInterest  ?? 0) : undefined,

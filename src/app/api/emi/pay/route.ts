@@ -1812,6 +1812,7 @@ export async function POST(request: NextRequest) {
           installmentNumber: emi.installmentNumber,
           userId: paidBy,
           customerId: emi.loanApplication?.customerId || undefined,
+          customerName: [emi.loanApplication?.firstName, emi.loanApplication?.lastName].filter(Boolean).join(' ') || undefined,
           mirrorLoanId: mirrorMappingForAccounting?.mirrorLoanId || undefined,
           mirrorPrincipal: isMirrorPayment ? (mirrorPrincipalForAccounting ?? 0) : undefined,
           mirrorInterest: isMirrorPayment ? (mirrorInterestForAccounting ?? 0) : undefined,
