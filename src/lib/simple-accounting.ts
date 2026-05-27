@@ -683,7 +683,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       if (isOnlineModeCompany) {
         const bResult = await recordBankTransaction({
           companyId: targetCompanyId, transactionType: 'CREDIT', amount,
-          description: ` [Company Credit - ]`,
+          description: `${description} [Company Credit]`,
           referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
         });
         result.bankTransaction = bResult;
@@ -691,7 +691,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       } else {
         const cbResult = await recordCashBookEntry({
           companyId: targetCompanyId, entryType: 'CREDIT', amount,
-          description: ` [Company Credit - ]`,
+          description: `${description} [Company Credit]`,
           referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
         });
         result.cashBookEntry = cbResult;
