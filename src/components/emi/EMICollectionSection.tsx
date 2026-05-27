@@ -157,7 +157,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       fetchEmisByDate();
       onPaymentComplete?.();
       triggerRefresh(); // Notify all other sections to refresh instantly
-
+      window.dispatchEvent(new CustomEvent('credit-updated'));
 
       toast({
         title: 'Payment Collected',

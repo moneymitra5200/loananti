@@ -534,6 +534,7 @@ export function ActiveLoansSection({
           description: data.message || `EMI payment of ${formatCurrency(data.data?.paidAmount || 0)} processed successfully`
         });
         setShowPaymentDialog(false);
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         onPaymentComplete?.();
         onRefresh();
       } else {

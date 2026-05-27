@@ -353,6 +353,8 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
         toast.success(`EMI #${selectedEMI.emiNumber} paid successfully`);
         setShowPaymentDialog(false);
         fetchLoanDetails(true);
+        fetchUserCredit();
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         onRefresh();
       } else {
         throw new Error(data.error || 'Payment failed');
@@ -400,6 +402,8 @@ function ActiveLoanDetailView({ loanId, onClose, onRefresh, userId, userRole }: 
       setShowExtraEMIDialog(false);
       // Use minimal refresh for fast update
       fetchLoanDetails(true);
+      fetchUserCredit();
+      window.dispatchEvent(new CustomEvent('credit-updated'));
       onRefresh();
     } catch (error) {
       console.error('Error processing extra EMI:', error);

@@ -32,13 +32,13 @@ self.addEventListener('push', function (event) {
 
   const title   = notification.title || 'Money Mitra';
   const body    = notification.body  || 'You have a new notification';
-  const iconUrl = notification.icon  || '/logo-circle.png';
+  const iconUrl = notification.icon  || '/icons/icon-192x192.png';
   const actionUrl = data.actionUrl   || '/';
 
   const options = {
     body,
     icon: iconUrl,
-    badge:  '/logo-circle.png',
+    badge:  '/icons/icon-72x72.png',
     vibrate: [200, 100, 200, 100, 200],
     tag: data.type || 'general',
     requireInteraction: false,

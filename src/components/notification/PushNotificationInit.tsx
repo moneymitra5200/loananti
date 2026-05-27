@@ -67,8 +67,8 @@ export default function PushNotificationInit() {
           try {
             const n = new Notification(title, {
               body,
-              icon:  '/logo-circle.png',
-              badge: '/logo-circle.png',
+              icon:  '/icons/icon-192x192.png',
+              badge: '/icons/icon-72x72.png',
               tag:   (payload.data?.type as string) || 'general',
               requireInteraction: false,
             });

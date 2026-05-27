@@ -345,6 +345,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         if (successCount > 0) {
           toast({ title: `✅ ${successCount}/${emis.length} EMIs Paid`, description: `₹${fmt(totalCreditAdded)} credit added.` });
           onOpenChange(false);
+          window.dispatchEvent(new CustomEvent('credit-updated'));
           onPaymentSuccess();
         } else {
           toast({ title: 'Error', description: 'All payments failed', variant: 'destructive' });
@@ -388,6 +389,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
         if (netPenalty > 0) desc += ` + ₹${fmt(netPenalty)} penalty.`;
         toast({ title: '✅ Payment Successful!', description: desc });
         onOpenChange(false);
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         onPaymentSuccess();
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to process payment', variant: 'destructive' });

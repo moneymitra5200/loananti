@@ -17,6 +17,10 @@ interface Settings {
   defaultInterestRate: number;
   minInterestRate: number;
   maxInterestRate: number;
+  landingBlogTitle: string;
+  landingBlogDate: string;
+  landingBlogExcerpt: string;
+  landingBlogImage: string;
 }
 
 interface SettingsTabProps {
@@ -118,6 +122,37 @@ export default function SettingsTab({
             <div className="space-y-2">
               <Label>Max Rate (%)</Label>
               <Input type="number" value={settings.maxInterestRate} onChange={(e) => setSettings({ ...settings, maxInterestRate: Number(e.target.value) })} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Blog Settings */}
+      <Card className="bg-white shadow-sm border-0">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-emerald-600" />
+            Landing Page Blog Settings
+          </CardTitle>
+          <CardDescription>Configure the single blog post shown on the landing page</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Blog Title</Label>
+              <Input value={settings.landingBlogTitle || ''} onChange={(e) => setSettings({ ...settings, landingBlogTitle: e.target.value })} placeholder="Top 5 Tips for Quick Loan Approval" />
+            </div>
+            <div className="space-y-2">
+              <Label>Blog Date</Label>
+              <Input value={settings.landingBlogDate || ''} onChange={(e) => setSettings({ ...settings, landingBlogDate: e.target.value })} placeholder="Oct 12, 2023" />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Blog Excerpt</Label>
+              <Input value={settings.landingBlogExcerpt || ''} onChange={(e) => setSettings({ ...settings, landingBlogExcerpt: e.target.value })} placeholder="Discover the essential factors..." />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Blog Image URL</Label>
+              <Input value={settings.landingBlogImage || ''} onChange={(e) => setSettings({ ...settings, landingBlogImage: e.target.value })} placeholder="https://images.unsplash.com/..." />
             </div>
           </div>
         </CardContent>

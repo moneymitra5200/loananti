@@ -174,6 +174,7 @@ export default function ActiveLoansTab({
       if (res.ok && data.success) {
         toast({ title: '✅ Payment Successful', description: data.message || 'EMI payment processed successfully' });
         setShowPayDialog(false);
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         fetchAllActiveLoans();
         onPaymentComplete?.();
       } else {

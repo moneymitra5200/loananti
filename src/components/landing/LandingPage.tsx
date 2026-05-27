@@ -134,41 +134,61 @@ function EMICalculator() {
 
 // Moving Staff Carousel
 function StaffCarousel({ staffList }: { staffList: any[] }) {
-  const [duplicatedStaff] = useState(() => [...staffList, ...staffList, ...staffList]);
-
   if (staffList.length === 0) return null;
 
   return (
     <div className="overflow-hidden py-8">
       <div
-        className="flex gap-6 animate-scroll w-max"
+        className="flex w-max animate-scroll hover:[animation-play-state:paused]"
         style={{
           animation: 'scroll 30s linear infinite',
         }}
       >
-        {duplicatedStaff.map((staff: any, index: number) => (
-          <Card key={`${staff.id}-${index}`} className="flex-shrink-0 w-64 border-0 shadow-lg hover:shadow-xl transition-shadow bg-white">
-            <CardContent className="p-6 text-center">
-              <div className="w-24 h-24 mx-auto mb-4 rounded-full overflow-hidden bg-gradient-to-br from-emerald-100 to-teal-100 border-4 border-emerald-200">
-                {staff.profilePicture ? (
-                  <img src={staff.profilePicture} alt={staff.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-emerald-600">
-                    {staff.name?.charAt(0)?.toUpperCase() || 'U'}
-                  </div>
-                )}
-              </div>
-              <h4 className="font-semibold text-gray-800 text-lg">{staff.name || 'Team Member'}</h4>
-              <p className="text-sm text-emerald-600 font-medium">{staff.role?.replace(/_/g, ' ') || 'Staff'}</p>
-              {staff.email && <p className="text-xs text-gray-500 mt-2">{staff.email}</p>}
-            </CardContent>
-          </Card>
-        ))}
+        <div className="flex gap-6 pr-6">
+          {staffList.map((staff: any, index: number) => (
+            <Card key={`set1-${staff.id || index}`} className="flex-shrink-0 w-64 border-0 shadow-lg hover:shadow-xl transition-shadow bg-white">
+              <CardContent className="p-6 text-center">
+                <div className="w-24 h-24 mx-auto mb-4 rounded-full overflow-hidden bg-gradient-to-br from-emerald-100 to-teal-100 border-4 border-emerald-200">
+                  {staff.profilePicture ? (
+                    <img src={staff.profilePicture} alt={staff.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-emerald-600">
+                      {staff.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                </div>
+                <h4 className="font-semibold text-gray-800 text-lg">{staff.name || 'Team Member'}</h4>
+                <p className="text-sm text-emerald-600 font-medium">{staff.role?.replace(/_/g, ' ') || 'Staff'}</p>
+                {staff.email && <p className="text-xs text-gray-500 mt-2">{staff.email}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <div className="flex gap-6 pr-6" aria-hidden="true">
+          {staffList.map((staff: any, index: number) => (
+            <Card key={`set2-${staff.id || index}`} className="flex-shrink-0 w-64 border-0 shadow-lg hover:shadow-xl transition-shadow bg-white">
+              <CardContent className="p-6 text-center">
+                <div className="w-24 h-24 mx-auto mb-4 rounded-full overflow-hidden bg-gradient-to-br from-emerald-100 to-teal-100 border-4 border-emerald-200">
+                  {staff.profilePicture ? (
+                    <img src={staff.profilePicture} alt={staff.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-emerald-600">
+                      {staff.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </div>
+                  )}
+                </div>
+                <h4 className="font-semibold text-gray-800 text-lg">{staff.name || 'Team Member'}</h4>
+                <p className="text-sm text-emerald-600 font-medium">{staff.role?.replace(/_/g, ' ') || 'Staff'}</p>
+                {staff.email && <p className="text-xs text-gray-500 mt-2">{staff.email}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
       <style jsx global>{`
         @keyframes scroll {
           0% { transform: translateX(0); }
-          100% { transform: translateX(-33.33%); }
+          100% { transform: translateX(-50%); }
         }
       `}</style>
     </div>
@@ -428,7 +448,7 @@ export default function LandingPage() {
                   <p className="text-[10px] sm:text-xs md:text-sm text-gray-500">Min Approval</p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white/50 rounded-xl">
-                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-600">500 Lakh+</p>
+                  <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-600">{stats.totalDisbursed ? Math.round(stats.totalDisbursed / 100000) + " Lakh+" : "5 Lakh+"}</p>
                   <p className="text-[10px] sm:text-xs md:text-sm text-gray-500">Loan Amount</p>
                 </div>
                 <div className="text-center p-3 sm:p-4 bg-white/50 rounded-xl">
@@ -451,7 +471,7 @@ export default function LandingPage() {
               </div>
               <div className="text-center">
                 <Wallet className="h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 sm:mb-3 text-emerald-400" />
-                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">Rs.{Math.round((stats.totalDisbursed || 50000000) / 100000)} L+</p>
+                <p className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold">Rs.{Math.round((stats.totalDisbursed || 500000) / 100000)} L+</p>
                 <p className="text-gray-400 text-xs sm:text-sm mt-1">Total Disbursed</p>
               </div>
               <div className="text-center">
@@ -654,24 +674,18 @@ export default function LandingPage() {
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Stay updated with the latest financial insights and news</p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-6 sm:gap-8">
-              {[
-                { title: 'Top 5 Tips for Quick Loan Approval', date: 'Oct 12, 2023', excerpt: 'Discover the essential factors that lenders look for when approving personal and business loans.', img: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80' },
-                { title: 'Understanding Your Credit Score', date: 'Sep 28, 2023', excerpt: 'Your credit score is the key to unlocking better financial opportunities. Learn how to improve it.', img: 'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=800&q=80' },
-                { title: 'Choosing Between EMI and Lump Sum', date: 'Sep 15, 2023', excerpt: 'Make the right choice for your financial health by understanding the pros and cons of different payment methods.', img: 'https://images.unsplash.com/photo-1556740749-887f6717defa?w=800&q=80' },
-              ].map((post, idx) => (
-                <Card key={idx} className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white overflow-hidden group">
-                  <div className="h-48 overflow-hidden">
-                    <img src={post.img} alt={post.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                  </div>
-                  <CardContent className="p-6">
-                    <p className="text-xs text-emerald-600 font-semibold mb-2">{post.date}</p>
-                    <h3 className="font-bold text-lg text-gray-800 mb-3 hover:text-emerald-600 cursor-pointer transition-colors">{post.title}</h3>
-                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">{post.excerpt}</p>
-                    <Button variant="link" className="text-emerald-600 p-0 h-auto font-medium group-hover:underline">Read More <ArrowRight className="ml-1 h-3 w-3" /></Button>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="flex justify-center">
+              <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white overflow-hidden group max-w-md w-full">
+                <div className="h-48 overflow-hidden">
+                  <img src={settings.landingBlogImage || 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80'} alt={settings.landingBlogTitle || 'Blog Image'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                </div>
+                <CardContent className="p-6">
+                  <p className="text-xs text-emerald-600 font-semibold mb-2">{settings.landingBlogDate || 'Oct 12, 2023'}</p>
+                  <h3 className="font-bold text-lg text-gray-800 mb-3 hover:text-emerald-600 cursor-pointer transition-colors">{settings.landingBlogTitle || 'Top 5 Tips for Quick Loan Approval'}</h3>
+                  <p className="text-sm text-gray-600 mb-4 line-clamp-3">{settings.landingBlogExcerpt || 'Discover the essential factors that lenders look for when approving personal and business loans.'}</p>
+                  <Button variant="link" className="text-emerald-600 p-0 h-auto font-medium group-hover:underline">Read More <ArrowRight className="ml-1 h-3 w-3" /></Button>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </section>

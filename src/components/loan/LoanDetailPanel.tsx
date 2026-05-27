@@ -746,6 +746,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         fetchEMISchedules(true);
         fetchLoanDetails();
         fetchCreditInfo();
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         if (onEMIPaid) onEMIPaid();
         if (onPaymentSuccess) onPaymentSuccess();
       } else {

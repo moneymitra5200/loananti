@@ -766,6 +766,7 @@ export default function OfflineLoanDetailPanel({
           setProofPreview(null);
           fetchLoanDetails();
           fetchUserCredits();
+          window.dispatchEvent(new CustomEvent('credit-updated'));
           onPaymentSuccess?.();
         } else {
           toast({ title: 'Error', description: 'Failed to process payments', variant: 'destructive' });
@@ -881,6 +882,7 @@ export default function OfflineLoanDetailPanel({
         setProofPreview(null);
         fetchLoanDetails();
         fetchUserCredits();
+        window.dispatchEvent(new CustomEvent('credit-updated'));
         onPaymentSuccess?.();
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to process payment', variant: 'destructive' });

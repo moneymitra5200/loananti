@@ -479,6 +479,7 @@ export default function EMIPaymentDialog({
                 ? `${formatCurrency(totalCollected)} collected (Personal Credit - Company 3 Cashbook)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
                 : `${formatCurrency(totalCollected)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
             });
+            window.dispatchEvent(new CustomEvent('credit-updated'));
             onPaymentComplete();
             onOpenChange(false);
             resetForm();
@@ -552,6 +553,7 @@ export default function EMIPaymentDialog({
                 ? `${formatCurrency(totalCollected)} collected (Personal Credit - Company 3 Cashbook)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
                 : `${formatCurrency(totalCollected)} collected (${paymentMode === 'ONLINE' ? 'Bank Account' : 'Cashbook'} Entry)${penaltyDetails.netPenalty > 0 ? ` incl. penalty ${formatCurrency(penaltyDetails.netPenalty)}` : ''}`
             });
+            window.dispatchEvent(new CustomEvent('credit-updated'));
             onPaymentComplete();
             onOpenChange(false);
             resetForm();

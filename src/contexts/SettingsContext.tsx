@@ -44,6 +44,12 @@ export interface AppSettings {
   smsNotifications: boolean;
   emiReminders: boolean;
   fraudAlerts: boolean;
+
+  // Blog settings
+  landingBlogTitle: string;
+  landingBlogDate: string;
+  landingBlogExcerpt: string;
+  landingBlogImage: string;
 }
 
 // Default settings with sensible defaults
@@ -68,6 +74,10 @@ const defaultSettings: AppSettings = {
   fraudAlerts: true,
   twoFactorAuth: false,
   ipWhitelist: false,
+  landingBlogTitle: 'Top 5 Tips for Quick Loan Approval',
+  landingBlogDate: 'Oct 12, 2023',
+  landingBlogExcerpt: 'Discover the essential factors that lenders look for when approving personal and business loans.',
+  landingBlogImage: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80',
 };
 
 // Local storage key for caching
