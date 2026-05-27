@@ -117,7 +117,12 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Offline Loan] ✅ ${loan.loanNumber} → ${result.emis.length} EMIs created`);
 
     // ── Record processing fee (same as normal loan creation) ──────────────────
-    if (parsedProcessingFee > 0) {
+    // ONLY record if NOT a mirror loan. Mirror loans handle PF dynamically on EMI #1.
+    const mirrorMappingForPF = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId, isOfflineLoan: true }
+    });
+
+    if (parsedProcessingFee > 0 && !mirrorMappingForPF) {
       try {
         const pfPaymentMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
         const pfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;

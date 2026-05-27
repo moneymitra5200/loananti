@@ -203,8 +203,13 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Loan] Created ${result.emiSchedules.length} EMI schedules`);
 
     // ── Record processing fee for online loan (Phase 2 startup) ──────────────────
+    const mirrorMappingForPF = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId, isOfflineLoan: false }
+    });
+
     const parsedProcessingFee = parseFloat(processingFee) || 0;
-    if (parsedProcessingFee > 0 && loan.companyId) {
+    // ONLY record if NOT a mirror loan. Mirror loans handle PF dynamically on EMI #1.
+    if (parsedProcessingFee > 0 && loan.companyId && !mirrorMappingForPF) {
       try {
         const pfPaymentMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
         const pfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;
