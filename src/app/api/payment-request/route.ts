@@ -474,7 +474,7 @@ export async function PUT(request: NextRequest) {
       if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
           (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: paymentRequest.loanApplicationId, isOfflineLoan: false }
+          where: { originalLoanId: emi.loanApplicationId, isOfflineLoan: false }
         });
       }
 
@@ -766,7 +766,7 @@ export async function PUT(request: NextRequest) {
 
       if (paymentRequest.paymentType === 'INTEREST_ONLY') {
         try {
-          const loanId = paymentRequest.loanApplicationId;
+          const loanId = emi.loanApplicationId;
 
           // 1. Get due-date day pattern from first pending EMI (consistent across all EMIs)
           const firstPendingEmi = await db.eMISchedule.findFirst({
@@ -1129,16 +1129,15 @@ export async function PUT(request: NextRequest) {
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
                   reference: `PR#${paymentRequest.requestNumber} Mirror EMI #${emi.installmentNumber}`
                 });
-                // Mark mirror's own EMI — use additive logic for PARTIAL, final totals for others
-                if (mirrorOwnEmi) {
+                // Mark mirror's own EMI — use additive logic for PARTIAL/FULL
+                if (mirrorOwnEmi && pType !== 'INTEREST_ONLY') {
                   const isPartial = pType === 'PARTIAL_PAYMENT';
                   await db.eMISchedule.update({ where: { id: mirrorOwnEmi.id }, data: {
-                    paymentStatus: isPartial ? 'PARTIALLY_PAID' : pType === 'INTEREST_ONLY' ? 'INTEREST_ONLY_PAID' : 'PAID',
-                    // PARTIAL: accumulate on top of existing paid amounts
-                    // FULL/IO : write final absolute values
-                    paidAmount:    isPartial ? { increment: mTotal }    : mTotal,
-                    paidPrincipal: isPartial ? { increment: mPrincipal } : mPrincipal,
-                    paidInterest:  isPartial ? { increment: mInterest }  : mInterest,
+                    paymentStatus: isPartial ? 'PARTIALLY_PAID' : 'PAID',
+                    // Use increment for all cases so we don't wipe out previous partial payments
+                    paidAmount:    { increment: mTotal },
+                    paidPrincipal: { increment: mPrincipal },
+                    paidInterest:  { increment: mInterest },
                     paidDate: new Date(), paymentMode: payMode, notes: `[PR SYNC] ${paymentRequest.requestNumber}`
                   }});
                   await db.mirrorLoanMapping.update({ where: { id: selfAsMirror.id }, data: { mirrorEMIsPaid: { increment: 1 } } });
