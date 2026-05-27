@@ -1014,7 +1014,7 @@ export async function POST(request: NextRequest) {
     //   which is normally the smallest amount (reduced due to lower interest rate).
     // Records in MIRROR company books with proper DR/CR journal entry.
     // ============================================
-    if (mirrorMapping && newEmiStatus === 'PAID' && emi.installmentNumber === 1) {
+    if (mirrorMapping && newEmiStatus === 'PAID' && emi.installmentNumber === 1 && !emi.isInterestOnly && paymentType !== 'INTEREST_ONLY') {
       try {
         if (!mirrorMapping.processingFeeRecorded) {
           const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
@@ -1650,6 +1650,13 @@ export async function POST(request: NextRequest) {
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
             console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:â‚¹${mirrorInterestForAccounting} P:â‚¹${mirrorPrincipalForAccounting} (pre I:â‚¹${mirrorEmiPreSyncPaidInterest} P:â‚¹${mirrorEmiPreSyncPaidPrincipal} â†’ post I:â‚¹${postPaidInterest} P:â‚¹${postPaidPrincipal})`);
           }
+        }
+        // FIX: For Phase 1 (Interest Only EMIs), mirror company always receives the exact interest paid by the customer
+        // This prevents 0.00 journal entries if mirror EMI is missing or has 0 mirror rate
+        if (emi.isInterestOnly || paymentType === 'INTEREST_ONLY') {
+          mirrorInterestForAccounting = paidInterest;
+          mirrorPrincipalForAccounting = 0;
+          console.log(`[Accounting] ONLINE MIRROR IO OVERRIDE: Using paidInterest ₹${paidInterest}`);
         }
       }
 
