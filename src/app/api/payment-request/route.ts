@@ -1253,7 +1253,7 @@ export async function PUT(request: NextRequest) {
             if (pType === 'FULL_EMI' && mirrorEmi) {
               // For FULL_EMI we settle whatever is REMAINING on the mirror EMI
               // (may be less than mirrorTotal if mirror had a previous partial payment)
-              const settleMirrorAmt       = mirrorRemainingTotal;
+              const settleMirrorAmt       = savedTotalComp; // Bank gets what customer paid
               const settleMirrorInterest  = mirrorRemainingInterest;
               const settleMirrorPrincipal = mirrorRemainingPrincipal;
 
@@ -1416,8 +1416,9 @@ export async function PUT(request: NextRequest) {
             // ==================================================================
             else if (pType === 'PARTIAL_PAYMENT' && mirrorEmi && mirrorEmi.paymentStatus !== 'PAID') {
               const partialAmt          = paymentRequest.partialAmount || 0;
+              const mirrorPartialAmt    = partialAmt; // What bank receives
               const ratio               = partialAmt / (emi.totalAmount || 1);
-              const mirrorPartialAmt    = Math.round((mirrorEmi.totalAmount || 0) * ratio * 100) / 100;
+              const mirrorAppliedAmt    = Math.round((mirrorEmi.totalAmount || 0) * ratio * 100) / 100;
 
               // Interest-first logic on MIRROR EMI — same as original loan:
               // Use mirrorEmi.interestAmount (stored, never recalculate from rate)
@@ -1426,14 +1427,14 @@ export async function PUT(request: NextRequest) {
               const mirrorRemainingInterest   = Math.max(0, (mirrorEmi.interestAmount || 0) - mirrorInterestAlreadyPaid);
               let mirrorPaidInterest:  number;
               let mirrorPaidPrincipal: number;
-              if (mirrorPartialAmt <= mirrorRemainingInterest) {
-                mirrorPaidInterest  = mirrorPartialAmt;
+              if (mirrorAppliedAmt <= mirrorRemainingInterest) {
+                mirrorPaidInterest  = mirrorAppliedAmt;
                 mirrorPaidPrincipal = 0;
               } else {
                 mirrorPaidInterest  = mirrorRemainingInterest;
-                mirrorPaidPrincipal = Math.round((mirrorPartialAmt - mirrorRemainingInterest) * 100) / 100;
+                mirrorPaidPrincipal = Math.round((mirrorAppliedAmt - mirrorRemainingInterest) * 100) / 100;
               }
-              const mirrorIsFullyPaid = mirrorPartialAmt >= (mirrorEmi.totalAmount || 0) - (mirrorEmi.paidAmount || 0) - 1;
+              const mirrorIsFullyPaid = mirrorAppliedAmt >= (mirrorEmi.totalAmount || 0) - (mirrorEmi.paidAmount || 0) - 1;
 
               // 1. Bank transaction (customer always pays online)
               await recordBankTransaction({
@@ -1451,7 +1452,7 @@ export async function PUT(request: NextRequest) {
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus:    mirrorIsFullyPaid ? 'PAID' : 'PARTIALLY_PAID',
-                  paidAmount:       (mirrorEmi.paidAmount    || 0) + mirrorPartialAmt,
+                  paidAmount:       (mirrorEmi.paidAmount    || 0) + mirrorAppliedAmt,
                   paidPrincipal:    (mirrorEmi.paidPrincipal || 0) + mirrorPaidPrincipal,
                   paidInterest:     (mirrorEmi.paidInterest  || 0) + mirrorPaidInterest,
                   paidDate:         new Date(),
@@ -1481,11 +1482,7 @@ export async function PUT(request: NextRequest) {
             // INTEREST_ONLY
             // ==================================================================
             else if (pType === 'INTEREST_ONLY' && mirrorEmi) {
-              // Use mirrorEmi.interestAmount directly — NEVER recalculate from rate.
-              // Same reason as original loan: recalculating gives wrong value for
-              // reducing-balance loans as outstandingPrincipal changes over time.
-              const mirrorInterestAlreadyPaid = Number(mirrorEmi.paidInterest || 0);
-              const ioMirrorInterest = Math.max(0, Number(mirrorEmi.interestAmount || 0) - mirrorInterestAlreadyPaid);
+              const ioMirrorInterest = savedTotalComp; // Bank gets exactly what customer paid
 
               // 1. Bank transaction in mirror company
               await recordBankTransaction({
