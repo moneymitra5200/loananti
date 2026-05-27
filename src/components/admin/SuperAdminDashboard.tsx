@@ -1342,10 +1342,14 @@ export default function SuperAdminDashboard() {
               fetchAllActiveLoans={fetchAllActiveLoans}
               setLoanToDelete={setLoanToDelete}
               setShowDeleteLoanDialog={setShowDeleteLoanDialog}
-              setSelectedLoanId={(id: string | null) => {
-                const loan = allActiveLoans.find(l => l.id === id);
+              setSelectedLoanId={(id: string | null, type?: string) => {
                 setSelectedLoanId(id);
-                setSelectedLoanType(loan?.loanType || 'ONLINE');
+                if (type) {
+                  setSelectedLoanType(type as any);
+                } else {
+                  const loan = allActiveLoans.find(l => l.id === id);
+                  setSelectedLoanType(loan?.loanType || 'ONLINE');
+                }
               }}
               setShowLoanDetailPanel={setShowLoanDetailPanel}
               userId={user?.id}
@@ -1366,9 +1370,13 @@ export default function SuperAdminDashboard() {
         return (
           <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}>
             <ClosedLoansTab
-              setSelectedLoanId={(id: string | null) => {
+              setSelectedLoanId={(id: string | null, type?: string) => {
                 setSelectedLoanId(id);
-                setSelectedLoanType('ONLINE');
+                if (type) {
+                  setSelectedLoanType(type as any);
+                } else {
+                  setSelectedLoanType('ONLINE');
+                }
               }}
               setShowLoanDetailPanel={setShowLoanDetailPanel}
             />

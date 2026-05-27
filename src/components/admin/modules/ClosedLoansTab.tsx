@@ -52,7 +52,7 @@ interface MirrorPair {
 }
 
 interface Props {
-  setSelectedLoanId: (id: string | null) => void;
+  setSelectedLoanId: (id: string | null, type?: string) => void;
   setShowLoanDetailPanel: (show: boolean) => void;
   companyId?: string;
   agentId?: string;
@@ -597,7 +597,7 @@ export default function ClosedLoansTab({
           </div>
           <div className="flex flex-col gap-1.5">
             <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-              onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}>
+              onClick={() => { setSelectedLoanId(loan.id, loan.loanType); setShowLoanDetailPanel(true); }}>
               <Eye className="h-3 w-3 mr-1" /> View
             </Button>
             <Button size="sm" variant="outline" className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"

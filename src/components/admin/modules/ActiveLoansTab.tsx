@@ -109,7 +109,7 @@ interface ActiveLoansTabProps {
   fetchAllActiveLoans: () => void;
   setLoanToDelete: (loan: ActiveLoan | null) => void;
   setShowDeleteLoanDialog: (show: boolean) => void;
-  setSelectedLoanId: (id: string | null) => void;
+  setSelectedLoanId: (id: string | null, type?: string) => void;
   setShowLoanDetailPanel: (show: boolean) => void;
   userId?: string;        // ← needed for EMI payment
   userRole?: string;      // ← for permission checks
@@ -145,7 +145,7 @@ export default function ActiveLoansTab({
   // Handler called from ParallelLoanView Pay button
   // Opens the FULL loan detail view (same as clicking View) instead of the small inline dialog
   const handlePayEmi = useCallback((loan: any) => {
-    setSelectedLoanId(loan.id);
+    setSelectedLoanId(loan.id, loan.loanType);
     setShowLoanDetailPanel(true);
   }, [setSelectedLoanId, setShowLoanDetailPanel]);
 
@@ -478,10 +478,10 @@ export default function ActiveLoansTab({
             mirrorCompanyId: mapping.mirrorCompanyId,
             originalCompanyId: mapping.originalCompanyId
           } : null}
-          onViewOriginal={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+          onViewOriginal={() => { setSelectedLoanId(loan.id, loan.loanType); setShowLoanDetailPanel(true); }}
           onViewMirror={() => { 
-            const mirrorId = mapping?.mirrorLoanId || loan.id;
-            setSelectedLoanId(mirrorId); 
+            const mirrorId = mapping?.mirrorLoanId || mapping?.offlineMirrorLoan?.id || loan.id;
+            setSelectedLoanId(mirrorId, loan.loanType); 
             setShowLoanDetailPanel(true); 
           }}
           onPayEmi={(loanData) => handlePayEmi({ ...loan, nextEmi: loan.nextEmi })}
