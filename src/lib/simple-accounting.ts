@@ -50,13 +50,14 @@ export interface BankEntryParams {
 /**
  * Get or create cashbook for a company
  */
-export async function getOrCreateCashBook(companyId: string): Promise<string> {
-  let cashBook = await db.cashBook.findUnique({
+export async function getOrCreateCashBook(companyId: string, tx?: any): Promise<string> {
+  const client = tx || db;
+  let cashBook = await client.cashBook.findUnique({
     where: { companyId }
   });
 
   if (!cashBook) {
-    cashBook = await db.cashBook.create({
+    cashBook = await client.cashBook.create({
       data: {
         companyId,
         currentBalance: 0
@@ -77,7 +78,7 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
   const client = (outerTx as any) || db;
 
   // Get or create cashbook
-  const cashBookId = await getOrCreateCashBook(companyId);
+  const cashBookId = await getOrCreateCashBook(companyId, client);
 
   // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
   if (referenceId) {
@@ -132,16 +133,17 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
 /**
  * Get company's default bank account
  */
-export async function getDefaultBankAccount(companyId: string): Promise<string | null> {
+export async function getDefaultBankAccount(companyId: string, tx?: any): Promise<string | null> {
+  const client = tx || db;
   // First try the explicitly marked default bank
-  const defaultBank = await db.bankAccount.findFirst({
+  const defaultBank = await client.bankAccount.findFirst({
     where: { companyId, isDefault: true, isActive: true }
   });
   if (defaultBank) return defaultBank.id;
 
   // Fallback: get ANY active bank account for the company
   // (this handles the case where a bank exists but isDefault was not checked)
-  const anyBank = await db.bankAccount.findFirst({
+  const anyBank = await client.bankAccount.findFirst({
     where: { companyId, isActive: true },
     orderBy: { createdAt: 'asc' }
   });
@@ -159,7 +161,7 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
   // Get bank account
   let targetBankId: string | undefined = bankAccountId;
   if (!targetBankId) {
-    targetBankId = await getDefaultBankAccount(companyId) || undefined;
+    targetBankId = await getDefaultBankAccount(companyId, client) || undefined;
   }
 
   if (!targetBankId) {
