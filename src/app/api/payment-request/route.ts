@@ -671,16 +671,17 @@ export async function PUT(request: NextRequest) {
           }
         }
         else if (paymentRequest.paymentType === 'INTEREST_ONLY') {
-          const interestAmount = emi.interestAmount;
+          const remainingInterestIO = (emi.interestAmount || 0) - (emi.paidInterest || 0);
+          const interestToCollect   = Math.max(0, remainingInterestIO);
           
           // Mark current EMI as interest-only paid, principal deferred
           await tx.eMISchedule.update({
             where: { id: emi.id },
             data: {
-              paidAmount: (emi.paidAmount || 0) + interestAmount,
-              paidInterest: (emi.paidInterest || 0) + interestAmount,
+              paidAmount: (emi.paidAmount || 0) + interestToCollect,
+              paidInterest: (emi.paidInterest || 0) + interestToCollect,
               interestOnlyPaidAt: new Date(),
-              interestOnlyAmount: interestAmount,
+              interestOnlyAmount: interestToCollect,
               paymentStatus: 'INTEREST_ONLY_PAID',
               isInterestOnly: true,
               principalDeferred: true
@@ -694,9 +695,9 @@ export async function PUT(request: NextRequest) {
               emiScheduleId: emi.id,
               customerId: paymentRequest.customerId,
               paymentType: 'INTEREST_ONLY',
-              amount: interestAmount,
+              amount: interestToCollect,
               principalComponent: 0,
-              interestComponent: interestAmount,
+              interestComponent: interestToCollect,
               utrNumber: paymentRequest.utrNumber,
               paymentMode: paymentRequest.paymentMethod,
               status: 'COMPLETED',
@@ -714,7 +715,7 @@ export async function PUT(request: NextRequest) {
               userId: paymentRequest.customerId,
               type: 'PAYMENT_CONFIRMATION',
               title: 'Interest-Only Payment Confirmed',
-              message: `Your interest payment of ₹${interestAmount.toFixed(2)} is confirmed. A new EMI (principal + same interest) will be added to your schedule.`
+              message: `Your interest payment of ₹${interestToCollect.toFixed(2)} is confirmed. A new EMI (principal + same interest) will be added to your schedule.`
             }
           });
           // NOTE: EMI shifting + deferred EMI creation + mirror sync happens AFTER the
@@ -798,7 +799,7 @@ export async function PUT(request: NextRequest) {
 
           // 4. Create deferred EMI at emi.installmentNumber + 1
           //    Interest = SAME as original EMI (do NOT recalculate from rate)
-          const deferredPrincipal = Number(emi.principalAmount || 0);
+          const deferredPrincipal = Math.max(0, Number(emi.principalAmount || 0) - Number(emi.paidPrincipal || 0));
           const deferredInterest  = Number(emi.interestAmount  || 0);
           await db.eMISchedule.create({
             data: {
@@ -847,15 +848,19 @@ export async function PUT(request: NextRequest) {
               where: { loanApplicationId: mirrorLoanId, installmentNumber: emi.installmentNumber }
             });
             if (mirrorEMI) {
-              const mInterest  = Number(mirrorEMI.interestAmount  || 0);
-              const mPrincipal = Number(mirrorEMI.principalAmount || 0);
+              const mRemainingInterest = Math.max(0, Number(mirrorEMI.interestAmount || 0) - Number(mirrorEMI.paidInterest || 0));
+              const mRemainingPrincipal = Math.max(0, Number(mirrorEMI.principalAmount || 0) - Number(mirrorEMI.paidPrincipal || 0));
+              const mInterest = Number(mirrorEMI.interestAmount || 0);
 
               // Mark mirror EMI as INTEREST_ONLY_PAID
               await db.eMISchedule.update({
                 where: { id: mirrorEMI.id },
                 data: {
-                  paymentStatus: 'INTEREST_ONLY_PAID', paidAmount: mInterest,
-                  paidPrincipal: 0, paidInterest: mInterest, paidDate: new Date(),
+                  paymentStatus: 'INTEREST_ONLY_PAID', 
+                  paidAmount: (mirrorEMI.paidAmount || 0) + mRemainingInterest,
+                  paidPrincipal: mirrorEMI.paidPrincipal || 0, 
+                  paidInterest: (mirrorEMI.paidInterest || 0) + mRemainingInterest, 
+                  paidDate: new Date(),
                   isInterestOnly: true, principalDeferred: true,
                   notes: `Interest only synced from PR ${paymentRequest.requestNumber}`
                 }
@@ -893,10 +898,10 @@ export async function PUT(request: NextRequest) {
                   loanApplicationId: mirrorLoanId,
                   installmentNumber: mirrorEMI.installmentNumber + 1,
                   dueDate: newMirrorDueDate, originalDueDate: newMirrorDueDate,
-                  principalAmount: mPrincipal,
+                  principalAmount: mRemainingPrincipal,
                   interestAmount: Math.round(mInterest * 100) / 100,
-                  totalAmount: Math.round((mPrincipal + mInterest) * 100) / 100,
-                  outstandingPrincipal: mPrincipal, outstandingInterest: Math.round(mInterest * 100) / 100,
+                  totalAmount: Math.round((mRemainingPrincipal + mInterest) * 100) / 100,
+                  outstandingPrincipal: mRemainingPrincipal, outstandingInterest: Math.round(mInterest * 100) / 100,
                   paymentStatus: 'PENDING', principalDeferred: true,
                   originalEMIId: mirrorEMI.id, duplicatedEMINumber: mirrorEMI.installmentNumber,
                   notes: `Mirror deferred EMI from Interest-Only PR ${paymentRequest.requestNumber}`
@@ -1101,8 +1106,10 @@ export async function PUT(request: NextRequest) {
                   }
                   mTotal = partialAmt;
                 } else if (pType === 'INTEREST_ONLY') {
-                  mTotal    = mI;
-                  mInterest = mI;
+                  const mirrorInterestAlreadyPaid = Number(mirrorOwnEmi?.paidInterest || 0);
+                  const mirrorRemainingInterest   = Math.max(0, mI - mirrorInterestAlreadyPaid);
+                  mTotal    = mirrorRemainingInterest;
+                  mInterest = mirrorRemainingInterest;
                   mPrincipal= 0;
                 } else {
                   // FULL_EMI — settle remaining mirror balance (in case of prior partial on mirror)
@@ -1478,7 +1485,8 @@ export async function PUT(request: NextRequest) {
               // Use mirrorEmi.interestAmount directly — NEVER recalculate from rate.
               // Same reason as original loan: recalculating gives wrong value for
               // reducing-balance loans as outstandingPrincipal changes over time.
-              const ioMirrorInterest = Number(mirrorEmi.interestAmount || 0);
+              const mirrorInterestAlreadyPaid = Number(mirrorEmi.paidInterest || 0);
+              const ioMirrorInterest = Math.max(0, Number(mirrorEmi.interestAmount || 0) - mirrorInterestAlreadyPaid);
 
               // 1. Bank transaction in mirror company
               await recordBankTransaction({

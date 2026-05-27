@@ -719,8 +719,9 @@ export async function POST(request: NextRequest) {
           // Mirror interest for deferred EMI = SAME as mirror EMI's stored interestAmount.
           // Do NOT recalculate from rate â€” same fix as original loan above.
           // mirrorEMI.interestAmount is the scheduled mirror interest (at mirror rate).
+          const mirrorRemainingInterest = Math.max(0, Number(mirrorEMI.interestAmount || 0) - Number(mirrorEMI.paidInterest || 0));
+          const mirrorRemainingPrincipal = Math.max(0, Number(mirrorEMI.principalAmount || 0) - Number(mirrorEMI.paidPrincipal || 0));
           const mirrorInterest = Number(mirrorEMI.interestAmount || 0);
-          const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
           
           console.log(`[Interest Only] Mirror EMI #${mirrorEMI.installmentNumber} - Marking as INTEREST_ONLY_PAID, Interest: â‚¹${mirrorInterest}`);
           
@@ -729,9 +730,9 @@ export async function POST(request: NextRequest) {
             where: { id: mirrorEMI.id },
             data: {
               paymentStatus: 'INTEREST_ONLY_PAID',
-              paidAmount: mirrorInterest,
-              paidPrincipal: 0,
-              paidInterest: mirrorInterest,
+              paidAmount: (mirrorEMI.paidAmount || 0) + mirrorRemainingInterest,
+              paidPrincipal: mirrorEMI.paidPrincipal || 0,
+              paidInterest: (mirrorEMI.paidInterest || 0) + mirrorRemainingInterest,
               paidDate: new Date(),
               paymentMode: paymentMode,
               isInterestOnly: true,
@@ -806,13 +807,13 @@ export async function POST(request: NextRequest) {
               installmentNumber: mirrorEMI.installmentNumber + 1,
               dueDate: newMirrorEmiDueDate,
               originalDueDate: newMirrorEmiDueDate,
-              principalAmount: mirrorPrincipal,
+              principalAmount: mirrorRemainingPrincipal,
               interestAmount: newInterestMirror,
-              totalAmount: Math.round((mirrorPrincipal + newInterestMirror) * 100) / 100,
-              outstandingPrincipal: mirrorPrincipal,
+              totalAmount: Math.round((mirrorRemainingPrincipal + newInterestMirror) * 100) / 100,
+              outstandingPrincipal: mirrorRemainingPrincipal,
               outstandingInterest: newInterestMirror,
               paymentStatus: 'PENDING',
-              notes: `Deferred from Interest-Only sync. P:â‚¹${mirrorPrincipal} + I:â‚¹${newInterestMirror}. Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]}`,
+              notes: `Deferred from Interest-Only sync. P:â‚¹${mirrorRemainingPrincipal} + I:â‚¹${newInterestMirror}. Due: ${newMirrorEmiDueDate.toISOString().split('T')[0]}`,
               isInterestOnly: false,
               principalDeferred: true,
               originalEMIId: mirrorEMI.id,
@@ -820,7 +821,7 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          console.log(`[Interest Only] âœ… Mirror NEW EMI #${newEMIMirror.installmentNumber}: P:â‚¹${mirrorPrincipal} + I:â‚¹${newInterestMirror} = â‚¹${Math.round((mirrorPrincipal + newInterestMirror) * 100) / 100}`);
+          console.log(`[Interest Only] Mirror NEW EMI #${newEMIMirror.installmentNumber}: P:₹${mirrorRemainingPrincipal} + I:₹${newInterestMirror}`);
           
           // â”€â”€ NOTE: Mirror accounting for INTEREST_ONLY is handled by the â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           // unified recordEMIPaymentAccounting block at the bottom of this handler.
