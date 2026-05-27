@@ -727,7 +727,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         narration: customerLabel + ' ' + loanNumber + ' (EMI#' + installmentNumber + ')',
         lines: [...debitLines, ...companyCreditLines], createdById: userId,
         paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
-      });
+      }, tx);
       console.log('[Accounting] Journal (' + modeLabel + '): Dr Rs.' + totalForCredit + ' | Cr Loans Rs.' + principalComponent + ' | Cr Interest Rs.' + companyInterestAdj);
     }));
   } catch (acctErr: any) {
