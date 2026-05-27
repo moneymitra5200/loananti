@@ -3077,7 +3077,7 @@ export async function PUT(request: NextRequest) {
       // "Last EMI" was shifted to installment #1 in the mirror schedule.
       // Recorded as income for the MIRROR company (not original).
       // ============================================
-      if (paymentStatus === 'PAID' && emi.installmentNumber === 1 && mirrorLoanMapping && !emi.offlineLoan.isInterestOnlyLoan) {
+      if (paymentStatus === 'PAID' && emi.installmentNumber === 1 && mirrorLoanMapping) {
         try {
           const fullMapping = await db.mirrorLoanMapping.findFirst({
             where: { id: mirrorLoanMapping.id },
