@@ -381,7 +381,8 @@ export class AccountingService {
 
     // ── IDEMPOTENCY GUARD ─────────────────────────────────────────────
     if (params.referenceId) {
-      const existing = await db.journalEntry.findFirst({
+      const client = tx || db;
+      const existing = await client.journalEntry.findFirst({
         where: {
           companyId: this.companyId,
           referenceId: params.referenceId,
