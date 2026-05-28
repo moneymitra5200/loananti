@@ -1745,6 +1745,7 @@ export async function POST(request: NextRequest) {
               onlineJournalCreated = true; // âœ… journal created successfully
               console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: âœ… P:â‚¹${mirrorPrincipal} collected, I:â‚¹${mirrorInterest} â†’ Irrecoverable Debt (MIRROR company only)`);
             }
+            
           }
           // NO entry for original company - mirror loan only affects mirror company
         } else {
