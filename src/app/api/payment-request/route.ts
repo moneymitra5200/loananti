@@ -1010,9 +1010,9 @@ export async function PUT(request: NextRequest) {
           });
           const paymentId         = recentPayment?.id || `PR-${paymentRequest.id}`;
           // Use actual saved components — these are ALWAYS correct even for 2nd partial
-          const savedTotalComp    = recentPayment?.amount             ?? paymentRequest.requestedAmount;
-          const savedInterestComp = recentPayment?.interestComponent  ?? 0;
-          const savedPrincipalComp= recentPayment?.principalComponent ?? 0;
+          const savedTotalComp    = Number(recentPayment?.amount             ?? paymentRequest.requestedAmount ?? 0);
+          const savedInterestComp = Number(recentPayment?.interestComponent  ?? 0);
+          const savedPrincipalComp= Number(recentPayment?.principalComponent ?? 0);
 
           // ── Check mirror mapping (as original) ──────────────────────────
           const mirrorMapping = await db.mirrorLoanMapping.findFirst({
@@ -1444,7 +1444,10 @@ export async function PUT(request: NextRequest) {
             // INTEREST_ONLY
             // ==================================================================
             else if (pType === 'INTEREST_ONLY' && mirrorEmi) {
-              const ioMirrorInterest = savedTotalComp; // Bank gets exactly what customer paid
+              // Timing Fix: Since INTEREST_ONLY updates the mirror EMI *inside* the transaction,
+              // mirrorRemainingInterest will be 0 here. Since partial INTEREST_ONLY is blocked,
+              // the interest paid on the mirror loan is exactly the full mirrorInterest.
+              const ioMirrorInterest = mirrorInterest; 
 
               // 1. Bank transaction in mirror company
               await recordBankTransaction({
