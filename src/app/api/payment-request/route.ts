@@ -340,7 +340,7 @@ export async function POST(request: NextRequest) {
 
     // Validate interest only payment
     if (paymentType === 'INTEREST_ONLY') {
-      const maxInterestOnly = settings?.maxInterestOnlyPerLoan || 3;
+      const maxInterestOnly = settings?.maxInterestOnlyPerLoan || 36; // Increased default to allow extended interest-only periods
       
       // Count how many interest-only payments already made for this loan
       const existingInterestOnly = await db.paymentRequest.count({
