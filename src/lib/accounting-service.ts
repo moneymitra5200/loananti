@@ -177,6 +177,7 @@ export type JournalEntryType =
   | 'MANUAL_ENTRY'
   | 'OPENING_BALANCE'
   | 'YEAR_END_CLOSING'
+  | 'INTEREST_ACCRUAL'
   | 'BANK_TRANSFER'
   | 'CASH_DEPOSIT'
   | 'CASH_WITHDRAWAL'
@@ -759,6 +760,7 @@ export class AccountingService {
     paymentMode: string;
     bankAccountId?: string;
     reference?: string;
+    isInterestAccrued?: boolean; // TRUE if interest was already accrued to Interest Receivable
   }, tx?: any): Promise<string> {
     const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes(
       (params.paymentMode || '').toUpperCase()
@@ -801,7 +803,7 @@ export class AccountingService {
     }
     if (adjustedInterest > 0) {
       creditLines.push({
-        accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+        accountCode: params.isInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME,
         debitAmount: 0,
         creditAmount: adjustedInterest,
         loanId: params.loanId,
@@ -858,6 +860,48 @@ export class AccountingService {
       paymentMode: params.paymentMode,
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
+      isAutoEntry: true,
+    }, tx);
+  }
+
+  /**
+   * RECORD INTEREST ACCRUAL
+   * Debit: Interest Receivable (1301)
+   * Credit: Interest Income (4110)
+   */
+  async recordInterestAccrual(params: {
+    loanId: string;
+    customerId: string;
+    customerName?: string;
+    emiId: string;
+    interestAmount: number;
+    accrualDate: Date;
+    createdById: string;
+  }, tx?: any): Promise<string> {
+    return this.createJournalEntry({
+      entryDate: params.accrualDate,
+      referenceType: 'INTEREST_ACCRUAL',
+      referenceId: params.emiId,
+      narration: `Interest Accrued - ${params.customerName || 'Customer'} (EMI Due)`,
+      lines: [
+        {
+          accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
+          debitAmount: params.interestAmount,
+          creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: `Interest Receivable - Loan: ${params.loanId}`,
+        },
+        {
+          accountCode: ACCOUNT_CODES.INTEREST_INCOME,
+          debitAmount: 0,
+          creditAmount: params.interestAmount,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Loan Interest Income (Accrued)',
+        },
+      ],
+      createdById: params.createdById,
       isAutoEntry: true,
     }, tx);
   }

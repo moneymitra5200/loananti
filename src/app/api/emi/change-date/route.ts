@@ -18,13 +18,15 @@ export async function POST(request: NextRequest) {
     
     const { emiId, newDueDate, reason, userId } = body;
 
-    if (!emiId || !newDueDate || !reason || !userId) {
+    if (!emiId || !newDueDate || !reason) {
       return NextResponse.json({ 
         success: false,
         error: 'Missing required fields',
-        required: ['emiId', 'newDueDate', 'reason', 'userId']
+        required: ['emiId', 'newDueDate', 'reason']
       }, { status: 400 });
     }
+
+    const actionUserId = userId || 'SYSTEM';
 
     console.log(`[EMI Date Change] Starting for EMI: ${emiId}, new date: ${newDueDate}`);
 
@@ -177,7 +179,7 @@ export async function POST(request: NextRequest) {
         previousStatus: emi.paymentStatus,
         newStatus: emi.paymentStatus,
         remarks: `EMI Date globally changed! EMI #${emi.installmentNumber} moved to ${newDate.toISOString().split('T')[0]}. All remaining EMIs shifted accordingly. Reason: ${reason}`,
-        actionById: userId
+        actionById: actionUserId
       }
     }).catch(() => {}); // Ignore log errors
 
@@ -191,7 +193,7 @@ export async function POST(request: NextRequest) {
         title: 'EMI Date Changed',
         message: `EMI Date changed for loan ${emi.loanApplicationId}. New Date: ${newDate.toISOString().split('T')[0]}`,
         type: 'SYSTEM',
-        read: false
+        isRead: false
       }));
       if (notifications.length > 0) {
         db.notification.createMany({ data: notifications }).catch(() => {});

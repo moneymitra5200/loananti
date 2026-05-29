@@ -103,6 +103,7 @@
   "/api/credit/settlement/route": "/api/credit/settlement",
   "/api/credit/today-credit/route": "/api/credit/today-credit",
   "/api/credit/transfer-to-bank/route": "/api/credit/transfer-to-bank",
+  "/api/cron/accrue-interest/route": "/api/cron/accrue-interest",
   "/api/cron/auto-penalty/route": "/api/cron/auto-penalty",
   "/api/cron/overdue-notify/route": "/api/cron/overdue-notify",
   "/api/customer/payment/route": "/api/customer/payment",

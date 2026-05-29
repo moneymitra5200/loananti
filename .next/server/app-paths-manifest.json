@@ -103,6 +103,7 @@
   "/api/credit/settlement/route": "app/api/credit/settlement/route.js",
   "/api/credit/today-credit/route": "app/api/credit/today-credit/route.js",
   "/api/credit/transfer-to-bank/route": "app/api/credit/transfer-to-bank/route.js",
+  "/api/cron/accrue-interest/route": "app/api/cron/accrue-interest/route.js",
   "/api/cron/auto-penalty/route": "app/api/cron/auto-penalty/route.js",
   "/api/cron/overdue-notify/route": "app/api/cron/overdue-notify/route.js",
   "/api/customer/payment/route": "app/api/customer/payment/route.js",

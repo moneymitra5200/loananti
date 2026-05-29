@@ -571,6 +571,10 @@ model EMISchedule {
   nextPaymentDate      DateTime?
   isInterestOnly       Boolean            @default(false)
   principalDeferred    Boolean            @default(false)
+  
+  // Accrual Accounting Fields
+  interestAccrued      Boolean            @default(false)
+  accruedAt            DateTime?
   penaltyAmount        Float              @default(0)
   penaltyPaid          Float              @default(0)
   waivedAmount         Float              @default(0)

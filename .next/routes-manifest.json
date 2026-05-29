@@ -793,6 +793,12 @@
       "namedRegex": "^/api/credit\\-transfer(?:/)?$"
     },
     {
+      "page": "/api/cron/accrue-interest",
+      "regex": "^/api/cron/accrue\\-interest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/cron/accrue\\-interest(?:/)?$"
+    },
+    {
       "page": "/api/cron/auto-penalty",
       "regex": "^/api/cron/auto\\-penalty(?:/)?$",
       "routeKeys": {},

@@ -1144,7 +1144,8 @@ export async function PUT(request: NextRequest) {
                   loanId: loan.id, customerId: paymentRequest.customerId, paymentId,
                   totalAmount: mTotal, principalComponent: mPrincipal, interestComponent: mInterest,
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
-                  reference: `PR#${paymentRequest.requestNumber} Mirror EMI #${emi.installmentNumber}`
+                  reference: `PR#${paymentRequest.requestNumber} Mirror EMI #${emi.installmentNumber}`,
+                  isInterestAccrued: emi.interestAccrued
                 });
                 // Mark mirror's own EMI — use additive logic for PARTIAL/FULL
                 if (mirrorOwnEmi && pType !== 'INTEREST_ONLY') {
@@ -1201,7 +1202,8 @@ export async function PUT(request: NextRequest) {
                   loanId: loan.id, customerId: paymentRequest.customerId, paymentId,
                   totalAmount: totalComp, principalComponent: principalComp, interestComponent: interestComp,
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
-                  reference: `PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`
+                  reference: `PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
+                  isInterestAccrued: emi.interestAccrued
                 });
                 console.log(`[PR Accounting] ✓ CASE C: original company ₹${totalComp} (P:₹${principalComp} I:₹${interestComp})`);
                 const pfAmount = loan.sessionForm?.processingFee || 0;
@@ -1338,7 +1340,8 @@ export async function PUT(request: NextRequest) {
                 paymentDate:        new Date(),
                 paymentMode:        payMode,
                 createdById:        reviewedById,
-                reference:          `PR#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`
+                reference:          `PR#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`,
+                isInterestAccrued:  emi.interestAccrued
               });
               console.log(`[PR Accounting] ✓ Journal DR Bank ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company ${mirrorCompanyId}`);
 
@@ -1490,7 +1493,8 @@ export async function PUT(request: NextRequest) {
                 paymentDate:        new Date(),
                 paymentMode:        payMode,
                 createdById:        reviewedById,
-                reference:          `PR#${paymentRequest.requestNumber} → Mirror Partial ${Math.round(ratio * 100)}%`
+                reference:          `PR#${paymentRequest.requestNumber} → Mirror Partial ${Math.round(ratio * 100)}%`,
+                isInterestAccrued:  emi.interestAccrued
               });
               console.log(`[PR Accounting] ✓ PARTIAL Mirror Bank+Journal ₹${mirrorPartialAmt} (P:₹${mirrorPaidPrincipal} I:₹${mirrorPaidInterest}) in mirror company`);
             }
@@ -1542,7 +1546,8 @@ export async function PUT(request: NextRequest) {
                   paymentDate:        new Date(),
                   paymentMode:        payMode,
                   createdById:        reviewedById,
-                  reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`
+                  reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`,
+                  isInterestAccrued:  emi.interestAccrued
                 });
                 console.log(`[PR Accounting] ✓ INTEREST_ONLY Mirror Bank+Journal ₹${ioMirrorInterest} in mirror company ${mirrorCompanyId}`);
               } else {
