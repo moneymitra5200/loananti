@@ -76,6 +76,11 @@ const LOAN_LIST_SELECT = {
   },
   goldLoanDetail: true,
   vehicleLoanDetail: true,
+  _count: {
+    select: {
+      emiSchedules: true
+    }
+  }
 };
 
 export async function GET(request: NextRequest) {

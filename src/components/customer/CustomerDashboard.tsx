@@ -1058,7 +1058,9 @@ export default function CustomerDashboard() {
           </p>
           {loan.sessionForm && (
             <p className="text-xs text-gray-500">
-              {loan.isInterestOnlyLoan ? 'Interest Only Phase' : `${loan.sessionForm.tenure} months`}
+              {loan.isInterestOnlyLoan 
+                ? 'Interest Only Phase' 
+                : `${(loan as any)._count?.emiSchedules || loan.sessionForm.tenure} months`}
             </p>
           )}
         </div>
