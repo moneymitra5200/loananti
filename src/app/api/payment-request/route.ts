@@ -458,11 +458,33 @@ export async function PUT(request: NextRequest) {
 
       // Pre-fetch mirror mapping — needed for Phase 1 IO rolling EMI and INTEREST_ONLY deferred EMI
       let ioMirrorMapping: any = null;
+      // TIMING FIX: Pre-fetch mirror EMI interest BEFORE the transaction.
+      // After the transaction, mirrorEmi.paidInterest = interestAmount (already updated),
+      // so we must capture the correct interest value NOW before the TX modifies it.
+      let preTxMirrorInterest: number = 0;
+      let preTxMirrorPrincipal: number = 0;
+      let preTxMirrorTotal: number = 0;
       if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
           (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: emi.loanApplicationId, isOfflineLoan: false }
         });
+        // Pre-fetch the mirror EMI at the current installment number BEFORE the transaction
+        // marks it as INTEREST_ONLY_PAID and updates paidInterest.
+        if (ioMirrorMapping?.mirrorLoanId && paymentRequest.paymentType === 'INTEREST_ONLY') {
+          const preTxMirrorEmi = await db.eMISchedule.findFirst({
+            where: {
+              loanApplicationId: ioMirrorMapping.mirrorLoanId,
+              installmentNumber: emi.installmentNumber
+            }
+          });
+          if (preTxMirrorEmi) {
+            preTxMirrorInterest  = Math.max(0, Number(preTxMirrorEmi.interestAmount  || 0) - Number(preTxMirrorEmi.paidInterest  || 0));
+            preTxMirrorPrincipal = Math.max(0, Number(preTxMirrorEmi.principalAmount || 0) - Number(preTxMirrorEmi.paidPrincipal || 0));
+            preTxMirrorTotal     = Math.round((preTxMirrorInterest + preTxMirrorPrincipal) * 100) / 100;
+            console.log(`[PR IO Pre-TX] Mirror EMI #${emi.installmentNumber}: I=₹${preTxMirrorInterest} P=₹${preTxMirrorPrincipal} T=₹${preTxMirrorTotal}`);
+          }
+        }
       }
 
       // Start transaction for approval process with extended timeout
@@ -1430,40 +1452,50 @@ export async function PUT(request: NextRequest) {
             // ==================================================================
             // INTEREST_ONLY
             // ==================================================================
-            else if (pType === 'INTEREST_ONLY' && mirrorEmi) {
-              // Timing Fix: Since INTEREST_ONLY updates the mirror EMI *inside* the transaction,
-              // mirrorRemainingInterest will be 0 here. Since partial INTEREST_ONLY is blocked,
-              // the interest paid on the mirror loan is exactly the full mirrorInterest.
-              const ioMirrorInterest = mirrorInterest; 
+            else if (pType === 'INTEREST_ONLY') {
+              // TIMING FIX: Use preTxMirrorInterest captured BEFORE the transaction.
+              // After the transaction, mirrorEmi.paidInterest = interestAmount (fully updated),
+              // so post-TX mirrorRemainingInterest = 0 — unreliable. We use the value
+              // captured before the TX ran, which correctly reflects what was actually owed.
+              // Fallback to mirrorEmi.interestAmount if pre-TX value was 0 (edge case).
+              const ioMirrorInterest = preTxMirrorInterest > 0
+                ? preTxMirrorInterest
+                : (mirrorEmi ? Number(mirrorEmi.interestAmount || 0) : 0);
 
-              // 1. Bank transaction in mirror company
-              await recordBankTransaction({
-                companyId:       mirrorCompanyId,
-                transactionType: 'CREDIT',
-                amount:          ioMirrorInterest,
-                description:     `MIRROR INTEREST-ONLY (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} I:₹${ioMirrorInterest}`,
-                referenceType:   'MIRROR_INTEREST_INCOME',
-                referenceId:     `${paymentId}-IO`,
-                createdById:     reviewedById
-              });
+              console.log(`[PR Accounting IO] preTxMirrorInterest=₹${preTxMirrorInterest} mirrorEmiStored=₹${mirrorEmi?.interestAmount ?? 'N/A'} → final ₹${ioMirrorInterest}`);
 
-              // NOTE: Mirror EMI status update (INTEREST_ONLY_PAID) is already handled
-              // by the post-transaction INTEREST_ONLY block above — do NOT update again here.
+              if (ioMirrorInterest > 0) {
+                // 1. Bank transaction in mirror company
+                await recordBankTransaction({
+                  companyId:       mirrorCompanyId,
+                  transactionType: 'CREDIT',
+                  amount:          ioMirrorInterest,
+                  description:     `MIRROR INTEREST-ONLY (UPI) - PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber} I:₹${ioMirrorInterest}`,
+                  referenceType:   'MIRROR_INTEREST_INCOME',
+                  referenceId:     `${paymentId}-IO`,
+                  createdById:     reviewedById
+                });
 
-              // 2. Journal: DR Bank | CR Interest Income (principal=0, interest-only)
-              await accSvc.recordEMIPayment({
-                loanId:             mirrorMapping.mirrorLoanId || loan.id,
-                customerId:         paymentRequest.customerId,
-                paymentId:          `${paymentId}-IO`,
-                totalAmount:        ioMirrorInterest,
-                principalComponent: 0,
-                interestComponent:  ioMirrorInterest,
-                paymentDate:        new Date(),
-                paymentMode:        payMode,
-                createdById:        reviewedById,
-                reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`
-              });
-              console.log(`[PR Accounting] ✓ INTEREST_ONLY Mirror Bank+Journal ₹${ioMirrorInterest} in mirror company ${mirrorCompanyId}`);
+                // NOTE: Mirror EMI status update (INTEREST_ONLY_PAID) is already handled
+                // by the post-transaction INTEREST_ONLY block above — do NOT update again here.
+
+                // 2. Journal: DR Bank | CR Interest Income (principal=0, interest-only)
+                await accSvc.recordEMIPayment({
+                  loanId:             mirrorMapping.mirrorLoanId || loan.id,
+                  customerId:         paymentRequest.customerId,
+                  paymentId:          `${paymentId}-IO`,
+                  totalAmount:        ioMirrorInterest,
+                  principalComponent: 0,
+                  interestComponent:  ioMirrorInterest,
+                  paymentDate:        new Date(),
+                  paymentMode:        payMode,
+                  createdById:        reviewedById,
+                  reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`
+                });
+                console.log(`[PR Accounting] ✓ INTEREST_ONLY Mirror Bank+Journal ₹${ioMirrorInterest} in mirror company ${mirrorCompanyId}`);
+              } else {
+                console.warn(`[PR Accounting IO] ⚠️ ioMirrorInterest=0 — skipping mirror entry. mirrorLoanId=${mirrorMapping.mirrorLoanId} installment=${emi.installmentNumber}`);
+              }
             }
           }
         }
