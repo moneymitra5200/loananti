@@ -340,22 +340,9 @@ export async function POST(request: NextRequest) {
 
     // Validate interest only payment
     if (paymentType === 'INTEREST_ONLY') {
-      const maxInterestOnly = settings?.maxInterestOnlyPerLoan || 36; // Increased default to allow extended interest-only periods
-      
-      // Count how many interest-only payments already made for this loan
-      const existingInterestOnly = await db.paymentRequest.count({
-        where: {
-          loanApplicationId,
-          paymentType: 'INTEREST_ONLY',
-          status: 'APPROVED'
-        }
-      });
-
-      if (existingInterestOnly >= maxInterestOnly) {
-        return NextResponse.json({ 
-          error: `Maximum ${maxInterestOnly} interest-only payments allowed for this loan` 
-        }, { status: 400 });
-      }
+      // The user requested unlimited interest-only payments, so we bypass the restriction check here.
+      // Previously, this restricted to settings?.maxInterestOnlyPerLoan (which was 3) or a fallback.
+      console.log('Bypassing max interest-only limit for unlimited payments.');
     }
 
     // Generate request number
