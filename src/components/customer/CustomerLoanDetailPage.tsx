@@ -1036,7 +1036,7 @@ export default function CustomerLoanDetailPage() {
                       Payment History
                     </h4>
                     {interestEmiData?.payments && interestEmiData.payments.length > 0 ? (
-                      <ScrollArea className="h-[200px]">
+                      <div className="w-full">
                         <div className="space-y-2">
                           {interestEmiData.payments.map((payment, index) => (
                             <div key={payment.id} className="p-3 bg-white rounded-lg border border-gray-200">
@@ -1055,7 +1055,7 @@ export default function CustomerLoanDetailPage() {
                             </div>
                           ))}
                         </div>
-                      </ScrollArea>
+                      </div>
                     ) : (
                       <div className="text-center py-4 text-gray-500">
                         <p>No payments yet</p>
@@ -1084,7 +1084,7 @@ export default function CustomerLoanDetailPage() {
             <CardDescription>Click on pending EMI to make payment (must pay in order)</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y max-h-[600px] overflow-y-auto">
+            <div className="divide-y">
                 {emiSchedules.sort((a, b) => a.installmentNumber - b.installmentNumber).map((emi, index) => {
                   // INTEREST_ONLY_PAID is considered as paid - interest is paid and new EMI created for principal
                   const isPaid = emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID';

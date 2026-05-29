@@ -280,7 +280,7 @@ export default function AdminTicketPanel({ userId, userRole }: AdminTicketPanelP
           </div>
 
           {/* Tickets List */}
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             {loading ? (
               <div className="flex items-center justify-center h-64">
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
@@ -318,7 +318,7 @@ export default function AdminTicketPanel({ userId, userRole }: AdminTicketPanelP
                 </AnimatePresence>
               </div>
             )}
-          </ScrollArea>
+          </div>
 
           {/* Pagination */}
           {total > 15 && (
@@ -384,7 +384,7 @@ export default function AdminTicketPanel({ userId, userRole }: AdminTicketPanelP
                   <CardTitle className="text-sm flex items-center gap-2"><MessageSquare className="h-4 w-4" /> Conversation</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ScrollArea className="h-[250px] mb-4">
+                  <div className="w-full mb-4">
                     {loadingMessages ? (
                       <div className="flex items-center justify-center h-32"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
                     ) : messages.length === 0 ? (
@@ -402,7 +402,7 @@ export default function AdminTicketPanel({ userId, userRole }: AdminTicketPanelP
                         ))}
                       </div>
                     )}
-                  </ScrollArea>
+                  </div>
 
                   <div className="border-t pt-4">
                     <div className="flex items-center gap-2 mb-2">

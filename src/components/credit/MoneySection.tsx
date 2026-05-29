@@ -575,7 +575,7 @@ export default function MoneySection() {
                   <p>No collector data for this period</p>
                 </div>
               ) : (
-                <ScrollArea className="h-[500px]">
+                <div className="w-full">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -617,7 +617,7 @@ export default function MoneySection() {
                       ))}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -653,7 +653,7 @@ export default function MoneySection() {
                   </div>
 
                   {/* Bank Accounts List */}
-                  <ScrollArea className="h-64">
+                  <div className="h-64">
                     <div className="space-y-3">
                       {data?.moneyFlow.bankAccounts.map((account) => (
                         <div
@@ -684,7 +684,7 @@ export default function MoneySection() {
                         </div>
                       ))}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -736,7 +736,7 @@ export default function MoneySection() {
                     <p className="text-sm font-medium text-gray-700 mb-3">
                       Users Holding Credit ({data?.moneyFlow.creditManagement.usersWithCredit.length || 0})
                     </p>
-                    <ScrollArea className="h-48">
+                    <div className="h-48">
                       <div className="space-y-2">
                         {data?.moneyFlow.creditManagement.usersWithCredit.map((user) => (
                           <div
@@ -758,7 +758,7 @@ export default function MoneySection() {
                           </div>
                         ))}
                       </div>
-                    </ScrollArea>
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -779,7 +779,7 @@ export default function MoneySection() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[500px]">
+              <div className="w-full">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -824,7 +824,7 @@ export default function MoneySection() {
                     ))}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

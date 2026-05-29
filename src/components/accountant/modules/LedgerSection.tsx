@@ -160,7 +160,7 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
           </div>
 
           {/* Transaction table — always show, opening balance always visible */}
-          <ScrollArea className="max-h-[500px]">
+          <div className="max-w-full">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-gray-50 border-b">
                 <tr>
@@ -220,7 +220,7 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                 </tr>
               </tfoot>
             </table>
-          </ScrollArea>
+          </div>
         </Card>
       ) : (
         <Card>

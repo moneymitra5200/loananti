@@ -96,7 +96,7 @@ export default function UsersTab({
 
       <Card className="bg-white shadow-sm border-0">
         <CardContent className="p-0">
-          <ScrollArea className="h-[600px]">
+          <div className="w-full">
             <div className="divide-y">
               {filteredUsers.map((u) => (
                 <div key={u.id} className="p-4 hover:bg-gray-50 transition-colors">
@@ -132,7 +132,7 @@ export default function UsersTab({
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

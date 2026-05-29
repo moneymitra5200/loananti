@@ -155,7 +155,7 @@ export default function InterestPaidHistory({
             </p>
           </div>
         ) : (
-          <ScrollArea className="h-[400px]">
+          <div className="w-full">
             <div className="space-y-3">
               {payments.map((payment, index) => (
                 <div
@@ -210,7 +210,7 @@ export default function InterestPaidHistory({
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </CardContent>
     </Card>

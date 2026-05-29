@@ -467,7 +467,7 @@ export function ActiveLoansTab({
               </Button>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+            <div className="space-y-3 pr-2">
               {filteredActiveLoans.map((loan, index) => {
                 const isOnline = loan.loanType === 'ONLINE';
                 const bgColor = isOnline ? 'bg-blue-50 border-blue-100' : 'bg-purple-50 border-purple-100';
@@ -605,7 +605,7 @@ export function UsersTab({
 
       <Card className="bg-white shadow-sm border-0">
         <CardContent className="p-0">
-          <ScrollArea className="h-[600px]">
+          <div className="w-full">
             <div className="divide-y">
               {filteredUsers.map((u) => (
                 <div key={u.id} className="p-4 hover:bg-gray-50 transition-colors">
@@ -646,7 +646,7 @@ export function UsersTab({
                 </div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

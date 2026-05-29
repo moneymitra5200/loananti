@@ -373,7 +373,8 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     isMirrorLoan: loan.isMirrorLoan,
     originalLoanId: loan.originalLoanId,
     displayColor: loan.displayColor,
-    summary: loan.summary
+    summary: loan.summary,
+    _count: { emiSchedules: loan.summary?.totalEMIs || loan.tenure }
   });
 
   // Filter loans - show only original loans (not mirror loans separately)
@@ -538,7 +539,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
           </div>
 
           {/* Loans List */}
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             {filteredLoans.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -548,7 +549,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
               <div className="space-y-4">
                 {/* Active Loans Section */}
                 {activeLoans.length > 0 && statusFilter !== 'CLOSED' && (
-                  <div className="space-y-3">
+                  <div className="space-y-3 pr-2">
                     <h3 className="text-sm font-semibold text-gray-600 px-1 flex items-center gap-2">
                       <Wallet className="h-4 w-4" />
                       Active Loans ({activeLoans.length})
@@ -561,7 +562,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
 
                 {/* Closed Loans Section */}
                 {closedLoans.length > 0 && (statusFilter === 'all' || statusFilter === 'CLOSED') && (
-                  <div className="space-y-3">
+                  <div className="space-y-3 pr-2">
                     <h3 className="text-sm font-semibold text-green-700 px-1 flex items-center gap-2">
                       <CheckCircle className="h-4 w-4" />
                       Closed Loans ({closedLoans.length})
@@ -573,7 +574,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
                 )}
               </div>
             )}
-          </ScrollArea>
+          </div>
 
           {/* Pagination */}
           {total > 10 && (

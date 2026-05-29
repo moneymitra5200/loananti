@@ -1123,7 +1123,7 @@ export default function CreditManagementPage() {
                   <p>No transactions found</p>
                 </div>
               ) : (
-                <ScrollArea className="h-[600px]">
+                <div className="w-full">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1222,7 +1222,7 @@ export default function CreditManagementPage() {
                       ))}
                     </TableBody>
                   </Table>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1251,7 +1251,7 @@ export default function CreditManagementPage() {
                   <p>No active loans found</p>
                 </div>
               ) : (
-                <ScrollArea className="h-[600px]">
+                <div className="w-full">
                   <div className="space-y-4">
                     {loansWithEMI.map((loan) => {
                       const emiTransactions = getLoanEMITransactions(loan.id);
@@ -1318,7 +1318,7 @@ export default function CreditManagementPage() {
                       );
                     })}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1714,7 +1714,7 @@ export default function CreditManagementPage() {
           </DialogHeader>
           
           {selectedUser && (
-            <ScrollArea className="h-[500px]">
+            <div className="w-full">
               <div className="space-y-4">
                 {/* Credit Summary */}
                 <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
@@ -1780,7 +1780,7 @@ export default function CreditManagementPage() {
                   </TableBody>
                 </Table>
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -1799,7 +1799,7 @@ export default function CreditManagementPage() {
           </DialogHeader>
           
           {selectedLoan && (
-            <ScrollArea className="h-[600px]">
+            <div className="w-full">
               <div className="space-y-6">
                 {/* Loan Summary */}
                 <div className="grid grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
@@ -1905,7 +1905,7 @@ export default function CreditManagementPage() {
                   )}
                 </div>
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>

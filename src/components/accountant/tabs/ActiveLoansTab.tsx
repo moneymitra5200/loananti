@@ -136,7 +136,8 @@ function ActiveLoansTabComponent({
     nextEmi: loan.nextEmi ? {
       ...loan.nextEmi,
       dueDate: loan.nextEmi.dueDate ? new Date(loan.nextEmi.dueDate).toISOString() : ''
-    } : undefined
+    } : undefined,
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
   });
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
@@ -164,7 +165,8 @@ function ActiveLoansTabComponent({
           name: offlineMirror.company?.name || mapping.mirrorCompany?.name || '',
           code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || (originalLoan as any).sessionForm?.tenure || 0 }
       };
     }
 
@@ -194,7 +196,8 @@ function ActiveLoansTabComponent({
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || (originalLoan as any).sessionForm?.tenure || 0 }
       };
     }
     
@@ -220,7 +223,8 @@ function ActiveLoansTabComponent({
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || (originalLoan as any).sessionForm?.tenure || 0 }
       };
     }
     
@@ -405,7 +409,7 @@ function ActiveLoansTabComponent({
       {/* Loans List in Parallel View */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             {filteredLoans.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <CreditCard className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -418,7 +422,7 @@ function ActiveLoansTabComponent({
                 </AnimatePresence>
               </div>
             )}
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

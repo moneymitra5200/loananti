@@ -153,7 +153,7 @@ export default function InterestHistorySection({
               <p>No interest payments recorded yet</p>
             </div>
           ) : (
-            <ScrollArea className="h-[400px]">
+            <div className="w-full">
               <div className="space-y-3">
                 {payments.map((payment, index) => (
                   <div key={payment.id}>
@@ -205,7 +205,7 @@ export default function InterestHistorySection({
                   </div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>

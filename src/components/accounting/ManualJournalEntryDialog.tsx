@@ -194,7 +194,7 @@ export default function ManualJournalEntryDialog({
 
           {/* Table Area */}
           <div className="border border-emerald-50 rounded-xl overflow-hidden shadow-sm">
-            <ScrollArea className="max-h-[400px]">
+            <div className="max-w-full">
               <Table>
                 <TableHeader className="bg-emerald-50/50">
                   <TableRow>
@@ -272,7 +272,7 @@ export default function ManualJournalEntryDialog({
                   ))}
                 </TableBody>
               </Table>
-            </ScrollArea>
+            </div>
           </div>
 
           <div className="flex justify-between items-center">

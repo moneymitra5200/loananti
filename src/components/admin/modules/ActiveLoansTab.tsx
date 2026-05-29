@@ -386,7 +386,8 @@ export default function ActiveLoansTab({
       status: loan.nextEmi.status
     } : undefined,
     emiSchedules: loan.emiSchedules,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
   });
 
   // Render each loan in parallel view format
@@ -413,6 +414,7 @@ export default function ActiveLoansTab({
       isInterestOnlyLoan?: boolean;
       interestOnlyMonthlyAmount?: number;
       createdAt: string;
+      _count?: any;
     } | null = null;
     
     if (mapping?.mirrorLoan) {
@@ -438,7 +440,8 @@ export default function ActiveLoansTab({
         } : undefined,
         isInterestOnlyLoan: ml.isInterestOnlyLoan,
         interestOnlyMonthlyAmount: ml.interestOnlyMonthlyAmount,
-        createdAt: ml.createdAt || new Date().toISOString()
+        createdAt: ml.createdAt || new Date().toISOString(),
+        _count: (ml as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
       };
     } else if (mapping?.offlineMirrorLoan) {
       const oml = mapping.offlineMirrorLoan;
@@ -459,7 +462,8 @@ export default function ActiveLoansTab({
           name: oml.company.name,
           code: oml.company.code || ''
         } : undefined,
-        createdAt: oml.createdAt || new Date().toISOString()
+        createdAt: oml.createdAt || new Date().toISOString(),
+        _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
       };
     }
     
@@ -677,7 +681,7 @@ export default function ActiveLoansTab({
               </Button>
             </div>
           ) : (
-            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2">
+            <div className="space-y-4 pr-2">
               <AnimatePresence>
                 {filteredActiveLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
               </AnimatePresence>

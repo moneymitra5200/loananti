@@ -456,7 +456,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.2 }}
             >
-              <div className="p-3 bg-gray-50 space-y-2 max-h-[400px] overflow-y-auto">
+              <div className="p-3 bg-gray-50 space-y-2">
                 {emis.offline.map(emi => renderEmiItem(emi, 'offline'))}
                 {emis.online.map(emi => renderEmiItem(emi, 'online'))}
               </div>

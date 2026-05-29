@@ -284,7 +284,7 @@ export default function AIChatAssistant({ customerId, customerName }: AIChatAssi
                   >
                     {/* Messages Area */}
                     <CardContent className="p-0 flex-1">
-                      <ScrollArea className="h-[380px]" ref={scrollRef}>
+                      <div className="w-full" ref={scrollRef}>
                         <div className="p-4 space-y-4">
                           {displayMessages.map((message) => (
                             <div key={message.id} className="flex flex-col gap-2">
@@ -375,7 +375,7 @@ export default function AIChatAssistant({ customerId, customerName }: AIChatAssi
                             </motion.div>
                           )}
                         </div>
-                      </ScrollArea>
+                      </div>
                     </CardContent>
 
                     {/* Quick Actions */}

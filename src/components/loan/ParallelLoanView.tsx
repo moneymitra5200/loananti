@@ -47,6 +47,7 @@ interface LoanData {
   };
   nextEmi?: { dueDate: string; amount: number; status: string };
   emiSchedules?: any[];
+  _count?: any;
 }
 
 interface ParallelLoanViewProps {
@@ -131,7 +132,7 @@ export function ParallelLoanView({
       // If there IS a mapping but the mirror loan data isn't loaded yet, show "linked" state
       if (mirrorMapping) {
         return (
-          <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 min-h-[160px] flex flex-col items-center justify-center">
+          <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 md:min-h-[160px] flex flex-col items-center justify-center">
             <Building2 className="h-8 w-8 text-blue-300 mb-2" />
             <p className="text-sm text-blue-500 font-medium">Mirror Loan Linked</p>
             <p className="text-xs text-blue-400 mt-1 text-center">Mirror loan is linked · Rate: {mirrorMapping.mirrorInterestRate}%</p>
@@ -143,7 +144,7 @@ export function ParallelLoanView({
       }
       // No mapping at all — this loan has no mirror
       return (
-        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50/50 min-h-[160px] flex flex-col items-center justify-center">
+        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50/50 md:min-h-[160px] flex flex-col items-center justify-center">
           <Building2 className="h-8 w-8 text-gray-300 mb-2" />
           <p className="text-sm text-gray-400 font-medium">No Mirror Loan</p>
           <p className="text-xs text-gray-300 mt-1">This loan has no mirror</p>
@@ -154,7 +155,7 @@ export function ParallelLoanView({
     // Mirror side — check access
     if (!isOriginal && !canSeeMirror) {
       return (
-        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/40 min-h-[160px] flex flex-col items-center justify-center">
+        <div className="flex-1 p-4 rounded-lg border-2 border-dashed border-orange-200 bg-orange-50/40 md:min-h-[160px] flex flex-col items-center justify-center">
           <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mb-3">
             <Building2 className="h-6 w-6 text-orange-400" />
           </div>
@@ -230,7 +231,7 @@ export function ParallelLoanView({
               {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
                 `@${loan.interestRate}% (Interest Only Phase)`
               ) : (
-                `@${loan.interestRate}% for ${loan.tenure} months`
+                `@${loan.interestRate}% for ${(loan as any)._count?.emiSchedules || loan.tenure} months`
               )}
             </p>
             {loan.emiAmount > 0 && (
@@ -305,7 +306,7 @@ export function ParallelLoanView({
                   <span className="ml-1 font-medium">
                     {loan?.status === 'ACTIVE_INTEREST_ONLY' || loan?.status === 'INTEREST_ONLY' 
                       ? '(Interest Only Phase)' 
-                      : `${mirrorMapping.mirrorTenure} mo`}
+                      : `${(originalLoan as any)._count?.emiSchedules || originalLoan.tenure} mo`}
                   </span>
                 </div>
               )}
@@ -362,21 +363,21 @@ export function ParallelLoanView({
       )}
 
       {/* Main Content - Parallel View */}
-      <div className="p-4">
-        <div className="flex gap-0 items-stretch">
+      <div className="p-4 overflow-x-hidden">
+        <div className="flex flex-col md:flex-row gap-0 items-stretch">
           {/* LEFT SIDE - Original Loan */}
           {renderLoanSide(originalLoan, 'original')}
 
           {/* CENTER - Vertical Divider */}
-          <div className="flex flex-col items-center justify-center px-3 py-2">
-            <div className="h-full w-0.5 bg-gradient-to-b from-emerald-400 via-gray-400 to-blue-400 rounded-full" />
+          <div className="flex md:flex-col items-center justify-center py-4 md:py-2 md:px-3">
+            <div className="w-full md:w-0.5 h-0.5 md:h-full bg-gradient-to-r md:bg-gradient-to-b from-emerald-400 via-gray-400 to-blue-400 rounded-full" />
             <div
-              className="my-2 px-2 py-1 rounded text-[10px] font-bold text-white shadow-sm"
+              className="mx-4 md:mx-0 md:my-2 px-2 py-1 rounded text-[10px] font-bold text-white shadow-sm flex-shrink-0"
               style={{ backgroundColor: hexColor }}
             >
               VS
             </div>
-            <div className="h-full w-0.5 bg-gradient-to-b from-blue-400 via-gray-400 to-emerald-400 rounded-full" />
+            <div className="w-full md:w-0.5 h-0.5 md:h-full bg-gradient-to-r md:bg-gradient-to-b from-blue-400 via-gray-400 to-emerald-400 rounded-full" />
           </div>
 
           {/* RIGHT SIDE - Mirror Loan */}

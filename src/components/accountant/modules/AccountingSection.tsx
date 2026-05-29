@@ -372,7 +372,7 @@ export function LedgerViewSection({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="max-h-[500px] overflow-y-auto">
+            <div className="w-full">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -426,7 +426,7 @@ export function LedgerViewSection({
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="max-h-[500px] overflow-y-auto">
+            <div className="w-full">
               <Table>
                 <TableHeader>
                   <TableRow>

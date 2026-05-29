@@ -216,7 +216,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
       name: loan.company.name,
       code: loan.company.code || ''
     } : undefined,
-    nextEmi: loan.nextEmi
+    nextEmi: loan.nextEmi,
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 }
   });
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
@@ -245,7 +246,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
         } : undefined,
         nextEmi: undefined,
-        isMirrorLoan: true
+        isMirrorLoan: true,
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
     
@@ -275,7 +277,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
     
@@ -301,7 +304,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
     
@@ -521,7 +525,7 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
               <p>No active loans found</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+            <div className="space-y-3 pr-2">
               <AnimatePresence>
                 {filteredLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
               </AnimatePresence>

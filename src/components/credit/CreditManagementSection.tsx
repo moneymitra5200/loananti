@@ -368,7 +368,7 @@ export default function CreditManagementSection() {
                   <p>No users with credit found</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                <div className="space-y-3">
                   {usersWithCredit.map((user, index) => (
                     <motion.div
                       key={user.id}
@@ -571,7 +571,7 @@ export default function CreditManagementSection() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[300px]">
+              <div className="w-full">
                 {transactions.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
@@ -603,7 +603,7 @@ export default function CreditManagementSection() {
                     ))}
                   </div>
                 )}
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -616,7 +616,7 @@ export default function CreditManagementSection() {
               <CardDescription>System-wide credit movement history</CardDescription>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[500px]">
+              <div className="w-full">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -647,7 +647,7 @@ export default function CreditManagementSection() {
                     ))}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -853,7 +853,7 @@ export default function CreditManagementSection() {
             </div>
           </div>
 
-          <ScrollArea className="h-[400px]">
+          <div className="w-full">
             {userTransactions.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <FileText className="h-10 w-10 mx-auto mb-2 text-gray-300" />
@@ -891,7 +891,7 @@ export default function CreditManagementSection() {
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPassbookDialog(false)}>Close</Button>

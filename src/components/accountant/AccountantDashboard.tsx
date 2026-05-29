@@ -399,7 +399,7 @@ function CashBookSection({
           <CardTitle className="text-lg">Cash Transactions — Passbook</CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-96">
+          <div className="h-96">
             {loading ? (
               <div className="py-16 text-center"><Loader2 className="h-7 w-7 animate-spin mx-auto text-teal-500" /></div>
             ) : entries.length === 0 ? (
@@ -468,7 +468,7 @@ function CashBookSection({
                   </div>
                 ))
             )}
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
 
@@ -1026,7 +1026,7 @@ function BankSection({
               <CardTitle className="text-lg">Bank Transactions — Passbook</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-96">
+              <div className="h-96">
                 {Object.keys(groupedTransactions).length === 0 ? (
                   <div className="text-center text-gray-500 py-8">No transactions found</div>
                 ) : (
@@ -1079,7 +1079,7 @@ function BankSection({
                       </div>
                     ))
                 )}
-              </ScrollArea>
+              </div>
             </CardContent>
           </Card>
 
@@ -2007,7 +2007,7 @@ function TrialBalanceSection({
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <ScrollArea className="w-full h-[600px]">
+              <div className="w-full w-full">
                 <Table>
                   <TableHeader className="bg-gray-50 sticky top-0 z-10">
                     <TableRow>
@@ -2067,7 +2067,7 @@ function TrialBalanceSection({
                     )}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+              </div>
             </div>
           </CardContent>
         </Card>

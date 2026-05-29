@@ -381,7 +381,7 @@ export default function CashierSettlement({ userId, userCredit, onSettlementComp
             <p className="text-sm">Create your first settlement to transfer credit</p>
           </div>
         ) : (
-          <ScrollArea className="h-[300px]">
+          <div className="w-full">
             <div className="divide-y divide-gray-50">
               {settlements.map((s, index) => (
                 <motion.div
@@ -425,7 +425,7 @@ export default function CashierSettlement({ userId, userCredit, onSettlementComp
                 </motion.div>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </CardContent>
     </Card>

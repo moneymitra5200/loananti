@@ -152,7 +152,7 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             {loading ? (
               <div className="flex items-center justify-center h-32"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
             ) : sessions.length === 0 ? (
@@ -180,7 +180,7 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
 
@@ -204,7 +204,7 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
               </div>
             </CardHeader>
             <CardContent className="p-0 flex flex-col h-[400px]">
-              <ScrollArea className="flex-1 p-4">
+              <div className="flex-1 p-4">
                 <div className="space-y-4">
                   {messages.map((msg) => (
                     <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -216,7 +216,7 @@ export default function AdminLiveChatPanel({ userId, userRole }: AdminLiveChatPa
                     </motion.div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
               {selectedSession.status !== 'CLOSED' && (
                 <div className="p-4 border-t bg-gray-50">
                   <div className="flex gap-2">

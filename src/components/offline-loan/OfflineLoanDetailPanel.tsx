@@ -1756,7 +1756,7 @@ export default function OfflineLoanDetailPanel({
                                     Payment History
                                   </h4>
                                   {loan.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length > 0 ? (
-                                    <ScrollArea className="h-[200px]">
+                                    <div className="w-full">
                                       <div className="space-y-2">
                                         {loan.emis
                                           .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
@@ -1817,7 +1817,7 @@ export default function OfflineLoanDetailPanel({
                                             </div>
                                           ))}
                                       </div>
-                                    </ScrollArea>
+                                    </div>
                                   ) : (
                                     <div className="text-center py-4 text-gray-500">
                                       <p>No payments yet</p>
@@ -1877,7 +1877,7 @@ export default function OfflineLoanDetailPanel({
                             )}
                           </CardHeader>
                           <CardContent>
-                            <ScrollArea className="h-[400px]">
+                            <div className="w-full">
                               <div className="space-y-2">
                                 {loan.emis.map((emi) => {
                                   const isPaidOrHandled = emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID';
@@ -2081,7 +2081,7 @@ export default function OfflineLoanDetailPanel({
                                   );
                                 })}
                               </div>
-                            </ScrollArea>
+                            </div>
                           </CardContent>
                         </Card>
                       )}
@@ -2170,7 +2170,7 @@ export default function OfflineLoanDetailPanel({
                                   <CheckCircle className="h-4 w-4 text-emerald-600" />
                                   {loan.isMirrored && !loan.isMirrorLoan ? 'Original Loan' : ''} EMI Payment History
                                 </h4>
-                                <ScrollArea className="max-h-64">
+                                <div className="max-h-64">
                                   <div className="space-y-3">
                                     {loan.emis
                                       .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
@@ -2240,7 +2240,7 @@ export default function OfflineLoanDetailPanel({
                                       <p className="text-sm text-gray-500 text-center py-4">No payments recorded yet</p>
                                     )}
                                   </div>
-                                </ScrollArea>
+                                </div>
                               </div>
                             )}
                             
@@ -2261,7 +2261,7 @@ export default function OfflineLoanDetailPanel({
                                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600"></div>
                                   </div>
                                 ) : (
-                                  <ScrollArea className="max-h-64">
+                                  <div className="max-h-64">
                                     <div className="space-y-3">
                                       {mirrorLoanEmis
                                         .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'PARTIALLY_PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
@@ -2331,7 +2331,7 @@ export default function OfflineLoanDetailPanel({
                                         <p className="text-sm text-gray-500 text-center py-4">No mirror loan payments recorded yet</p>
                                       )}
                                     </div>
-                                  </ScrollArea>
+                                  </div>
                                 )}
                               </div>
                             )}

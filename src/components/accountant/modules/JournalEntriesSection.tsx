@@ -313,7 +313,7 @@ export default function JournalEntriesSection({ selectedCompanyId, refreshKey = 
             <div className="col-span-1 text-right">Credit</div>
           </div>
         </CardHeader>
-        <ScrollArea className="h-[580px]">
+        <div className="w-full">
           {loading ? (
             <div className="flex items-center justify-center h-40">
               <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
@@ -468,7 +468,7 @@ export default function JournalEntriesSection({ selectedCompanyId, refreshKey = 
               })}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </Card>
 
       {/* Pagination */}

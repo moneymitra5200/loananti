@@ -319,8 +319,8 @@ export default function DaybookSection({ companyId, companyName, companyCode }: 
               <p className="text-gray-500">No transactions found for the selected period</p>
             </div>
           ) : (
-            <ScrollArea className="max-h-[500px]">
-              <div className="space-y-2">
+            <div className="w-full">
+              <div className="space-y-2 pr-2">
                 {transactions.map((txn, index) => (
                   <motion.div
                     key={txn.id}
@@ -385,7 +385,7 @@ export default function DaybookSection({ companyId, companyName, companyCode }: 
                   </motion.div>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>

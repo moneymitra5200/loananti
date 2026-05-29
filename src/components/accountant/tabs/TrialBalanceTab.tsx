@@ -199,7 +199,7 @@ function TrialBalanceTabComponent({
           <p className="text-sm text-gray-600">As on {asOfDate}</p>
         </div>
 
-        <ScrollArea className="max-h-[600px]">
+        <div className="max-w-full">
           <Table>
             <TableHeader className="sticky top-0 z-10">
               <TableRow className="bg-slate-700 hover:bg-slate-700">
@@ -264,7 +264,7 @@ function TrialBalanceTabComponent({
               )}
             </TableBody>
           </Table>
-        </ScrollArea>
+        </div>
 
         {/* Totals row */}
         <div className={`border-t-2 ${isBalanced ? 'border-emerald-400' : 'border-red-400'}`}>

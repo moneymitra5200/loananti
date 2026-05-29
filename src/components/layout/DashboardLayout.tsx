@@ -363,7 +363,7 @@ export default function DashboardLayout({
         </nav>
 
         {/* Main Content */}
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-4 lg:p-6">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden md:overflow-x-auto p-4 lg:p-6 w-full max-w-full">
           {stats && stats.length > 0 && activeTab === 'dashboard' && (
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               {stats.map((stat, index) => {

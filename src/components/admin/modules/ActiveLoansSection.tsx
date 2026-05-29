@@ -751,7 +751,7 @@ export function ActiveLoansSection({
               </Button>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+            <div className="space-y-3 pr-2">
               {filteredLoans.map((loan, index) => {
                 const isOnline = loan.loanType === 'ONLINE';
                 const bgColor = isOnline ? 'bg-blue-50 border-blue-100' : 'bg-purple-50 border-purple-100';

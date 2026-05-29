@@ -823,7 +823,7 @@ export default function MyCreditPassbook() {
                   <p>No transactions found</p>
                 </div>
               ) : (
-                <ScrollArea className="h-[500px]">
+                <div className="w-full">
                   <div className="space-y-6">
                     {Object.entries(groupedTransactions).map(([date, txs]) => (
                       <div key={date}>
@@ -923,7 +923,7 @@ export default function MyCreditPassbook() {
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1078,7 +1078,7 @@ export default function MyCreditPassbook() {
           </DialogHeader>
           
           {selectedTransaction && (
-            <ScrollArea className="max-h-[75vh]">
+            <div className="max-h-[75vh]">
               <div className="space-y-6 pr-4">
                 {/* Transaction Header */}
                 <div className="bg-gray-50 rounded-xl p-4">
@@ -1374,7 +1374,7 @@ export default function MyCreditPassbook() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -1390,7 +1390,7 @@ export default function MyCreditPassbook() {
           </DialogHeader>
           
           {selectedLoan && (
-            <ScrollArea className="max-h-[75vh]">
+            <div className="max-h-[75vh]">
               <div className="space-y-6 pr-4">
                 {/* Loan Header */}
                 <div className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-xl p-6">
@@ -1606,7 +1606,7 @@ export default function MyCreditPassbook() {
                   </CardContent>
                 </Card>
               </div>
-            </ScrollArea>
+            </div>
           )}
         </DialogContent>
       </Dialog>

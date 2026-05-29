@@ -851,13 +851,13 @@ export default function TicketSystem() {
             {filteredTickets.length === 0 ? (
               renderEmptyState()
             ) : (
-              <ScrollArea className="h-full max-h-[calc(100vh-400px)]">
+              <div className="w-full">
                 <div className="space-y-3 pr-2">
                   <AnimatePresence mode="popLayout">
                     {filteredTickets.map(renderTicketItem)}
                   </AnimatePresence>
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </CardContent>
         </>

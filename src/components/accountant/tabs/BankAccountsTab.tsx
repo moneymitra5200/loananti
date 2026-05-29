@@ -261,7 +261,7 @@ function BankAccountsTabComponent({
           <CardDescription>All loan disbursements (debit) and EMI collections (credit)</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[400px]">
+          <div className="w-full">
             {bankTransactions.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">
                 <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -308,7 +308,7 @@ function BankAccountsTabComponent({
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

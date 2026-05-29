@@ -445,13 +445,13 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
                   <p>No EMIs for this date</p>
                 </div>
               ) : (
-                <ScrollArea className="max-h-[400px]">
+                <div className="max-w-full">
                   <div className="space-y-3">
                     {/* Show offline EMIs first (more common for offline loan system) */}
                     {selectedEmis.offline.map(emi => renderEmiItem(emi, 'offline'))}
                     {selectedEmis.online.map(emi => renderEmiItem(emi, 'online'))}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </div>
           </DialogContent>

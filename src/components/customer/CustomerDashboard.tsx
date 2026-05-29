@@ -2202,7 +2202,7 @@ export default function CustomerDashboard() {
                     </Button>
                   </div>
 
-                  <ScrollArea className="h-[300px]">
+                  <div className="w-full">
                     <div className="space-y-2">
                       {emiSchedules.map((emi) => (
                         <div key={emi.id} className={`p-3 rounded-lg border ${emi.paymentStatus === 'OVERDUE' ? 'border-red-200 bg-red-50' : (emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID') ? 'border-green-200 bg-green-50' : 'border-gray-200'}`}>
@@ -2223,7 +2223,7 @@ export default function CustomerDashboard() {
                         </div>
                       ))}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </div>
               )}
             </div>
@@ -2682,14 +2682,14 @@ export default function CustomerDashboard() {
                 <Separator />
                 <div>
                   <Label className="text-gray-500 text-sm">Messages ({selectedTicket.messages.length})</Label>
-                  <ScrollArea className="h-[150px] mt-2 space-y-2">
+                  <div className="w-full mt-2 space-y-2">
                     {selectedTicket.messages.map((msg: any, idx: number) => (
                       <div key={idx} className={`p-2 rounded-lg ${msg.senderType === 'CUSTOMER' ? 'bg-emerald-50 ml-4' : 'bg-gray-100 mr-4'}`}>
                         <p className="text-xs text-gray-500 mb-1">{msg.senderType === 'CUSTOMER' ? 'You' : 'Support'} • {formatDate(msg.createdAt)}</p>
                         <p className="text-sm">{msg.message}</p>
                       </div>
                     ))}
-                  </ScrollArea>
+                  </div>
                 </div>
               </>
             )}

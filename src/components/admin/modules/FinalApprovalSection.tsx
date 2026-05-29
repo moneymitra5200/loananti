@@ -145,7 +145,7 @@ function FinalApprovalSection({ loans, onRefresh, userId }: Props) {
               <p>No loans pending final approval</p>
             </div>
           ) : (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+            <div className="space-y-3 pr-2">
               {finalLoans.map((loan, index) => (
                 <motion.div key={loan.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.02 }}
                   className="p-4 border border-gray-100 rounded-xl hover:bg-gray-50 transition-all bg-white">

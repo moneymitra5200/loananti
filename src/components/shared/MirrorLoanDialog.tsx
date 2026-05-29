@@ -648,7 +648,7 @@ function MirrorLoanDialog({ loan, userId, onComplete, onCancel }: Props) {
                                     </tr>
                                   </thead>
                                   {/* Scrollable Body */}
-                                  <tbody className="max-h-[400px] overflow-y-auto">
+                                  <tbody>
                                     {Array.from({ length: maxRows }).map((_, index) => {
                                       const originalEMI = originalSchedule[index];
                                       const mirrorEMI = mirrorSchedule[index];

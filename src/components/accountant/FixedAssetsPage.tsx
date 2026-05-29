@@ -504,7 +504,7 @@ export default function FixedAssetsPage({ user }: FixedAssetsPageProps) {
       {/* Assets Table */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -626,7 +626,7 @@ export default function FixedAssetsPage({ user }: FixedAssetsPageProps) {
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
 
@@ -957,7 +957,7 @@ export default function FixedAssetsPage({ user }: FixedAssetsPageProps) {
                     <CardTitle className="text-sm">Depreciation History</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ScrollArea className="h-40">
+                    <div className="h-40">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -980,7 +980,7 @@ export default function FixedAssetsPage({ user }: FixedAssetsPageProps) {
                           ))}
                         </TableBody>
                       </Table>
-                    </ScrollArea>
+                    </div>
                   </CardContent>
                 </Card>
               )}

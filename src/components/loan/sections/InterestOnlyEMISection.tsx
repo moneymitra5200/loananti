@@ -157,7 +157,7 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
               Payment History
             </h4>
             {paidCount > 0 ? (
-              <ScrollArea className="h-[200px]">
+              <div className="w-full">
                 <div className="space-y-2">
                   {emiSchedules
                     .filter(e => e.status === 'PAID' || e.status === 'INTEREST_ONLY_PAID')
@@ -218,7 +218,7 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
                       </div>
                     ))}
                 </div>
-              </ScrollArea>
+              </div>
             ) : (
               <div className="text-center py-4 text-gray-500">
                 <p>No payments yet</p>

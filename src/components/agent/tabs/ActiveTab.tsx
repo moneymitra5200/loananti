@@ -80,7 +80,8 @@ export default function ActiveTab({ activeLoans, onViewLoan, onRefresh }: Active
     status: loan.status,
     loanType: loan.loanType,
     createdAt: loan.createdAt,
-    company: loan.company
+    company: loan.company,
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || (loan as any).tenure || loan.sessionForm?.tenure || 0 }
   });
 
   // Render each loan in parallel view format
@@ -183,7 +184,7 @@ export default function ActiveTab({ activeLoans, onViewLoan, onRefresh }: Active
             <p>No active loans</p>
           </div>
         ) : (
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+          <div className="space-y-3 pr-2">
             <AnimatePresence>
               {filteredLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
             </AnimatePresence>

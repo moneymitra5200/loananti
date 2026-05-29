@@ -153,7 +153,7 @@ function MoneyLogsTabComponent({
       {/* Money Logs Table */}
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[600px]">
+          <div className="w-full">
             {filteredLogs.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <DollarSign className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -255,7 +255,7 @@ function MoneyLogsTabComponent({
                 </TableBody>
               </Table>
             )}
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -230,7 +230,7 @@ export default function CreditHistory({ userId, limit = 20, showTitle = true }: 
         </div>
 
         {/* Transactions List */}
-        <ScrollArea className="h-[400px]">
+        <div className="w-full">
           {transactions.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
               <IndianRupee className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -296,7 +296,7 @@ export default function CreditHistory({ userId, limit = 20, showTitle = true }: 
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
 
         {/* Pagination */}
         {totalPages > 1 && (

@@ -20,7 +20,7 @@ export default function AuditTrailSection({ auditLogs }: AuditTrailSectionProps)
 
       <Card>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -59,7 +59,7 @@ export default function AuditTrailSection({ auditLogs }: AuditTrailSectionProps)
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>

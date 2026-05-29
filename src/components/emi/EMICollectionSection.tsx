@@ -560,7 +560,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
               ))}
             </div>
           ) : (
-            <ScrollArea className="h-[300px]">
+            <div className="w-full">
               {summary.combined.count === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
@@ -572,7 +572,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   {emis.online.map(emi => renderEmiCard(emi, 'online'))}
                 </div>
               )}
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>

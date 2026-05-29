@@ -311,7 +311,7 @@ export default function LocationHistoryViewer() {
               <p>No users found</p>
             </div>
           ) : (
-            <ScrollArea className="h-[600px]">
+            <div className="w-full">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pr-4">
                 {filteredUsers.map((userWithLoc, index) => {
                   const lastActionConfig = ACTION_CONFIG[userWithLoc.lastLocation.action] || { 
@@ -370,7 +370,7 @@ export default function LocationHistoryViewer() {
                   );
                 })}
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -460,7 +460,7 @@ export default function LocationHistoryViewer() {
                 <p>No location records found</p>
               </div>
             ) : (
-              <ScrollArea className="h-[500px]">
+              <div className="w-full">
                 <div className="space-y-3 pr-4">
                   {filteredUserLocations.map((loc, index) => {
                     const actionConfig = ACTION_CONFIG[loc.action] || { label: loc.action, className: 'bg-gray-100 text-gray-700', icon: MapPin };
@@ -528,7 +528,7 @@ export default function LocationHistoryViewer() {
                     );
                   })}
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </div>
         </SheetContent>

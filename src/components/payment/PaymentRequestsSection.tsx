@@ -387,7 +387,7 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
               <p className="text-gray-500">No payment requests found</p>
             </div>
           ) : (
-            <ScrollArea className="max-h-[500px]">
+            <div className="w-full">
               <div className="space-y-3">
                 <AnimatePresence>
                   {filteredRequests.map((req, index) => (
@@ -504,7 +504,7 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                   ))}
                 </AnimatePresence>
               </div>
-            </ScrollArea>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -145,7 +145,8 @@ function ActiveLoansTabComponent({
       code: loan.company.code || '' 
     } : undefined,
     nextEmi: loan.nextEmi,
-    emiSchedules: loan.emiSchedules
+    emiSchedules: loan.emiSchedules,
+    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 }
   });
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
@@ -173,7 +174,8 @@ function ActiveLoansTabComponent({
           name: offlineMirror.company?.name || mapping.mirrorCompany?.name || '',
           code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
 
@@ -203,7 +205,8 @@ function ActiveLoansTabComponent({
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
     
@@ -229,7 +232,8 @@ function ActiveLoansTabComponent({
           name: mapping.mirrorCompany.name,
           code: mapping.mirrorCompany.code
         } : undefined,
-        nextEmi: undefined
+        nextEmi: undefined,
+        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
       };
     }
     
@@ -388,7 +392,7 @@ function ActiveLoansTabComponent({
             <p>No active loans found</p>
           </div>
         ) : (
-          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
+          <div className="space-y-3 pr-2">
             <AnimatePresence>
               {filteredLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
             </AnimatePresence>

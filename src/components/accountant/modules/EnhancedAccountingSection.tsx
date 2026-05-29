@@ -260,7 +260,7 @@ export function EnhancedDaybookSection({ selectedCompanyId, formatCurrency, form
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
+          <div className="w-full">
             <Table>
               <TableHeader className="sticky top-0 bg-white">
                 <TableRow>
@@ -325,7 +325,7 @@ export function EnhancedDaybookSection({ selectedCompanyId, formatCurrency, form
                 )}
               </TableBody>
             </Table>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -1317,7 +1317,7 @@ export function GeneralLedgerSection({ selectedCompanyId, formatCurrency, format
             <CardTitle className="text-lg">Account Heads</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[500px]">
+            <div className="w-full">
               {(Object.entries(groupedHeads) as [string, any[]][]).map(([type, heads]) => (
                 <div key={type} className="border-b">
                   <button
@@ -1355,7 +1355,7 @@ export function GeneralLedgerSection({ selectedCompanyId, formatCurrency, format
                   )}
                 </div>
               ))}
-            </ScrollArea>
+            </div>
           </CardContent>
         </Card>
 
@@ -1384,7 +1384,7 @@ export function GeneralLedgerSection({ selectedCompanyId, formatCurrency, format
                 <p>Select an account head to view its ledger</p>
               </div>
             ) : (
-              <ScrollArea className="h-[500px]">
+              <div className="w-full">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white">
                     <TableRow>
@@ -1434,7 +1434,7 @@ export function GeneralLedgerSection({ selectedCompanyId, formatCurrency, format
                     )}
                   </TableBody>
                 </Table>
-              </ScrollArea>
+              </div>
             )}
           </CardContent>
         </Card>
