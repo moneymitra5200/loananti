@@ -1109,15 +1109,29 @@ export async function PUT(request: NextRequest) {
                   }
                   mTotal = partialAmt;
                 } else if (pType === 'INTEREST_ONLY') {
-                  const mirrorInterestAlreadyPaid = Number(mirrorOwnEmi?.paidInterest || 0);
-                  const mirrorRemainingInterest   = Math.max(0, mI - mirrorInterestAlreadyPaid);
-                  mTotal    = mirrorRemainingInterest;
-                  mInterest = mirrorRemainingInterest;
+                  // TIMING FIX: mirrorOwnEmi is fetched AFTER the TX which already set
+                  // paidInterest = interestAmount. Use emi.paidInterest (pre-TX, from
+                  // paymentRequest.emiSchedule fetched before the transaction).
+                  const preTxPaidInterest       = Number(emi.paidInterest || 0);
+                  const mirrorRemainingInterest  = Math.max(0, mI - preTxPaidInterest);
+                  // Layer 2: if stored mI is also 0/null, use mirrorInterestRate × outstanding
+                  let finalInterest = mirrorRemainingInterest;
+                  if (finalInterest <= 0 && selfAsMirror?.mirrorInterestRate) {
+                    const outstanding  = Number(mirrorOwnEmi?.outstandingPrincipal || mirrorOwnEmi?.principalAmount || emi.outstandingPrincipal || 0);
+                    const monthlyRate  = Number(selfAsMirror.mirrorInterestRate) / 100 / 12;
+                    if (outstanding > 0 && monthlyRate > 0) {
+                      finalInterest = Math.round(outstanding * monthlyRate * 100) / 100;
+                      console.log(`[PR Accounting CASE A IO] fallback rate-calc: ₹${finalInterest} (outstanding=₹${outstanding})`);
+                    }
+                  }
+                  console.log(`[PR Accounting CASE A IO] preTxPaid=₹${preTxPaidInterest} mI=₹${mI} final=₹${finalInterest}`);
+                  mTotal    = finalInterest;
+                  mInterest = finalInterest;
                   mPrincipal= 0;
                 } else {
-                  // FULL_EMI — settle remaining mirror balance (in case of prior partial on mirror)
-                  mInterest  = Math.max(0, mI - Number(mirrorOwnEmi?.paidInterest  || 0));
-                  mPrincipal = Math.max(0, mP - Number(mirrorOwnEmi?.paidPrincipal || 0));
+                  // FULL_EMI — TIMING FIX: use emi.paidInterest/paidPrincipal (pre-TX)
+                  mInterest  = Math.max(0, mI - Number(emi.paidInterest  || 0));
+                  mPrincipal = Math.max(0, mP - Number(emi.paidPrincipal || 0));
                   mTotal     = Math.round((mInterest + mPrincipal) * 100) / 100;
                 }
 
