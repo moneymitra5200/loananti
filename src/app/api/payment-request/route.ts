@@ -466,8 +466,9 @@ export async function PUT(request: NextRequest) {
       let preTxMirrorTotal: number = 0;
       if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
           (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
+        // Fetch mapping without isOfflineLoan filter to handle all mapping types
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: emi.loanApplicationId, isOfflineLoan: false }
+          where: { originalLoanId: emi.loanApplicationId }
         });
         // Pre-fetch the mirror EMI at the current installment number BEFORE the transaction
         // marks it as INTEREST_ONLY_PAID and updates paidInterest.
@@ -479,10 +480,25 @@ export async function PUT(request: NextRequest) {
             }
           });
           if (preTxMirrorEmi) {
-            preTxMirrorInterest  = Math.max(0, Number(preTxMirrorEmi.interestAmount  || 0) - Number(preTxMirrorEmi.paidInterest  || 0));
+            const storedInterest = Number(preTxMirrorEmi.interestAmount || 0);
+            const alreadyPaid    = Number(preTxMirrorEmi.paidInterest  || 0);
+            let remainingInterest = Math.max(0, storedInterest - alreadyPaid);
+
+            // FALLBACK: If stored interestAmount is null/0 (broken deferred chain),
+            // recalculate from mirrorInterestRate × outstandingPrincipal
+            if (remainingInterest <= 0 && ioMirrorMapping.mirrorInterestRate) {
+              const outstanding = Number(preTxMirrorEmi.outstandingPrincipal || preTxMirrorEmi.principalAmount || 0);
+              const monthlyRate = Number(ioMirrorMapping.mirrorInterestRate) / 100 / 12;
+              if (outstanding > 0 && monthlyRate > 0) {
+                remainingInterest = Math.round(outstanding * monthlyRate * 100) / 100;
+                console.log(`[PR IO Pre-TX] interestAmount was null/0 — recalculated from rate: ₹${remainingInterest} (outstanding=₹${outstanding} rate=${monthlyRate})`);
+              }
+            }
+
+            preTxMirrorInterest  = remainingInterest;
             preTxMirrorPrincipal = Math.max(0, Number(preTxMirrorEmi.principalAmount || 0) - Number(preTxMirrorEmi.paidPrincipal || 0));
             preTxMirrorTotal     = Math.round((preTxMirrorInterest + preTxMirrorPrincipal) * 100) / 100;
-            console.log(`[PR IO Pre-TX] Mirror EMI #${emi.installmentNumber}: I=₹${preTxMirrorInterest} P=₹${preTxMirrorPrincipal} T=₹${preTxMirrorTotal}`);
+            console.log(`[PR IO Pre-TX] Mirror EMI #${emi.installmentNumber}: I=₹${preTxMirrorInterest} P=₹${preTxMirrorPrincipal} T=₹${preTxMirrorTotal} storedInterest=₹${storedInterest}`);
           }
         }
       }
@@ -789,9 +805,25 @@ export async function PUT(request: NextRequest) {
                 where: { loanApplicationId: mirrorLoanId, installmentNumber: emi.installmentNumber }
               });
               if (mirrorEMI) {
-                const mRemainingInterest = Math.max(0, Number(mirrorEMI.interestAmount || 0) - Number(mirrorEMI.paidInterest || 0));
+                let mInterest = Number(mirrorEMI.interestAmount || 0);
+                // CRITICAL FIX: If stored interestAmount is null/0 (broken deferred chain),
+                // recalculate from mirrorInterestRate × outstandingPrincipal.
+                // This prevents null/0 from propagating to future deferred EMIs.
+                if (mInterest <= 0 && ioMirrorMapping.mirrorInterestRate) {
+                  const outstanding = Number(mirrorEMI.outstandingPrincipal || mirrorEMI.principalAmount || 0);
+                  const monthlyRate = Number(ioMirrorMapping.mirrorInterestRate) / 100 / 12;
+                  if (outstanding > 0 && monthlyRate > 0) {
+                    mInterest = Math.round(outstanding * monthlyRate * 100) / 100;
+                    console.log(`[PR IO TX] mirrorEMI.interestAmount null/0 — recalculated mInterest=₹${mInterest} from rate`);
+                    // Also fix this EMI's stored interestAmount so it's correct going forward
+                    await tx.eMISchedule.update({
+                      where: { id: mirrorEMI.id },
+                      data: { interestAmount: mInterest, totalAmount: Math.round((outstanding + mInterest) * 100) / 100 }
+                    });
+                  }
+                }
+                const mRemainingInterest = Math.max(0, mInterest - Number(mirrorEMI.paidInterest || 0));
                 const mRemainingPrincipal = Math.max(0, Number(mirrorEMI.principalAmount || 0) - Number(mirrorEMI.paidPrincipal || 0));
-                const mInterest = Number(mirrorEMI.interestAmount || 0);
 
                 await tx.eMISchedule.update({
                   where: { id: mirrorEMI.id },
@@ -1453,16 +1485,22 @@ export async function PUT(request: NextRequest) {
             // INTEREST_ONLY
             // ==================================================================
             else if (pType === 'INTEREST_ONLY') {
-              // TIMING FIX: Use preTxMirrorInterest captured BEFORE the transaction.
-              // After the transaction, mirrorEmi.paidInterest = interestAmount (fully updated),
-              // so post-TX mirrorRemainingInterest = 0 — unreliable. We use the value
-              // captured before the TX ran, which correctly reflects what was actually owed.
-              // Fallback to mirrorEmi.interestAmount if pre-TX value was 0 (edge case).
-              const ioMirrorInterest = preTxMirrorInterest > 0
+              // LAYER 1: Use pre-TX captured value (before transaction modified paidInterest)
+              let ioMirrorInterest = preTxMirrorInterest > 0
                 ? preTxMirrorInterest
                 : (mirrorEmi ? Number(mirrorEmi.interestAmount || 0) : 0);
 
-              console.log(`[PR Accounting IO] preTxMirrorInterest=₹${preTxMirrorInterest} mirrorEmiStored=₹${mirrorEmi?.interestAmount ?? 'N/A'} → final ₹${ioMirrorInterest}`);
+              // LAYER 2: If still 0 (null/0 interestAmount in DB), calculate from mirror rate
+              if (ioMirrorInterest <= 0 && mirrorMapping.mirrorInterestRate) {
+                const outstanding = Number(mirrorEmi?.outstandingPrincipal || mirrorEmi?.principalAmount || 0);
+                const monthlyRate = Number(mirrorMapping.mirrorInterestRate) / 100 / 12;
+                if (outstanding > 0 && monthlyRate > 0) {
+                  ioMirrorInterest = Math.round(outstanding * monthlyRate * 100) / 100;
+                  console.log(`[PR Accounting IO] LAYER 2: rate-based fallback ₹${ioMirrorInterest} (outstanding=₹${outstanding} rate=${monthlyRate})`);
+                }
+              }
+
+              console.log(`[PR Accounting IO] preTx=₹${preTxMirrorInterest} stored=₹${mirrorEmi?.interestAmount ?? 'null'} final=₹${ioMirrorInterest}`);
 
               if (ioMirrorInterest > 0) {
                 // 1. Bank transaction in mirror company
