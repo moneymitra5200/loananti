@@ -210,12 +210,6 @@ export default function StaffLoginPage({ onBack }: StaffLoginPageProps) {
               </Button>
             </form>
 
-            <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-100">
-              <p className="text-xs text-emerald-700 font-semibold mb-2">Demo Credentials:</p>
-              <p className="text-xs text-emerald-600">
-                <span className="font-semibold">Super Admin:</span> moneymitra@gmail.com / 1122334455
-              </p>
-            </div>
           </div>
 
           <div className="px-8 py-4 bg-gray-50 border-t border-gray-100 text-center">

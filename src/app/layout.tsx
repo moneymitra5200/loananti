@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { Toaster as ShadcnToaster } from "@/components/ui/toaster";
+
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CompanyProvider } from "@/contexts/CompanyContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
@@ -178,7 +178,7 @@ export default function RootLayout({
           </ErrorBoundary>
         </QueryProvider>
         <Toaster position="top-right" richColors closeButton />
-        <ShadcnToaster />
+
         <PWAInstallPrompt />
       </body>
     </html>

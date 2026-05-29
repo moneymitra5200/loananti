@@ -1334,19 +1334,20 @@ export async function POST(request: NextRequest) {
             })
           ]);
           console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:â‚¹${mirrorP} collected, I:â‚¹${mirrorI} written off. Mirror EMI â†’ PAID.`);
+          console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:₹${mirrorP} collected, I:₹${mirrorI} written off. Mirror EMI → PAID.`);
         } else {
           console.warn(`[Mirror PO Sync] No mirror EMI at #${emi.installmentNumber}`);
         }
       } catch (poSyncErr: any) {
-        console.error('[Mirror PO Sync] âŒ Failed (non-critical):', poSyncErr?.message);
+        console.error('[Mirror PO Sync] ❌ Failed (non-critical):', poSyncErr?.message);
       }
     }
-    // â”€â”€ INTEREST_ONLY â†’ Mirror EMI sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── INTEREST_ONLY → Mirror EMI sync ─────────────────────────────────────────────────────────────
     // For INTEREST_ONLY: mark mirror EMI as INTEREST_ONLY_PAID and create deferred principal EMI.
     // NOTE: Block 1 (lines ~706-830) may have already handled this for the mirror loan.
-    //   - If Block 1 ran: mirror EMI is already INTEREST_ONLY_PAID â†’ we only capture pre-sync
+    //   - If Block 1 ran: mirror EMI is already INTEREST_ONLY_PAID → we only capture pre-sync
     //     values for accounting (they will be the post-Block-1 values, i.e. interest already paid).
-    //   - If Block 1 did NOT run (mirrorEMI was null there): mirror EMI is still PENDING â†’ we
+    //   - If Block 1 did NOT run (mirrorEMI was null there): mirror EMI is still PENDING → we
     //     handle the full sync here.
     // CRITICAL FIX: The deferred EMI must use the FULL stored principalAmount and interestAmount
     // from the mirror EMI record (NOT mirrorRemPrin which is reduced by any prior partial pay).
@@ -1364,7 +1365,7 @@ export async function POST(request: NextRequest) {
             mirrorEmiPreSyncPaidPrincipal = 0;
             console.log(`[Mirror IO Sync] Block 1 already handled mirror EMI #${emi.installmentNumber}. Accounting pre-sync = 0.`);
           } else if (mirrorEMIForIO.paymentStatus === 'PENDING' || mirrorEMIForIO.paymentStatus === 'PARTIALLY_PAID') {
-            // Block 1 did NOT run for this mirror EMI â†’ handle full sync here.
+            // Block 1 did NOT run for this mirror EMI → handle full sync here.
             // Capture PRE-SYNC (for session-delta in accounting block)
             mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIForIO.paidInterest  || 0);
             mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIForIO.paidPrincipal || 0);
@@ -1387,16 +1388,27 @@ export async function POST(request: NextRequest) {
                 paymentMode,
                 isInterestOnly: true,
                 principalDeferred: true,
-                notes: `[MIRROR SYNC] Interest-Only: I:â‚¹${mirrorRemInt} collected, P:â‚¹${mirrorFullPrincipal} deferred`
+                notes: `[MIRROR SYNC] Interest-Only: I:Rs.${mirrorRemInt} collected, P:Rs.${mirrorFullPrincipal} deferred`
               }
             });
+
+            // Increment mirrorTenure in the mapping (mirrors the payment-request flow)
+            try {
+              await db.mirrorLoanMapping.update({
+                where: { id: mirrorMapping.id },
+                data: { mirrorTenure: { increment: 1 } }
+              });
+              console.log(`[Mirror IO Sync] mirrorTenure incremented for mapping ${mirrorMapping.id}`);
+            } catch (tenureErr) {
+              console.error('[Mirror IO Sync] mirrorTenure increment failed (non-critical):', tenureErr);
+            }
 
             // Create deferred EMI: carries SAME P+I as the Interest-Only EMI (not recalculated).
             // CRITICAL FIX: use `gt` (not `gte`) to avoid shifting the newly-created deferred EMI.
             if (mirrorFullPrincipal > 0.01) {
               const mNextInst = mirrorEMIForIO.installmentNumber + 1;
 
-              // Shift subsequent mirror EMIs +1 in DESCENDING order (highest first â†’ no unique clash)
+              // Shift subsequent mirror EMIs +1 in DESCENDING order (highest first → no unique clash)
               // Use `gt` (strictly greater than mNextInst - 1) i.e. `gte mNextInst` would
               // include the slot we're about to fill. We need EMIs already at mNextInst+ to shift.
               const mSubs = await db.eMISchedule.findMany({
@@ -1418,7 +1430,7 @@ export async function POST(request: NextRequest) {
                   installmentNumber: mNextInst,
                   dueDate: mNewDue,
                   originalDueDate: mNewDue,
-                  // SAME P+I as the deferred EMI â€” never recalculate from rate
+                  // SAME P+I as the deferred EMI — never recalculate from rate
                   principalAmount:      mirrorFullPrincipal,
                   interestAmount:       mirrorFullInterest,
                   outstandingPrincipal: mirrorFullPrincipal,
@@ -1428,12 +1440,12 @@ export async function POST(request: NextRequest) {
                   principalDeferred: true,
                   originalEMIId:      mirrorEMIForIO.id,
                   duplicatedEMINumber: mirrorEMIForIO.installmentNumber,
-                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEMIForIO.installmentNumber}. P:â‚¹${mirrorFullPrincipal.toFixed(2)} + I:â‚¹${mirrorFullInterest.toFixed(2)}. Due: ${mNewDue.toISOString().split('T')[0]}`
+                  notes: `[MIRROR] Deferred from IO sync on EMI #${mirrorEMIForIO.installmentNumber}. P:₹${mirrorFullPrincipal.toFixed(2)} + I:₹${mirrorFullInterest.toFixed(2)}. Due: ${mNewDue.toISOString().split('T')[0]}`
                 }
               });
-              console.log(`[Mirror IO Sync] âœ… Created deferred mirror EMI #${mNextInst}: P:â‚¹${mirrorFullPrincipal} + I:â‚¹${mirrorFullInterest} (same as EMI #${mirrorEMIForIO.installmentNumber}). ${mSubs.length} subsequent EMIs shifted.`);
+              console.log(`[Mirror IO Sync] ✅ Created deferred mirror EMI #${mNextInst}: P:₹${mirrorFullPrincipal} + I:₹${mirrorFullInterest} (same as EMI #${mirrorEMIForIO.installmentNumber}). ${mSubs.length} subsequent EMIs shifted.`);
             }
-            console.log(`[Mirror IO Sync] EMI #${emi.installmentNumber}: pre=I:â‚¹${mirrorEmiPreSyncPaidInterest} â†’ collected I:â‚¹${mirrorRemInt}, principal deferred`);
+            console.log(`[Mirror IO Sync] EMI #${emi.installmentNumber}: pre=I:₹${mirrorEmiPreSyncPaidInterest} → collected I:₹${mirrorRemInt}, principal deferred`);
           }
         }
       } catch (ioMirrorErr) {
@@ -1441,11 +1453,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // â”€â”€ PARTIAL PAYMENT â†’ Mirror EMI sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── PARTIAL PAYMENT → Mirror EMI sync ──────────────────────────────────────────
     // Session-delta pattern (same as offline route):
     //   1. Capture PRE-sync paidInterest/paidPrincipal on mirror EMI
     //   2. Update mirror EMI (proportional sync)
-    //   3. Accounting block computes POST-PRE delta â†’ records only THIS session's amount
+    //   3. Accounting block computes POST-PRE delta → records only THIS session's amount
     if (mirrorMapping?.mirrorLoanId && paymentType === 'PARTIAL_PAYMENT' && partialAmount && partialAmount > 0) {
       try {
         const mirrorEMIPartial = await db.eMISchedule.findFirst({
@@ -1455,12 +1467,12 @@ export async function POST(request: NextRequest) {
           }
         });
         if (mirrorEMIPartial && mirrorEMIPartial.paymentStatus !== 'PAID') {
-          // â”€â”€ Capture PRE-SYNC values (same as offline mirrorEmiPreSyncPaidInterest) â”€â”€
+          // ── Capture PRE-SYNC values (same as offline mirrorEmiPreSyncPaidInterest) ──
           mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIPartial.paidInterest  || 0);
           mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIPartial.paidPrincipal || 0);
 
           // Mirror interest-first using STORED interestAmount (not recalculated from rate).
-          // This matches offline route exactly â€” prevents double-interest on 2nd/3rd partials.
+          // This matches offline route exactly — prevents double-interest on 2nd/3rd partials.
           // Bug before: recalculating from outstandingPrincipal*rate always returned FULL interest,
           // so payment 2 saw mirrorRemainingInterest = 125 (not 0) even after payment 1 paid it all.
           const mirrorAlreadyPaidInterest  = mirrorEmiPreSyncPaidInterest;
@@ -1494,14 +1506,14 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          console.log(`[Partial Mirror Sync] EMI #${emi.installmentNumber} pre=I:â‚¹${mirrorEmiPreSyncPaidInterest} P:â‚¹${mirrorEmiPreSyncPaidPrincipal} | delta=I:â‚¹${mirrorPaidInterest} P:â‚¹${mirrorPaidPrincipal}. Accounting uses session delta.`);
+          console.log(`[Partial Mirror Sync] EMI #${emi.installmentNumber} pre=I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} | delta=I:₹${mirrorPaidInterest} P:₹${mirrorPaidPrincipal}. Accounting uses session delta.`);
         }
       } catch (partMirrorErr) {
         console.error('[Partial Mirror Sync] Failed (non-critical):', partMirrorErr);
       }
     }
 
-    // PERFORMANCE: Fire-and-forget the action log â€” don't await it, user gets response faster
+    // PERFORMANCE: Fire-and-forget the action log — don't await it, user gets response faster
     db.actionLog.create({
       data: {
         userId: paidBy,
@@ -1538,50 +1550,50 @@ export async function POST(request: NextRequest) {
           paymentType === 'PARTIAL_PAYMENT' ? 'Partial'        :
           paymentType === 'INTEREST_ONLY'   ? 'Interest Only'  :
           paymentType === 'PRINCIPAL_ONLY'  ? 'Principal Only' : paymentType
-        } payment of â‚¹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo || loanId}`
+        } payment of ₹${paidAmount.toFixed(2)} for EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo || loanId}`
       }
     }).catch(e => console.error('[ActionLog] Failed (non-critical):', e));
 
     // ============================================
-    // RECORD ACCOUNTING ENTRIES â€” unified with offline loan accounting
+    // RECORD ACCOUNTING ENTRIES — unified with offline loan accounting
     // ============================================
     // RULE 1: Accounting is PURELY STATUS-DRIVEN.
     //   Entries fire ONLY when EMI reaches a terminal paid state:
-    //   'PAID'              â†’ full P+I journal
-    //   'INTEREST_ONLY_PAID'â†’ interest-only journal
-    //   'PARTIALLY_PAID'    â†’ partial receipt recorded (money was received)
+    //   'PAID'              → full P+I journal
+    //   'INTEREST_ONLY_PAID'→ interest-only journal
+    //   'PARTIALLY_PAID'    → partial receipt recorded (money was received)
     //
     // RULE 2: Each paymentId is an idempotency key.
     //   Duplicate entries for the same paymentId are silently skipped.
     //   This means: NO button, NO manual trigger, NO retry can double-book.
     //
     // RULE 3: NON-MIRROR:
-    //   CASH         â†’ original company Cashbook + Journal (P + I income)
-    //   ONLINE/UPI   â†’ original company Bank + Journal
-    //   PERSONAL CR  â†’ Company3 Cashbook + Journal
-    //   PRINCIPAL_ONLY â†’ cash/bank + Irrecoverable Debt write-off journal
+    //   CASH         → original company Cashbook + Journal (P + I income)
+    //   ONLINE/UPI   → original company Bank + Journal
+    //   PERSONAL CR  → Company3 Cashbook + Journal
+    //   PRINCIPAL_ONLY → cash/bank + Irrecoverable Debt write-off journal
     //
     // RULE 4: MIRROR (within tenure):
-    //   ALL modes â†’ mirror company Cash/Bank + Journal (mirror P + I)
-    //   PRINCIPAL_ONLY â†’ mirror company write-off too
+    //   ALL modes → mirror company Cash/Bank + Journal (mirror P + I)
+    //   PRINCIPAL_ONLY → mirror company write-off too
     //
     // RULE 5: EXTRA EMI (beyond mirror tenure):
-    //   Profit already recorded in the extra-EMI block above â€” skip here.
+    //   Profit already recorded in the extra-EMI block above — skip here.
     // ============================================
     const onlineAccountingWarnings: string[] = [];
     let onlineJournalCreated = false; // tracks if journal was created (for atomicity check)
 
-    // â”€â”€ GATE: Only account when EMI has reached a paid state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── GATE: Only account when EMI has reached a paid state ───────────────────
     const isTerminalPaidState = newEmiStatus === 'PAID' || newEmiStatus === 'INTEREST_ONLY_PAID' || newEmiStatus === 'PARTIALLY_PAID';
     if (!isTerminalPaidState) {
-      console.log(`[Accounting] Skipping â€” EMI #${emi.installmentNumber} status is '${newEmiStatus}', not a paid terminal state.`);
+      console.log(`[Accounting] Skipping — EMI #${emi.installmentNumber} status is '${newEmiStatus}', not a paid terminal state.`);
     } else
     try {
       const mirrorMappingForAccounting = mirrorMapping;
       const isExtraEMI2 = mirrorMappingForAccounting && emi.installmentNumber > mirrorMappingForAccounting.mirrorTenure;
       const isMirrorPayment = !!mirrorMappingForAccounting && !isExtraEMI2;
 
-      // Always use DB-sourced company â€” never trust client-provided companyId
+      // Always use DB-sourced company — never trust client-provided companyId
       const loanCompanyId = emi.loanApplication?.companyId || '';
       const company3Id = await getCompany3Id() || loanCompanyId;
 
@@ -1616,44 +1628,44 @@ export async function POST(request: NextRequest) {
             // PRINCIPAL_ONLY: principal is collected, interest is written off
             mirrorPrincipalForAccounting = Number(mirrorEmiForAcc.principalAmount || 0);
             mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount  || 0);
-            console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: P:â‚¹${mirrorPrincipalForAccounting} (collect), I:â‚¹${mirrorInterestForAccounting} (write off)`);
+            console.log(`[Accounting] ONLINE MIRROR PRINCIPAL_ONLY: P:₹${mirrorPrincipalForAccounting} (collect), I:₹${mirrorInterestForAccounting} (write off)`);
           } else if (paymentType === 'PARTIAL_PAYMENT') {
-            // â”€â”€ SESSION DELTA (matches offline route exactly) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── SESSION DELTA (matches offline route exactly) ────────────────────────
             // mirrorEmiPreSyncPaidInterest/Principal were captured BEFORE the partial sync above.
             // Post-sync values are now in the DB. Subtract to get only THIS session's amounts.
             // This correctly handles multi-partial scenarios:
-            //   Payment 1 (â‚¹300 of â‚¹500): pre=I:0 P:0, post=I:84 P:6   â†’ delta I:84 P:6
-            //   Payment 2 (â‚¹200 of â‚¹500): pre=I:84 P:6, post=I:84 P:206 â†’ delta I:0 P:200
+            //   Payment 1 (₹300 of ₹500): pre=I:0 P:0, post=I:84 P:6   → delta I:84 P:6
+            //   Payment 2 (₹200 of ₹500): pre=I:84 P:6, post=I:84 P:206 → delta I:0 P:200
             const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
             const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
             mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
-            console.log(`[Accounting] ONLINE MIRROR PARTIAL session-delta: I:â‚¹${mirrorInterestForAccounting} P:â‚¹${mirrorPrincipalForAccounting} (pre I:â‚¹${mirrorEmiPreSyncPaidInterest} P:â‚¹${mirrorEmiPreSyncPaidPrincipal} â†’ post I:â‚¹${postPaidInterest} P:â‚¹${postPaidPrincipal})`);
+            console.log(`[Accounting] ONLINE MIRROR PARTIAL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else if (paymentType === 'INTEREST_ONLY') {
-            // â”€â”€ INTEREST_ONLY: principal is DEFERRED â€” only interest moved this session â”€â”€
+            // ── INTEREST_ONLY: principal is DEFERRED — only interest moved this session ──
             // Use SESSION DELTA (same as offline route line 3056-3060):
             //   postPaidInterest - preSyncPaidInterest = interest paid THIS session
             //   postPaidPrincipal - preSyncPaidPrincipal = 0 (principal not collected)
-            // This matches offline exactly and prevents recording â‚¹full EMI as Dr Cash.
+            // This matches offline exactly and prevents recording ₹full EMI as Dr Cash.
             const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
             const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
             mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
-            console.log(`[Accounting] ONLINE MIRROR INTEREST_ONLY session-delta: I:â‚¹${mirrorInterestForAccounting} P:â‚¹${mirrorPrincipalForAccounting} (pre I:â‚¹${mirrorEmiPreSyncPaidInterest} P:â‚¹${mirrorEmiPreSyncPaidPrincipal} â†’ post I:â‚¹${postPaidInterest} P:â‚¹${postPaidPrincipal})`);
+            console.log(`[Accounting] ONLINE MIRROR INTEREST_ONLY session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else {
-            // â”€â”€ FULL / ADVANCE: Use SESSION DELTA (fixes full payment after partial payment) â”€â”€
+            // ── FULL / ADVANCE: Use SESSION DELTA (fixes full payment after partial payment) ──
             // Previously this used stored interestAmount/principalAmount, which double-counted
             // if the EMI was already partially paid.
             const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
             const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
             mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
-            console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:â‚¹${mirrorInterestForAccounting} P:â‚¹${mirrorPrincipalForAccounting} (pre I:â‚¹${mirrorEmiPreSyncPaidInterest} P:â‚¹${mirrorEmiPreSyncPaidPrincipal} â†’ post I:â‚¹${postPaidInterest} P:â‚¹${postPaidPrincipal})`);
+            console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           }
         }
       }
 
-      // â”€â”€ PROCESSING FEE â€” non-mirror, EMI #1 only â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── PROCESSING FEE — non-mirror, EMI #1 only ─────────────────────────────
       if (!isMirrorPayment && emi.installmentNumber === 1 && newEmiStatus === 'PAID') {
         try {
           const loanData = await db.loanApplication.findUnique({
@@ -1687,23 +1699,23 @@ export async function POST(request: NextRequest) {
                   { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
                 ],
               });
-              console.log(`[Processing Fee] â‚¹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);
+              console.log(`[Processing Fee] ₹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);
             } else {
-              console.log(`[Processing Fee] Already recorded â€” skipping (idempotency)`);
+              console.log(`[Processing Fee] Already recorded — skipping (idempotency)`);
             }
           }
         } catch (pfErr: any) {
           const pfErrMsg = `Processing fee: ${pfErr?.message || pfErr}`;
           onlineAccountingWarnings.push(pfErrMsg);
-          console.error('[Processing Fee] âŒ Failed:', pfErr);
+          console.error('[Processing Fee] ❌ Failed:', pfErr);
         }
       }
 
       if (isExtraEMI2) {
-        // Extra EMI profit already recorded in the extra-EMI block above â€” skip
-        console.log(`[Accounting] Extra EMI #${emi.installmentNumber} â€” already recorded above. Skipping.`);
+        // Extra EMI profit already recorded in the extra-EMI block above — skip
+        console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
       } else if (paymentType === 'PRINCIPAL_ONLY') {
-        // â”€â”€ PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ────
         // The journal entry creates:
         //   Dr  Cash/Bank          = principalAmount  (money received)
         //   Cr  Loans Receivable   = principalAmount  (loan reduced)
@@ -1716,11 +1728,11 @@ export async function POST(request: NextRequest) {
         const { recordPrincipalOnlyJournal: poPrincipalJournal } = await import('@/lib/simple-accounting');
         
         if (isMirrorPayment) {
-          // â”€â”€ MIRROR LOAN: Only record in MIRROR company â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── MIRROR LOAN: Only record in MIRROR company ───────────────────────────────
           // Use MIRROR principal and MIRROR interest (not original)
           // CRITICAL: Do NOT fall back to original values - must use mirror EMI values
           if (mirrorPrincipalForAccounting === undefined || mirrorInterestForAccounting === undefined) {
-            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: âŒ Mirror EMI not found - cannot create journal entry`);
+            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Mirror EMI not found - cannot create journal entry`);
             onlineAccountingWarnings.push('MIRROR PRINCIPAL_ONLY: Mirror EMI not found - journal entry skipped');
           } else {
             const mirrorPrincipal = mirrorPrincipalForAccounting;
@@ -1740,20 +1752,20 @@ export async function POST(request: NextRequest) {
             });
             if (!mirrorPoResult.success) {
               onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
-              console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: âŒ Journal FAILED:`, mirrorPoResult.error);
+              console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
             } else {
-              onlineJournalCreated = true; // âœ… journal created successfully
-              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: âœ… P:â‚¹${mirrorPrincipal} collected, I:â‚¹${mirrorInterest} â†’ Irrecoverable Debt (MIRROR company only)`);
+              onlineJournalCreated = true; // ✅ journal created successfully
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
             }
             
           }
           // NO entry for original company - mirror loan only affects mirror company
         } else {
-          // â”€â”€ NON-MIRROR LOAN: Record in original company â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+          // ── NON-MIRROR LOAN: Record in original company ───────────────────────────────
           // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
           if (paidPrincipal <= 0) {
             onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal skipped: paidPrincipal=0 (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
-            console.error(`[Accounting] PRINCIPAL_ONLY: âŒ Skipped â€” paidPrincipal=â‚¹${paidPrincipal}. Check that remainingPrincipal > 0.`);
+            console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Skipped — paidPrincipal=₹${paidPrincipal}. Check that remainingPrincipal > 0.`);
           } else {
             const poJournalResult = await poPrincipalJournal({
               companyId:          loanCompanyId,
@@ -1771,16 +1783,16 @@ export async function POST(request: NextRequest) {
             });
             if (!poJournalResult.success) {
               onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
-              console.error(`[Accounting] PRINCIPAL_ONLY: âŒ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+              console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
             } else {
-              onlineJournalCreated = true; // âœ… journal created successfully
-              console.log(`[Accounting] PRINCIPAL_ONLY: âœ… P:â‚¹${paidPrincipal} collected, I:â‚¹${remainingInterest} â†’ Irrecoverable Debt (${loanCompanyId})`);
+              onlineJournalCreated = true; // ✅ journal created successfully
+              console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
             }
           }
         }
 
       } else {
-        // â”€â”€ ALL OTHER PAYMENT TYPES: unified recordEMIPaymentAccounting â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── ALL OTHER PAYMENT TYPES: unified recordEMIPaymentAccounting ─────────────
         // This handles: FULL_EMI, PARTIAL_PAYMENT, INTEREST_ONLY, ADVANCE
         // for both mirror and non-mirror loans, all payment modes.
         //
@@ -1788,8 +1800,8 @@ export async function POST(request: NextRequest) {
         // The online portion is recorded separately below via recordBankTransaction.
         // Passing full paidAmount to cashbook would double-count the online portion.
         const acctAmount = isSplitPayment
-          ? splitCashAmount  // Only the cash portion â†’ Cashbook
-          : paidAmount;      // Full amount â†’ Cashbook or Bank (based on paymentMode)
+          ? splitCashAmount  // Only the cash portion → Cashbook
+          : paidAmount;      // Full amount → Cashbook or Bank (based on paymentMode)
         const acctPaymentMode = isSplitPayment
           ? ('CASH' as const)   // Force CASH so recordEMIPaymentAccounting routes to Cashbook
           : ((paymentMode as 'CASH' | 'ONLINE' | 'UPI' | 'BANK_TRANSFER' | 'CHEQUE') || 'CASH');
@@ -1819,7 +1831,7 @@ export async function POST(request: NextRequest) {
           mirrorInterest: isMirrorPayment ? (mirrorInterestForAccounting ?? 0) : undefined,
           mirrorCompanyId: mirrorMappingForAccounting?.mirrorCompanyId || undefined,
           isMirrorPayment,
-          // â”€â”€ SPLIT PAYMENT: pass split details so mirror loan proportioning fires inside recordEMIPaymentAccounting
+          // ── SPLIT PAYMENT: pass split details so mirror loan proportioning fires inside recordEMIPaymentAccounting
           // (matching offline route lines 3216-3218). Without these, full mirror amount goes to cashbook
           // and the external bank entry below would ALSO fire = double-counting for mirror splits.
           isSplitPayment: isSplitPayment || false,
@@ -1827,12 +1839,12 @@ export async function POST(request: NextRequest) {
           splitOnlineAmount: splitOnlineAmount || 0,
         });
 
-        console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? 'âœ… ' + accountingResult.journalEntryId : 'âŒ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
-        if (accountingResult.journalEntryId) onlineJournalCreated = true; // âœ… journal created
+        console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? '✅ ' + accountingResult.journalEntryId : '❌ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
+        if (accountingResult.journalEntryId) onlineJournalCreated = true; // ✅ journal created
 
-        // â”€â”€ FALLBACK journal if missing (same as offline route) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── FALLBACK journal if missing (same as offline route) ────────────────────
         if (isMirrorPayment && !accountingResult.journalEntryId && mirrorMappingForAccounting?.mirrorCompanyId) {
-          console.warn('[Accounting] âš ï¸ Mirror journal missing â€” attempting inline fallback');
+          console.warn('[Accounting] ⚠️ Mirror journal missing — attempting inline fallback');
           try {
             const { AccountingService: FbSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');
             const fbSvc = new FbSvc(mirrorMappingForAccounting.mirrorCompanyId);
@@ -1851,18 +1863,18 @@ export async function POST(request: NextRequest) {
               narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
               lines: fbLines, createdById: paidBy || 'SYSTEM', paymentMode: paymentMode || 'CASH', isAutoEntry: true,
             });
-            console.log(`[Accounting] âœ… FALLBACK journal created for mirror company`);
+            console.log(`[Accounting] ✅ FALLBACK journal created for mirror company`);
           } catch (fbErr: any) {
-            console.error('[Accounting] âŒ FALLBACK journal also FAILED:', fbErr?.message);
+            console.error('[Accounting] ❌ FALLBACK journal also FAILED:', fbErr?.message);
           }
         }
 
-        // â”€â”€ SPLIT PAYMENT: add separate ONLINE bank entry for the online portion â”€â”€
-        // For NON-MIRROR loans: recordEMIPaymentAccounting recorded CASH portion â†’ Cashbook.
+        // ── SPLIT PAYMENT: add separate ONLINE bank entry for the online portion ──
+        // For NON-MIRROR loans: recordEMIPaymentAccounting recorded CASH portion → Cashbook.
         //   Now we credit the online portion to the Bank Account.
         // For MIRROR loans: the split proportioning is handled INTERNALLY by recordEMIPaymentAccounting
         //   (lines 381-414 in simple-accounting.ts) using the isSplitPayment params we now pass.
-        //   Do NOT add extra bank entry here for mirror loans â€” it would double-count the online portion.
+        //   Do NOT add extra bank entry here for mirror loans — it would double-count the online portion.
         // This matches offline route line 3226: if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan)
         if (isSplitPayment && splitOnlineAmount > 0 && !isMirrorPayment) {
           try {
@@ -1875,14 +1887,14 @@ export async function POST(request: NextRequest) {
               referenceId: `${payment.id}-SPLIT-ONLINE`,
               createdById: paidBy,
             });
-            console.log(`[Accounting] SPLIT (non-mirror): â‚¹${splitCashAmount} â†’ Cashbook, â‚¹${splitOnlineAmount} â†’ Bank (company: ${loanCompanyId})`);
+            console.log(`[Accounting] SPLIT (non-mirror): ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${loanCompanyId})`);
           } catch (splitErr) {
             console.error('[Accounting] SPLIT bank entry failed (non-critical):', splitErr);
           }
         }
       }
 
-      // â”€â”€ PENALTY INCOME â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      // ── PENALTY INCOME ──────────────────────────────────────────────────────────
       if (netPenalty > 0) {
         try {
           const penaltyCompanyId = isMirrorPayment
@@ -1891,29 +1903,29 @@ export async function POST(request: NextRequest) {
           const isOnlinePenalty = penaltyPaymentMode === 'BANK' || ['ONLINE','UPI','BANK_TRANSFER'].includes((paymentMode||'').toUpperCase());
           if (isOnlinePenalty) {
             await recordBankTransaction({ companyId: penaltyCompanyId, transactionType: 'CREDIT', amount: netPenalty,
-              description: `Penalty Income (â‚¹${penaltyAmount} - Waiver â‚¹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+              description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
               referenceType: 'PENALTY_INCOME', referenceId: `${payment.id}-PENALTY`, createdById: paidBy });
           } else {
             await recordCashBookEntry({ companyId: penaltyCompanyId, entryType: 'CREDIT', amount: netPenalty,
-              description: `Penalty Income (â‚¹${penaltyAmount} - Waiver â‚¹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
+              description: `Penalty Income (₹${penaltyAmount} - Waiver ₹${penaltyWaiver}) - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
               referenceType: 'PENALTY_INCOME', referenceId: `${payment.id}-PENALTY`, createdById: paidBy });
           }
           const penAccSvc = new AccountingService(penaltyCompanyId);
           await penAccSvc.initializeChartOfAccounts();
           await penAccSvc.createJournalEntry({
             entryDate: new Date(), referenceType: 'PENALTY_COLLECTION', referenceId: `${payment.id}-PENALTY-JE`,
-            narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo} (Charged â‚¹${penaltyAmount}, Waived â‚¹${penaltyWaiver}, Collected â‚¹${netPenalty})`,
+            narration: `Penalty Income - EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo} (Charged ₹${penaltyAmount}, Waived ₹${penaltyWaiver}, Collected ₹${netPenalty})`,
             createdById: paidBy || 'SYSTEM', isAutoEntry: true,
             lines: [
               { accountCode: isOnlinePenalty ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty collected via ${penaltyPaymentMode}` },
-              { accountCode: ACCOUNT_CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income after waiver â‚¹${penaltyWaiver}` },
+              { accountCode: ACCOUNT_CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income after waiver ₹${penaltyWaiver}` },
             ],
           });
-          console.log(`[Penalty] âœ… â‚¹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
+          console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);
         } catch (penErr: any) {
           const penErrMsg = `Penalty accounting: ${penErr?.message || penErr}`;
           onlineAccountingWarnings.push(penErrMsg);
-          console.error('[Penalty] âŒ Penalty accounting FAILED:', penErr);
+          console.error('[Penalty] ❌ Penalty accounting FAILED:', penErr);
         }
       }
 
