@@ -52,12 +52,12 @@ export const COMPLETE_CHART_OF_ACCOUNTS: Array<{
   { accountCode: '1211', accountName: 'Offline Loans - Active', accountType: 'ASSET', parentCode: '1210', isSystemAccount: true, description: 'Active offline loans', level: 4 },
   { accountCode: '1212', accountName: 'Offline Loans - Closed', accountType: 'ASSET', parentCode: '1210', isSystemAccount: true, description: 'Closed offline loans', level: 4 },
   
-  // 1.1.3 Receivables
   { accountCode: '1300', accountName: 'Accounts Receivable', accountType: 'ASSET', parentCode: '1000', isSystemAccount: true, description: 'Money owed to the business', level: 2 },
   { accountCode: '1301', accountName: 'Interest Receivable', accountType: 'ASSET', parentCode: '1300', isSystemAccount: true, description: 'Interest accrued but not received', level: 3 },
   { accountCode: '1302', accountName: 'EMI Receivable', accountType: 'ASSET', parentCode: '1300', isSystemAccount: true, description: 'EMI due but not paid', level: 3 },
   { accountCode: '1303', accountName: 'Processing Fee Receivable', accountType: 'ASSET', parentCode: '1300', isSystemAccount: true, description: 'Processing fees to be collected', level: 3 },
   { accountCode: '1304', accountName: 'Penalty Receivable', accountType: 'ASSET', parentCode: '1300', isSystemAccount: true, description: 'Late payment penalties receivable', level: 3 },
+  { accountCode: '1305', accountName: 'Overdue Interest Receivable', accountType: 'ASSET', parentCode: '1300', isSystemAccount: true, description: 'Interest reclassified to overdue and unpaid', level: 3 },
   
   // 1.2 Fixed Assets
   { accountCode: '1500', accountName: 'Fixed Assets', accountType: 'ASSET', isSystemAccount: true, description: 'Long-term assets', level: 1 },

@@ -61,7 +61,9 @@ const withPWA = withPWAInit({
 const nextConfig = {
   reactStrictMode: false,
   productionBrowserSourceMaps: false,     // disable source maps to save RAM
-  turbopack: {},                          // silences Next.js 16 warning for next-pwa
+  turbopack: {
+    root: __dirname,
+  },                          // silences Next.js 16 warning for next-pwa
   images: {
     unoptimized: true,
   },

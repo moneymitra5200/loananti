@@ -1768,18 +1768,20 @@ export async function POST(request: NextRequest) {
             console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Skipped — paidPrincipal=₹${paidPrincipal}. Check that remainingPrincipal > 0.`);
           } else {
             const poJournalResult = await poPrincipalJournal({
-              companyId:          loanCompanyId,
-              company3Id:         company3Id || undefined,
-              creditType:         effectiveCreditType as 'PERSONAL' | 'COMPANY',
+              companyId:            loanCompanyId,
+              company3Id:           company3Id || undefined,
+              creditType:           effectiveCreditType as 'PERSONAL' | 'COMPANY',
               loanId,
-              paymentId:          payment.id,
-              principalAmount:    paidPrincipal,
-              interestWrittenOff: remainingInterest,
-              paymentDate:        new Date(),
-              createdById:        paidBy || 'SYSTEM',
-              paymentMode:        paymentMode as string,
-              loanNumber:         emi.loanApplication?.applicationNo || loanId,
-              installmentNumber:  emi.installmentNumber,
+              paymentId:            payment.id,
+              principalAmount:      paidPrincipal,
+              interestWrittenOff:   remainingInterest,
+              paymentDate:          new Date(),
+              createdById:          paidBy || 'SYSTEM',
+              paymentMode:          paymentMode as string,
+              loanNumber:           emi.loanApplication?.applicationNo || loanId,
+              installmentNumber:    emi.installmentNumber,
+              isInterestAccrued:    !!(emi as any).interestAccrued,
+              isInterestReclassified: emi.paymentStatus === 'OVERDUE',
             });
             if (!poJournalResult.success) {
               onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
@@ -1837,6 +1839,8 @@ export async function POST(request: NextRequest) {
           isSplitPayment: isSplitPayment || false,
           splitCashAmount: splitCashAmount || 0,
           splitOnlineAmount: splitOnlineAmount || 0,
+          isInterestAccrued: !!(emi as any).interestAccrued,
+          isInterestReclassified: emi.paymentStatus === 'OVERDUE',
         });
 
         console.log(`[Accounting] EMI journal: ${accountingResult.journalEntryId ? '✅ ' + accountingResult.journalEntryId : '❌ MISSING'} | Bank: ${accountingResult.bankTransaction ? 'Yes' : 'No'} | Cash: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);

@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     });
 
     // ─── 3. FETCH GROUND TRUTH DATA FOR CRITICAL ACCOUNTS ───────────────────
-    const [cashBook, bankAccounts, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs] = await Promise.all([
+    const [cashBook, bankAccounts, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs, overdueOnlineEMIs, overdueOfflineEMIs] = await Promise.all([
       db.cashBook.findUnique({ where: { companyId } }),
       db.bankAccount.findMany({ where: { companyId, isActive: true } }),
       db.equityEntry.findMany({ where: { companyId } }),
@@ -64,11 +64,20 @@ export async function GET(request: NextRequest) {
         select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
       db.eMISchedule.aggregate({
-        where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+        where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
         _sum: { interestAmount: true, paidInterest: true }
       }),
       db.offlineLoanEMI.aggregate({
-        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      // Overdue EMI interest for 1305
+      db.eMISchedule.aggregate({
+        where: { loanApplication: { companyId }, paymentStatus: 'OVERDUE' },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.offlineLoanEMI.aggregate({
+        where: { offlineLoan: { companyId }, paymentStatus: 'OVERDUE' },
         _sum: { interestAmount: true, paidInterest: true }
       })
     ]);
@@ -95,6 +104,11 @@ export async function GET(request: NextRequest) {
     const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
     const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
     const interestReceivable     = Math.max(0, onlinePendingInterest + offlinePendingInterest);
+
+    // Overdue interest (account 1305)
+    const overdueOnlineInterest  = (overdueOnlineEMIs._sum.interestAmount  || 0) - (overdueOnlineEMIs._sum.paidInterest  || 0);
+    const overdueOfflineInterest = (overdueOfflineEMIs._sum.interestAmount || 0) - (overdueOfflineEMIs._sum.paidInterest || 0);
+    const overdueInterestReceivable = Math.max(0, overdueOnlineInterest + overdueOfflineInterest);
 
     // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
     const drMap: Record<string, number> = {};
@@ -126,6 +140,7 @@ export async function GET(request: NextRequest) {
       if (acc.accountCode === '1201') closingBalance = actualOnlineLoans;
       if (acc.accountCode === '1210') closingBalance = actualOfflineLoans;
       if (acc.accountCode === '1301') closingBalance = interestReceivable;
+      if (acc.accountCode === '1305') closingBalance = overdueInterestReceivable;
       if (acc.accountCode === '3002') closingBalance = actualCapital;
       
       // Special case: 1200 (Total Loans Receivable) should be the sum of online + offline

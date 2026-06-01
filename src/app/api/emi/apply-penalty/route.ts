@@ -92,6 +92,35 @@ export async function POST(request: NextRequest) {
             where: { id: emi.id },
             data: { penaltyAmount: newPenalty, daysOverdue, paymentStatus: 'OVERDUE' }
           });
+
+          // Interest Reclassification (Dr 1305 / Cr 1301)
+          if (emi.interestAccrued && emi.loanApplication?.companyId) {
+            const unpaidAccrued = (emi.interestAmount || 0) - (emi.paidInterest || 0);
+            if (unpaidAccrued > 0) {
+              const existingReclass = await tx.journalEntry.findFirst({
+                where: {
+                  referenceType: 'INTEREST_RECLASSIFICATION',
+                  referenceId: emi.id
+                }
+              });
+              if (!existingReclass) {
+                const { AccountingService } = await import('@/lib/accounting-service');
+                const accSvc = new AccountingService(emi.loanApplication.companyId);
+                await accSvc.initializeChartOfAccounts();
+                await accSvc.recordInterestReclassification({
+                  loanId: emi.loanApplicationId,
+                  customerId: emi.loanApplication.customerId,
+                  customerName: emi.loanApplication.customer?.name || 'Customer',
+                  emiId: emi.id,
+                  interestAmount: unpaidAccrued,
+                  reclassDate: new Date(),
+                  createdById: 'SYSTEM'
+                }, tx);
+                console.log(`[ApplyPenalty] Reclassified overdue interest of ₹${unpaidAccrued} to code 1305 for EMI ${emi.id}`);
+              }
+            }
+          }
+
           if (settings.sendPenaltyNotify && emi.loanApplication?.customerId) {
             const existingNotif = await tx.notification.findFirst({
               where: {

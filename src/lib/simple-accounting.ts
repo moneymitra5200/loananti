@@ -264,6 +264,8 @@ export interface EMIPaymentAccountingParams {
   isSplitPayment?: boolean;
   splitCashAmount?: number;   // cash portion (goes to Cashbook)
   splitOnlineAmount?: number; // online portion (goes to Bank)
+  isInterestAccrued?: boolean;
+  isInterestReclassified?: boolean;
 }
 
 /**
@@ -313,6 +315,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     isSplitPayment,
     splitCashAmount: splitCash,
     splitOnlineAmount: splitOnline,
+    isInterestAccrued,
+    isInterestReclassified,
   } = params;
 
   const result: {
@@ -629,8 +633,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
       }
       const personalInterestAdj = Math.max(0, interestComponent + Math.round((amount - principalComponent - interestComponent) * 100) / 100);
+      const personalInterestCreditCode = isInterestReclassified ? '1305' : isInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
       if (personalInterestAdj > 0) {
-        personalCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: personalInterestAdj, loanId, customerId, narration: 'Interest income' });
+        personalCreditLines.push({ accountCode: personalInterestCreditCode, debitAmount: 0, creditAmount: personalInterestAdj, loanId, customerId, narration: isInterestReclassified ? 'Overdue interest cleared' : isInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
       }
       if (personalCreditLines.length === 0) {
         personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: amount, loanId, customerId, narration: 'EMI repayment' });
@@ -703,7 +708,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
       if (principalComponent > 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
       const companyInterestAdj = Math.max(0, interestComponent + Math.round((totalForCredit - principalComponent - interestComponent) * 100) / 100);
-      if (companyInterestAdj > 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: 'Interest income' });
+      const companyInterestCreditCode = isInterestReclassified ? '1305' : isInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
+      if (companyInterestAdj > 0) companyCreditLines.push({ accountCode: companyInterestCreditCode, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: isInterestReclassified ? 'Overdue interest cleared' : isInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
       if (companyCreditLines.length === 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalForCredit, loanId, customerId, narration: 'EMI repayment' });
       const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
       const companyDiff = Math.round((totalForCredit - companyCreditSum) * 100) / 100;
@@ -881,10 +887,13 @@ export async function recordPrincipalOnlyJournal(params: {
   paymentMode: string;     // CASH | BANK_TRANSFER | UPI | CHEQUE …
   loanNumber: string;
   installmentNumber: number | string;
+  isInterestAccrued?: boolean;
+  isInterestReclassified?: boolean;
 }): Promise<{ success: boolean; journalEntryId?: string; error?: string }> {
   let {
     companyId, company3Id, creditType, loanId, paymentId, principalAmount, interestWrittenOff,
     paymentDate, createdById, paymentMode, loanNumber, installmentNumber,
+    isInterestAccrued, isInterestReclassified,
   } = params;
 
   if (creditType === 'PERSONAL' && company3Id) {
@@ -903,12 +912,17 @@ export async function recordPrincipalOnlyJournal(params: {
     const cashBankName = isOnline ? 'Bank Account' : 'Cash in Hand';
 
     // ── 1. Upsert all required accounts ────────────────────────────────────────
+    // Determine which account to use for the interest write-off credit
+    const interestCreditCode = isInterestReclassified ? '1305' : isInterestAccrued ? '1301' : '4110';
+    const interestCreditName = isInterestReclassified ? 'Overdue Interest Receivable' : isInterestAccrued ? 'Interest Receivable' : 'Interest Income';
+    const interestCreditType = isInterestReclassified || isInterestAccrued ? 'ASSET' as const : 'INCOME' as const;
+
     const accountDefs: Array<{ code: string; name: string; type: 'ASSET' | 'EXPENSE' | 'INCOME' }> = [
       { code: cashBankCode, name: cashBankName,         type: 'ASSET'   },
       { code: '1200',       name: 'Loans Receivable',   type: 'ASSET'   },
       ...(interestWrittenOff > 0 ? [
         { code: '5500', name: 'Irrecoverable Debt', type: 'EXPENSE' as const },
-        { code: '4110', name: 'Interest Income',     type: 'INCOME'  as const },
+        { code: interestCreditCode, name: interestCreditName, type: interestCreditType },
       ] : []),
     ];
 
@@ -960,8 +974,8 @@ export async function recordPrincipalOnlyJournal(params: {
       ...(writeOff > 0 ? [
         { accountId: accountIdMap['5500'], debitAmount: writeOff, creditAmount: 0,
           narration: 'Interest written off as irrecoverable debt', loanId },
-        { accountId: accountIdMap['4110'], debitAmount: 0, creditAmount: writeOff,
-          narration: 'Interest income — waived and written off', loanId },
+        { accountId: accountIdMap[interestCreditCode], debitAmount: 0, creditAmount: writeOff,
+          narration: isInterestReclassified ? 'Overdue interest cleared — principal-only payment' : isInterestAccrued ? 'Accrued interest cleared — principal-only payment' : 'Interest income — waived and written off', loanId },
       ] : []),
     ];
 
@@ -999,9 +1013,11 @@ export async function recordPrincipalOnlyJournal(params: {
         where: { id: accountIdMap['5500'] },
         data: { currentBalance: { increment: writeOff } },
       });
+      // Decrement if asset (clearing 1305 or 1301), increment if income (4110)
+      const isAssetCreditCode = isInterestReclassified || isInterestAccrued;
       await db.chartOfAccount.update({
-        where: { id: accountIdMap['4110'] },
-        data: { currentBalance: { increment: writeOff } },
+        where: { id: accountIdMap[interestCreditCode] },
+        data: { currentBalance: isAssetCreditCode ? { decrement: writeOff } : { increment: writeOff } },
       });
     }
 

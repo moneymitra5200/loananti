@@ -266,11 +266,11 @@ async function getBalanceSheet(companyId: string | null) {
   });
 
   // ─── 3. FETCH GROUND TRUTH DATA FOR CRITICAL ACCOUNTS ───────────────────
-  const [cashBook, bankAccountsData, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs] = await Promise.all([
+  const [cashBook, bankAccountsData, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs, overdueOnlineEMIs, overdueOfflineEMIs] = await Promise.all([
     companyId ? db.cashBook.findUnique({ where: { companyId } }) : null,
     db.bankAccount.findMany({ where: { ...(companyId ? { companyId } : {}), isActive: true } }),
     db.equityEntry.findMany({ where: { ...(companyId ? { companyId } : {}) } }),
-    // Online loans — status ACTIVE or DISBURSED (interest-only handled via isInterestOnlyLoan)
+    // Online loans — status ACTIVE or DISBURSED
     db.loanApplication.findMany({
       where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'DISBURSED'] } },
       select: {
@@ -278,17 +278,27 @@ async function getBalanceSheet(companyId: string | null) {
         emiSchedules: { select: { paidPrincipal: true } }
       }
     }),
-    // Offline loans — mirror loans MUST be included because they represent actual cash out of this company's bank
+    // Offline loans
     db.offlineLoan.findMany({
       where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
       select: { loanAmount: true, emis: { select: { paidPrincipal: true } } }
     }),
+    // Active (non-overdue) pending interest → account 1301
     db.eMISchedule.aggregate({
-      where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+      where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
       _sum: { interestAmount: true, paidInterest: true }
     }),
     db.offlineLoanEMI.aggregate({
-      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] } },
+      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+      _sum: { interestAmount: true, paidInterest: true }
+    }),
+    // Overdue interest → account 1305
+    db.eMISchedule.aggregate({
+      where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: 'OVERDUE' },
+      _sum: { interestAmount: true, paidInterest: true }
+    }),
+    db.offlineLoanEMI.aggregate({
+      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: 'OVERDUE' },
       _sum: { interestAmount: true, paidInterest: true }
     })
   ]);
@@ -318,6 +328,11 @@ async function getBalanceSheet(companyId: string | null) {
   const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
   const interestReceivable     = Math.max(0, onlinePendingInterest + offlinePendingInterest);
 
+  // Overdue interest (account 1305)
+  const overdueOnlineInterest  = (overdueOnlineEMIs._sum.interestAmount  || 0) - (overdueOnlineEMIs._sum.paidInterest  || 0);
+  const overdueOfflineInterest = (overdueOfflineEMIs._sum.interestAmount || 0) - (overdueOfflineEMIs._sum.paidInterest || 0);
+  const overdueInterestReceivable = Math.max(0, overdueOnlineInterest + overdueOfflineInterest);
+
   // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
   const drMap: Record<string, number> = {};
   const crMap: Record<string, number> = {};
@@ -342,6 +357,7 @@ async function getBalanceSheet(companyId: string | null) {
     if (acc.accountCode === '1201') balance = actualOnlineLoans;
     if (acc.accountCode === '1210') balance = actualOfflineLoans;
     if (acc.accountCode === '1301') balance = interestReceivable;
+    if (acc.accountCode === '1305') balance = overdueInterestReceivable;
     if (acc.accountCode === '3002') {
       balance = actualCapital > 0 || actualCapital < 0 ? actualCapital : balance;
     }
@@ -365,7 +381,8 @@ async function getBalanceSheet(companyId: string | null) {
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
     { accountCode: '1201', accountName: 'Online Loans Given', amount: accountBalances['1201'] || 0 },
     { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 },
-    { accountCode: '1301', accountName: 'Interest Receivable', amount: accountBalances['1301'] || 0 }
+    { accountCode: '1301', accountName: 'Interest Receivable', amount: accountBalances['1301'] || 0 },
+    { accountCode: '1305', accountName: 'Overdue Interest Receivable', amount: accountBalances['1305'] || 0 }
   ];
 
   // Add other assets (Fixed Assets, etc)
@@ -381,7 +398,7 @@ async function getBalanceSheet(companyId: string | null) {
 
   const otherAssetAccounts = accounts.filter(a => 
     a.accountType === 'ASSET' && 
-    !['1101', '1102', '1200', '1201', '1210', '1301'].includes(a.accountCode) &&
+    !['1101', '1102', '1200', '1201', '1210', '1301', '1305'].includes(a.accountCode) &&
     !a.accountCode.startsWith('110') &&
     !bankNamesToExclude.has(a.accountName) &&
     !a.accountName.toUpperCase().includes('BANK OF BARODA') &&

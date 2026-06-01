@@ -25,7 +25,7 @@ import { db } from '@/lib/db';
  */
 
 // Loans Receivable and Interest Receivable account codes
-const LR_CODES = ['1200', '1201', '1210', '1301'];
+const LR_CODES = ['1200', '1201', '1210', '1301', '1305'];
 
 export async function GET(request: NextRequest) {
   try {
@@ -843,7 +843,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
             ? (l.account.accountCode === '1301'
                 ? `Interest Receivable — ${customer?.name || ''}`
-                : toLoanGivenLabel('Loan Given', customer?.name || ''))
+                : l.account.accountCode === '1305'
+                  ? `Overdue Interest Receivable — ${customer?.name || ''}`
+                  : toLoanGivenLabel('Loan Given', customer?.name || ''))
             : (l.account?.accountName || 'Account'),
           debitAmount: l.debitAmount,
           creditAmount: l.creditAmount,
@@ -1137,7 +1139,9 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
         accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
           ? (l.account.accountCode === '1301'
               ? `Interest Receivable — ${loan.customer?.name || ''}`
-              : `Loans Receivable — ${loan.customer?.name || ''}`)
+              : l.account.accountCode === '1305'
+                ? `Overdue Interest Receivable — ${loan.customer?.name || ''}`
+                : `Loans Receivable — ${loan.customer?.name || ''}`)
           : l.account?.accountName,
         debitAmount: l.debitAmount,
         creditAmount: l.creditAmount,

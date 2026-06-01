@@ -40,6 +40,7 @@ export const DEFAULT_CHART_OF_ACCOUNTS = {
     { code: '1302', name: 'Processing Fee Receivable', type: 'ASSET', isSystemAccount: true, description: 'Processing fees due from customers' },
     { code: '1303', name: 'Penalty Receivable', type: 'ASSET', isSystemAccount: true, description: 'Late payment penalties due' },
     { code: '1304', name: 'Other Receivables', type: 'ASSET', isSystemAccount: false, description: 'Other amounts receivable' },
+    { code: '1305', name: 'Overdue Interest Receivable', type: 'ASSET', isSystemAccount: true, description: 'Interest reclassified to overdue and unpaid' },
     // Fixed Assets (1500-1599)
     { code: '1500', name: 'Fixed Assets', type: 'ASSET', isSystemAccount: true, description: 'Long-term assets' },
     { code: '1501', name: 'Furniture & Fixtures', type: 'ASSET', isSystemAccount: false, description: 'Office furniture' },
@@ -117,6 +118,7 @@ export const ACCOUNT_CODES = {
   INTEREST_RECEIVABLE: '1301',
   PROCESSING_FEE_RECEIVABLE: '1302',
   PENALTY_RECEIVABLE: '1303',
+  IRRECOVERABLE_INTEREST: '1305',
   
   // Liabilities
   ACCOUNTS_PAYABLE: '2100',
@@ -182,7 +184,8 @@ export type JournalEntryType =
   | 'CASH_DEPOSIT'
   | 'CASH_WITHDRAWAL'
   | 'INTEREST_ONLY_PAYMENT'
-  | 'PRINCIPAL_ONLY_PAYMENT';
+  | 'PRINCIPAL_ONLY_PAYMENT'
+  | 'INTEREST_RECLASSIFICATION';
 
 // ============================================
 // MAIN ACCOUNTING SERVICE CLASS
@@ -907,6 +910,48 @@ export class AccountingService {
   }
 
   /**
+   * INTEREST RECLASSIFICATION (OVERDUE INTEREST)
+   * Debit: Irrecoverable Interest (1305)
+   * Credit: Interest Receivable (1301)
+   */
+  async recordInterestReclassification(params: {
+    loanId: string;
+    customerId: string;
+    customerName?: string;
+    emiId: string;
+    interestAmount: number;
+    reclassDate: Date;
+    createdById: string;
+  }, tx?: any): Promise<string> {
+    return this.createJournalEntry({
+      entryDate: params.reclassDate,
+      referenceType: 'INTEREST_RECLASSIFICATION',
+      referenceId: params.emiId,
+      narration: `Interest Reclassified to Overdue - ${params.customerName || 'Customer'} (EMI Overdue)`,
+      lines: [
+        {
+          accountCode: '1305', // Irrecoverable Interest (Overdue Interest Receivable)
+          debitAmount: params.interestAmount,
+          creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: `Overdue Interest Receivable - Loan: ${params.loanId}`,
+        },
+        {
+          accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
+          debitAmount: 0,
+          creditAmount: params.interestAmount,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: `Interest Receivable Cleared - Loan: ${params.loanId}`,
+        },
+      ],
+      createdById: params.createdById,
+      isAutoEntry: true,
+    }, tx);
+  }
+
+  /**
    * PRINCIPAL-ONLY PAYMENT
    * Customer pays only principal; interest is written off as irrecoverable debt (loss).
    *
@@ -930,6 +975,8 @@ export class AccountingService {
     loanNumber?: string;
     installmentNumber?: number;
     bankAccountId?: string;
+    isInterestAccrued?: boolean;
+    isInterestReclassified?: boolean;
   }, tx?: any): Promise<string> {
     if (params.principalAmount <= 0) {
       throw new Error('Principal amount must be > 0 for Principal-Only payment');
@@ -952,11 +999,17 @@ export class AccountingService {
 
     // If interest is being written off, create the write-off entry
     if (params.interestWrittenOff > 0) {
+      const interestCreditCode = params.isInterestReclassified
+        ? '1305'
+        : params.isInterestAccrued
+          ? ACCOUNT_CODES.INTEREST_RECEIVABLE
+          : ACCOUNT_CODES.INTEREST_INCOME;
+
       lines.push(
         // Dr Irrecoverable Debt — interest recognised as a loss
         { accountCode: ACCOUNT_CODES.IRRECOVERABLE_DEBTS, debitAmount: params.interestWrittenOff,    creditAmount: 0,                          loanId: params.loanId, customerId: params.customerId, narration: 'Interest written off as irrecoverable debt' },
-        // Cr Interest Income — income entry to balance the write-off
-        { accountCode: ACCOUNT_CODES.INTEREST_INCOME,     debitAmount: 0,                            creditAmount: params.interestWrittenOff,   loanId: params.loanId, customerId: params.customerId, narration: 'Interest income (waived — written off)' }
+        // Cr Interest/Receivable — balance the write-off
+        { accountCode: interestCreditCode,     debitAmount: 0,                            creditAmount: params.interestWrittenOff,   loanId: params.loanId, customerId: params.customerId, narration: 'Interest waived — written off' }
       );
     }
 

@@ -1,6 +1,6 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&text=₹&display=swap');
 @import "tailwindcss";
 /* Load Noto Sans with ONLY the ₹ glyph (U+20B9) — ~1KB, browser uses it only for rupee symbol */
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&text=₹&display=swap');
 
 /* ══════════════════════════════════════════════════════════
    BRAND COLOR SYSTEM

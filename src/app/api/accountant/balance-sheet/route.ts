@@ -41,6 +41,7 @@ const ACCOUNT_CODES = {
   ONLINE_LOANS_RECEIVABLE: '1201',
   OFFLINE_LOANS_RECEIVABLE: '1210',
   INTEREST_RECEIVABLE: '1301',
+  IRRECOVERABLE_INTEREST: '1305',
   
   // Liabilities
   BANK_LOANS: '2101',
@@ -232,6 +233,7 @@ export async function GET(request: NextRequest) {
 
     // Other Receivables
     const interestReceivable = getAccountBalance(ACCOUNT_CODES.INTEREST_RECEIVABLE);
+    const overdueInterestReceivable = getAccountBalance(ACCOUNT_CODES.IRRECOVERABLE_INTEREST);
 
     // ============================================
     // BUILD BALANCE SHEET ITEMS
@@ -326,6 +328,13 @@ export async function GET(request: NextRequest) {
         type: 'ASSET',
         accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
         description: 'Interest accrued but not yet received'
+      },
+      {
+        name: 'Overdue Interest Receivable',
+        amount: Math.max(0, overdueInterestReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.IRRECOVERABLE_INTEREST,
+        description: 'Interest reclassified to overdue (unpaid past due date)'
       }
     ];
 
