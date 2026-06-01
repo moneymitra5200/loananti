@@ -319,6 +319,13 @@ export async function GET(request: NextRequest) {
           { name: 'Online Loans', amount: onlineLoansReceivable },
           { name: 'Offline Loans', amount: offlineLoansReceivable }
         ]
+      },
+      {
+        name: 'Interest Receivable',
+        amount: Math.max(0, interestReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE,
+        description: 'Interest accrued but not yet received'
       }
     ];
 

@@ -194,7 +194,16 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
     
     cbEntries.forEach(entry => {
       // Skip if there's already a journal entry for this transaction (avoids double counting)
-      if (entry.referenceId && journalRefIds.has(entry.referenceId)) return;
+      if (entry.referenceId) {
+        const cleanRefId = entry.referenceId.replace(/-JE$/, '');
+        if (
+          journalRefIds.has(entry.referenceId) ||
+          journalRefIds.has(`${entry.referenceId}-JE`) ||
+          journalRefIds.has(cleanRefId)
+        ) {
+          return;
+        }
+      }
       
       const targetCode = cbMapping[entry.referenceType] || '4300';
       const existingAcct = income.find(a => a.accountCode === targetCode);
@@ -355,7 +364,8 @@ async function getBalanceSheet(companyId: string | null) {
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
     { accountCode: '1201', accountName: 'Online Loans Given', amount: accountBalances['1201'] || 0 },
-    { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 }
+    { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 },
+    { accountCode: '1301', accountName: 'Interest Receivable', amount: accountBalances['1301'] || 0 }
   ];
 
   // Add other assets (Fixed Assets, etc)
