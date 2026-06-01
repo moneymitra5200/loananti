@@ -1814,9 +1814,47 @@ export async function POST(request: NextRequest) {
     // creation section above, so no double-entry is needed here.
     // ============================================
 
-    // SKIP journal entry for mirror loans — already handled in mirror creation section
+    // For mirror loans — create a Loans Receivable entry in the ORIGINAL company (C3/personal)
+    // so the customer's Khata starts with the correct opening disbursement balance.
+    // Dr 1200 Loans Receivable (asset: loan given to customer)
+    // Cr 2100 Accounts Payable  (liability: funded by mirror company — inter-company payable)
     if (isMirrorLoan && mirrorCompanyId) {
-      console.log(`[Accounting] SKIPPED original company journal for mirror loan — mirror company journal already recorded`);
+      try {
+        const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
+        const origAccSvc = new AccountingService(companyId);
+        await origAccSvc.initializeChartOfAccounts();
+
+        await origAccSvc.createJournalEntry({
+          entryDate: new Date(disbursementDate),
+          referenceType: 'LOAN_DISBURSEMENT',
+          referenceId: loan.id,
+          narration: `Loan Disbursed — ${loanNumber} to ${customerName} (funded via mirror: ${mirrorCompanyId})`,
+          lines: [
+            {
+              accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
+              debitAmount: loanAmount,
+              creditAmount: 0,
+              loanId: loan.id,
+              customerId: customerId || loan.id,
+              narration: `Loan principal disbursed to ${customerName}`,
+            },
+            {
+              accountCode: ACCOUNT_CODES.ACCOUNTS_PAYABLE,
+              debitAmount: 0,
+              creditAmount: loanAmount,
+              loanId: loan.id,
+              narration: `Funded by mirror company (inter-company payable)`,
+            },
+          ],
+          createdById,
+          isAutoEntry: true,
+        });
+
+        console.log(`[Accounting] ✅ Original company (${companyId}) disbursement journal created — Dr 1200 / Cr 2100 ₹${loanAmount}`);
+      } catch (origJournalErr) {
+        console.error('[Accounting] Original company disbursement journal FAILED:', origJournalErr);
+        // Non-blocking — mirror loan still proceeds
+      }
     } else {
       // Regular loan - create accounting entries
       const effectiveDisbursementMode = finalDisbursementMode;
