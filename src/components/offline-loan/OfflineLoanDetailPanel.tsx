@@ -3643,6 +3643,37 @@ export default function OfflineLoanDetailPanel({
                 </div>
               </div>
 
+              {/* Penalty Breakdown — shown if any penalty was charged or collected */}
+              {((selectedEmiForHistory as any).penaltyPaid > 0 || (selectedEmiForHistory as any).penaltyAmount > 0) && (
+                <div className="bg-rose-50 p-4 rounded-lg border border-rose-200">
+                  <h4 className="font-medium text-rose-800 mb-3 flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4" />
+                    Penalty Details
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    {(selectedEmiForHistory as any).penaltyAmount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-rose-600">Penalty Charged</span>
+                        <span className="font-medium text-rose-800">₹{formatCurrency((selectedEmiForHistory as any).penaltyAmount)}</span>
+                      </div>
+                    )}
+                    {(selectedEmiForHistory as any).waivedAmount > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-green-600">Waiver Given</span>
+                        <span className="font-medium text-green-700">− ₹{formatCurrency((selectedEmiForHistory as any).waivedAmount)}</span>
+                      </div>
+                    )}
+                    {(selectedEmiForHistory as any).penaltyPaid > 0 && (
+                      <div className="flex justify-between pt-2 border-t border-rose-200">
+                        <span className="text-rose-700 font-semibold">Penalty Collected</span>
+                        <span className="font-bold text-rose-900">₹{formatCurrency((selectedEmiForHistory as any).penaltyPaid)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+
               {/* Payment Transaction Details */}
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
                 <h4 className="font-medium text-blue-800 mb-3 flex items-center gap-2">

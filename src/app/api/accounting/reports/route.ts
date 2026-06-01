@@ -161,10 +161,14 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
       end.setHours(23, 59, 59, 999);
       cbDateFilter.lte = end;
     }
+    // NOTE: Only include cashbook types that do NOT have a corresponding journal entry.
+    // PENALTY_INCOME is intentionally excluded here because the penalty flow ALWAYS
+    // creates a journal entry (DR Cash / CR Penalty Income) — the cashbook entry is
+    // just a subsidiary record. Including it here would double-count penalty in P&L.
     const cbWhere: any = {
       cashBook: { companyId },
       entryType: 'CREDIT',
-      referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'PENALTY_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME', 'LATE_FEE'] }
+      referenceType: { in: ['PROCESSING_FEE', 'MIRROR_INTEREST_INCOME', 'EXTRA_EMI_PROFIT', 'INTEREST_INCOME', 'LATE_FEE'] }
     };
     if (Object.keys(cbDateFilter).length > 0) cbWhere.entryDate = cbDateFilter;
 
@@ -183,7 +187,6 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
     const cbMapping: Record<string, string> = {
       'PROCESSING_FEE': '4121', // Processing Fees
       'LATE_FEE': '4122',
-      'PENALTY_INCOME': '4125',
       'INTEREST_INCOME': '4110',
       'MIRROR_INTEREST_INCOME': '4110',
       'EXTRA_EMI_PROFIT': '4110'
