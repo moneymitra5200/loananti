@@ -222,88 +222,99 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       };
 
       const rows: StatementRow[] = [];
-      // Start balance = loan amount (from disbursement)
-      let runningBalance = loan.amount || loan.loanAmount || 0;
+      let runningBalance = 0;
 
-      // Row 0: Disbursement row (always first)
-      const disbEntry = loanEntries.find(e => e.referenceType === 'LOAN_DISBURSEMENT' || e.referenceType === 'MIRROR_LOAN_DISBURSEMENT');
-      rows.push({
-        date: disbEntry?.date || loan.disbursementDate || new Date().toISOString(),
-        description: `Loan Disbursed — ${loan.loanNumber}`,
-        totalPayment: null,
-        interestPaid: null,
-        principalPaid: null,
-        debit: runningBalance,
-        credit: 0,
-        remainingBalance: runningBalance,
-        referenceType: 'LOAN_DISBURSEMENT'
-      });
-
-      // Payment rows — ONLY entries that affect Loans Receivable (already guaranteed by API)
-      const paymentEntries = loanEntries.filter(e =>
-        e.referenceType !== 'LOAN_DISBURSEMENT' &&
-        e.referenceType !== 'MIRROR_LOAN_DISBURSEMENT' &&
-        // NEVER show processing fee in personal ledger — it doesn't touch Loans Receivable
-        e.referenceType !== 'PROCESSING_FEE_COLLECTION' &&
-        e.referenceType !== 'PROCESSING_FEE'
-      );
-
-      for (const entry of paymentEntries) {
-        let principalPaid = 0;
-        let interestPaid  = 0;
-
-        if (entry.lines && entry.lines.length > 0) {
-          for (const line of entry.lines) {
-            const code = line.accountCode || '';
-            if (['1100', '1200', '1201', '1210'].includes(code)) {
-              principalPaid += line.creditAmount;
-            } else if (['4110', '4100', '4001', '4002'].includes(code)) {
-              interestPaid  += line.creditAmount;
-            }
-          }
-        } else if (entry.principalPaid !== undefined) {
-          principalPaid = entry.principalPaid || 0;
-          interestPaid  = entry.interestPaid  || 0;
-        }
-
-        const totalPayment = principalPaid + interestPaid;
-        if (totalPayment <= 0) continue;
-
-        // 1. Interest Charged (Debit) - Increases outstanding balance
-        if (interestPaid > 0) {
-          runningBalance += interestPaid;
+      // Sort and process all loan entries chronologically
+      for (const entry of loanEntries) {
+        if (entry.referenceType === 'LOAN_DISBURSEMENT' || entry.referenceType === 'MIRROR_LOAN_DISBURSEMENT') {
+          const amount = (entry.lines || []).find(l => ['1200', '1201', '1210'].includes(l.accountCode))?.debitAmount || loan.amount || loan.loanAmount || 0;
+          runningBalance = amount;
           rows.push({
             date: entry.date,
-            description: `To-INTEREST Normal Dr. Int.`,
+            description: `Loan Disbursed — ${loan.loanNumber}`,
             totalPayment: null,
-            interestPaid,
+            interestPaid: null,
             principalPaid: null,
-            debit: interestPaid,
+            debit: amount,
             credit: 0,
             remainingBalance: runningBalance,
-            referenceType: 'INTEREST_CHARGE',
-            emiNumber: entry.emiNumber,
+            referenceType: 'LOAN_DISBURSEMENT'
           });
+          continue;
         }
 
-        // 2. EMI Payment (Credit) - Decreases outstanding balance
-        runningBalance -= totalPayment;
-        const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
-        
-        let desc = (entry as any).description || buildRowDescription(entry);
-        
-        rows.push({
-          date: entry.date,
-          description: `${paymentMethod} — ${cleanText(desc)}`,
-          totalPayment,
-          interestPaid,
-          principalPaid,
-          debit: 0,
-          credit: totalPayment,
-          remainingBalance: runningBalance,
-          referenceType: entry.referenceType,
-          emiNumber: entry.emiNumber,
-        });
+        // Never show processing fee in the loan statement
+        if (entry.referenceType === 'PROCESSING_FEE_COLLECTION' || entry.referenceType === 'PROCESSING_FEE') {
+          continue;
+        }
+
+        // Check if there is interest income (code 4110/4100 etc) credited in this entry (cash-basis indicator)
+        const interestIncomeLine = (entry.lines || []).find(l => ['4110', '4100', '4001', '4002'].includes(l.accountCode) && l.creditAmount > 0);
+        const interestIncomeAmount = interestIncomeLine ? interestIncomeLine.creditAmount : 0;
+
+        // Calculate debits and credits to Loans Receivable (1200/1201/1210) and Interest Receivable (1301)
+        const lrDebit = (entry.lines || []).filter(l => ['1200', '1201', '1210', '1301'].includes(l.accountCode)).reduce((s, l) => s + l.debitAmount, 0);
+        const lrCredit = (entry.lines || []).filter(l => ['1200', '1201', '1210', '1301'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0);
+
+        if (entry.referenceType === 'INTEREST_ACCRUAL') {
+          // Real accrual: just record the Debit to Interest Receivable
+          const interestAmt = lrDebit || entry.interestPaid || 0;
+          if (interestAmt > 0) {
+            runningBalance += interestAmt;
+            rows.push({
+              date: entry.date,
+              description: `To-INTEREST Normal Dr. Int. (Accrued)`,
+              totalPayment: null,
+              interestPaid: interestAmt,
+              principalPaid: null,
+              debit: interestAmt,
+              credit: 0,
+              remainingBalance: runningBalance,
+              referenceType: 'INTEREST_CHARGE',
+              emiNumber: entry.emiNumber
+            });
+          }
+        } else {
+          // This is a payment or write-off
+          // 1. If cash-basis interest is present, simulate the interest charge first
+          if (interestIncomeAmount > 0) {
+            runningBalance += interestIncomeAmount;
+            rows.push({
+              date: entry.date,
+              description: `To-INTEREST Normal Dr. Int.`,
+              totalPayment: null,
+              interestPaid: interestIncomeAmount,
+              principalPaid: null,
+              debit: interestIncomeAmount,
+              credit: 0,
+              remainingBalance: runningBalance,
+              referenceType: 'INTEREST_CHARGE',
+              emiNumber: entry.emiNumber
+            });
+          }
+
+          // 2. Record the payment credit
+          // Total payment credit in the statement is lrCredit (for accrual payments) or lrCredit + interestIncomeAmount (for cash basis)
+          const totalPaymentCredit = lrCredit + interestIncomeAmount;
+          if (totalPaymentCredit > 0) {
+            runningBalance -= totalPaymentCredit;
+            const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
+            let desc = entry.description || buildRowDescription(entry);
+
+            rows.push({
+              date: entry.date,
+              description: `${paymentMethod} — ${cleanText(desc)}`,
+              totalPayment: totalPaymentCredit,
+              interestPaid: interestIncomeAmount || (entry.lines || []).find(l => l.accountCode === '1301')?.creditAmount || 0,
+              principalPaid: (entry.lines || []).filter(l => ['1200', '1201', '1210'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0),
+              debit: 0,
+              credit: totalPaymentCredit,
+              remainingBalance: runningBalance,
+              referenceType: entry.referenceType,
+              emiNumber: entry.emiNumber
+            });
+          }
+        }
       }
 
       // Use pre-computed API values if the loan summary has them (from journal entries)

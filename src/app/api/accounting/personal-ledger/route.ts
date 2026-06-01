@@ -24,8 +24,8 @@ import { db } from '@/lib/db';
  *   This is the subsidiary-to-control reconciliation.
  */
 
-// Loans Receivable account codes
-const LR_CODES = ['1200', '1201', '1210'];
+// Loans Receivable and Interest Receivable account codes
+const LR_CODES = ['1200', '1201', '1210', '1301'];
 
 export async function GET(request: NextRequest) {
   try {
@@ -841,7 +841,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         lines: je.lines.map((l: any) => ({
           accountCode: l.account?.accountCode || '',
           accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
-            ? toLoanGivenLabel('Loan Given', customer?.name || '')
+            ? (l.account.accountCode === '1301'
+                ? `Interest Receivable — ${customer?.name || ''}`
+                : toLoanGivenLabel('Loan Given', customer?.name || ''))
             : (l.account?.accountName || 'Account'),
           debitAmount: l.debitAmount,
           creditAmount: l.creditAmount,
@@ -955,8 +957,25 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
     // NOTE: Processing Fee is intentionally EXCLUDED — it does not touch Loans Receivable
     // Only EMI entries (which reduce the Loans Receivable balance)
 
-    let totalPrincipalPaid = 0, totalInterestPaid = 0;
+    let totalPrincipalPaid = 0, totalInterestPaid = 0, totalInterestAccrued = 0;
+    const today = new Date();
     for (const emi of (fullLoan.emiSchedules || [])) {
+      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && emi.paidAmount > 0);
+      if (isAccrued && emi.interestAmount > 0) {
+        totalInterestAccrued += emi.interestAmount;
+        allEntries.push({
+          id: `accrual-${emi.id}`, date: emi.dueDate,
+          referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.applicationNo,
+          emiNumber: emi.installmentNumber,
+          description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
+          principalDisbursed: emi.interestAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
+          lines: [
+            { accountCode: '1301', accountName: `Interest Receivable — ${customer?.name || ''}`, debitAmount: emi.interestAmount, creditAmount: 0 },
+            { accountCode: '4110', accountName: 'Interest Income', debitAmount: 0, creditAmount: emi.interestAmount }
+          ]
+        });
+      }
+
       if (!emi.paidDate || emi.paidAmount <= 0) continue;
       const pp = emi.paidPrincipal || 0;
       const ip = emi.paidInterest  || 0;
@@ -973,7 +992,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
         lines: [
           { accountCode: '1102', accountName: 'Bank/Cash', debitAmount: emi.paidAmount, creditAmount: 0 },
           ...(pp > 0 ? [{ accountCode: '1200', accountName: receivableLabel, debitAmount: 0, creditAmount: pp }] : []),
-          ...(ip > 0 ? [{ accountCode: '4110', accountName: 'Interest Income',  debitAmount: 0, creditAmount: ip }] : []),
+          ...(ip > 0 ? [{ accountCode: '1301', accountName: `Interest Receivable — ${customer?.name || ''}`,  debitAmount: 0, creditAmount: ip }] : []),
         ]
       });
     }
@@ -983,7 +1002,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       status: loan.status, amount: loanAmount, disbursementDate: fullLoan.disbursedAt,
       interestRate: fullLoan.sessionForm?.interestRate || 0,
       tenure: fullLoan.sessionForm?.tenure || 0, isMirror,
-      outstanding: Math.max(0, loanAmount - totalPrincipalPaid),
+      outstanding: Math.max(0, (loanAmount + totalInterestAccrued) - (totalPrincipalPaid + totalInterestPaid)),
       totalPaid: totalPrincipalPaid + totalInterestPaid,
       totalInterestPaid, totalPrincipalPaid,
     });
@@ -1010,8 +1029,25 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       });
     }
 
-    let totalPrincipalPaid = 0, totalInterestPaid = 0;
+    let totalPrincipalPaid = 0, totalInterestPaid = 0, totalInterestAccrued = 0;
+    const today = new Date();
     for (const emi of (fullLoan.emis || [])) {
+      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && emi.paidAmount > 0);
+      if (isAccrued && emi.interestAmount > 0) {
+        totalInterestAccrued += emi.interestAmount;
+        allEntries.push({
+          id: `offline-accrual-${emi.id}`, date: emi.dueDate,
+          referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.loanNumber,
+          emiNumber: emi.installmentNumber,
+          description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
+          principalDisbursed: emi.interestAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
+          lines: [
+            { accountCode: '1301', accountName: `Interest Receivable — ${customer?.name || ''}`, debitAmount: emi.interestAmount, creditAmount: 0 },
+            { accountCode: '4110', accountName: 'Interest Income', debitAmount: 0, creditAmount: emi.interestAmount }
+          ]
+        });
+      }
+
       if (!emi.paidDate || emi.paidAmount <= 0) continue;
       const pp = emi.paidPrincipal || 0;
       const ip = emi.paidInterest  || 0;
@@ -1026,7 +1062,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
         lines: [
           { accountCode: '1101', accountName: 'Cash/Bank', debitAmount: emi.paidAmount, creditAmount: 0 },
           ...(pp > 0 ? [{ accountCode: '1200', accountName: receivableLabel, debitAmount: 0, creditAmount: pp }] : []),
-          ...(ip > 0 ? [{ accountCode: '4110', accountName: 'Interest Income',  debitAmount: 0, creditAmount: ip }] : []),
+          ...(ip > 0 ? [{ accountCode: '1301', accountName: `Interest Receivable — ${customer?.name || ''}`,  debitAmount: 0, creditAmount: ip }] : []),
         ]
       });
     }
@@ -1036,7 +1072,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       status: loan.status, amount: fullLoan.loanAmount,
       disbursementDate: fullLoan.disbursementDate,
       interestRate: fullLoan.interestRate || 0, tenure: fullLoan.tenure || 0, isMirror: false,
-      outstanding: Math.max(0, fullLoan.loanAmount - totalPrincipalPaid),
+      outstanding: Math.max(0, (fullLoan.loanAmount + totalInterestAccrued) - (totalPrincipalPaid + totalInterestPaid)),
       totalPaid: totalPrincipalPaid + totalInterestPaid,
       totalInterestPaid, totalPrincipalPaid,
     });
@@ -1099,7 +1135,9 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
       lines: je.lines.map(l => ({
         accountCode: l.account?.accountCode,
         accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
-          ? `Loans Receivable — ${loan.customer?.name || ''}`
+          ? (l.account.accountCode === '1301'
+              ? `Interest Receivable — ${loan.customer?.name || ''}`
+              : `Loans Receivable — ${loan.customer?.name || ''}`)
           : l.account?.accountName,
         debitAmount: l.debitAmount,
         creditAmount: l.creditAmount,
