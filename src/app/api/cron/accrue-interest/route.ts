@@ -5,7 +5,7 @@ import { AccountingService } from '@/lib/accounting-service';
 /**
  * GET /api/cron/accrue-interest
  * Called by cron daily.
- * Accrues interest for EMIs that are due today or earlier and haven't been accrued yet.
+ * Accrues interest at the start of each EMI month (accrualTriggerDate <= today).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
