@@ -328,6 +328,71 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   const customerLabel = params.customerName || loanNumber;
   const description = `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`;
 
+  // ── DYNAMICALLY RESOLVE INTEREST ACCRUAL AND RECLASSIFICATION STATUS ──────
+  const targetCompanyId = loanCompanyId;
+  let finalInterestAccrued = isInterestAccrued;
+  let finalInterestReclassified = isInterestReclassified;
+
+  // For regular (non-mirror) loan payment:
+  if (!isMirrorPayment) {
+    if (finalInterestAccrued === undefined || finalInterestReclassified === undefined) {
+      const accEntry = await db.journalEntry.findFirst({
+        where: {
+          companyId: targetCompanyId,
+          referenceType: 'INTEREST_ACCRUAL',
+          referenceId: emiId,
+          isReversed: false
+        }
+      });
+      if (accEntry) finalInterestAccrued = true;
+
+      const reclassEntry = await db.journalEntry.findFirst({
+        where: {
+          companyId: targetCompanyId,
+          referenceType: 'INTEREST_RECLASSIFICATION',
+          referenceId: emiId,
+          isReversed: false
+        }
+      });
+      if (reclassEntry) finalInterestReclassified = true;
+    }
+  }
+
+  // For mirror loan payment:
+  let finalMirrorInterestAccrued = false;
+  let finalMirrorInterestReclassified = false;
+  if (isMirrorPayment && mirrorLoanId) {
+    // Look up the mirror EMI
+    const mirrorEmi = await db.offlineLoanEMI.findFirst({
+      where: {
+        offlineLoanId: mirrorLoanId,
+        installmentNumber: installmentNumber
+      }
+    });
+
+    if (mirrorEmi) {
+      const accEntry = await db.journalEntry.findFirst({
+        where: {
+          companyId: mirrorCompanyId!,
+          referenceType: 'INTEREST_ACCRUAL',
+          referenceId: mirrorEmi.id,
+          isReversed: false
+        }
+      });
+      if (accEntry) finalMirrorInterestAccrued = true;
+
+      const reclassEntry = await db.journalEntry.findFirst({
+        where: {
+          companyId: mirrorCompanyId!,
+          referenceType: 'INTEREST_RECLASSIFICATION',
+          referenceId: mirrorEmi.id,
+          isReversed: false
+        }
+      });
+      if (reclassEntry) finalMirrorInterestReclassified = true;
+    }
+  }
+
   // ============================================
   // MIRROR LOAN PAYMENT - SIMPLE LOGIC
   // ============================================
@@ -452,7 +517,13 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         console.log(`[Accounting] ✅ MIRROR: Journal already exists (${existingJE.id}) — skipping duplicate`);
       } else {
         // Fetch ALL accounts needed (cash, bank, interest, loans) in one query
-        const accountCodes = [ACCOUNT_CODES.CASH_IN_HAND, ACCOUNT_CODES.BANK_ACCOUNT, '4110', '1200'];
+        const mirrorInterestCreditCode = finalMirrorInterestReclassified 
+          ? '1305' 
+          : finalMirrorInterestAccrued 
+            ? ACCOUNT_CODES.INTEREST_RECEIVABLE 
+            : '4110';
+
+        const accountCodes = [ACCOUNT_CODES.CASH_IN_HAND, ACCOUNT_CODES.BANK_ACCOUNT, mirrorInterestCreditCode, '1200'];
         const accounts = await db.chartOfAccount.findMany({
           where: { companyId: mirrorCompanyId, accountCode: { in: accountCodes } },
           select: { id: true, accountCode: true },
@@ -461,11 +532,11 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
         const cashAccId     = accMap.get(ACCOUNT_CODES.CASH_IN_HAND);
         const bankAccId     = accMap.get(ACCOUNT_CODES.BANK_ACCOUNT);
-        const interestAccId = accMap.get('4110');
+        const interestAccId = accMap.get(mirrorInterestCreditCode);
         const loanAccId     = accMap.get('1200');
 
         if (!interestAccId) {
-          throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: interest account 4110 not found`);
+          throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: interest account ${mirrorInterestCreditCode} not found`);
         }
 
         // Count existing entries for entry number
@@ -533,7 +604,11 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           accountId: interestAccId,
           debitAmount: 0, creditAmount: recordInterest,
           loanId: loanId || null, customerId: customerId || null,
-          narration: `Interest income - EMI #${installmentNumber}${partialSuffix}`,
+          narration: finalMirrorInterestReclassified
+            ? `Overdue interest cleared - EMI #${installmentNumber}${partialSuffix}`
+            : finalMirrorInterestAccrued
+              ? `Accrued interest cleared - EMI #${installmentNumber}${partialSuffix}`
+              : `Interest income - EMI #${installmentNumber}${partialSuffix}`,
         });
         if (recordPrincipal > 0 && loanAccId) {
           directLines.push({
@@ -605,7 +680,6 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   // ============================================
   
   // Determine target company for payment
-  const targetCompanyId = loanCompanyId;
   console.log(`[Accounting] REGULAR EMI Payment - Company: ${targetCompanyId}`);
 
   // ============================================
@@ -633,9 +707,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
       }
       const personalInterestAdj = Math.max(0, interestComponent + Math.round((amount - principalComponent - interestComponent) * 100) / 100);
-      const personalInterestCreditCode = isInterestReclassified ? '1305' : isInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
+      const personalInterestCreditCode = finalInterestReclassified ? '1305' : finalInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
       if (personalInterestAdj > 0) {
-        personalCreditLines.push({ accountCode: personalInterestCreditCode, debitAmount: 0, creditAmount: personalInterestAdj, loanId, customerId, narration: isInterestReclassified ? 'Overdue interest cleared' : isInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
+        personalCreditLines.push({ accountCode: personalInterestCreditCode, debitAmount: 0, creditAmount: personalInterestAdj, loanId, customerId, narration: finalInterestReclassified ? 'Overdue interest cleared' : finalInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
       }
       if (personalCreditLines.length === 0) {
         personalCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: amount, loanId, customerId, narration: 'EMI repayment' });
@@ -708,8 +782,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       const companyCreditLines: { accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration: string }[] = [];
       if (principalComponent > 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: principalComponent, loanId, customerId, narration: 'Principal repayment' });
       const companyInterestAdj = Math.max(0, interestComponent + Math.round((totalForCredit - principalComponent - interestComponent) * 100) / 100);
-      const companyInterestCreditCode = isInterestReclassified ? '1305' : isInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
-      if (companyInterestAdj > 0) companyCreditLines.push({ accountCode: companyInterestCreditCode, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: isInterestReclassified ? 'Overdue interest cleared' : isInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
+      const companyInterestCreditCode = finalInterestReclassified ? '1305' : finalInterestAccrued ? ACCOUNT_CODES.INTEREST_RECEIVABLE : ACCOUNT_CODES.INTEREST_INCOME;
+      if (companyInterestAdj > 0) companyCreditLines.push({ accountCode: companyInterestCreditCode, debitAmount: 0, creditAmount: companyInterestAdj, loanId, customerId, narration: finalInterestReclassified ? 'Overdue interest cleared' : finalInterestAccrued ? 'Accrued interest cleared' : 'Interest income' });
       if (companyCreditLines.length === 0) companyCreditLines.push({ accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalForCredit, loanId, customerId, narration: 'EMI repayment' });
       const companyCreditSum = companyCreditLines.reduce((s, l) => s + l.creditAmount, 0);
       const companyDiff = Math.round((totalForCredit - companyCreditSum) * 100) / 100;

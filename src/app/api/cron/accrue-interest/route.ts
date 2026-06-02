@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     const today = new Date();
     today.setHours(23, 59, 59, 999);
 
-    // Find EMIs that are due and haven't had interest accrued
+    // ── 1. Online EMIs (eMISchedule) ──────────────────────────────────────────
     const dueEMIs = await db.eMISchedule.findMany({
       where: {
         dueDate: { lte: today },
@@ -62,12 +62,75 @@ export async function GET(request: NextRequest) {
               accruedAt: new Date()
             }
           });
-        });
+        }, { maxWait: 25000, timeout: 50000 });
 
         successCount++;
       } catch (err: any) {
         errors.push({ emiId: emi.id, error: err.message });
-        console.error(`Failed to accrue interest for EMI ${emi.id}:`, err);
+        console.error(`Failed to accrue interest for online EMI ${emi.id}:`, err);
+      }
+    }
+
+    // ── 2. Offline EMIs (offlineLoanEMI) ───────────────────────────────────────
+    // Query offline EMIs whose due dates have passed and belong to companies using FULL accounting
+    const dueOfflineEMIs = await db.offlineLoanEMI.findMany({
+      where: {
+        dueDate: { lte: today },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
+        interestAmount: { gt: 0 },
+        offlineLoan: {
+          companyId: { not: null },
+          company: {
+            accountingType: 'FULL'
+          }
+        }
+      },
+      include: {
+        offlineLoan: {
+          include: {
+            company: true
+          }
+        }
+      }
+    });
+
+    for (const emi of dueOfflineEMIs) {
+      try {
+        const companyId = emi.offlineLoan.companyId!;
+
+        // Check if interest has already been accrued for this offline EMI
+        const existingAccrual = await db.journalEntry.findFirst({
+          where: {
+            companyId,
+            referenceType: 'INTEREST_ACCRUAL',
+            referenceId: emi.id,
+            isReversed: false
+          }
+        });
+
+        if (existingAccrual) {
+          continue; // Already accrued, skip
+        }
+
+        // Perform accrual in a transaction
+        await db.$transaction(async (tx) => {
+          const accSvc = new AccountingService(companyId);
+          
+          await accSvc.recordInterestAccrual({
+            loanId: emi.offlineLoanId,
+            customerId: emi.offlineLoan.customerId || `offline_${emi.offlineLoanId}`,
+            customerName: emi.offlineLoan.customerName || 'Customer',
+            emiId: emi.id,
+            interestAmount: emi.interestAmount,
+            accrualDate: new Date(),
+            createdById: 'SYSTEM'
+          }, tx);
+        }, { maxWait: 25000, timeout: 50000 });
+
+        successCount++;
+      } catch (err: any) {
+        errors.push({ emiId: emi.id, error: err.message });
+        console.error(`Failed to accrue interest for offline EMI ${emi.id}:`, err);
       }
     }
 
@@ -85,7 +148,7 @@ export async function GET(request: NextRequest) {
             category: 'SYSTEM',
             priority: 'LOW',
             title: '💰 Interest Accrual Cron Completed',
-            message: `Accrual cron ran at ${new Date().toLocaleString('en-IN')}. Accrued interest for ${successCount} EMIs.`,
+            message: `Accrual cron ran at ${new Date().toLocaleString('en-IN')}. Accrued interest for ${successCount} EMIs (online/offline).`,
           })),
           skipDuplicates: true,
         });
