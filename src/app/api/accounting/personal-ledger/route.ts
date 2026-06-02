@@ -795,6 +795,45 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     const loanJEs = entriesByLoan.get(loanId) || [];
 
+    const hasDisbursement = loanJEs.some(je => 
+      (je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT') &&
+      je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && l.loanId === loanId)
+    );
+
+    if (!hasDisbursement && meta.loanAmount > 0) {
+      allEntries.push({
+        id: `synth-disb-${loanId}`,
+        date: meta.disbursementDate || new Date(),
+        referenceType: 'LOAN_DISBURSEMENT',
+        referenceId: loanId,
+        loanId,
+        loanNumber: meta.loanNumber,
+        emiNumber: undefined,
+        narration: `Loan Disbursed — ${meta.loanNumber}`,
+        description: `Loan Disbursed — ${meta.loanNumber}`,
+        principalDisbursed: meta.loanAmount,
+        principalPaid: 0,
+        interestPaid: 0,
+        totalPayment: null,
+        lines: [
+          {
+            accountCode: '1200',
+            accountName: toLoanGivenLabel('Loans Receivable', customer?.name || ''),
+            debitAmount: meta.loanAmount,
+            creditAmount: 0,
+            narration: 'Loan principal disbursed (synthetic)',
+          },
+          {
+            accountCode: '2100',
+            accountName: 'Accounts Payable',
+            debitAmount: 0,
+            creditAmount: meta.loanAmount,
+            narration: 'Funded via mirror / pending journal (synthetic)',
+          }
+        ]
+      });
+    }
+
     for (const je of loanJEs) {
       // Only iterate lines that touch LR account or Interest Income AND belong to this loan
       const lrLines = je.lines.filter((l: any) =>
@@ -856,10 +895,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     // Compute outstanding for this loan from its journal entries
     const loanJEsAll = entriesByLoan.get(loanId) || [];
-    const totalDisbursed = loanJEsAll.reduce((s, je) => {
+    let totalDisbursed = loanJEsAll.reduce((s, je) => {
       const lrLines = je.lines.filter((l: any) => lrAccountIds.includes(l.accountId) && l.loanId === loanId);
       return s + lrLines.reduce((ss: number, l: any) => ss + l.debitAmount, 0);
     }, 0);
+
+    if (totalDisbursed === 0 && meta.loanAmount > 0) {
+      totalDisbursed = meta.loanAmount;
+    }
+
     const totalRepaid = loanJEsAll.reduce((s, je) => {
       const lrLines = je.lines.filter((l: any) => lrAccountIds.includes(l.accountId) && l.loanId === loanId);
       return s + lrLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
@@ -1128,26 +1172,59 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
       })
     : [];
 
+  const hasDisbursement = journalEntries.some(je => 
+    (je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT') &&
+    je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && l.loanId === loanId)
+  );
+
+  const loanAmount = loan.sessionForm?.approvedAmount || loan.requestedAmount || 0;
+  const mappedEntries = journalEntries.map(je => ({
+    id: je.id, date: je.entryDate, referenceType: je.referenceType,
+    narration: je.narration, loanId, loanNumber: loan.applicationNo,
+    lines: je.lines.map(l => ({
+      accountCode: l.account?.accountCode,
+      accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
+        ? (l.account.accountCode === '1301'
+            ? `Interest Receivable — ${loan.customer?.name || ''}`
+            : l.account.accountCode === '1305'
+              ? `Overdue Interest Receivable — ${loan.customer?.name || ''}`
+              : `Loans Receivable — ${loan.customer?.name || ''}`)
+        : l.account?.accountName,
+      debitAmount: l.debitAmount,
+      creditAmount: l.creditAmount,
+    }))
+  }));
+
+  if (!hasDisbursement && loanAmount > 0) {
+    mappedEntries.unshift({
+      id: `synth-disb-${loanId}`,
+      date: loan.disbursedAt || new Date(),
+      referenceType: 'LOAN_DISBURSEMENT',
+      narration: `Loan Disbursed — ${loan.applicationNo}`,
+      loanId,
+      loanNumber: loan.applicationNo,
+      lines: [
+        {
+          accountCode: '1200',
+          accountName: `Loans Receivable — ${loan.customer?.name || ''}`,
+          debitAmount: loanAmount,
+          creditAmount: 0,
+        },
+        {
+          accountCode: '2100',
+          accountName: 'Accounts Payable',
+          debitAmount: 0,
+          creditAmount: loanAmount,
+        }
+      ]
+    });
+  }
+
   return NextResponse.json({
     success: true,
     loanSummary: { id: loan.id, loanNumber: loan.applicationNo, customer: loan.customer, company: loan.company },
-    entries: journalEntries.map(je => ({
-      id: je.id, date: je.entryDate, referenceType: je.referenceType,
-      narration: je.narration, loanId, loanNumber: loan.applicationNo,
-      lines: je.lines.map(l => ({
-        accountCode: l.account?.accountCode,
-        accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
-          ? (l.account.accountCode === '1301'
-              ? `Interest Receivable — ${loan.customer?.name || ''}`
-              : l.account.accountCode === '1305'
-                ? `Overdue Interest Receivable — ${loan.customer?.name || ''}`
-                : `Loans Receivable — ${loan.customer?.name || ''}`)
-          : l.account?.accountName,
-        debitAmount: l.debitAmount,
-        creditAmount: l.creditAmount,
-      }))
-    })),
-    source: journalEntries.length > 0 ? 'journal_entries' : 'no_data',
+    entries: mappedEntries,
+    source: (journalEntries.length > 0 || !hasDisbursement) ? 'journal_entries' : 'no_data',
   });
 }
 
