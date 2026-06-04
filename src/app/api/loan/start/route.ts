@@ -94,6 +94,14 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Loan] Principal: ${principalAmount}, Rate: ${interestRate}%, Tenure: ${tenure} months`);
     console.log(`[Start Loan] EMI: ${emiCalculation.emi}, Total Interest: ${emiCalculation.totalInterest}`);
 
+    // Capture startDay here so it is accessible both inside the transaction and
+    // in the setImmediate mirror cascade below (different closure scope).
+    const startDay = loan.disbursedAt
+      ? new Date(loan.disbursedAt).getDate()
+      : loan.interestOnlyStartDate
+        ? new Date(loan.interestOnlyStartDate).getDate()
+        : new Date().getDate();
+
     // ── ACID: Wrap loan start in atomic transaction with deadlock retry ──────
     // withRetry: deadlock resilience (P2034) up to 3×
     // Status guard inside tx: prevents double-start if two requests race
@@ -118,8 +126,6 @@ export async function POST(request: NextRequest) {
         orderBy: { installmentNumber: 'desc' }
       });
       const startingInstallmentOffset = lastEmi ? lastEmi.installmentNumber : 0;
-
-      const startDay = loan.disbursedAt ? new Date(loan.disbursedAt).getDate() : (loan.interestOnlyStartDate ? new Date(loan.interestOnlyStartDate).getDate() : new Date().getDate());
 
       // Create new EMI schedules
       const emiSchedules = emiCalculation.schedule.map((item, index) => {
