@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { performOnDemandAccrual } from '@/lib/accrual-helper';
 
 /**
  * Personal Ledger (Khata) API — Reads from Journal Entries (Real Accounting)
@@ -29,6 +30,9 @@ const LR_CODES = ['1200', '1201', '1210', '1301', '1305'];
 
 export async function GET(request: NextRequest) {
   try {
+    // Run on-demand accruals to ensure ledger is real-time
+    await performOnDemandAccrual();
+
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
     const loanId     = searchParams.get('loanId');

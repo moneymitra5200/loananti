@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
+import { performOnDemandAccrual } from '@/lib/accrual-helper';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -68,6 +69,9 @@ const ACCOUNT_CODES = {
 
 export async function GET(request: NextRequest) {
   try {
+    // Run on-demand accruals to ensure reports are real-time
+    await performOnDemandAccrual();
+
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     const year = searchParams.get('year'); // e.g., "2024" for FY 2024-25

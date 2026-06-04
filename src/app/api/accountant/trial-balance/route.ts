@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
+import { performOnDemandAccrual } from '@/lib/accrual-helper';
 
 /**
  * TRIAL BALANCE API for Accountant Dashboard
@@ -16,6 +17,9 @@ import { cache, CacheTTL } from '@/lib/cache';
  */
 export async function GET(request: NextRequest) {
   try {
+    // Run on-demand accruals to ensure reports are real-time
+    await performOnDemandAccrual();
+
     const searchParams = request.nextUrl.searchParams;
     const companyId = searchParams.get('companyId');
     const asOfDate = searchParams.get('asOfDate');
