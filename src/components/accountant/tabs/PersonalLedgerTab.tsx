@@ -257,8 +257,15 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         const lrCredit = (entry.lines || []).filter(l => ['1200', '1201', '1210', '1301'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0);
 
         if (entry.referenceType === 'INTEREST_ACCRUAL') {
-          // Real accrual: just record the Debit to Interest Receivable
-          const interestAmt = lrDebit || entry.interestPaid || 0;
+          // Real accrual: record the Debit to Interest Receivable (1301)
+          // Fallback chain: lrDebit (from 1301 line) → interestPaid (from 4110 Cr API field)
+          //                 → principalDisbursed (API stores 1301 Dr amount here)
+          //                 → interestIncomeAmount (4110 Cr directly on this entry)
+          const interestAmt = lrDebit
+            || entry.interestPaid
+            || entry.principalDisbursed
+            || interestIncomeAmount
+            || 0;
           if (interestAmt > 0) {
             runningBalance += interestAmt;
             rows.push({

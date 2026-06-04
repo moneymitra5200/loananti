@@ -119,12 +119,13 @@ export async function POST(request: NextRequest) {
       });
       const startingInstallmentOffset = lastEmi ? lastEmi.installmentNumber : 0;
 
+      const startDay = loan.disbursedAt ? new Date(loan.disbursedAt).getDate() : (loan.interestOnlyStartDate ? new Date(loan.interestOnlyStartDate).getDate() : new Date().getDate());
+
       // Create new EMI schedules
       const emiSchedules = emiCalculation.schedule.map((item, index) => {
-        // Set due date to 5th of each month
         const dueDate = new Date();
         dueDate.setMonth(dueDate.getMonth() + index + 1);
-        dueDate.setDate(5);
+        dueDate.setDate(startDay);
         dueDate.setHours(0, 0, 0, 0);
 
         return {
@@ -323,7 +324,7 @@ export async function POST(request: NextRequest) {
         const mirrorSchedule = shiftedSchedule.map((item, index) => {
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
+          dueDate.setDate(startDay);
           dueDate.setHours(0, 0, 0, 0);
           return {
             loanApplicationId: mirrorMapping.mirrorLoanId!,

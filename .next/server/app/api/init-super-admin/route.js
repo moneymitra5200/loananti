@@ -1,7 +1,7 @@
 var R=require("../../../chunks/[turbopack]_runtime.js")("server/app/api/init-super-admin/route.js")
-R.c("server/chunks/[root-of-the-server]__f1ece58c._.js")
-R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
-R.c("server/chunks/d0a8e_bcryptjs_index_aaaf63e2.js")
-R.c("server/chunks/3d860_reallll__next-internal_server_app_api_init-super-admin_route_actions_6895f5e2.js")
-R.m(376554)
-module.exports=R.m(376554).exports
+R.c("server/chunks/[root-of-the-server]__df97312a._.js")
+R.c("server/chunks/[root-of-the-server]__71e0e3b9._.js")
+R.c("server/chunks/node_modules_bcryptjs_index_42ebb250.js")
+R.c("server/chunks/_next-internal_server_app_api_init-super-admin_route_actions_2550a25e.js")
+R.m(168064)
+module.exports=R.m(168064).exports

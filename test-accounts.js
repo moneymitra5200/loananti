@@ -1,1 +1,0 @@
-const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); async function main() { const accounts = await prisma.chartOfAccount.findMany({ where: { accountName: { contains: 'BARODA' } } }); console.log(accounts); } main().finally(() => prisma.$disconnect());

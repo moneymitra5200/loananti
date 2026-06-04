@@ -1,7 +1,7 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/accountant/annual-report/route.js")
-R.c("server/chunks/[root-of-the-server]__27a2a8e3._.js")
-R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
-R.c("server/chunks/d0a8e_next_dist_esm_build_templates_app-route_db934d70.js")
-R.c("server/chunks/11c6c__next-internal_server_app_api_accountant_annual-report_route_actions_251113f7.js")
-R.m(334238)
-module.exports=R.m(334238).exports
+R.c("server/chunks/[root-of-the-server]__cb794963._.js")
+R.c("server/chunks/[root-of-the-server]__71e0e3b9._.js")
+R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_56af65ee.js")
+R.c("server/chunks/_next-internal_server_app_api_accountant_annual-report_route_actions_f2526ad5.js")
+R.m(11146)
+module.exports=R.m(11146).exports

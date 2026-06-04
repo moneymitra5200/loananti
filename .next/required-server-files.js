@@ -99,7 +99,7 @@ self.__SERVER_FILES_MANIFEST={
         "transform": "lodash/{{member}}"
       }
     },
-    "outputFileTracingRoot": "C:\\Users\\bscom",
+    "outputFileTracingRoot": "C:\\Users\\bscom\\Desktop\\reallll",
     "cacheComponents": false,
     "cacheLife": {
       "default": {
@@ -296,7 +296,7 @@ self.__SERVER_FILES_MANIFEST={
     "bundlePagesRouterDependencies": false,
     "configFileName": "next.config.js",
     "turbopack": {
-      "root": "C:\\Users\\bscom"
+      "root": "C:\\Users\\bscom\\Desktop\\reallll"
     },
     "serverExternalPackages": [
       "socket.io",
@@ -305,7 +305,7 @@ self.__SERVER_FILES_MANIFEST={
     "distDirRoot": ".next"
   },
   "appDir": "C:\\Users\\bscom\\Desktop\\reallll",
-  "relativeAppDir": "Desktop\\reallll",
+  "relativeAppDir": "",
   "files": [
     ".next\\routes-manifest.json",
     ".next\\server\\pages-manifest.json",

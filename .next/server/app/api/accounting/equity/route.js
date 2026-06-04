@@ -1,7 +1,7 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/accounting/equity/route.js")
-R.c("server/chunks/[root-of-the-server]__2a7a1013._.js")
-R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
-R.c("server/chunks/Desktop_reallll_src_lib_accounting-service_ts_94db3376._.js")
-R.c("server/chunks/3d860_reallll__next-internal_server_app_api_accounting_equity_route_actions_8d49b281.js")
-R.m(915017)
-module.exports=R.m(915017).exports
+R.c("server/chunks/[root-of-the-server]__a528dbf9._.js")
+R.c("server/chunks/[root-of-the-server]__71e0e3b9._.js")
+R.c("server/chunks/src_lib_accounting-service_ts_5eb6aa69._.js")
+R.c("server/chunks/_next-internal_server_app_api_accounting_equity_route_actions_c7549a40.js")
+R.m(368683)
+module.exports=R.m(368683).exports

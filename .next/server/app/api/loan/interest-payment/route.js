@@ -1,7 +1,7 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/loan/interest-payment/route.js")
-R.c("server/chunks/[root-of-the-server]__6b8b3481._.js")
-R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
-R.c("server/chunks/d0a8e_next_dist_esm_build_templates_app-route_9794d091.js")
-R.c("server/chunks/11c6c__next-internal_server_app_api_loan_interest-payment_route_actions_8c1f4e8c.js")
-R.m(607453)
-module.exports=R.m(607453).exports
+R.c("server/chunks/[root-of-the-server]__0c16dd8f._.js")
+R.c("server/chunks/[root-of-the-server]__71e0e3b9._.js")
+R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_a062cbf9.js")
+R.c("server/chunks/_next-internal_server_app_api_loan_interest-payment_route_actions_1b6697b2.js")
+R.m(747852)
+module.exports=R.m(747852).exports

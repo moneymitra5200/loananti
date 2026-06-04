@@ -717,7 +717,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // ── Fetch Journal Entries that have a line touching LR or Interest for these loans ────
   // This is the "posting from journal to personal ledger" step
   let journalEntries: any[] = [];
-  if (allTargetAccountIds.length > 0) {
+  if (allTargetAccountIds.length > 0 && validLoanIds.length > 0) {
     journalEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
@@ -738,6 +738,42 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       },
       orderBy: { entryDate: 'asc' }
     });
+
+    // ── ALWAYS fetch INTEREST_ACCRUAL and INTEREST_RECLASSIFICATION entries by loanId ──
+    // These entries must be permanently visible even after EMI is paid.
+    // The primary query above may miss them if the interest account is on a separate line.
+    const accrualEntries = await db.journalEntry.findMany({
+      where: {
+        isReversed: false,
+        ...(companyId ? { companyId } : {}),
+        referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
+        lines: {
+          some: {
+            loanId: { in: validLoanIds },
+          }
+        }
+      },
+      include: {
+        lines: {
+          include: {
+            account: { select: { id: true, accountCode: true, accountName: true } }
+          }
+        }
+      },
+      orderBy: { entryDate: 'asc' }
+    });
+
+    // Merge accrual entries — avoid duplicates by ID
+    const seenJEIds = new Set(journalEntries.map((je: any) => je.id));
+    for (const ae of accrualEntries) {
+      if (!seenJEIds.has(ae.id)) {
+        journalEntries.push(ae);
+        seenJEIds.add(ae.id);
+      }
+    }
+
+    // Re-sort chronologically after merge
+    journalEntries.sort((a: any, b: any) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
   }
 
   // ── Fall back to EMI-based entries if no journal entries found ─────────────

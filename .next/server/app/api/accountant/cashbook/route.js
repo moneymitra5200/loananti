@@ -1,6 +1,6 @@
 var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/accountant/cashbook/route.js")
-R.c("server/chunks/[root-of-the-server]__66bba726._.js")
-R.c("server/chunks/[root-of-the-server]__c2814ffa._.js")
-R.c("server/chunks/11c6c__next-internal_server_app_api_accountant_cashbook_route_actions_8428d06a.js")
-R.m(578046)
-module.exports=R.m(578046).exports
+R.c("server/chunks/[root-of-the-server]__112e94b0._.js")
+R.c("server/chunks/[root-of-the-server]__71e0e3b9._.js")
+R.c("server/chunks/_next-internal_server_app_api_accountant_cashbook_route_actions_9ef70017.js")
+R.m(405593)
+module.exports=R.m(405593).exports

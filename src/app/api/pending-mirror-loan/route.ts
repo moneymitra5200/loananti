@@ -502,6 +502,14 @@ export async function PUT(request: NextRequest) {
         }
       });
 
+      // Fetch original loan's EMIs first to align the start day dynamically
+      const originalLoanEMIs = await db.eMISchedule.findMany({
+        where: { loanApplicationId: pendingLoan.originalLoanId },
+        orderBy: { installmentNumber: 'asc' }
+      });
+      const firstOriginalEmi = originalLoanEMIs[0];
+      const startDay = firstOriginalEmi?.dueDate ? new Date(firstOriginalEmi.dueDate).getDate() : (originalLoan.disbursedAt ? new Date(originalLoan.disbursedAt).getDate() : 5);
+
       // Create EMI schedules for mirror loan
       // Rule: IO loans start with 1 seed PENDING EMI — same as offline IO loan creation.
       //   loan/interest-payment marks it PAID and creates the next one on each payment.
@@ -510,7 +518,7 @@ export async function PUT(request: NextRequest) {
       if (isIOLoan) {
         const firstDue = new Date();
         firstDue.setMonth(firstDue.getMonth() + 1);
-        firstDue.setDate(1); // Issue 8 Fix: 1st of next month to match original loan
+        firstDue.setDate(startDay);
         firstDue.setHours(0, 0, 0, 0);
         await db.eMISchedule.create({
           data: {
@@ -538,7 +546,7 @@ export async function PUT(request: NextRequest) {
         const mirrorEMISchedules = scheduleToUse.map((emi, index) => {
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
+          dueDate.setDate(startDay);
           return {
             loanApplicationId: mirrorLoan.id,
             installmentNumber: emi.installmentNumber,
@@ -560,11 +568,6 @@ export async function PUT(request: NextRequest) {
 
       // Create EMIPaymentSetting records for all EMIs in the ORIGINAL loan
       // Extra EMIs (after mirrorTenure) will have the secondary payment page assigned
-      const originalLoanEMIs = await db.eMISchedule.findMany({
-        where: { loanApplicationId: pendingLoan.originalLoanId },
-        orderBy: { installmentNumber: 'asc' }
-      });
-
       const mirrorTenure = pendingLoan.mirrorTenure;
       const extraEMICount = pendingLoan.extraEMICount || 0;
 
