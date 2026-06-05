@@ -580,6 +580,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   // Get all loans for this customer
   // For synthetic IDs (offline loans without linked user): fetch the specific loan directly
+  // Get all loans for this customer
+  // For synthetic IDs (offline loans without linked user): fetch the specific loan directly
   const allOnlineLoans = isSyntheticId ? [] : await db.loanApplication.findMany({
     where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } },
     select: {
@@ -587,30 +589,30 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       requestedAmount: true, disbursedAt: true,
       sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, processingFee: true } },
       company: { select: { id: true, name: true } },
-      emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
+      emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
     }
   });
   const allOfflineLoans = isSyntheticId && syntheticLoanId
     ? await db.offlineLoan.findMany({
-        where: { id: syntheticLoanId },
-        select: {
-          id: true, loanNumber: true, status: true, companyId: true,
-          loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-          customerName: true, customerPhone: true, customerEmail: true,
-          company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true }, orderBy: { installmentNumber: 'asc' } }
-        }
-      })
-    : await db.offlineLoan.findMany({
-        where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
-        select: {
-          id: true, loanNumber: true, status: true, companyId: true,
-          loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-          customerName: true, customerPhone: true, customerEmail: true,
-          company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true }, orderBy: { installmentNumber: 'asc' } }
-        }
-      });
+         where: { id: syntheticLoanId },
+         select: {
+           id: true, loanNumber: true, status: true, companyId: true,
+           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+           customerName: true, customerPhone: true, customerEmail: true,
+           company: { select: { id: true, name: true } },
+           emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+         }
+       })
+     : await db.offlineLoan.findMany({
+         where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
+         select: {
+           id: true, loanNumber: true, status: true, companyId: true,
+           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+           customerName: true, customerPhone: true, customerEmail: true,
+           company: { select: { id: true, name: true } },
+           emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+         }
+       });
 
   // Mirror rule: which online loans are mirrored ORIGINALS?
   const onlineLoanIds = allOnlineLoans.map(l => l.id);
@@ -640,6 +642,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           requestedAmount: true, disbursedAt: true,
           sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true } },
           company: { select: { id: true, name: true } },
+          emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
         }
       });
       if (mirrorLoan) extraMirrorOnlineLoans.push({ ...mirrorLoan, _isMirrorRecord: true });
@@ -674,22 +677,21 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // If a loan is mirrored, show it for the mirror company; if not mirrored, show for its own company
   const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
     where: { isOfflineLoan: true },
-    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true, mirrorLoanId: true }
+    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
   });
+  const mirroredOfflineIds = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
+  const offlineMirrorCoMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+  const offlineMirrorRateMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorInterestRate]));
 
   const validOfflineLoans = allOfflineLoans.filter(l => {
     if (!companyId) return true;
-    
-    const mapping = offlineMirrorMappings.find(m => m.originalLoanId === l.id);
-    if (mapping) {
-      if (mapping.mirrorCompanyId === companyId) {
-        if (mapping.mirrorLoanId) return false; // Hide original, show dedicated mirror
-        return true; // Legacy: show original as mirror
-      }
+    if (mirroredOfflineIds.has(l.id)) {
+      // Show offline original for its MIRROR company
+      if (offlineMirrorCoMap.get(l.id) === companyId) return true;
+      // Show offline original for its ORIGINAL company
       if (l.companyId === companyId) return true;
       return false;
     }
-    
     return l.companyId === companyId;
   });
 
@@ -818,17 +820,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     });
   }
   for (const l of validOfflineLoans) {
-    const isModernMirror = offlineMirrorMappings.some(m => m.mirrorLoanId === l.id);
-    const isLegacyMirror = companyId ? offlineMirrorMappings.some(m => m.originalLoanId === l.id && m.mirrorCompanyId === companyId && !m.mirrorLoanId) : false;
-    const isOfflineMirror = isModernMirror || isLegacyMirror;
-    
-    let mirrorRate: number | undefined = undefined;
-    if (isModernMirror) {
-      mirrorRate = offlineMirrorMappings.find(m => m.mirrorLoanId === l.id)?.mirrorInterestRate;
-    } else if (isLegacyMirror) {
-      mirrorRate = offlineMirrorMappings.find(m => m.originalLoanId === l.id)?.mirrorInterestRate;
-    }
-
+    const isOfflineMirror = companyId ? offlineMirrorCoMap.get(l.id) === companyId : false;
     loanDataMap.set(l.id, {
       loanNumber: l.loanNumber,
       loanType: 'OFFLINE',
@@ -838,7 +830,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       status: l.status,
       disbursementDate: l.disbursementDate,
       isMirror: isOfflineMirror,
-      mirrorInterestRate: mirrorRate,
+      mirrorInterestRate: isOfflineMirror ? offlineMirrorRateMap.get(l.id) : undefined,
       companyName: l.company?.name || '',
       emis: l.emis,
     });
@@ -933,11 +925,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
       const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
       
-      let effectiveInterestAmount = emi.interestAmount;
-      if (meta.isMirror && meta.mirrorInterestRate && emi.outstandingPrincipal !== undefined) {
-         const monthlyRate = meta.mirrorInterestRate / 100 / 12;
-         effectiveInterestAmount = Math.max(0, Math.round(emi.outstandingPrincipal * monthlyRate * 100) / 100);
-      }
+      const effectiveInterestAmount = emi.interestAmount;
       
       if (!hasRealAccrual && isAccrued && effectiveInterestAmount > 0) {
         allEntries.push({
@@ -1088,8 +1076,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     // 1. We only apply special logical grouping if they belong to the same loan
     if (a.loanId === b.loanId) {
       // 1a. Disbursement is ALWAYS first
-      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT';
-      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT';
+      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
+      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
       if (isDisbA && !isDisbB) return -1;
       if (!isDisbA && isDisbB) return 1;
 
@@ -1307,8 +1295,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
 
   allEntries.sort((a, b) => {
     if (a.loanId === b.loanId) {
-      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT';
-      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT';
+      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
+      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
       if (isDisbA && !isDisbB) return -1;
       if (!isDisbA && isDisbB) return 1;
 

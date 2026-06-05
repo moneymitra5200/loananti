@@ -335,57 +335,153 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
   // For regular (non-mirror) loan payment:
   if (!isMirrorPayment) {
-    if (finalInterestAccrued === undefined || finalInterestReclassified === undefined) {
-      const accEntry = await db.journalEntry.findFirst({
-        where: {
-          companyId: targetCompanyId,
-          referenceType: 'INTEREST_ACCRUAL',
-          referenceId: emiId,
-          isReversed: false
-        }
-      });
-      if (accEntry) finalInterestAccrued = true;
+    const accEntry = await db.journalEntry.findFirst({
+      where: {
+        companyId: targetCompanyId,
+        referenceType: 'INTEREST_ACCRUAL',
+        referenceId: emiId,
+        isReversed: false
+      }
+    });
 
-      const reclassEntry = await db.journalEntry.findFirst({
-        where: {
-          companyId: targetCompanyId,
-          referenceType: 'INTEREST_RECLASSIFICATION',
-          referenceId: emiId,
-          isReversed: false
-        }
+    if (accEntry) {
+      finalInterestAccrued = true;
+    } else if (interestComponent > 0) {
+      // Perform on-demand accrual if company has FULL accounting
+      const targetCompany = await db.company.findUnique({
+        where: { id: targetCompanyId },
+        select: { accountingType: true }
       });
-      if (reclassEntry) finalInterestReclassified = true;
+      if (targetCompany?.accountingType === 'FULL') {
+        try {
+          const { AccountingService } = await import('@/lib/accounting-service');
+          const accSvc = new AccountingService(targetCompanyId);
+          await accSvc.recordInterestAccrual({
+            loanId: loanId,
+            customerId: customerId || '',
+            customerName: customerLabel || 'Customer',
+            emiId: emiId,
+            interestAmount: interestComponent,
+            accrualDate: new Date(),
+            createdById: userId || 'SYSTEM'
+          });
+
+          const onlineEmi = await db.eMISchedule.findUnique({
+            where: { id: emiId }
+          });
+          if (onlineEmi) {
+            await db.eMISchedule.update({
+              where: { id: emiId },
+              data: {
+                interestAccrued: true,
+                accruedAt: new Date()
+              }
+            });
+          }
+          finalInterestAccrued = true;
+          console.log(`[Accounting] Auto-accrued interest of ₹${interestComponent} on-demand for original EMI #${installmentNumber}`);
+        } catch (accErr) {
+          console.error('[Accounting] Failed to auto-accrue original interest:', accErr);
+        }
+      }
     }
+
+    const reclassEntry = await db.journalEntry.findFirst({
+      where: {
+        companyId: targetCompanyId,
+        referenceType: 'INTEREST_RECLASSIFICATION',
+        referenceId: emiId,
+        isReversed: false
+      }
+    });
+    if (reclassEntry) finalInterestReclassified = true;
   }
 
   // For mirror loan payment:
   let finalMirrorInterestAccrued = false;
   let finalMirrorInterestReclassified = false;
+  let mirrorEmiId: string | undefined = undefined;
+  let mirrorEmiType: 'ONLINE' | 'OFFLINE' | undefined = undefined;
+
   if (isMirrorPayment && mirrorLoanId) {
-    // Look up the mirror EMI
-    const mirrorEmi = await db.offlineLoanEMI.findFirst({
+    // Look up the mirror EMI from online loan schedule first
+    const onlineMirrorEmi = await db.eMISchedule.findFirst({
       where: {
-        offlineLoanId: mirrorLoanId,
+        loanApplicationId: mirrorLoanId,
         installmentNumber: installmentNumber
       }
     });
 
-    if (mirrorEmi) {
+    if (onlineMirrorEmi) {
+      mirrorEmiId = onlineMirrorEmi.id;
+      mirrorEmiType = 'ONLINE';
+    } else {
+      // Look up from offline loan schedule
+      const offlineMirrorEmi = await db.offlineLoanEMI.findFirst({
+        where: {
+          offlineLoanId: mirrorLoanId,
+          installmentNumber: installmentNumber
+        }
+      });
+      if (offlineMirrorEmi) {
+        mirrorEmiId = offlineMirrorEmi.id;
+        mirrorEmiType = 'OFFLINE';
+      }
+    }
+
+    if (mirrorEmiId) {
       const accEntry = await db.journalEntry.findFirst({
         where: {
           companyId: mirrorCompanyId!,
           referenceType: 'INTEREST_ACCRUAL',
-          referenceId: mirrorEmi.id,
+          referenceId: mirrorEmiId,
           isReversed: false
         }
       });
-      if (accEntry) finalMirrorInterestAccrued = true;
+      if (accEntry) {
+        finalMirrorInterestAccrued = true;
+      } else if (mirrorInterest !== undefined && mirrorInterest > 0) {
+        // Perform on-demand accrual for mirror loan if mirror company has FULL accounting
+        const mirrorCompany = await db.company.findUnique({
+          where: { id: mirrorCompanyId! },
+          select: { accountingType: true }
+        });
+        if (mirrorCompany?.accountingType === 'FULL') {
+          try {
+            const { AccountingService } = await import('@/lib/accounting-service');
+            const accSvc = new AccountingService(mirrorCompanyId!);
+            await accSvc.recordInterestAccrual({
+              loanId: mirrorLoanId,
+              customerId: customerId || '',
+              customerName: customerLabel || 'Customer',
+              emiId: mirrorEmiId,
+              interestAmount: mirrorInterest,
+              accrualDate: new Date(),
+              createdById: userId || 'SYSTEM'
+            });
+
+            if (mirrorEmiType === 'ONLINE') {
+              await db.eMISchedule.update({
+                where: { id: mirrorEmiId },
+                data: {
+                  interestAccrued: true,
+                  accruedAt: new Date()
+                }
+              });
+            }
+            finalMirrorInterestAccrued = true;
+            console.log(`[Accounting] Auto-accrued mirror interest of ₹${mirrorInterest} on-demand for EMI #${installmentNumber}`);
+          } catch (accErr) {
+            console.error('[Accounting] Failed to auto-accrue mirror interest:', accErr);
+          }
+        }
+      }
 
       const reclassEntry = await db.journalEntry.findFirst({
         where: {
           companyId: mirrorCompanyId!,
           referenceType: 'INTEREST_RECLASSIFICATION',
-          referenceId: mirrorEmi.id,
+          referenceId: mirrorEmiId,
           isReversed: false
         }
       });
