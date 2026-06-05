@@ -741,11 +741,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     // ── ALWAYS fetch INTEREST_ACCRUAL and INTEREST_RECLASSIFICATION entries by loanId ──
     // These entries must be permanently visible even after EMI is paid.
-    // The primary query above may miss them if the interest account is on a separate line.
+    // IMPORTANT: Do NOT filter by companyId here. For mirror loans, accruals are recorded
+    // in the ORIGINAL company (e.g. C3/PD RANGANI) but the personal ledger is viewed from
+    // the MIRROR company context (e.g. C2/MM). The loanId filter alone is sufficient and
+    // correct — it uniquely identifies entries for the right loans across all companies.
     const accrualEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
-        ...(companyId ? { companyId } : {}),
         referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
         lines: {
           some: {
