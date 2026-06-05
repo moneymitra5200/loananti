@@ -63,9 +63,10 @@ export async function POST(request: NextRequest) {
       await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: loanId } });
 
       const emis = emiCalc.schedule.map((item, index) => {
+        const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
         const dueDate = new Date();
         dueDate.setMonth(dueDate.getMonth() + index + 1);
-        dueDate.setDate(5);
+        dueDate.setDate(emiDayOfMonth);
         dueDate.setHours(0, 0, 0, 0);
         return {
           offlineLoanId: loanId,
@@ -215,9 +216,10 @@ export async function POST(request: NextRequest) {
 
         // Generate mirror's SHIFTED amortizing schedule (last EMI → first position)
         const mirrorEMIs = shiftedSchedule.map((item, index) => {
+          const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
           const dueDate = new Date();
           dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
+          dueDate.setDate(emiDayOfMonth);
           dueDate.setHours(0, 0, 0, 0);
           return {
             offlineLoanId: mirrorLoan.id,

@@ -282,9 +282,29 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             });
           }
         } else {
-          // This is a payment or write-off
-          // 1. If cash-basis interest is present, simulate the interest charge first
+          // This is a payment or write-off entry.
+          //
+          // Detect interest component from two possible sources:
+          //   • interestIncomeAmount  – cash-basis: interest goes directly to 4110 (Interest Income)
+          //   • interest1301Credit    – accrual-basis: interest clears via 1301 (Interest Receivable)
+          //
+          // When accrual-basis: the INTEREST_ACCRUAL journal already showed the Dr row above.
+          //   We do NOT add another Dr row — we just show the payment Cr row.
+          // When cash-basis: no prior accrual row exists, so we show:
+          //   Row 1 → synthetic interest Dr  (To-INTEREST)
+          //   Row 2 → payment Cr             (By-CASH)
+
+          const interest1301Credit = (entry.lines || [])
+            .filter(l => l.accountCode === '1301' && l.creditAmount > 0)
+            .reduce((s, l) => s + l.creditAmount, 0);
+
+          // Effective interest for display (fallback to API field)
+          const effectiveInterestAmt = interestIncomeAmount || interest1301Credit || entry.interestPaid || 0;
+
+          // Show synthetic interest Dr ONLY for cash-basis (no prior accrual row)
+          // Accrual-basis: interest1301Credit > 0 means an INTEREST_ACCRUAL JE already ran
           if (interestIncomeAmount > 0) {
+            // Cash-basis: interest income hits 4110 directly on this EMI payment
             runningBalance += interestIncomeAmount;
             rows.push({
               date: entry.date,
@@ -300,8 +320,10 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             });
           }
 
-          // 2. Record the payment credit
-          // Total payment credit in the statement is lrCredit (for accrual payments) or lrCredit + interestIncomeAmount (for cash basis)
+          // Payment Cr row (always shown if there is any credit)
+          // totalPaymentCredit:
+          //   cash-basis:   lrCredit (principal via 1200) + interestIncomeAmount (4110)
+          //   accrual-basis: lrCredit already covers principal (1200) + interest clearing (1301)
           const totalPaymentCredit = lrCredit + interestIncomeAmount;
           if (totalPaymentCredit > 0) {
             runningBalance -= totalPaymentCredit;
@@ -312,7 +334,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               date: entry.date,
               description: `${paymentMethod} — ${cleanText(desc)}`,
               totalPayment: totalPaymentCredit,
-              interestPaid: interestIncomeAmount || (entry.lines || []).find(l => l.accountCode === '1301')?.creditAmount || 0,
+              interestPaid: effectiveInterestAmt,
               principalPaid: (entry.lines || []).filter(l => ['1200', '1201', '1210'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0),
               debit: 0,
               credit: totalPaymentCredit,

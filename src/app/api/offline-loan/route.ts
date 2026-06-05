@@ -859,7 +859,7 @@ export async function POST(request: NextRequest) {
       if (isInterestOnlyLoan) {
         const dueDate = requiredDate(disbursementDate, 'disbursementDate');
         dueDate.setMonth(dueDate.getMonth() + 1);
-        dueDate.setDate(5);
+        dueDate.setDate(requiredDate(disbursementDate, 'disbursementDate').getDate());
         dueDate.setHours(0, 0, 0, 0);
         await tx.offlineLoanEMI.create({
           data: {
@@ -881,7 +881,7 @@ export async function POST(request: NextRequest) {
         const emis = emiSchedule.map((item, index) => {
           const dueDate = requiredDate(startDate, 'startDate');
           dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(5);
+          dueDate.setDate(requiredDate(startDate, 'startDate').getDate());
           dueDate.setHours(0, 0, 0, 0);
           return {
             offlineLoanId: newLoan.id,
@@ -1051,7 +1051,7 @@ export async function POST(request: NextRequest) {
           const monthlyMirrorInterest = Math.round((loanAmount * mirrorRate / 100 / 12) * 100) / 100;
           const firstDueDate = requiredDate(disbursementDate, 'disbursementDate');
           firstDueDate.setMonth(firstDueDate.getMonth() + 1);
-          firstDueDate.setDate(5);
+          firstDueDate.setDate(requiredDate(disbursementDate, 'disbursementDate').getDate());
           firstDueDate.setHours(0, 0, 0, 0);
           mirrorEmisData = [{
             offlineLoanId: mirrorLoan.id,
@@ -1071,7 +1071,7 @@ export async function POST(request: NextRequest) {
           mirrorEmisData = mirrorSchedule.map((item, index) => {
             const dueDate = requiredDate(startDate, 'startDate');
             dueDate.setMonth(dueDate.getMonth() + index + 1);
-            dueDate.setDate(5);
+            dueDate.setDate(requiredDate(startDate, 'startDate').getDate());
             dueDate.setHours(0, 0, 0, 0);
             return {
               offlineLoanId: mirrorLoan.id,
@@ -2094,9 +2094,10 @@ export async function PUT(request: NextRequest) {
       // If still no EMI, create the first one (shouldn't happen normally)
       if (!currentEMI) {
         const monthlyInterest = loan.interestOnlyMonthlyAmount || 0;
+        const disbursementDay = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
         const dueDate = new Date();
         dueDate.setMonth(dueDate.getMonth() + 1);
-        dueDate.setDate(5);
+        dueDate.setDate(disbursementDay);
         
         currentEMI = await db.offlineLoanEMI.create({
           data: {
