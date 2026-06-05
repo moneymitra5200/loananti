@@ -356,8 +356,9 @@ async function getBalanceSheet(companyId: string | null) {
     if (acc.accountCode === '1102') balance = actualBankTotal;
     if (acc.accountCode === '1201') balance = actualOnlineLoans;
     if (acc.accountCode === '1210') balance = actualOfflineLoans;
-    if (acc.accountCode === '1301') balance = interestReceivable;
-    if (acc.accountCode === '1305') balance = overdueInterestReceivable;
+    // REMOVED 1301 and 1305 overrides: Forcing unearned future interest into assets 
+    // without corresponding income/equity entries unbalances the Balance Sheet. 
+    // They must natively reflect the Journal Entries (accrual-helper creates these automatically).
     if (acc.accountCode === '3002') {
       balance = actualCapital > 0 || actualCapital < 0 ? actualCapital : balance;
     }
