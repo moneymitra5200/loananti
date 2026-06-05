@@ -2672,7 +2672,7 @@ export async function PUT(request: NextRequest) {
       const sessionAmount     = paidAmount    - prevPaid;
       const sessionPrincipal  = paidPrincipal - prevPaidPrincipal;
       const sessionInterest   = paidInterest  - prevPaidInterest;
-      const sessionInterestWrittenOff = (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE')
+      const sessionInterestWrittenOff = paymentType === 'PRINCIPAL_ONLY'
         ? Math.max(0, emi.interestAmount - prevPaidInterest)  // remaining unpaid interest
         : 0;
 
@@ -2967,27 +2967,31 @@ export async function PUT(request: NextRequest) {
                 console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan: I:₹${mDeferredInterest} at ${mirrorLoanRate}%`);
               }
             } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
-              // ── PRINCIPAL_ONLY: Only principal is collected, interest is written off ──
-              // Use MIRROR principal (not original), MIRROR interest goes to Irrecoverable Debt
+              // ── PRINCIPAL_ONLY / ADVANCE: Only principal is collected, interest is written off or waived ──
               const mirrorPrincipalToCollect = Math.max(0, (mirrorEmi.principalAmount || 0) - (mirrorEmi.paidPrincipal || 0));
               const mirrorInterestToWriteOff = Math.max(0, (mirrorEmi.interestAmount || 0) - (mirrorEmi.paidInterest || 0));
+              const isAdv = paymentType === 'ADVANCE';
               
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
                 data: {
                   paymentStatus: 'PAID',
                   paidAmount: (mirrorEmi.paidAmount || 0) + mirrorPrincipalToCollect,
-                  paidPrincipal: mirrorEmi.principalAmount,  // MIRROR principal (e.g., Rs 981)
-                  paidInterest: mirrorEmi.paidInterest || 0,  // NOT collected - will be written off
+                  paidPrincipal: mirrorEmi.principalAmount,  // MIRROR principal
+                  paidInterest: mirrorEmi.paidInterest || 0,  // NOT collected
                   paidDate: now,
                   paymentMode,
                   collectedById: userId,
                   collectedByName: user.name,
                   collectedAt: now,
-                  notes: `[MIRROR SYNC] Principal-Only: P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} written off to Irrecoverable Debt`
+                  notes: isAdv
+                    ? `[MIRROR SYNC] Advance Payment: P:₹${mirrorPrincipalToCollect} collected`
+                    : `[MIRROR SYNC] Principal-Only: P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} written off to Irrecoverable Debt`
                 }
               });
-              console.log(`[Mirror PRINCIPAL_ONLY] P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} → Irrecoverable Debt`);
+              console.log(isAdv
+                ? `[Mirror ADVANCE] P:₹${mirrorPrincipalToCollect} collected`
+                : `[Mirror PRINCIPAL_ONLY] P:₹${mirrorPrincipalToCollect} collected, I:₹${mirrorInterestToWriteOff} → Irrecoverable Debt`);
             } else if (isFullPayment) {
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
@@ -3469,12 +3473,13 @@ export async function PUT(request: NextRequest) {
                   isMirrorReclass = !!mReclass;
                 }
 
+                const isAdv = paymentType === 'ADVANCE';
                 const mirrorJournalResult = await recordPrincipalOnlyJournal({
                   companyId:          mirrorLoanMapping.mirrorCompanyId,
                   loanId:             mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId,
                   paymentId:          uniquePaymentId,
                   principalAmount:    mirrorPrincipal,
-                  interestWrittenOff: mirrorInterest,  // Use MIRROR interest for write-off
+                  interestWrittenOff: isAdv ? 0 : mirrorInterest,  // Use MIRROR interest for write-off (0 if ADVANCE)
                   paymentDate:        new Date(),
                   createdById:        userId,
                   paymentMode:        effectivePaymentMode || 'CASH',
@@ -3484,14 +3489,14 @@ export async function PUT(request: NextRequest) {
                   isInterestReclassified: isMirrorReclass,
                 });
                 if (!mirrorJournalResult.success) {
-                  accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
-                  console.error(`[Accounting] MIRROR PRINCIPAL_ONLY ❌:`, mirrorJournalResult.error);
+                  accountingWarnings.push(`MIRROR PRINCIPAL_ONLY/ADVANCE journal: ${mirrorJournalResult.error}`);
+                  console.error(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE ❌:`, mirrorJournalResult.error);
                 } else {
-                  console.log(`[Accounting] MIRROR PRINCIPAL_ONLY ✅: P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+                  console.log(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE ✅: P:₹${mirrorPrincipal} collected, I:₹${isAdv ? 0 : mirrorInterest} → Journal registered (MIRROR company only)`);
                 }
               }
-              // For mirror loans: PRINCIPAL_ONLY journal is in mirror company only.
-              // The mirror company books the loan asset reduction + irrecoverable debt write-off.
+              // For mirror loans: PRINCIPAL_ONLY/ADVANCE journal is in mirror company only.
+              // The mirror company books the loan asset reduction.
             } else {
               // ── NON-MIRROR LOAN: Record in original company ─────────────────────────────
               // IMPORTANT: Use explicit Number() conversion directly from emi fields.
@@ -3499,13 +3504,14 @@ export async function PUT(request: NextRequest) {
               // correctly in arithmetic — explicit calculation is more robust.
               // Use sessionPrincipal (delta this payment) as primary source.
               // Fall back to emi.principalAmount if session delta is 0 due to Prisma Decimal coercion.
+              const isAdv = paymentType === 'ADVANCE';
               const principalToCollect = sessionPrincipal > 0
                 ? sessionPrincipal
                 : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
-              const interestToWriteOff = sessionInterestWrittenOff > 0
+              const interestToWriteOff = isAdv ? 0 : (sessionInterestWrittenOff > 0
                 ? sessionInterestWrittenOff
-                : Math.max(0, Number(emi.interestAmount ?? 0) - Number(previousState.paidInterest ?? 0));
-              console.log(`[Principal-Only] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (sessionP=${sessionPrincipal}, emi.P=${emi.principalAmount}, prev.paidP=${previousState.paidPrincipal})`);
+                : Math.max(0, Number(emi.interestAmount ?? 0) - Number(previousState.paidInterest ?? 0)));
+              console.log(`[Principal-Only/Advance] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (sessionP=${sessionPrincipal}, emi.P=${emi.principalAmount}, prev.paidP=${previousState.paidPrincipal})`);
 
               if (principalToCollect <= 0) {
                 console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);

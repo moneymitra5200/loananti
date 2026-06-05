@@ -1182,7 +1182,7 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          // â”€â”€ Issue 3 Fix: Double-entry journal for extra EMI profit in Company 3 â”€
+          // ——— Issue 3 Fix: Double-entry journal for extra EMI profit in Company 3 —
           try {
             const { AccountingService: ExtraSvc } = await import('@/lib/accounting-service');
             const extraSvc = new ExtraSvc(originalCompanyId);
@@ -1193,19 +1193,19 @@ export async function POST(request: NextRequest) {
               paymentId: payment.id,
               totalAmount: paidAmount,
               principalComponent: 0,
-              interestComponent: paidAmount, // Extra EMIs are pure profit â€” all interest
+              interestComponent: paidAmount, // Extra EMIs are pure profit — all interest
               paymentDate: new Date(),
               createdById: paidBy || 'SYSTEM',
               paymentMode: paymentMode as any,
               reference: `Extra EMI #${installmentNumber} Profit - ${emi.loanApplication?.applicationNo}`
             });
-            console.log(`[Extra EMI Journal] â‚¹${paidAmount} journal entry created for Company 3`);
+            console.log(`[Extra EMI Journal] ₹${paidAmount} journal entry created for Company 3`);
           } catch (extraJE) {
             console.error('[Extra EMI Journal] Failed (non-critical):', extraJE);
           }
         }
 
-        console.log(`[Mirror Loan] Extra EMI #${installmentNumber} paid. â‚¹${paidAmount} profit recorded for Company 3 in CashBook`);
+        console.log(`[Mirror Loan] Extra EMI #${installmentNumber} paid. ₹${paidAmount} profit recorded for Company 3 in CashBook`);
       } else {
         // Regular EMI - Sync to mirror loan
         await db.mirrorLoanMapping.update({
@@ -1227,7 +1227,7 @@ export async function POST(request: NextRequest) {
 
         // Get mirror EMI to calculate correct mirror interest
         if (mirrorMapping.mirrorLoanId) {
-          // Issue 11 Fix: No paymentStatus filter â€” handles PENDING and PARTIALLY_PAID mirror EMIs
+          // Issue 11 Fix: No paymentStatus filter — handles PENDING and PARTIALLY_PAID mirror EMIs
           const mirrorEMI = await db.eMISchedule.findFirst({
             where: {
               loanApplicationId: mirrorMapping.mirrorLoanId,
@@ -1236,35 +1236,38 @@ export async function POST(request: NextRequest) {
           });
           
           if (mirrorEMI) {
-            // â”€â”€ Capture PRE-SYNC values for session delta (fixes double interest on full payment after partial) â”€â”€
+            // ── Capture PRE-SYNC values for session delta (fixes double interest on full payment after partial) ──
             mirrorEmiPreSyncPaidInterest  = Number(mirrorEMI.paidInterest  || 0);
             mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMI.paidPrincipal || 0);
 
-            // â”€â”€ FIX: Use STORED principal & interest from mirror EMI record (NOT recalculated from rate)
-            // Recalculating from rate gives wrong values (e.g. 3% rate â†’ â‚¹2.5 instead of â‚¹26.87)
+            // ── FIX: Use STORED principal & interest from mirror EMI record (NOT recalculated from rate)
+            // Recalculating from rate gives wrong values (e.g. 3% rate → ₹2.5 instead of ₹26.87)
             // The EMI schedule already has the correct pre-computed P+I breakdown.
-            const mirrorInterest  = Number(mirrorEMI.interestAmount  || 0);
+            const isAdvance = isAdvancePayment === true;
+            const mirrorInterest  = isAdvance ? 0 : Number(mirrorEMI.interestAmount  || 0);
             const mirrorPrincipal = Number(mirrorEMI.principalAmount || 0);
-            const mirrorEMIFullAmount = mirrorEMI.totalAmount; // full P+I (e.g. â‚¹1026.87)
+            const mirrorEMIFullAmount = isAdvance ? mirrorPrincipal : mirrorEMI.totalAmount; // only principal if advance
             
             // NOTE: Do NOT create a separate cashbook entry here.
             // recordEMIPaymentAccounting (called later in the accounting block) will create
             // the SINGLE authoritative cashbook entry + journal entry using these correct amounts.
             // Creating one here would result in a DUPLICATE entry.
 
-            // â”€â”€ ATOMIC: Mark mirror EMI as paid + create mirror payment record â”€â”€
-            // Both ops succeed or both roll back â€” matches offline route atomicity.
+            // ── ATOMIC: Mark mirror EMI as paid + create mirror payment record ──
+            // Both ops succeed or both roll back — matches offline route atomicity.
             await db.$transaction([
               db.eMISchedule.update({
                 where: { id: mirrorEMI.id },
                 data: {
                   paymentStatus: 'PAID',
-                  paidAmount:    mirrorEMIFullAmount,
+                  paidAmount:    isAdvance ? (Number(mirrorEMI.paidAmount || 0)) + mirrorPrincipal : mirrorEMIFullAmount,
                   paidPrincipal: mirrorPrincipal,
                   paidInterest:  mirrorInterest,
                   paidDate: new Date(),
                   paymentMode: paymentMode,
-                  notes: `Synced from original loan EMI payment`
+                  notes: isAdvance
+                    ? `[MIRROR SYNC] Advance Payment: P:₹${mirrorPrincipal} collected`
+                    : `Synced from original loan EMI payment`
                 }
               }),
               db.payment.create({
@@ -1277,22 +1280,24 @@ export async function POST(request: NextRequest) {
                   interestComponent:  mirrorInterest,
                   paymentMode: paymentMode,
                   status: 'COMPLETED',
-                  receiptNumber: await generateSequentialReceiptNumber(`RCP-MIRROR`),
+                  receiptNumber: await generateSequentialReceiptNumber(isAdvance ? `RCP-MIRROR-ADV` : `RCP-MIRROR`),
                   paidById: paidBy,
-                  remarks: `Auto-synced from original loan ${emi.loanApplication?.applicationNo}`,
-                  paymentType: 'FULL_EMI'
+                  remarks: isAdvance
+                    ? `[MIRROR ADVANCE SYNC] P:₹${mirrorPrincipal} collected. From ${emi.loanApplication?.applicationNo}`
+                    : `Auto-synced from original loan ${emi.loanApplication?.applicationNo}`,
+                  paymentType: isAdvance ? 'PRINCIPAL_ONLY' : 'FULL_EMI'
                 }
               })
             ]);
             
-            console.log(`[Mirror Loan] Synced EMI #${installmentNumber} â†’ mirror. P:â‚¹${mirrorPrincipal} I:â‚¹${mirrorInterest} Total:â‚¹${mirrorEMIFullAmount}. Cashbook will be created in accounting block.`);
+            console.log(`[Mirror Loan] Synced EMI #${installmentNumber} → mirror. P:₹${mirrorPrincipal} I:₹${mirrorInterest} Total:₹${mirrorEMIFullAmount}. Cashbook will be created in accounting block.`);
           }
         }
       }
     }
 
-    // â”€â”€ PRINCIPAL_ONLY â†’ Mirror EMI sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // For PRINCIPAL_ONLY: mark mirror EMI as PAID (principal collected, interest written off).
+    // ── PRINCIPAL_ONLY / ADVANCE → Mirror EMI sync ────────────────────────────────────────
+    // For PRINCIPAL_ONLY / ADVANCE: mark mirror EMI as PAID (principal collected, interest written off/not collected).
     // This must run BEFORE the accounting block so mirrorEmiForAcc has correct data.
     // Mirrors offline route lines 2684-2715 exactly.
     if (mirrorMapping?.mirrorLoanId && (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE')) {
@@ -1303,17 +1308,20 @@ export async function POST(request: NextRequest) {
         if (mirrorEMIForPO) {
           const mirrorP = Math.max(0, Number(mirrorEMIForPO.principalAmount || 0) - Number(mirrorEMIForPO.paidPrincipal || 0));
           const mirrorI = Math.max(0, Number(mirrorEMIForPO.interestAmount  || 0) - Number(mirrorEMIForPO.paidInterest  || 0));
+          const isAdv = paymentType === 'ADVANCE';
           await db.$transaction([
             db.eMISchedule.update({
               where: { id: mirrorEMIForPO.id },
               data: {
                 paymentStatus: 'PAID',
-                paidAmount:    mirrorEMIForPO.totalAmount,
+                paidAmount:    (Number(mirrorEMIForPO.paidAmount || 0)) + mirrorP,
                 paidPrincipal: mirrorP,
-                paidInterest:  0,   // NOT collected â€” written off in mirror company journal
+                paidInterest:  0,   // NOT collected
                 paidDate:      new Date(),
                 paymentMode:   paymentMode,
-                notes: `[MIRROR SYNC] Principal-Only: P:â‚¹${mirrorP} collected, I:â‚¹${mirrorI} written off`,
+                notes: isAdv
+                  ? `[MIRROR SYNC] Advance Payment: P:₹${mirrorP} collected`
+                  : `[MIRROR SYNC] Principal-Only: P:₹${mirrorP} collected, I:₹${mirrorI} written off`,
               }
             }),
             db.payment.create({
@@ -1326,15 +1334,16 @@ export async function POST(request: NextRequest) {
                 interestComponent:  0,
                 paymentMode:       paymentMode,
                 status:            'COMPLETED',
-                receiptNumber: await generateSequentialReceiptNumber(`RCP-MIRROR-PO`),
+                receiptNumber: await generateSequentialReceiptNumber(isAdv ? `RCP-MIRROR-ADV` : `RCP-MIRROR-PO`),
                 paidById:          paidBy,
-                remarks: `[MIRROR P-ONLY SYNC] P:â‚¹${mirrorP} collected, I:â‚¹${mirrorI} written off. From ${emi.loanApplication?.applicationNo}`,
+                remarks: isAdv
+                  ? `[MIRROR ADVANCE SYNC] P:₹${mirrorP} collected. From ${emi.loanApplication?.applicationNo}`
+                  : `[MIRROR P-ONLY SYNC] P:₹${mirrorP} collected, I:₹${mirrorI} written off. From ${emi.loanApplication?.applicationNo}`,
                 paymentType: 'PRINCIPAL_ONLY'
               }
             })
           ]);
-          console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:â‚¹${mirrorP} collected, I:â‚¹${mirrorI} written off. Mirror EMI â†’ PAID.`);
-          console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:₹${mirrorP} collected, I:₹${mirrorI} written off. Mirror EMI → PAID.`);
+          console.log(`[Mirror PO Sync] EMI #${emi.installmentNumber}: P:₹${mirrorP} collected. Mirror EMI → PAID.`);
         } else {
           console.warn(`[Mirror PO Sync] No mirror EMI at #${emi.installmentNumber}`);
         }
@@ -1714,29 +1723,25 @@ export async function POST(request: NextRequest) {
       if (isExtraEMI2) {
         // Extra EMI profit already recorded in the extra-EMI block above — skip
         console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
-      } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
-        // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ────
-        // The journal entry creates:
-        //   Dr  Cash/Bank          = principalAmount  (money received)
-        //   Cr  Loans Receivable   = principalAmount  (loan reduced)
-        //   Dr  Irrecoverable Debt = interestWrittenOff (interest lost)
-        //   Cr  Interest Income    = interestWrittenOff (interest recognized then written off)
+      } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE' || (paymentType === 'FULL_EMI' && isAdvancePayment === true)) {
+        // ── PRINCIPAL-ONLY / ADVANCE: Journal entry handles everything (no separate CashBook entry needed) ────
         //
         // IMPORTANT: For MIRROR loans, ONLY create journal in MIRROR company (no original company entry)
         // Use MIRROR interest for write-off, NOT the original interest
         
         const { recordPrincipalOnlyJournal: poPrincipalJournal } = await import('@/lib/simple-accounting');
+        const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL_EMI' && isAdvancePayment === true);
         
         if (isMirrorPayment) {
           // ── MIRROR LOAN: Only record in MIRROR company ───────────────────────────────
           // Use MIRROR principal and MIRROR interest (not original)
           // CRITICAL: Do NOT fall back to original values - must use mirror EMI values
           if (mirrorPrincipalForAccounting === undefined || mirrorInterestForAccounting === undefined) {
-            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Mirror EMI not found - cannot create journal entry`);
-            onlineAccountingWarnings.push('MIRROR PRINCIPAL_ONLY: Mirror EMI not found - journal entry skipped');
+            console.error(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ❌ Mirror EMI not found - cannot create journal entry`);
+            onlineAccountingWarnings.push('MIRROR PRINCIPAL_ONLY/ADVANCE: Mirror EMI not found - journal entry skipped');
           } else {
             const mirrorPrincipal = mirrorPrincipalForAccounting;
-            const mirrorInterest = mirrorInterestForAccounting;
+            const mirrorInterest = isAdv ? 0 : mirrorInterestForAccounting; // No interest written off for ADVANCE!
             
             // Query mirror EMI schedule to get the accrued/reclassified status
             const mirrorEmi = await db.eMISchedule.findFirst({
@@ -1763,11 +1768,11 @@ export async function POST(request: NextRequest) {
               isInterestReclassified: isMirrorReclass,
             });
             if (!mirrorPoResult.success) {
-              onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);
-              console.error(`[Accounting] MIRROR PRINCIPAL_ONLY: ❌ Journal FAILED:`, mirrorPoResult.error);
+              onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY/ADVANCE journal: ${mirrorPoResult.error}`);
+              console.error(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED:`, mirrorPoResult.error);
             } else {
               onlineJournalCreated = true; // ✅ journal created successfully
-              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Irrecoverable Debt (MIRROR company only)`);
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Journal registered (MIRROR company only)`);
             }
             
           }
@@ -1776,8 +1781,8 @@ export async function POST(request: NextRequest) {
           // ── NON-MIRROR LOAN: Record in original company ───────────────────────────────
           // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
           if (paidPrincipal <= 0) {
-            onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal skipped: paidPrincipal=0 (emi.principalAmount=${emi.principalAmount}, emi.paidPrincipal=${emi.paidPrincipal})`);
-            console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Skipped — paidPrincipal=₹${paidPrincipal}. Check that remainingPrincipal > 0.`);
+            onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal skipped: paidPrincipal=0`);
+            console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Skipped — paidPrincipal=₹${paidPrincipal}.`);
           } else {
             const poJournalResult = await poPrincipalJournal({
               companyId:            loanCompanyId,
@@ -1786,7 +1791,7 @@ export async function POST(request: NextRequest) {
               loanId,
               paymentId:            payment.id,
               principalAmount:      paidPrincipal,
-              interestWrittenOff:   remainingInterest,
+              interestWrittenOff:   isAdv ? 0 : remainingInterest, // No interest written off for ADVANCE!
               paymentDate:          new Date(),
               createdById:          paidBy || 'SYSTEM',
               paymentMode:          paymentMode as string,
@@ -1796,11 +1801,11 @@ export async function POST(request: NextRequest) {
               isInterestReclassified: emi.paymentStatus === 'OVERDUE',
             });
             if (!poJournalResult.success) {
-              onlineAccountingWarnings.push(`PRINCIPAL_ONLY journal: ${poJournalResult.error}`);
-              console.error(`[Accounting] PRINCIPAL_ONLY: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+              onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);
+              console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
             } else {
               onlineJournalCreated = true; // ✅ journal created successfully
-              console.log(`[Accounting] PRINCIPAL_ONLY: ✅ P:₹${paidPrincipal} collected, I:₹${remainingInterest} → Irrecoverable Debt (${loanCompanyId})`);
+              console.log(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${paidPrincipal} collected, I:₹${isAdv ? 0 : remainingInterest} → Journal registered (${loanCompanyId})`);
             }
           }
         }
