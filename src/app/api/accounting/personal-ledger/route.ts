@@ -587,6 +587,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       requestedAmount: true, disbursedAt: true,
       sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, processingFee: true } },
       company: { select: { id: true, name: true } },
+      emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
     }
   });
   const allOfflineLoans = isSyntheticId && syntheticLoanId
@@ -597,6 +598,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
         }
       })
     : await db.offlineLoan.findMany({
@@ -606,6 +608,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
         }
       });
 
@@ -797,7 +800,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
   // ── Build per-loan statements from journal entries ─────────────────────────
-  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; isMirror: boolean; companyName: string }>();
+  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; isMirror: boolean; companyName: string; emis?: any[]; emiSchedules?: any[] }>();
   for (const l of validOnlineLoans) {
     loanDataMap.set(l.id, {
       loanNumber: l.applicationNo,
@@ -809,6 +812,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       disbursementDate: l.disbursedAt,
       isMirror: mirroredIds.has(l.id),
       companyName: l.company?.name || '',
+      emiSchedules: l.emiSchedules,
     });
   }
   for (const l of validOfflineLoans) {
@@ -822,6 +826,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       disbursementDate: l.disbursementDate,
       isMirror: false,
       companyName: l.company?.name || '',
+      emis: l.emis,
     });
   }
 
@@ -896,6 +901,57 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           }
         ]
       });
+    }
+
+    // ── Inject missing Interest Accruals (for companies without full accounting) ──
+    const today = new Date();
+    const emiList = meta.emis || meta.emiSchedules || [];
+    
+    for (const emi of emiList) {
+      // Check if we already have a real accrual journal entry for this EMI
+      const hasRealAccrual = loanJEs.some(je => {
+        if (je.referenceType !== 'INTEREST_ACCRUAL' && je.referenceType !== 'INTEREST_RECLASSIFICATION') return false;
+        // Match by referenceId (which is emi.id) or by narration matching EMI number
+        if (je.referenceId === emi.id) return true;
+        const m = je.narration?.match(/#(\d+)/);
+        return m && parseInt(m[1]) === emi.installmentNumber;
+      });
+
+      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
+      
+      if (!hasRealAccrual && isAccrued && emi.interestAmount > 0) {
+        allEntries.push({
+          id: `synth-accrual-${emi.id}`,
+          date: emi.dueDate,
+          referenceType: 'INTEREST_ACCRUAL',
+          referenceId: emi.id,
+          loanId,
+          loanNumber: meta.loanNumber,
+          emiNumber: emi.installmentNumber,
+          narration: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
+          description: `To-INTEREST Normal Dr. Int. (Accrued)`,
+          principalDisbursed: emi.interestAmount,
+          principalPaid: 0,
+          interestPaid: 0,
+          totalPayment: null,
+          lines: [
+            {
+              accountCode: '1301',
+              accountName: `Interest Receivable — ${customer?.name || ''}`,
+              debitAmount: emi.interestAmount,
+              creditAmount: 0,
+              narration: 'Synthetic Accrual',
+            },
+            {
+              accountCode: '4110',
+              accountName: 'Interest Income',
+              debitAmount: 0,
+              creditAmount: emi.interestAmount,
+              narration: 'Synthetic Accrual',
+            }
+          ]
+        });
+      }
     }
 
     for (const je of loanJEs) {
