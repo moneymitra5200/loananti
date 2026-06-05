@@ -1738,6 +1738,16 @@ export async function POST(request: NextRequest) {
             const mirrorPrincipal = mirrorPrincipalForAccounting;
             const mirrorInterest = mirrorInterestForAccounting;
             
+            // Query mirror EMI schedule to get the accrued/reclassified status
+            const mirrorEmi = await db.eMISchedule.findFirst({
+              where: {
+                loanApplicationId: mirrorMappingForAccounting!.mirrorLoanId!,
+                installmentNumber: emi.installmentNumber
+              }
+            });
+            const isMirrorAccrued = mirrorEmi ? !!mirrorEmi.interestAccrued : false;
+            const isMirrorReclass = mirrorEmi ? mirrorEmi.paymentStatus === 'OVERDUE' : false;
+
             const mirrorPoResult = await poPrincipalJournal({
               companyId:          mirrorMappingForAccounting!.mirrorCompanyId,
               loanId:             mirrorMappingForAccounting!.mirrorLoanId || loanId,
@@ -1749,6 +1759,8 @@ export async function POST(request: NextRequest) {
               paymentMode:        paymentMode as string,
               loanNumber:         emi.loanApplication?.applicationNo || loanId,
               installmentNumber:  emi.installmentNumber,
+              isInterestAccrued:  isMirrorAccrued,
+              isInterestReclassified: isMirrorReclass,
             });
             if (!mirrorPoResult.success) {
               onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorPoResult.error}`);

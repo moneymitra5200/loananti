@@ -3437,6 +3437,39 @@ export async function PUT(request: NextRequest) {
               const mirrorInterest = mirrorInterestAmount || 0;
               
               if (mirrorPrincipal > 0) {
+                // Find out if mirror EMI is accrued/reclassified by checking journal entries
+                const mirrorEmi = await db.offlineLoanEMI.findFirst({
+                  where: {
+                    offlineLoanId: mirrorLoanMapping.mirrorLoanId!,
+                    installmentNumber: emi.installmentNumber
+                  }
+                });
+                let isMirrorAccrued = false;
+                let isMirrorReclass = false;
+                if (mirrorEmi) {
+                  const mAcc = await db.journalEntry.findFirst({
+                    where: {
+                      companyId: mirrorLoanMapping.mirrorCompanyId,
+                      referenceType: 'INTEREST_ACCRUAL',
+                      referenceId: mirrorEmi.id,
+                      isReversed: false
+                    },
+                    select: { id: true }
+                  });
+                  isMirrorAccrued = !!mAcc;
+                  
+                  const mReclass = await db.journalEntry.findFirst({
+                    where: {
+                      companyId: mirrorLoanMapping.mirrorCompanyId,
+                      referenceType: 'INTEREST_RECLASSIFICATION',
+                      referenceId: mirrorEmi.id,
+                      isReversed: false
+                    },
+                    select: { id: true }
+                  });
+                  isMirrorReclass = !!mReclass;
+                }
+
                 const mirrorJournalResult = await recordPrincipalOnlyJournal({
                   companyId:          mirrorLoanMapping.mirrorCompanyId,
                   loanId:             mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId,
@@ -3448,6 +3481,8 @@ export async function PUT(request: NextRequest) {
                   paymentMode:        effectivePaymentMode || 'CASH',
                   loanNumber:         emi.offlineLoan.loanNumber,
                   installmentNumber:  emi.installmentNumber,
+                  isInterestAccrued:  isMirrorAccrued,
+                  isInterestReclassified: isMirrorReclass,
                 });
                 if (!mirrorJournalResult.success) {
                   accountingWarnings.push(`MIRROR PRINCIPAL_ONLY journal: ${mirrorJournalResult.error}`);
@@ -3476,6 +3511,28 @@ export async function PUT(request: NextRequest) {
               if (principalToCollect <= 0) {
                 console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
               } else {
+                const existingAccrual = await db.journalEntry.findFirst({
+                  where: {
+                    companyId: targetCompanyId,
+                    referenceType: 'INTEREST_ACCRUAL',
+                    referenceId: emi.id,
+                    isReversed: false
+                  },
+                  select: { id: true }
+                });
+                const isAccrued = !!existingAccrual;
+
+                const existingReclass = await db.journalEntry.findFirst({
+                  where: {
+                    companyId: targetCompanyId,
+                    referenceType: 'INTEREST_RECLASSIFICATION',
+                    referenceId: emi.id,
+                    isReversed: false
+                  },
+                  select: { id: true }
+                });
+                const isReclass = !!existingReclass;
+
                 const journalResult = await recordPrincipalOnlyJournal({
                   companyId:          targetCompanyId,
                   company3Id:         company3Id || undefined,
@@ -3489,6 +3546,8 @@ export async function PUT(request: NextRequest) {
                   paymentMode:        effectivePaymentMode || 'CASH',
                   loanNumber:         emi.offlineLoan.loanNumber,
                   installmentNumber:  emi.installmentNumber,
+                  isInterestAccrued:  isAccrued,
+                  isInterestReclassified: isReclass,
                 });
                 if (!journalResult.success) {
                   accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
