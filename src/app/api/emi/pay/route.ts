@@ -1295,7 +1295,7 @@ export async function POST(request: NextRequest) {
     // For PRINCIPAL_ONLY: mark mirror EMI as PAID (principal collected, interest written off).
     // This must run BEFORE the accounting block so mirrorEmiForAcc has correct data.
     // Mirrors offline route lines 2684-2715 exactly.
-    if (mirrorMapping?.mirrorLoanId && paymentType === 'PRINCIPAL_ONLY') {
+    if (mirrorMapping?.mirrorLoanId && (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE')) {
       try {
         const mirrorEMIForPO = await db.eMISchedule.findFirst({
           where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
@@ -1714,7 +1714,7 @@ export async function POST(request: NextRequest) {
       if (isExtraEMI2) {
         // Extra EMI profit already recorded in the extra-EMI block above — skip
         console.log(`[Accounting] Extra EMI #${emi.installmentNumber} — already recorded above. Skipping.`);
-      } else if (paymentType === 'PRINCIPAL_ONLY') {
+      } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
         // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ────
         // The journal entry creates:
         //   Dr  Cash/Bank          = principalAmount  (money received)

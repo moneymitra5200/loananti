@@ -2672,8 +2672,7 @@ export async function PUT(request: NextRequest) {
       const sessionAmount     = paidAmount    - prevPaid;
       const sessionPrincipal  = paidPrincipal - prevPaidPrincipal;
       const sessionInterest   = paidInterest  - prevPaidInterest;
-      // For PRINCIPAL_ONLY: interest that is being written off this session
-      const sessionInterestWrittenOff = paymentType === 'PRINCIPAL_ONLY'
+      const sessionInterestWrittenOff = (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE')
         ? Math.max(0, emi.interestAmount - prevPaidInterest)  // remaining unpaid interest
         : 0;
 
@@ -2967,7 +2966,7 @@ export async function PUT(request: NextRequest) {
                 }});
                 console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan: I:₹${mDeferredInterest} at ${mirrorLoanRate}%`);
               }
-            } else if (paymentType === 'PRINCIPAL_ONLY') {
+            } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
               // ── PRINCIPAL_ONLY: Only principal is collected, interest is written off ──
               // Use MIRROR principal (not original), MIRROR interest goes to Irrecoverable Debt
               const mirrorPrincipalToCollect = Math.max(0, (mirrorEmi.principalAmount || 0) - (mirrorEmi.paidPrincipal || 0));
@@ -3417,7 +3416,7 @@ export async function PUT(request: NextRequest) {
           const acctPrincipal = sessionPrincipal;
           const acctInterest  = sessionInterest;
           let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
-          if (paymentType === 'PRINCIPAL_ONLY') {
+          if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
             // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ──
             // The journal entry creates:
             //   Dr  Cash/Bank        = principalAmount  (money received)
