@@ -320,28 +320,44 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             });
           }
 
-          // Payment Cr row (always shown if there is any credit)
-          // totalPaymentCredit:
-          //   cash-basis:   lrCredit (principal via 1200) + interestIncomeAmount (4110)
-          //   accrual-basis: lrCredit already covers principal (1200) + interest clearing (1301)
-          const totalPaymentCredit = lrCredit + interestIncomeAmount;
-          if (totalPaymentCredit > 0) {
-            runningBalance -= totalPaymentCredit;
+          // Payment Cr rows (split into Principal and Interest as requested)
+          const principalCredit = (entry.lines || []).filter(l => ['1200', '1201', '1210'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0);
+          
+          if (principalCredit > 0 || effectiveInterestAmt > 0) {
             const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
             let desc = entry.description || buildRowDescription(entry);
 
-            rows.push({
-              date: entry.date,
-              description: `${paymentMethod} — ${cleanText(desc)}`,
-              totalPayment: totalPaymentCredit,
-              interestPaid: effectiveInterestAmt,
-              principalPaid: (entry.lines || []).filter(l => ['1200', '1201', '1210'].includes(l.accountCode)).reduce((s, l) => s + l.creditAmount, 0),
-              debit: 0,
-              credit: totalPaymentCredit,
-              remainingBalance: runningBalance,
-              referenceType: entry.referenceType,
-              emiNumber: entry.emiNumber
-            });
+            if (effectiveInterestAmt > 0) {
+              runningBalance -= effectiveInterestAmt;
+              rows.push({
+                date: entry.date,
+                description: `${paymentMethod} — ${cleanText(desc)} (Interest)`,
+                totalPayment: effectiveInterestAmt,
+                interestPaid: effectiveInterestAmt,
+                principalPaid: 0,
+                debit: 0,
+                credit: effectiveInterestAmt,
+                remainingBalance: runningBalance,
+                referenceType: entry.referenceType,
+                emiNumber: entry.emiNumber
+              });
+            }
+
+            if (principalCredit > 0) {
+              runningBalance -= principalCredit;
+              rows.push({
+                date: entry.date,
+                description: `${paymentMethod} — ${cleanText(desc)} (Principal)`,
+                totalPayment: principalCredit,
+                interestPaid: 0,
+                principalPaid: principalCredit,
+                debit: 0,
+                credit: principalCredit,
+                remainingBalance: runningBalance,
+                referenceType: entry.referenceType,
+                emiNumber: entry.emiNumber
+              });
+            }
           }
         }
       }

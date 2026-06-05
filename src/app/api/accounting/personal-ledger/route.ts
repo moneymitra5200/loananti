@@ -899,13 +899,19 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
 
     for (const je of loanJEs) {
+      // The line's loanId might be the original loan ID if this is a cross-company mirror loan.
+      const isLineForThisLoan = (l: any) => String(l.loanId) === String(loanId) || originalToMirrorLoanId.get(String(l.loanId)) === String(loanId);
+
+      // For cross-company entries, `lrAccountIds` won't match (since it's scoped to the viewing company),
+      // so we explicitly check the universal accountCodes as a fallback.
+      const isLRAccount = (l: any) => lrAccountIds.includes(l.accountId) || ['1200', '1301', '1305'].includes(l.account?.accountCode || '');
+
       // Only iterate lines that touch LR account or Interest Income AND belong to this loan
-      const lrLines = je.lines.filter((l: any) =>
-        lrAccountIds.includes(l.accountId) && l.loanId === loanId
-      );
+      const lrLines = je.lines.filter((l: any) => isLRAccount(l) && isLineForThisLoan(l));
+      
       // Interest is on other lines of same entry
       const interestLines = je.lines.filter((l: any) =>
-        ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && l.loanId === loanId
+        ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && isLineForThisLoan(l)
       );
 
       if (lrLines.length === 0 && interestLines.length === 0) continue;
