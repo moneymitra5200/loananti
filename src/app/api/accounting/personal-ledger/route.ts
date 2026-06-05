@@ -677,23 +677,53 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // If a loan is mirrored, show it for the mirror company; if not mirrored, show for its own company
   const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
     where: { isOfflineLoan: true },
-    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
+    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true, mirrorLoanId: true }
   });
   const mirroredOfflineIds = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
+  const mirrorOfflineLoanIds = new Set(offlineMirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[]);
   const offlineMirrorCoMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
   const offlineMirrorRateMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorInterestRate]));
 
-  const validOfflineLoans = allOfflineLoans.filter(l => {
-    if (!companyId) return true;
-    if (mirroredOfflineIds.has(l.id)) {
-      // Show offline original for its MIRROR company
-      if (offlineMirrorCoMap.get(l.id) === companyId) return true;
-      // Show offline original for its ORIGINAL company
-      if (l.companyId === companyId) return true;
-      return false;
+  // Fetch any mirror offline loans explicitly if they are not in allOfflineLoans
+  let extraMirrorOfflineLoans: any[] = [];
+  if (companyId) {
+    const customerOfflineMirrorMappings = offlineMirrorMappings.filter(m => m.mirrorCompanyId === companyId && m.mirrorLoanId);
+    for (const mapping of customerOfflineMirrorMappings) {
+      if (!allOfflineLoans.find(l => l.id === mapping.mirrorLoanId)) {
+        const mirrorLoan = await db.offlineLoan.findUnique({
+          where: { id: mapping.mirrorLoanId! },
+          include: {
+            company: { select: { id: true, name: true } },
+            emis: { select: { id: true, installmentNumber: true, dueDate: true, paymentStatus: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+          }
+        });
+        if (mirrorLoan) extraMirrorOfflineLoans.push(mirrorLoan);
+      }
     }
-    return l.companyId === companyId;
-  });
+  }
+
+  const validOfflineLoans = [
+    ...allOfflineLoans.filter(l => {
+      if (!companyId) return true;
+      
+      // If it's the original loan of a mirrored pair
+      if (mirroredOfflineIds.has(l.id)) {
+        // ONLY show it if we are viewing the original company
+        return l.companyId === companyId;
+      }
+      
+      // If it's the mirror loan of a mirrored pair
+      const mapping = offlineMirrorMappings.find(m => m.mirrorLoanId === l.id);
+      if (mapping) {
+        // ONLY show it if we are viewing the mirror company
+        return mapping.mirrorCompanyId === companyId;
+      }
+      
+      // Default: show it if it belongs to the company
+      return l.companyId === companyId;
+    }),
+    ...extraMirrorOfflineLoans
+  ];
 
   const validLoanIds = [
     ...validOnlineLoans.map(l => l.id),
@@ -721,12 +751,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const interestAccountIds = interestAccounts.map(a => a.id);
   const allTargetAccountIds = [...lrAccountIds, ...interestAccountIds];
 
-  // Map original online loan IDs to their mirror IDs to correctly group cross-company entries
+  // Map original online/offline loan IDs to their mirror IDs to correctly group cross-company entries
   const originalToMirrorLoanId = new Map<string, string>();
   const queryLoanIds = [...validLoanIds];
   
   if (companyId) {
+    // Online mapping
     for (const m of relevantMirrorMappings) {
+      if (m.mirrorLoanId && validLoanIds.includes(m.mirrorLoanId)) {
+        originalToMirrorLoanId.set(m.originalLoanId, m.mirrorLoanId);
+        queryLoanIds.push(m.originalLoanId);
+      }
+    }
+    // Offline mapping
+    for (const m of offlineMirrorMappings) {
       if (m.mirrorLoanId && validLoanIds.includes(m.mirrorLoanId)) {
         originalToMirrorLoanId.set(m.originalLoanId, m.mirrorLoanId);
         queryLoanIds.push(m.originalLoanId);
@@ -966,24 +1004,59 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       // The line's loanId might be the original loan ID if this is a cross-company mirror loan.
       const isLineForThisLoan = (l: any) => String(l.loanId) === String(loanId) || originalToMirrorLoanId.get(String(l.loanId)) === String(loanId);
 
-      // For cross-company entries, `lrAccountIds` won't match (since it's scoped to the viewing company),
-      // so we explicitly check the universal accountCodes as a fallback.
-      const isLRAccount = (l: any) => lrAccountIds.includes(l.accountId) || ['1200', '1301', '1305'].includes(l.account?.accountCode || '');
+      const loanLines = je.lines.filter((l: any) => isLineForThisLoan(l));
+      if (loanLines.length === 0) continue;
 
-      // Only iterate lines that touch LR account or Interest Income AND belong to this loan
-      const lrLines = je.lines.filter((l: any) => isLRAccount(l) && isLineForThisLoan(l));
-      
-      // Interest is on other lines of same entry
-      const interestLines = je.lines.filter((l: any) =>
-        ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && isLineForThisLoan(l)
-      );
+      const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
+      const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
+      const isDisbursement = je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
 
-      if (lrLines.length === 0 && interestLines.length === 0) continue;
+      let principalPaid = 0;
+      let principalDisbursed = 0;
+      let interestPaid = 0;
 
-      const principalPaid = lrLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-      const principalDisbursed = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+      if (isAccrual) {
+        // Accruals: Debit column (principalDisbursed) represents interest charged
+        const interestReceivableLines = loanLines.filter((l: any) => 
+          ['1301', '1305'].includes(l.account?.accountCode || '')
+        );
+        principalDisbursed = interestReceivableLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+        
+        if (principalDisbursed === 0) {
+          const interestIncomeLines = loanLines.filter((l: any) => 
+            ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '')
+          );
+          principalDisbursed = interestIncomeLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        }
+      } else if (isPayment) {
+        // Payments: Principal paid is credit to 1200/1201/1210. Interest paid is credit to 1301/1305/4110/etc.
+        const principalLines = loanLines.filter((l: any) => 
+          ['1200', '1201', '1210'].includes(l.account?.accountCode || '')
+        );
+        principalPaid = principalLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
 
-      const interestPaid = interestLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        const interestLines = loanLines.filter((l: any) => 
+          ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '')
+        );
+        interestPaid = interestLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+      } else if (isDisbursement) {
+        // Disbursement: Debit column is principal disbursed
+        const principalLines = loanLines.filter((l: any) => 
+          ['1200', '1201', '1210'].includes(l.account?.accountCode || '')
+        );
+        principalDisbursed = principalLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+      } else {
+        // Fallback for manual/other journal entries
+        const lrLines = loanLines.filter((l: any) => 
+          ['1200', '1201', '1210'].includes(l.account?.accountCode || '')
+        );
+        const intLines = loanLines.filter((l: any) => 
+          ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '')
+        );
+        principalDisbursed = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+        principalPaid = lrLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        interestPaid = intLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+      }
 
       const totalPayment = (principalPaid > 0 || interestPaid > 0)
         ? principalPaid + interestPaid
@@ -1029,8 +1102,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     // Compute outstanding for this loan from its journal entries
     const loanJEsAll = entriesByLoan.get(loanId) || [];
+    const isLineForThisLoanSummary = (l: any) => String(l.loanId) === String(loanId) || originalToMirrorLoanId.get(String(l.loanId)) === String(loanId);
+
     let totalDisbursed = loanJEsAll.reduce((s, je) => {
-      const lrLines = je.lines.filter((l: any) => lrAccountIds.includes(l.accountId) && l.loanId === loanId);
+      const lrLines = je.lines.filter((l: any) => 
+        ['1200', '1201', '1210'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
+      );
       return s + lrLines.reduce((ss: number, l: any) => ss + l.debitAmount, 0);
     }, 0);
 
@@ -1039,12 +1116,18 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
 
     const totalRepaid = loanJEsAll.reduce((s, je) => {
-      const lrLines = je.lines.filter((l: any) => lrAccountIds.includes(l.accountId) && l.loanId === loanId);
+      const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
+      if (!isPayment) return s;
+      const lrLines = je.lines.filter((l: any) => 
+        ['1200', '1201', '1210'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
+      );
       return s + lrLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
     }, 0);
     const totalInterestCollected = loanJEsAll.reduce((s, je) => {
+      const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
+      if (!isPayment) return s;
       const iLines = je.lines.filter((l: any) =>
-        ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && l.loanId === loanId
+        ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
       );
       return s + iLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
     }, 0);

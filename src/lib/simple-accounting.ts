@@ -666,7 +666,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             directLines.push({
               accountId: cashAccId,
               debitAmount: mirrorCashPortion, creditAmount: 0,
-              loanId: loanId || null, customerId: customerId || null,
+              loanId: mirrorLoanId || loanId || null, customerId: customerId || null,
               narration: `Cash received - EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
             });
           }
@@ -674,7 +674,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             directLines.push({
               accountId: bankAccId,
               debitAmount: mirrorOnlinePortion, creditAmount: 0,
-              loanId: loanId || null, customerId: customerId || null,
+              loanId: mirrorLoanId || loanId || null, customerId: customerId || null,
               narration: `Bank received - EMI #${installmentNumber} [SPLIT]${partialSuffix}`,
             });
           }
@@ -688,7 +688,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           directLines.push({
             accountId: singleDebitAccId,
             debitAmount: recordAmount, creditAmount: 0,
-            loanId: loanId || null, customerId: customerId || null,
+            loanId: mirrorLoanId || loanId || null, customerId: customerId || null,
             narration: isOnlineMode
               ? `Bank received - EMI #${installmentNumber}${partialSuffix}`
               : `Cash received - EMI #${installmentNumber}${partialSuffix}`,
@@ -699,7 +699,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         directLines.push({
           accountId: interestAccId,
           debitAmount: 0, creditAmount: recordInterest,
-          loanId: loanId || null, customerId: customerId || null,
+          loanId: mirrorLoanId || loanId || null, customerId: customerId || null,
           narration: finalMirrorInterestReclassified
             ? `Overdue interest cleared - EMI #${installmentNumber}${partialSuffix}`
             : finalMirrorInterestAccrued
@@ -710,7 +710,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           directLines.push({
             accountId: loanAccId,
             debitAmount: 0, creditAmount: recordPrincipal,
-            loanId: loanId || null, customerId: customerId || null,
+            loanId: mirrorLoanId || loanId || null, customerId: customerId || null,
             narration: `Principal repayment - EMI #${installmentNumber}${partialSuffix}`,
           });
         }
