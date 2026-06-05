@@ -29,7 +29,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
           include: {
             customer: true,
             emiSchedules: {
-              select: { installmentNumber: true, dueDate: true }
+              select: { installmentNumber: true, dueDate: true, paymentStatus: true }
             }
           }
         }
@@ -47,7 +47,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
             e => e.installmentNumber === emi.installmentNumber - 1
           );
           if (prevEmi) {
-            accrualTriggerDate = prevEmi.dueDate;
+            accrualTriggerDate = prevEmi.paymentStatus === 'PAID' ? new Date(0) : prevEmi.dueDate;
           }
         }
 
@@ -104,7 +104,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
           include: {
             company: true,
             emis: {
-              select: { installmentNumber: true, dueDate: true }
+              select: { installmentNumber: true, dueDate: true, paymentStatus: true }
             }
           }
         }
@@ -122,7 +122,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
             e => e.installmentNumber === emi.installmentNumber - 1
           );
           if (prevEmi) {
-            accrualTriggerDate = prevEmi.dueDate;
+            accrualTriggerDate = prevEmi.paymentStatus === 'PAID' ? new Date(0) : prevEmi.dueDate;
           }
         }
 

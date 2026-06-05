@@ -767,6 +767,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       });
     }
 
+    // Trigger interest accrual for next mirror EMI N + 1
+    if (mirrorEmiType && mirrorLoanId && mirrorCompanyId) {
+      await triggerNextEMIInterestAccrual({
+        loanId: mirrorLoanId,
+        installmentNumber,
+        companyId: mirrorCompanyId,
+        isOffline: mirrorEmiType === 'OFFLINE',
+        customerId: customerId || '',
+        customerName: customerLabel,
+        userId: userId || 'SYSTEM'
+      }).catch(err => console.error('[Accounting] Failed to trigger next mirror EMI interest accrual:', err));
+    }
     
     return result;
   }
@@ -831,6 +843,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       console.error('Failed to create journal entry for personal credit EMI:', journalError);
     }
     
+    // Trigger interest accrual for next EMI N + 1
+    const isOffline = await db.offlineLoanEMI.findUnique({ where: { id: emiId }, select: { id: true } }).then(r => !!r);
+    await triggerNextEMIInterestAccrual({
+      loanId,
+      installmentNumber,
+      companyId: company3Id,
+      isOffline,
+      customerId: customerId || '',
+      customerName: customerLabel,
+      userId: userId || 'SYSTEM'
+    }).catch(err => console.error('[Accounting] Failed to trigger next regular EMI interest accrual:', err));
+
     return result;
   }
 
@@ -910,6 +934,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     console.error('[Accounting] Company Credit EMI accounting transaction FAILED:', acctErr?.message);
     throw acctErr; // re-throw so calling route's saga rollback fires
   }
+
+  // Trigger interest accrual for next EMI N + 1
+  const isOffline = await db.offlineLoanEMI.findUnique({ where: { id: emiId }, select: { id: true } }).then(r => !!r);
+  await triggerNextEMIInterestAccrual({
+    loanId,
+    installmentNumber,
+    companyId: targetCompanyId,
+    isOffline,
+    customerId: customerId || '',
+    customerName: customerLabel,
+    userId: userId || 'SYSTEM'
+  }).catch(err => console.error('[Accounting] Failed to trigger next regular EMI interest accrual:', err));
 
   return result;
 }
@@ -1263,5 +1299,112 @@ export async function recordPrincipalOnlyJournal(params: {
   } catch (err: any) {
     console.error('[PrincipalOnly] ❌ Journal creation failed:', err?.message || err);
     return { success: false, error: err?.message || String(err) };
+  }
+}
+
+/**
+ * Automatically trigger interest accrual for the next EMI (installment N + 1)
+ */
+async function triggerNextEMIInterestAccrual(params: {
+  loanId: string;
+  installmentNumber: number;
+  companyId: string;
+  isOffline: boolean;
+  customerId: string;
+  customerName: string;
+  userId: string;
+}) {
+  const { loanId, installmentNumber, companyId, isOffline, customerId, customerName, userId } = params;
+  const nextInstallmentNumber = installmentNumber + 1;
+
+  try {
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: { accountingType: true }
+    });
+
+    if (company?.accountingType === 'FULL') {
+      if (isOffline) {
+        // Find offline next EMI
+        const nextEmi = await db.offlineLoanEMI.findFirst({
+          where: {
+            offlineLoanId: loanId,
+            installmentNumber: nextInstallmentNumber,
+          }
+        });
+
+        if (nextEmi && nextEmi.interestAmount > 0 && nextEmi.paymentStatus === 'PENDING') {
+          // Check if already accrued in db
+          const existingJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceType: 'INTEREST_ACCRUAL',
+              referenceId: nextEmi.id,
+              isReversed: false
+            }
+          });
+
+          if (!existingJE) {
+            const { AccountingService } = await import('./accounting-service');
+            const accSvc = new AccountingService(companyId);
+            await accSvc.recordInterestAccrual({
+              loanId,
+              customerId,
+              customerName,
+              emiId: nextEmi.id,
+              interestAmount: nextEmi.interestAmount,
+              accrualDate: new Date(),
+              createdById: userId || 'SYSTEM'
+            });
+            console.log(`[Accounting] Auto-accrued interest for next Offline EMI #${nextInstallmentNumber} on-demand: ₹${nextEmi.interestAmount}`);
+          }
+        }
+      } else {
+        // Find online next EMI
+        const nextEmi = await db.eMISchedule.findFirst({
+          where: {
+            loanApplicationId: loanId,
+            installmentNumber: nextInstallmentNumber,
+          }
+        });
+
+        if (nextEmi && nextEmi.interestAmount > 0 && !nextEmi.interestAccrued) {
+          // Check if already accrued in db
+          const existingJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceType: 'INTEREST_ACCRUAL',
+              referenceId: nextEmi.id,
+              isReversed: false
+            }
+          });
+
+          if (!existingJE) {
+            const { AccountingService } = await import('./accounting-service');
+            const accSvc = new AccountingService(companyId);
+            await accSvc.recordInterestAccrual({
+              loanId,
+              customerId,
+              customerName,
+              emiId: nextEmi.id,
+              interestAmount: nextEmi.interestAmount,
+              accrualDate: new Date(),
+              createdById: userId || 'SYSTEM'
+            });
+
+            await db.eMISchedule.update({
+              where: { id: nextEmi.id },
+              data: {
+                interestAccrued: true,
+                accruedAt: new Date()
+              }
+            });
+            console.log(`[Accounting] Auto-accrued interest for next Online EMI #${nextInstallmentNumber} on-demand: ₹${nextEmi.interestAmount}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[Accounting] Failed to auto-accrue interest for next EMI #${nextInstallmentNumber}:`, err);
   }
 }
