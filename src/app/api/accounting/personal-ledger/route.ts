@@ -1073,7 +1073,42 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     else offlineLoansSummary.push(summary);
   }
 
-  allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  allEntries.sort((a, b) => {
+    // 1. We only apply special logical grouping if they belong to the same loan
+    if (a.loanId === b.loanId) {
+      // 1a. Disbursement is ALWAYS first
+      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT';
+      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT';
+      if (isDisbA && !isDisbB) return -1;
+      if (!isDisbA && isDisbB) return 1;
+
+      // 1b. Sort by EMI Number if both have it
+      if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
+        return a.emiNumber - b.emiNumber;
+      }
+
+      // 1c. Within the same EMI (or same date), Accrual is ALWAYS before Payment
+      if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
+        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
+        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+        if (isAccrualA && !isAccrualB) return -1;
+        if (!isAccrualA && isAccrualB) return 1;
+      }
+    }
+
+    // 2. Fallback: Date
+    const timeA = new Date(a.date).getTime();
+    const timeB = new Date(b.date).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+
+    // 3. Ultimate fallback for same date (if no EMI number)
+    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
+    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+    if (isAccrualA && !isAccrualB) return -1;
+    if (!isAccrualA && isAccrualB) return 1;
+
+    return 0;
+  });
 
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary]
     .reduce((s, l) => s + l.outstanding, 0);
@@ -1259,7 +1294,36 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
     });
   }
 
-  allEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  allEntries.sort((a, b) => {
+    if (a.loanId === b.loanId) {
+      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT';
+      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT';
+      if (isDisbA && !isDisbB) return -1;
+      if (!isDisbA && isDisbB) return 1;
+
+      if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
+        return a.emiNumber - b.emiNumber;
+      }
+
+      if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
+        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
+        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+        if (isAccrualA && !isAccrualB) return -1;
+        if (!isAccrualA && isAccrualB) return 1;
+      }
+    }
+
+    const timeA = new Date(a.date).getTime();
+    const timeB = new Date(b.date).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+
+    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
+    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+    if (isAccrualA && !isAccrualB) return -1;
+    if (!isAccrualA && isAccrualB) return 1;
+
+    return 0;
+  });
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary].reduce((s, l) => s + l.outstanding, 0);
 
   return NextResponse.json({
