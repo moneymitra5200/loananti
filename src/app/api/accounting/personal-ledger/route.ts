@@ -598,7 +598,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true } }
         }
       })
     : await db.offlineLoan.findMany({
@@ -608,7 +608,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true } }
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true } }
         }
       });
 
@@ -674,10 +674,11 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // If a loan is mirrored, show it for the mirror company; if not mirrored, show for its own company
   const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
     where: { isOfflineLoan: true },
-    select: { originalLoanId: true, mirrorCompanyId: true }
+    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
   });
   const mirroredOfflineIds = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
   const offlineMirrorCoMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
+  const offlineMirrorRateMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorInterestRate]));
 
   const validOfflineLoans = allOfflineLoans.filter(l => {
     if (!companyId) return true;
@@ -800,7 +801,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
   // ── Build per-loan statements from journal entries ─────────────────────────
-  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; isMirror: boolean; companyName: string; emis?: any[]; emiSchedules?: any[] }>();
+  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; isMirror: boolean; companyName: string; mirrorInterestRate?: number; emis?: any[]; emiSchedules?: any[] }>();
   for (const l of validOnlineLoans) {
     loanDataMap.set(l.id, {
       loanNumber: l.applicationNo,
@@ -810,12 +811,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       tenure: l.sessionForm?.tenure || 0,
       status: l.status,
       disbursementDate: l.disbursedAt,
-      isMirror: mirroredIds.has(l.id),
+      isMirror: mirroredIds.has(l.id) || (l as any)._isMirrorRecord,
       companyName: l.company?.name || '',
       emiSchedules: l.emiSchedules,
     });
   }
   for (const l of validOfflineLoans) {
+    const isOfflineMirror = companyId ? offlineMirrorCoMap.get(l.id) === companyId : false;
     loanDataMap.set(l.id, {
       loanNumber: l.loanNumber,
       loanType: 'OFFLINE',
@@ -824,7 +826,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       tenure: l.tenure || 0,
       status: l.status,
       disbursementDate: l.disbursementDate,
-      isMirror: false,
+      isMirror: isOfflineMirror,
+      mirrorInterestRate: isOfflineMirror ? offlineMirrorRateMap.get(l.id) : undefined,
       companyName: l.company?.name || '',
       emis: l.emis,
     });
@@ -919,7 +922,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
       const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
       
-      if (!hasRealAccrual && isAccrued && emi.interestAmount > 0) {
+      let effectiveInterestAmount = emi.interestAmount;
+      if (meta.isMirror && meta.mirrorInterestRate && emi.outstandingPrincipal !== undefined) {
+         const monthlyRate = meta.mirrorInterestRate / 100 / 12;
+         effectiveInterestAmount = Math.max(0, Math.round(emi.outstandingPrincipal * monthlyRate * 100) / 100);
+      }
+      
+      if (!hasRealAccrual && isAccrued && effectiveInterestAmount > 0) {
         allEntries.push({
           id: `synth-accrual-${emi.id}`,
           date: emi.dueDate,
@@ -930,7 +939,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           emiNumber: emi.installmentNumber,
           narration: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
           description: `To-INTEREST Normal Dr. Int. (Accrued)`,
-          principalDisbursed: emi.interestAmount,
+          principalDisbursed: effectiveInterestAmount,
           principalPaid: 0,
           interestPaid: 0,
           totalPayment: null,
@@ -938,7 +947,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
             {
               accountCode: '1301',
               accountName: `Interest Receivable — ${customer?.name || ''}`,
-              debitAmount: emi.interestAmount,
+              debitAmount: effectiveInterestAmount,
               creditAmount: 0,
               narration: 'Synthetic Accrual',
             },
@@ -946,7 +955,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
               accountCode: '4110',
               accountName: 'Interest Income',
               debitAmount: 0,
-              creditAmount: emi.interestAmount,
+              creditAmount: effectiveInterestAmount,
               narration: 'Synthetic Accrual',
             }
           ]
