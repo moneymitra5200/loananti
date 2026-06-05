@@ -598,7 +598,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true } }
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true }, orderBy: { installmentNumber: 'asc' } }
         }
       })
     : await db.offlineLoan.findMany({
@@ -608,7 +608,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
           customerName: true, customerPhone: true, customerEmail: true,
           company: { select: { id: true, name: true } },
-          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true } }
+          emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true }, orderBy: { installmentNumber: 'asc' } }
         }
       });
 
@@ -674,21 +674,22 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // If a loan is mirrored, show it for the mirror company; if not mirrored, show for its own company
   const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
     where: { isOfflineLoan: true },
-    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
+    select: { originalLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true, mirrorLoanId: true }
   });
-  const mirroredOfflineIds = new Set(offlineMirrorMappings.map(m => m.originalLoanId));
-  const offlineMirrorCoMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
-  const offlineMirrorRateMap = new Map(offlineMirrorMappings.map(m => [m.originalLoanId, m.mirrorInterestRate]));
 
   const validOfflineLoans = allOfflineLoans.filter(l => {
     if (!companyId) return true;
-    if (mirroredOfflineIds.has(l.id)) {
-      // Show offline original for its MIRROR company
-      if (offlineMirrorCoMap.get(l.id) === companyId) return true;
-      // Show offline original for its ORIGINAL company
+    
+    const mapping = offlineMirrorMappings.find(m => m.originalLoanId === l.id);
+    if (mapping) {
+      if (mapping.mirrorCompanyId === companyId) {
+        if (mapping.mirrorLoanId) return false; // Hide original, show dedicated mirror
+        return true; // Legacy: show original as mirror
+      }
       if (l.companyId === companyId) return true;
       return false;
     }
+    
     return l.companyId === companyId;
   });
 
@@ -817,7 +818,17 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     });
   }
   for (const l of validOfflineLoans) {
-    const isOfflineMirror = companyId ? offlineMirrorCoMap.get(l.id) === companyId : false;
+    const isModernMirror = offlineMirrorMappings.some(m => m.mirrorLoanId === l.id);
+    const isLegacyMirror = companyId ? offlineMirrorMappings.some(m => m.originalLoanId === l.id && m.mirrorCompanyId === companyId && !m.mirrorLoanId) : false;
+    const isOfflineMirror = isModernMirror || isLegacyMirror;
+    
+    let mirrorRate: number | undefined = undefined;
+    if (isModernMirror) {
+      mirrorRate = offlineMirrorMappings.find(m => m.mirrorLoanId === l.id)?.mirrorInterestRate;
+    } else if (isLegacyMirror) {
+      mirrorRate = offlineMirrorMappings.find(m => m.originalLoanId === l.id)?.mirrorInterestRate;
+    }
+
     loanDataMap.set(l.id, {
       loanNumber: l.loanNumber,
       loanType: 'OFFLINE',
@@ -827,7 +838,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       status: l.status,
       disbursementDate: l.disbursementDate,
       isMirror: isOfflineMirror,
-      mirrorInterestRate: isOfflineMirror ? offlineMirrorRateMap.get(l.id) : undefined,
+      mirrorInterestRate: mirrorRate,
       companyName: l.company?.name || '',
       emis: l.emis,
     });
