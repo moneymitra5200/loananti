@@ -19,7 +19,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
     // ── 1. Online EMIs (eMISchedule) ──────────────────────────────────────────
     const pendingEMIs = await db.eMISchedule.findMany({
       where: {
-        dueDate: { lte: date35DaysFromNow },
+        dueDate: { lte: today },
         interestAccrued: false,
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
         interestAmount: { gt: 0 }
@@ -40,18 +40,8 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
       try {
         if (!emi.loanApplication.companyId) continue;
 
-        // Accrual trigger date is disbursement date for EMI #1, previous EMI due date for EMI #N
-        let accrualTriggerDate = emi.loanApplication.disbursedAt || emi.loanApplication.createdAt || new Date();
-        if (emi.installmentNumber > 1) {
-          const prevEmi = emi.loanApplication.emiSchedules.find(
-            e => e.installmentNumber === emi.installmentNumber - 1
-          );
-          if (prevEmi) {
-            accrualTriggerDate = prevEmi.paymentStatus === 'PAID' ? new Date(0) : prevEmi.dueDate;
-          }
-        }
-
-        // Only accrue if the period has started
+        // Only accrue if the due date has arrived/passed
+        let accrualTriggerDate = emi.dueDate;
         if (accrualTriggerDate > today) {
           continue;
         }
@@ -89,7 +79,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
     // ── 2. Offline EMIs (offlineLoanEMI) ───────────────────────────────────────
     const pendingOfflineEMIs = await db.offlineLoanEMI.findMany({
       where: {
-        dueDate: { lte: date35DaysFromNow },
+        dueDate: { lte: today },
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
         interestAmount: { gt: 0 },
         offlineLoan: {
@@ -115,18 +105,8 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
       try {
         const companyId = emi.offlineLoan.companyId!;
 
-        // Accrual trigger date is disbursement date for EMI #1, previous EMI due date for EMI #N
-        let accrualTriggerDate = emi.offlineLoan.disbursementDate || new Date();
-        if (emi.installmentNumber > 1) {
-          const prevEmi = emi.offlineLoan.emis.find(
-            e => e.installmentNumber === emi.installmentNumber - 1
-          );
-          if (prevEmi) {
-            accrualTriggerDate = prevEmi.paymentStatus === 'PAID' ? new Date(0) : prevEmi.dueDate;
-          }
-        }
-
-        // Only accrue if the period has started
+        // Only accrue if the due date has arrived/passed
+        let accrualTriggerDate = emi.dueDate;
         if (accrualTriggerDate > today) {
           continue;
         }
