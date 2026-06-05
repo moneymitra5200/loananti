@@ -714,10 +714,23 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const interestAccountIds = interestAccounts.map(a => a.id);
   const allTargetAccountIds = [...lrAccountIds, ...interestAccountIds];
 
+  // Map original online loan IDs to their mirror IDs to correctly group cross-company entries
+  const originalToMirrorLoanId = new Map<string, string>();
+  const queryLoanIds = [...validLoanIds];
+  
+  if (companyId) {
+    for (const m of relevantMirrorMappings) {
+      if (m.mirrorLoanId && validLoanIds.includes(m.mirrorLoanId)) {
+        originalToMirrorLoanId.set(m.originalLoanId, m.mirrorLoanId);
+        queryLoanIds.push(m.originalLoanId);
+      }
+    }
+  }
+
   // ── Fetch Journal Entries that have a line touching LR or Interest for these loans ────
   // This is the "posting from journal to personal ledger" step
   let journalEntries: any[] = [];
-  if (allTargetAccountIds.length > 0 && validLoanIds.length > 0) {
+  if (allTargetAccountIds.length > 0 && queryLoanIds.length > 0) {
     journalEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
@@ -725,7 +738,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         lines: {
           some: {
             accountId: { in: allTargetAccountIds },
-            loanId: { in: validLoanIds },
+            loanId: { in: queryLoanIds },
           }
         }
       },
@@ -751,7 +764,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
         lines: {
           some: {
-            loanId: { in: validLoanIds },
+            loanId: { in: queryLoanIds },
           }
         }
       },
@@ -816,11 +829,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const entriesByLoan = new Map<string, any[]>();
   for (const je of journalEntries) {
     // Find which loanId(s) this entry touches via its LR or Interest lines
+    // For accrual entries from original companies, their account IDs won't be in allTargetAccountIds (which belongs to the current company).
+    const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
+    
     const rawLoanIds = je.lines
-        .filter((l: any) => allTargetAccountIds.includes(l.accountId) && l.loanId)
+        .filter((l: any) => (isAccrual || allTargetAccountIds.includes(l.accountId)) && l.loanId)
         .map((l: any) => String(l.loanId));
+        
     const loanIdsInEntry: string[] = Array.from(new Set<string>(rawLoanIds));
-    for (const lid of loanIdsInEntry) {
+    for (let lid of loanIdsInEntry) {
+      // Map original loan IDs back to mirror loan IDs if viewing from the mirror company context
+      if (originalToMirrorLoanId.has(lid)) {
+        lid = originalToMirrorLoanId.get(lid)!;
+      }
+      
       if (!entriesByLoan.has(lid)) entriesByLoan.set(lid, []);
       entriesByLoan.get(lid)!.push(je);
     }
