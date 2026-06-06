@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,7 @@ import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
 import { LoanFormStepContent } from '@/components/staff/modules';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -248,6 +249,7 @@ export default function StaffDashboard() {
   // Loan Detail Panel state
   const [showLoanDetailPanel, setShowLoanDetailPanel] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
+  const [selectedLoanType, setSelectedLoanType] = useState<string | null>(null);
   const [activeLoans, setActiveLoans] = useState<Loan[]>([]);
   
   // Loan form state
@@ -800,7 +802,10 @@ export default function StaffDashboard() {
       case 'closedLoans':
         return (
           <ClosedLoansTab
-            setSelectedLoanId={setSelectedLoanId}
+            setSelectedLoanId={(id, type) => {
+              setSelectedLoanId(id);
+              setSelectedLoanType(type || 'ONLINE');
+            }}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             createdById={user?.id}
           />
@@ -979,15 +984,28 @@ export default function StaffDashboard() {
         </DialogContent>
       </Dialog>
       
-      {/* Loan Detail Panel */}
-      <LoanDetailPanel
-        loanId={selectedLoanId}
-        open={showLoanDetailPanel}
-        onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
-        userRole={user?.role || 'STAFF'}
-        userId={user?.id || ''}
-        onPaymentSuccess={() => { fetchLoans(); fetchActiveLoans(); }}
-      />
+      {/* Loan Detail Panel - Conditional based on loan type */}
+      {showLoanDetailPanel && selectedLoanId && (selectedLoanType === 'OFFLINE' ? (
+        <Suspense fallback={<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white" /></div>}>
+          <OfflineLoanDetailPanel
+            loanId={selectedLoanId}
+            open={showLoanDetailPanel}
+            onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+            userId={user?.id || ''}
+            userRole={user?.role || 'STAFF'}
+            onPaymentSuccess={() => { fetchLoans(); fetchActiveLoans(); }}
+          />
+        </Suspense>
+      ) : (
+        <LoanDetailPanel
+          loanId={selectedLoanId}
+          open={showLoanDetailPanel}
+          onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+          userRole={user?.role || 'STAFF'}
+          userId={user?.id || ''}
+          onPaymentSuccess={() => { fetchLoans(); fetchActiveLoans(); }}
+        />
+      ))}
     </DashboardLayout>
   );
 }

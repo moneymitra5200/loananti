@@ -1129,7 +1129,15 @@ export default function CashierDashboard() {
       case 'closedLoans':
         return (
           <ClosedLoansTab
-            setSelectedLoanId={(id) => setSelectedLoan({ id } as any)}
+            setSelectedLoanId={(id, type) => {
+              if (type === 'OFFLINE') {
+                setSelectedOfflineLoanId(id);
+                setShowOfflineLoanPanel(true);
+              } else {
+                setSelectedLoan(id ? { id } as any : null);
+                setShowLoanDetailPanel(!!id);
+              }
+            }}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             mirrorEnabled={(systemSettings as any)?.mirrorLoanEnabled !== false}
           />

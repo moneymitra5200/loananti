@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,6 +44,8 @@ import { ApprovalDialog, SanctionDialog, StaffDialog, LoanDetailsDialog, BulkApp
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 
+const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
+
 export default function AgentDashboard() {
   const { user } = useAuth();
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -56,6 +58,7 @@ export default function AgentDashboard() {
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [showLoanDetailPanel, setShowLoanDetailPanel] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
+  const [selectedLoanType, setSelectedLoanType] = useState<string | null>(null);
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | 'send_back'>('approve');
   const [remarks, setRemarks] = useState('');
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
@@ -909,7 +912,10 @@ export default function AgentDashboard() {
       case 'closedLoans':
         return (
           <ClosedLoansTab
-            setSelectedLoanId={setSelectedLoanId}
+            setSelectedLoanId={(id, type) => {
+              setSelectedLoanId(id);
+              setSelectedLoanType(type || 'ONLINE');
+            }}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             agentId={user?.id}
           />
@@ -1011,13 +1017,26 @@ export default function AgentDashboard() {
         onBulkApproval={handleBulkApproval}
       />
 
-      {/* Loan Detail Panel */}
-      <LoanDetailPanel
-        open={showLoanDetailPanel}
-        loanId={selectedLoanId}
-        onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
-        onEMIPaid={() => fetchData()}
-      />
+      {/* Loan Detail Panel - Conditional based on loan type */}
+      {showLoanDetailPanel && selectedLoanId && (selectedLoanType === 'OFFLINE' ? (
+        <Suspense fallback={<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white" /></div>}>
+          <OfflineLoanDetailPanel
+            loanId={selectedLoanId}
+            open={showLoanDetailPanel}
+            onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+            userId={user?.id || ''}
+            userRole={user?.role || 'AGENT'}
+            onPaymentSuccess={() => { fetchData(); setOfflineLoansRefreshKey(prev => prev + 1); }}
+          />
+        </Suspense>
+      ) : (
+        <LoanDetailPanel
+          open={showLoanDetailPanel}
+          loanId={selectedLoanId}
+          onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+          onEMIPaid={() => fetchData()}
+        />
+      ))}
       
       {/* Success Dialog */}
       <SuccessDialog

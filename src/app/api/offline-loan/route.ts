@@ -2324,7 +2324,8 @@ export async function PUT(request: NextRequest) {
               companyId: loan.companyId,
               collectorId: userId,
               collectorName: user.name,
-              bankTransactionId: bankTransactionResult?.bankTransactionId
+              bankTransactionId: bankTransactionResult?.bankTransactionId,
+              creditType: creditTypeUsed,
             }),
             description: `Collected Interest EMI #${currentEMI!.installmentNumber} for loan ${loan.loanNumber}`,
             canUndo: true
@@ -2823,6 +2824,7 @@ export async function PUT(request: NextRequest) {
               collectorId: userId,
               collectorName: user.name,
               paymentMode,
+              creditType: creditTypeUsed,
             }),
             description: `Collected EMI #${emi.installmentNumber} for ${emi.offlineLoan.loanNumber}`,
             canUndo: true

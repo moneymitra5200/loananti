@@ -23,7 +23,7 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
       const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
 
       const accService = new AccountingService(companyId);
-      const financialYearId = await accService.getCurrentFinancialYear();
+      const financialYearId = await accService.getCurrentFinancialYear(tx);
 
       // Mark original as reversed
       await tx.journalEntry.update({
@@ -397,21 +397,10 @@ export async function PUT(request: NextRequest) {
             });
 
             // 2. Revert EMIs marked paid during foreclosure
-            const logTime = new Date(actionLog.createdAt).getTime();
-            const emis = await tx.offlineLoanEMI.findMany({
-              where: {
-                offlineLoanId: actionLog.recordId,
-                paymentStatus: 'PAID',
-                paidDate: {
-                  gte: new Date(logTime - 120000),
-                  lte: new Date(logTime + 120000)
-                }
-              }
-            });
-
-            for (const emi of emis) {
-              await tx.offlineLoanEMI.update({
-                where: { id: emi.id },
+            const closedEMIIds = newData?.closedEMIIds || [];
+            if (closedEMIIds.length > 0) {
+              await tx.offlineLoanEMI.updateMany({
+                where: { id: { in: closedEMIIds } },
                 data: {
                   paymentStatus: 'PENDING',
                   paidAmount: 0,
@@ -424,6 +413,35 @@ export async function PUT(request: NextRequest) {
                   collectedAt: null
                 }
               });
+            } else {
+              const logTime = new Date(actionLog.createdAt).getTime();
+              const emis = await tx.offlineLoanEMI.findMany({
+                where: {
+                  offlineLoanId: actionLog.recordId,
+                  paymentStatus: 'PAID',
+                  paidDate: {
+                    gte: new Date(logTime - 360000), // 6 minutes tolerance
+                    lte: new Date(logTime + 360000)
+                  }
+                }
+              });
+
+              for (const emi of emis) {
+                await tx.offlineLoanEMI.update({
+                  where: { id: emi.id },
+                  data: {
+                    paymentStatus: 'PENDING',
+                    paidAmount: 0,
+                    paidPrincipal: 0,
+                    paidInterest: 0,
+                    paidDate: null,
+                    paymentMode: null,
+                    collectedById: null,
+                    collectedByName: null,
+                    collectedAt: null
+                  }
+                });
+              }
             }
 
             // 3. Revert cash/bank balance if closeType was PAYMENT (Foreclosure)
@@ -464,6 +482,45 @@ export async function PUT(request: NextRequest) {
                   }
                 } catch (balanceErr) {
                   console.error('[Undo OFFLINE_LOAN CLOSE] Balance reversal failed:', balanceErr);
+                }
+              }
+
+              // Revert collector credit for offline loan close too
+              if (newData.collectorId && paymentAmount > 0 && !['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode)) {
+                try {
+                  const creditType = newData.creditType || 'COMPANY';
+                  const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
+                  const creditBefore = user?.credit || 0;
+                  const creditAfter = Math.max(0, creditBefore - paymentAmount);
+                  
+                  await tx.user.update({
+                    where: { id: newData.collectorId },
+                    data: {
+                      credit: creditAfter,
+                      personalCredit: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
+                      companyCredit: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
+                    }
+                  });
+
+                  await tx.creditTransaction.create({
+                    data: {
+                      userId: newData.collectorId,
+                      transactionType: 'CREDIT_DECREASE',
+                      amount: paymentAmount,
+                      paymentMode: (newData.paymentMode || 'CASH') as any,
+                      creditType: creditType,
+                      sourceType: 'REVERSAL',
+                      loanApplicationId: actionLog.recordId,
+                      customerName: newData.customerName || 'Reversal',
+                      companyBalanceAfter: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
+                      personalBalanceAfter: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
+                      balanceAfter: creditAfter,
+                      description: `[UNDO] Reversal of foreclosure credit for ${actionLog.recordId}`,
+                      transactionDate: new Date(),
+                    }
+                  });
+                } catch (creditErr) {
+                  console.error('[Undo OFFLINE_LOAN CLOSE] Collector credit reversal failed:', creditErr);
                 }
               }
             }
@@ -536,14 +593,26 @@ export async function PUT(request: NextRequest) {
                 }
               }
 
-              // 3. Reverse collector credit
-              if (newData.collectorId && paymentAmount > 0) {
+              // 3. Reverse collector credit (only if it was cash/split payment, i.e. not online/bank direct)
+              const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
+                const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                const creditBefore = user?.credit || 0;
-                const creditAfter = Math.max(0, creditBefore - paymentAmount);
+                
+                const companyCreditBefore = user?.companyCredit || 0;
+                const personalCreditBefore = user?.personalCredit || 0;
+                
+                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                const creditAfter = companyCreditAfter + personalCreditAfter;
+
                 await tx.user.update({
                   where: { id: newData.collectorId },
-                  data: { credit: creditAfter }
+                  data: {
+                    credit: creditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
+                  }
                 });
 
                 await tx.creditTransaction.create({
@@ -552,13 +621,13 @@ export async function PUT(request: NextRequest) {
                     transactionType: 'CREDIT_DECREASE',
                     amount: paymentAmount,
                     paymentMode: (newData.paymentMode || 'CASH') as any,
-                    creditType: 'COMPANY',
+                    creditType: creditType,
                     sourceType: 'REVERSAL',
                     loanApplicationId: actionLog.recordId,
                     customerName: newData.customerName || 'Reversal',
                     loanApplicationNo: newData.loanNumber || '',
-                    companyBalanceAfter: user?.companyCredit,
-                    personalBalanceAfter: user?.personalCredit,
+                    companyBalanceAfter: companyCreditAfter,
+                    personalBalanceAfter: personalCreditAfter,
                     balanceAfter: creditAfter,
                     description: `[UNDO] Reversal of payment for ${newData.loanNumber || 'EMI'}`,
                     transactionDate: new Date(),
@@ -630,14 +699,26 @@ export async function PUT(request: NextRequest) {
                 } catch (e) { console.error('[Undo Online EMI] Balance reversal failed:', e); }
               }
 
-              // Reverse collector credit
-              if (newData.collectorId && paymentAmount > 0) {
+              // Reverse collector credit (only if it was cash/split payment, i.e. not online/bank direct)
+              const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
+                const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                const creditBefore = user?.credit || 0;
-                const creditAfter = Math.max(0, creditBefore - paymentAmount);
+                
+                const companyCreditBefore = user?.companyCredit || 0;
+                const personalCreditBefore = user?.personalCredit || 0;
+                
+                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                const creditAfter = companyCreditAfter + personalCreditAfter;
+
                 await tx.user.update({
                   where: { id: newData.collectorId },
-                  data: { credit: creditAfter }
+                  data: {
+                    credit: creditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
+                  }
                 });
 
                 await tx.creditTransaction.create({
@@ -646,13 +727,13 @@ export async function PUT(request: NextRequest) {
                     transactionType: 'CREDIT_DECREASE',
                     amount: paymentAmount,
                     paymentMode: (newData.paymentMode || 'CASH') as any,
-                    creditType: 'COMPANY',
+                    creditType: creditType,
                     sourceType: 'REVERSAL',
                     loanApplicationId: actionLog.recordId,
                     customerName: newData.customerName || 'Reversal',
                     loanApplicationNo: newData.loanNumber || '',
-                    companyBalanceAfter: user?.companyCredit,
-                    personalBalanceAfter: user?.personalCredit,
+                    companyBalanceAfter: companyCreditAfter,
+                    personalBalanceAfter: personalCreditAfter,
                     balanceAfter: creditAfter,
                     description: `[UNDO] Reversal of online payment for ${newData.loanNumber || 'EMI'}`,
                     transactionDate: new Date(),
@@ -698,24 +779,38 @@ export async function PUT(request: NextRequest) {
             });
 
             // 2. Revert EMIs marked paid during foreclosure
-            const logTime = new Date(actionLog.createdAt).getTime();
-            await tx.eMISchedule.updateMany({
-              where: {
-                loanApplicationId: actionLog.recordId,
-                paymentStatus: 'PAID',
-                paidDate: {
-                  gte: new Date(logTime - 120000),
-                  lte: new Date(logTime + 120000)
+            const closedEMIIds = newData?.closedEMIIds || [];
+            if (closedEMIIds.length > 0) {
+              await tx.eMISchedule.updateMany({
+                where: { id: { in: closedEMIIds } },
+                data: {
+                  paymentStatus: 'PENDING',
+                  paidAmount: 0,
+                  paidDate: null,
+                  paymentMode: null,
+                  notes: null
                 }
-              },
-              data: {
-                paymentStatus: 'PENDING',
-                paidAmount: 0,
-                paidDate: null,
-                paymentMode: null,
-                notes: null
-              }
-            });
+              });
+            } else {
+              const logTime = new Date(actionLog.createdAt).getTime();
+              await tx.eMISchedule.updateMany({
+                where: {
+                  loanApplicationId: actionLog.recordId,
+                  paymentStatus: 'PAID',
+                  paidDate: {
+                    gte: new Date(logTime - 360000), // 6 minutes tolerance
+                    lte: new Date(logTime + 360000)
+                  }
+                },
+                data: {
+                  paymentStatus: 'PENDING',
+                  paidAmount: 0,
+                  paidDate: null,
+                  paymentMode: null,
+                  notes: null
+                }
+              });
+            }
 
             // 3. Revert cash/bank balance & collector credit if closeType was PAYMENT (Foreclosure)
             if (newData && newData.closeType === 'PAYMENT') {
@@ -759,18 +854,24 @@ export async function PUT(request: NextRequest) {
               }
 
               // Revert collector credit
-              if (newData.collectorId && paymentAmount > 0) {
+              const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                const creditBefore = user?.credit || 0;
-                const creditAfter = Math.max(0, creditBefore - paymentAmount);
                 
+                const companyCreditBefore = user?.companyCredit || 0;
+                const personalCreditBefore = user?.personalCredit || 0;
+                
+                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                const creditAfter = companyCreditAfter + personalCreditAfter;
+
                 await tx.user.update({
                   where: { id: newData.collectorId },
                   data: {
                     credit: creditAfter,
-                    personalCredit: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
-                    companyCredit: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
                   }
                 });
 
@@ -784,8 +885,8 @@ export async function PUT(request: NextRequest) {
                     sourceType: 'REVERSAL',
                     loanApplicationId: actionLog.recordId,
                     customerName: newData.customerName || 'Reversal',
-                    companyBalanceAfter: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
-                    personalBalanceAfter: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
+                    companyBalanceAfter: companyCreditAfter,
+                    personalBalanceAfter: personalCreditAfter,
                     balanceAfter: creditAfter,
                     description: `[UNDO] Reversal of foreclosure credit for ${actionLog.recordId}`,
                     transactionDate: new Date(),

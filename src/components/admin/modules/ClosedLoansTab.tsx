@@ -492,7 +492,7 @@ export default function ClosedLoansTab({
         <div className="grid grid-cols-3 gap-1.5 px-4 pb-4">
           <Button size="sm" variant="outline"
             className="text-xs h-8 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-            onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+            onClick={() => { setSelectedLoanId(loan.id, loan.loanType || 'OFFLINE'); setShowLoanDetailPanel(true); }}
           >
             <Eye className="h-3 w-3 mr-1" /> View
           </Button>

@@ -99,6 +99,7 @@ interface LoanDetail {
   interestOnlyStartDate?: string;
   interestOnlyMonthlyAmount?: number;
   loanStartedAt?: string;
+  closedAt?: string;
   totalInterestPaid?: number;
   panCardDoc?: string;
   aadhaarFrontDoc?: string;
@@ -211,6 +212,7 @@ export default function OfflineLoanDetailPanel({
   const [loan, setLoan] = useState<LoanDetail | null>(null);
   const [summary, setSummary] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [actionLogs, setActionLogs] = useState<any[]>([]);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMI | null>(null);
@@ -385,6 +387,15 @@ export default function OfflineLoanDetailPanel({
         if (data.success) {
           setLoan(data.loan);
           setSummary(data.summary);
+        }
+      }
+
+      // Fetch action logs for history timeline
+      const logsRes = await fetch(`/api/action-log?action=history&recordId=${loanId}`);
+      if (logsRes.ok) {
+        const logsData = await logsRes.json();
+        if (logsData.success) {
+          setActionLogs(logsData.actions || []);
         }
       }
     } catch (error) {
@@ -1290,8 +1301,87 @@ export default function OfflineLoanDetailPanel({
                   </div>
 
                   <div className="flex-1 overflow-y-auto mt-2 p-4 space-y-4">
-                    {/* Overview Tab */}
+                     {/* Overview Tab */}
                     <TabsContent value="overview" className="m-0 space-y-4">
+                      {loan.status === 'CLOSED' && (
+                        (() => {
+                          const closeLog = actionLogs.find(log => log.actionType === 'CLOSE' && log.module === 'OFFLINE_LOAN' && !log.isUndone);
+                          let closeDetails: any = null;
+                          if (closeLog) {
+                            try {
+                              closeDetails = JSON.parse(closeLog.newData);
+                            } catch (e) {
+                              console.error('Failed to parse close details', e);
+                            }
+                          }
+
+                          const closeType = closeDetails?.closeType || (closeLog?.description?.includes('written off') ? 'LOSS' : 'PAYMENT');
+                          const amount = closeDetails?.totalForeclosureAmount || closeDetails?.totalWriteOff || 0;
+                          const paymentMode = closeDetails?.paymentMode || 'CASH';
+                          const lossType = closeDetails?.lossType || 'PRINCIPAL_AND_INTEREST';
+                          const closeDate = loan.closedAt || closeLog?.createdAt;
+
+                          return (
+                            <Card className={`border-2 ${closeType === 'LOSS' ? 'border-red-200 bg-red-50/50' : 'border-emerald-200 bg-emerald-50/50'}`}>
+                              <CardContent className="p-4">
+                                <div className="flex items-start gap-3">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${closeType === 'LOSS' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                    {closeType === 'LOSS' ? <AlertTriangle className="h-5 w-5" /> : <CheckCircle className="h-5 w-5" />}
+                                  </div>
+                                  <div className="flex-1 space-y-1">
+                                    <h3 className={`font-bold text-base ${closeType === 'LOSS' ? 'text-red-900' : 'text-emerald-900'}`}>
+                                      {closeType === 'LOSS' ? 'Loan Closed (Written Off as Loss)' : 'Loan Closed (Fully Settled / Foreclosed)'}
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-sm text-gray-700 pt-2 border-t border-gray-200/50">
+                                      <div>
+                                        <span className="font-semibold text-gray-500">Close Date:</span> {closeDate ? formatDate(closeDate) : 'N/A'}
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-gray-500">Close Type:</span> {closeType === 'LOSS' ? 'Loss / Write-Off' : 'Foreclosure Payment'}
+                                      </div>
+                                      {closeType === 'PAYMENT' ? (
+                                        <>
+                                          <div>
+                                            <span className="font-semibold text-gray-500">Amount Paid:</span> {formatCurrency(amount)}
+                                          </div>
+                                          <div>
+                                            <span className="font-semibold text-gray-500">Payment Mode:</span> {paymentMode}
+                                          </div>
+                                          {closeDetails?.creditType && (
+                                            <div>
+                                              <span className="font-semibold text-gray-500">Credit Type:</span> {closeDetails.creditType}
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <>
+                                          <div>
+                                            <span className="font-semibold text-gray-500">Write-off Amount:</span> {formatCurrency(amount)}
+                                          </div>
+                                          <div>
+                                            <span className="font-semibold text-gray-500">Loss Type:</span> {lossType.replace(/_/g, ' ')}
+                                          </div>
+                                        </>
+                                      )}
+                                      {closeLog?.userId && (
+                                        <div>
+                                          <span className="font-semibold text-gray-500">Closed By:</span> User ID {closeLog.userId} ({closeLog.userRole})
+                                        </div>
+                                      )}
+                                    </div>
+                                    {closeLog?.description && (
+                                      <p className="text-xs text-gray-500 italic mt-2">
+                                        "{closeLog.description}"
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })()
+                      )}
+
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <Card className="bg-gradient-to-br from-emerald-50 to-teal-50 border-emerald-200">
                           <CardContent className="p-3">
@@ -2162,6 +2252,26 @@ export default function OfflineLoanDetailPanel({
                                 </div>
                               </div>
                             )}
+
+                            {loan.status === 'CLOSED' && (
+                              (() => {
+                                const closeLog = actionLogs.find(log => log.actionType === 'CLOSE' && log.module === 'OFFLINE_LOAN' && !log.isUndone);
+                                const closeDate = loan.closedAt || closeLog?.createdAt;
+                                const desc = closeLog?.description || 'Loan closed.';
+                                return (
+                                  <div className="flex items-start gap-3">
+                                    <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                                      <Lock className="h-4 w-4 text-red-600" />
+                                    </div>
+                                    <div>
+                                      <p className="font-medium text-red-900">Loan Closed</p>
+                                      {closeDate && <p className="text-sm text-gray-500">{formatDate(closeDate)}</p>}
+                                      <p className="text-xs text-gray-600 mt-0.5">{desc}</p>
+                                    </div>
+                                  </div>
+                                );
+                              })()
+                            )}
                             
                             {/* EMI Payment History - Original Loan */}
                             {loan.emis && loan.emis.length > 0 && (
@@ -2335,6 +2445,54 @@ export default function OfflineLoanDetailPanel({
                                 )}
                               </div>
                             )}
+                              {/* Activity Logs Section */}
+                              {actionLogs && actionLogs.length > 0 && (
+                                <div className="mt-4 pt-4 border-t space-y-4">
+                                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2 text-purple-700">
+                                    <Clock className="h-4 w-4" /> Activity History (Action Logs)
+                                  </h4>
+                                  <div className="space-y-3">
+                                    {actionLogs.map((log) => {
+                                      let iconBg = 'bg-gray-100';
+                                      let iconColor = 'text-gray-600';
+                                      if (log.actionType === 'CLOSE') {
+                                        iconBg = 'bg-red-100';
+                                        iconColor = 'text-red-600';
+                                      } else if (log.actionType === 'CREATE') {
+                                        iconBg = 'bg-blue-100';
+                                        iconColor = 'text-blue-600';
+                                      } else if (log.actionType === 'UPDATE' || log.actionType === 'REOPEN') {
+                                        iconBg = 'bg-amber-100';
+                                        iconColor = 'text-amber-600';
+                                      }
+
+                                      return (
+                                        <div key={log.id} className="flex gap-3 items-start bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                                          <div className={`w-8 h-8 rounded-full ${iconBg} flex items-center justify-center flex-shrink-0`}>
+                                            <Info className={`h-4 w-4 ${iconColor}`} />
+                                          </div>
+                                          <div className="flex-1">
+                                            <div className="flex items-center justify-between">
+                                              <p className="font-semibold text-xs">
+                                                {log.actionType === 'CLOSE' ? 'Loan Closed' : log.actionType === 'REOPEN' ? 'Loan Reopened' : log.description}
+                                              </p>
+                                              <span className="text-[10px] text-gray-400">{formatDate(log.createdAt)}</span>
+                                            </div>
+                                            {log.actionType === 'CLOSE' && (
+                                              <p className="text-xs text-gray-600 font-medium mt-1">
+                                                {log.description}
+                                              </p>
+                                            )}
+                                            <p className="text-[10px] text-gray-400 mt-1">
+                                              By User ID: {log.userId} ({log.userRole}) {log.isUndone ? '• Undone' : ''}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                           </div>
                         </CardContent>
                       </Card>

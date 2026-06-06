@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,7 @@ import BankHeadSection from '@/components/company/BankHeadSection';
 import DaybookSection from '@/components/company/DaybookSection';
 import FixMirrorAccountingPage from '@/components/accounting/FixMirrorAccountingPage';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
+const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 import { useRealtime } from '@/hooks/useRealtime';
 import { useRefresh } from '@/contexts/RefreshContext';
 import { useLoansStore } from '@/stores/loansStore';
@@ -59,6 +60,7 @@ export default function CompanyDashboard() {
   const [showLoanDetailsDialog, setShowLoanDetailsDialog] = useState(false);
   const [showLoanDetailPanel, setShowLoanDetailPanel] = useState(false);
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
+  const [selectedLoanType, setSelectedLoanType] = useState<string | null>(null);
   const [showAgentDialog, setShowAgentDialog] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | 'send_back'>('approve');
@@ -1229,7 +1231,11 @@ export default function CompanyDashboard() {
       case 'closedLoans':
         return (
           <ClosedLoansTab
-            setSelectedLoanId={(id) => { setSelectedLoanId(id); setShowLoanDetailPanel(true); }}
+            setSelectedLoanId={(id, type) => {
+              setSelectedLoanId(id);
+              setSelectedLoanType(type || 'ONLINE');
+              setShowLoanDetailPanel(!!id);
+            }}
             setShowLoanDetailPanel={setShowLoanDetailPanel}
             companyId={getCompanyId()}
             mirrorEnabled={hasBankAccess}
@@ -1577,13 +1583,26 @@ export default function CompanyDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Loan Detail Panel */}
-      <LoanDetailPanel
-        open={showLoanDetailPanel}
-        loanId={selectedLoanId}
-        onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
-        onEMIPaid={() => fetchData()}
-      />
+      {/* Loan Detail Panel - Conditional based on loan type */}
+      {showLoanDetailPanel && selectedLoanId && (selectedLoanType === 'OFFLINE' ? (
+        <Suspense fallback={<div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-white" /></div>}>
+          <OfflineLoanDetailPanel
+            loanId={selectedLoanId}
+            open={showLoanDetailPanel}
+            onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+            userId={user?.id || ''}
+            userRole={user?.role || 'COMPANY'}
+            onPaymentSuccess={() => { fetchData(); setOfflineLoansRefreshKey(prev => prev + 1); }}
+          />
+        </Suspense>
+      ) : (
+        <LoanDetailPanel
+          open={showLoanDetailPanel}
+          loanId={selectedLoanId}
+          onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
+          onEMIPaid={() => fetchData()}
+        />
+      ))}
       
       {/* Success Dialog */}
       <SuccessDialog

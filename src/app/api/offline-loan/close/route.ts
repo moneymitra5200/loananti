@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
             totalWriteOff,
             lossType,
             companyId: effectiveCompanyId,
+            closedEMIIds: unpaidEMIIds,
           }),
           description: `Loan ${loan.loanNumber} written off as loss (${writeOffInterest ? 'Principal Only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)}, I written off:₹${writeOffInterest ? 0 : totalRemainingInterest.toFixed(2)}`,
           canUndo: true,
@@ -377,6 +378,10 @@ export async function POST(request: NextRequest) {
     // CRITICAL FIX: replaced sequential per-EMI await update loop with a single updateMany.
     // Old code: N round-trips inside a transaction → DB_TIMEOUT on Hostinger (8s limit).
     // New code: 2 queries regardless of EMI count — easily completes in <1s.
+    const effectiveCreditType = creditType === 'PERSONAL' ? 'PERSONAL' : 'COMPANY';
+    const isOnlinePayment = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
+    const creditIncreaseAmount = isOnlinePayment ? 0 : totalForeclosureAmount;
+
     await withRetry(() => db.$transaction(async (tx) => {
       if (unpaidEMIIds.length > 0) {
         await (tx.offlineLoanEMI as any).updateMany({
@@ -397,6 +402,45 @@ export async function POST(request: NextRequest) {
       await (tx.offlineLoan as any).update({
         where: { id: loanId },
         data:  { status: 'CLOSED', closedAt: now }
+      });
+
+      // Update collector credit balance
+      let updatedUser: any = null;
+      if (creditIncreaseAmount > 0) {
+        updatedUser = await tx.user.update({
+          where: { id: userId },
+          data: {
+            credit: { increment: creditIncreaseAmount },
+            personalCredit: effectiveCreditType === 'PERSONAL' ? { increment: creditIncreaseAmount } : undefined,
+            companyCredit: effectiveCreditType === 'COMPANY' ? { increment: creditIncreaseAmount } : undefined,
+          }
+        });
+      } else {
+        updatedUser = await tx.user.findUnique({
+          where: { id: userId },
+          select: { credit: true, personalCredit: true, companyCredit: true }
+        });
+      }
+
+      // Create credit transaction log
+      await tx.creditTransaction.create({
+        data: {
+          userId,
+          transactionType: isOnlinePayment ? 'BANK_DIRECT' : (effectiveCreditType === 'PERSONAL' ? 'PERSONAL_COLLECTION' : 'CREDIT_INCREASE'),
+          amount: creditIncreaseAmount,
+          paymentMode: (paymentMode || 'CASH') as any,
+          creditType: effectiveCreditType as any,
+          sourceType: 'FORECLOSURE',
+          sourceId: `${loanId}-FORECLOSURE`,
+          loanApplicationId: loanId,
+          customerName: loan.customerName,
+          loanApplicationNo: loan.loanNumber,
+          companyBalanceAfter: updatedUser?.companyCredit || 0,
+          personalBalanceAfter: updatedUser?.personalCredit || 0,
+          balanceAfter: updatedUser?.credit || 0,
+          description: `Foreclosure — ${loan.loanNumber} (P:₹${totalPrincipal.toFixed(2)} I:₹${totalInterest.toFixed(2)})${isOnlinePayment ? ' (Online Direct)' : ''}`,
+          transactionDate: now,
+        }
       });
     }, { maxWait: 5000, timeout: 10000 }));
 
@@ -437,6 +481,10 @@ export async function POST(request: NextRequest) {
           totalForeclosureAmount,
           paymentMode,
           companyId: effectiveCompanyId,
+          collectorId: userId,
+          creditType: effectiveCreditType,
+          customerName: loan.customerName,
+          closedEMIIds: unpaidEMIIds,
         }),
         description: `Loan ${loan.loanNumber} closed. Foreclosure: ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
         canUndo: true,
