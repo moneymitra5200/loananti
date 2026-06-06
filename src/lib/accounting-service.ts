@@ -1466,23 +1466,54 @@ export class AccountingService {
       orderBy: { accountCode: 'asc' },
     });
 
+    const lines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId: this.companyId,
+          isReversed: false,
+          isApproved: true,
+          ...(asOfDate ? { entryDate: { lte: asOfDate } } : {})
+        }
+      },
+      select: {
+        accountId: true,
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
+
+    const balanceMap = new Map<string, { debit: number; credit: number }>();
+    for (const line of lines) {
+      const existing = balanceMap.get(line.accountId) || { debit: 0, credit: 0 };
+      existing.debit += line.debitAmount;
+      existing.credit += line.creditAmount;
+      balanceMap.set(line.accountId, existing);
+    }
+
     return accounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      
+      let balance = 0;
+      if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
+        balance = account.openingBalance + balances.debit - balances.credit;
+      } else {
+        balance = account.openingBalance + balances.credit - balances.debit;
+      }
+
       let debitBalance = 0;
       let creditBalance = 0;
 
-      // For Assets and Expenses: positive balance = debit
-      // For Liabilities, Income, Equity: positive balance = credit
       if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
-        if (account.currentBalance >= 0) {
-          debitBalance = account.currentBalance;
+        if (balance >= 0) {
+          debitBalance = balance;
         } else {
-          creditBalance = Math.abs(account.currentBalance);
+          creditBalance = Math.abs(balance);
         }
       } else {
-        if (account.currentBalance >= 0) {
-          creditBalance = account.currentBalance;
+        if (balance >= 0) {
+          creditBalance = balance;
         } else {
-          debitBalance = Math.abs(account.currentBalance);
+          debitBalance = Math.abs(balance);
         }
       }
 
@@ -1514,17 +1545,49 @@ export class AccountingService {
       where: { companyId: this.companyId, accountType: 'EXPENSE', isActive: true },
     });
 
-    const income = incomeAccounts.map(account => ({
-      accountCode: account.accountCode,
-      accountName: account.accountName,
-      amount: account.currentBalance,
-    }));
+    const lines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId: this.companyId,
+          isReversed: false,
+          isApproved: true,
+          entryDate: { gte: startDate, lte: endDate }
+        }
+      },
+      select: {
+        accountId: true,
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
 
-    const expenses = expenseAccounts.map(account => ({
-      accountCode: account.accountCode,
-      accountName: account.accountName,
-      amount: account.currentBalance,
-    }));
+    const balanceMap = new Map<string, { debit: number; credit: number }>();
+    for (const line of lines) {
+      const existing = balanceMap.get(line.accountId) || { debit: 0, credit: 0 };
+      existing.debit += line.debitAmount;
+      existing.credit += line.creditAmount;
+      balanceMap.set(line.accountId, existing);
+    }
+
+    const income = incomeAccounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      const amount = balances.credit - balances.debit;
+      return {
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        amount,
+      };
+    });
+
+    const expenses = expenseAccounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      const amount = balances.debit - balances.credit;
+      return {
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        amount,
+      };
+    });
 
     const totalIncome = income.reduce((sum, acc) => sum + acc.amount, 0);
     const totalExpenses = expenses.reduce((sum, acc) => sum + acc.amount, 0);
@@ -1561,23 +1624,59 @@ export class AccountingService {
       where: { companyId: this.companyId, accountType: 'EQUITY', isActive: true },
     });
 
-    const assets = assetAccounts.map(account => ({
-      accountCode: account.accountCode,
-      accountName: account.accountName,
-      amount: account.currentBalance,
-    }));
+    const lines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId: this.companyId,
+          isReversed: false,
+          isApproved: true,
+          entryDate: { lte: asOfDate }
+        }
+      },
+      select: {
+        accountId: true,
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
 
-    const liabilities = liabilityAccounts.map(account => ({
-      accountCode: account.accountCode,
-      accountName: account.accountName,
-      amount: account.currentBalance,
-    }));
+    const balanceMap = new Map<string, { debit: number; credit: number }>();
+    for (const line of lines) {
+      const existing = balanceMap.get(line.accountId) || { debit: 0, credit: 0 };
+      existing.debit += line.debitAmount;
+      existing.credit += line.creditAmount;
+      balanceMap.set(line.accountId, existing);
+    }
 
-    const equity = equityAccounts.map(account => ({
-      accountCode: account.accountCode,
-      accountName: account.accountName,
-      amount: account.currentBalance,
-    }));
+    const assets = assetAccounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      const amount = account.openingBalance + balances.debit - balances.credit;
+      return {
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        amount,
+      };
+    });
+
+    const liabilities = liabilityAccounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      const amount = account.openingBalance + balances.credit - balances.debit;
+      return {
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        amount,
+      };
+    });
+
+    const equity = equityAccounts.map(account => {
+      const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+      const amount = account.openingBalance + balances.credit - balances.debit;
+      return {
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        amount,
+      };
+    });
 
     return {
       assets,

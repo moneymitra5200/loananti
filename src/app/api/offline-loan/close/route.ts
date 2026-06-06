@@ -476,20 +476,74 @@ export async function POST(request: NextRequest) {
             await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
           }
 
+          // Query existing accrual/reclassification entries for unpaid EMIs to prevent double-counting
+          const existingEntries = await tx.journalEntry.findMany({
+            where: {
+              companyId: foreClosureTargetCompanyId,
+              referenceId: { in: unpaidEMIIds },
+              isReversed: false
+            },
+            select: {
+              referenceId: true,
+              referenceType: true
+            }
+          });
+
+          const accrualMap = new Map<string, string>();
+          for (const ent of existingEntries) {
+            const refId = ent.referenceId;
+            const refType = ent.referenceType;
+            if (refId && refType && (refType === 'INTEREST_RECLASSIFICATION' || !accrualMap.has(refId))) {
+              accrualMap.set(refId, refType);
+            }
+          }
+
+          let totalAccruedInterest = 0;
+          let totalReclassifiedInterest = 0;
+          let totalDirectInterest = 0;
+
+          for (const emi of unpaidEMIs) {
+            const monthHasStarted = new Date(emi.dueDate) <= now;
+            if (monthHasStarted) {
+              const remI = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+              if (remI > 0) {
+                const type = accrualMap.get(emi.id);
+                if (type === 'INTEREST_RECLASSIFICATION') {
+                  totalReclassifiedInterest += remI;
+                } else if (type === 'INTEREST_ACCRUAL') {
+                  totalAccruedInterest += remI;
+                } else {
+                  totalDirectInterest += remI;
+                }
+              }
+            }
+          }
+
+          const lines: any[] = [
+            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
+            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` }
+          ];
+
+          if (totalAccruedInterest > 0) {
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Accrued interest cleared` });
+          }
+          if (totalReclassifiedInterest > 0) {
+            lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Overdue interest cleared` });
+          }
+          if (totalDirectInterest > 0) {
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `Interest income on foreclosure` });
+          }
+
           // 2. Double-entry journal in the same transaction
           await accSvc.createJournalEntry({
             entryDate:     now,
             referenceType: 'EMI_PAYMENT',
             referenceId:   `${loanId}-FORECLOSURE-JE`,
             narration:     `Foreclosure - ${loan.loanNumber} - P:Rs.${totalPrincipal.toFixed(2)} I:Rs.${totalInterest.toFixed(2)} via ${paymentMode}`,
-            lines: [
-              { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
-              { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` },
-              ...(totalInterest > 0 ? [{ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalInterest, narration: `Interest income on foreclosure` }] : []),
-            ],
+            lines,
             createdById: userId,
             isAutoEntry: true,
-          });
+          }, tx); // Pass tx to run within transaction!
         }));
         console.log(`[Close/Payment] DONE Foreclosure accounting (cashbook+journal) in ${mirrorMapping ? 'MIRROR' : 'original'} co. (${foreClosureTargetCompanyId}): Rs.${totalForeclosureAmount}`);
       } catch (e: any) {

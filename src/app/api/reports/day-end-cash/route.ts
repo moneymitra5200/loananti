@@ -44,6 +44,28 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    // Collect all payment IDs and offline EMI IDs from credit transactions
+    const paymentIds = creditTxs.map(tx => tx.sourceId).filter(Boolean) as string[];
+
+    const [paymentsFromDb, offlineEmisFromDb] = await Promise.all([
+      db.payment.findMany({
+        where: { id: { in: paymentIds } },
+        select: { id: true, amount: true }
+      }),
+      db.offlineLoanEMI.findMany({
+        where: { id: { in: paymentIds } },
+        select: { id: true, paidAmount: true }
+      })
+    ]);
+
+    const totalAmountMap = new Map<string, number>();
+    for (const p of paymentsFromDb) {
+      totalAmountMap.set(p.id, p.amount);
+    }
+    for (const emi of offlineEmisFromDb) {
+      totalAmountMap.set(emi.id, emi.paidAmount);
+    }
+
     // Group credit transactions by agent
     const agentMap = new Map<string, {
       agentId: string; agentName: string; agentRole: string;
@@ -72,15 +94,35 @@ export async function GET(req: NextRequest) {
       row.interest  += tx.interestComponent  || 0;
 
       const mode = (tx.paymentMode || '').toUpperCase();
+      let cashAmount = tx.amount;
+      let onlineAmount = 0;
+
       if (mode === 'CASH') {
-        row.cashAmount += tx.amount;
+        row.cashAmount += cashAmount;
+        row.total += cashAmount;
       } else if (mode === 'SPLIT') {
-        row.cashAmount   += tx.amount / 2;
-        row.onlineAmount += tx.amount / 2;
+        const totalAmount = tx.sourceId ? totalAmountMap.get(tx.sourceId) : null;
+        if (totalAmount !== undefined && totalAmount !== null) {
+          cashAmount = tx.amount;
+          onlineAmount = Math.max(0, totalAmount - tx.amount);
+        } else {
+          // Fallback parsing from description
+          const onlineMatch = tx.description?.match(/Online\s*(?:Rs\.|â‚¹|₹)?\s*([\d.]+)/i);
+          if (onlineMatch) {
+            onlineAmount = parseFloat(onlineMatch[1]) || tx.amount;
+          } else {
+            // Default 50/50
+            cashAmount = tx.amount;
+            onlineAmount = tx.amount;
+          }
+        }
+        row.cashAmount += cashAmount;
+        row.onlineAmount += onlineAmount;
+        row.total += (cashAmount + onlineAmount);
       } else {
         row.onlineAmount += tx.amount;
+        row.total += tx.amount;
       }
-      row.total += tx.amount;
     }
 
     // Merge penalty data from payments

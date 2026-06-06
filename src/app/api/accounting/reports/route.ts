@@ -40,11 +40,11 @@ export async function GET(request: NextRequest) {
 
     switch (reportType) {
       case 'trial-balance':
-        return await getTrialBalance(companyId);
+        return await getTrialBalance(companyId, endDate ? new Date(endDate) : undefined);
       case 'profit-loss':
         return await getProfitAndLoss(companyId, startDate, endDate);
       case 'balance-sheet':
-        return await getBalanceSheet(companyId);
+        return await getBalanceSheet(companyId, endDate ? new Date(endDate) : undefined);
       case 'portfolio':
         return await getLoanPortfolioReport(companyId);
       case 'cash-flow':
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 // Trial Balance
-async function getTrialBalance(companyId: string | null) {
+async function getTrialBalance(companyId: string | null, asOfDate?: Date) {
   const where = companyId ? { companyId, isActive: true } : { isActive: true };
   
   const accounts = await db.chartOfAccount.findMany({
@@ -69,23 +69,54 @@ async function getTrialBalance(companyId: string | null) {
     orderBy: { accountCode: 'asc' },
   });
 
+  const lines = await db.journalEntryLine.findMany({
+    where: {
+      journalEntry: {
+        ...(companyId ? { companyId } : {}),
+        isApproved: true,
+        isReversed: false,
+        ...(asOfDate ? { entryDate: { lte: asOfDate } } : {})
+      }
+    },
+    select: {
+      accountId: true,
+      debitAmount: true,
+      creditAmount: true
+    }
+  });
+
+  const balanceMap = new Map<string, { debit: number; credit: number }>();
+  for (const line of lines) {
+    const existing = balanceMap.get(line.accountId) || { debit: 0, credit: 0 };
+    existing.debit += line.debitAmount;
+    existing.credit += line.creditAmount;
+    balanceMap.set(line.accountId, existing);
+  }
+
   const trialBalance = accounts.map(account => {
+    const balances = balanceMap.get(account.id) || { debit: 0, credit: 0 };
+    
+    let balance = 0;
+    if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
+      balance = account.openingBalance + balances.debit - balances.credit;
+    } else {
+      balance = account.openingBalance + balances.credit - balances.debit;
+    }
+
     let debitBalance = 0;
     let creditBalance = 0;
 
-    // For Assets and Expenses: positive balance = debit
-    // For Liabilities, Income, Equity: positive balance = credit
     if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
-      if (account.currentBalance >= 0) {
-        debitBalance = account.currentBalance;
+      if (balance >= 0) {
+        debitBalance = balance;
       } else {
-        creditBalance = Math.abs(account.currentBalance);
+        creditBalance = Math.abs(balance);
       }
     } else {
-      if (account.currentBalance >= 0) {
-        creditBalance = account.currentBalance;
+      if (balance >= 0) {
+        creditBalance = balance;
       } else {
-        debitBalance = Math.abs(account.currentBalance);
+        debitBalance = Math.abs(balance);
       }
     }
 
@@ -240,7 +271,9 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
 
 
 // Balance Sheet — full heads including Loans Given, Cash in Hand, Interest Receivable
-async function getBalanceSheet(companyId: string | null) {
+// Balance Sheet — full heads including Loans Given, Cash in Hand, Interest Receivable
+async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
+  const dateFilter = asOfDate || new Date();
   const where = companyId ? { companyId, isActive: true } : { isActive: true };
 
   // ─── 1. FETCH ALL ACCOUNTS ──────────────────────────────────────────────
@@ -255,7 +288,8 @@ async function getBalanceSheet(companyId: string | null) {
       journalEntry: {
         ...(companyId ? { companyId } : {}),
         isApproved: true,
-        isReversed: false
+        isReversed: false,
+        entryDate: { lte: dateFilter }
       }
     },
     select: {
@@ -266,72 +300,100 @@ async function getBalanceSheet(companyId: string | null) {
   });
 
   // ─── 3. FETCH GROUND TRUTH DATA FOR CRITICAL ACCOUNTS ───────────────────
-  const [cashBook, bankAccountsData, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs, overdueOnlineEMIs, overdueOfflineEMIs] = await Promise.all([
+  // Note: All ground truth sub-queries must respect the dateFilter to prevent live leakage!
+  const [cashBook, bankAccountsData, equityEntries, onlineLoans, offlineLoans] = await Promise.all([
     companyId ? db.cashBook.findUnique({ where: { companyId } }) : null,
     db.bankAccount.findMany({ where: { ...(companyId ? { companyId } : {}), isActive: true } }),
     db.equityEntry.findMany({ where: { ...(companyId ? { companyId } : {}) } }),
-    // Online loans — status ACTIVE or DISBURSED
+    // Online loans — disbursed on or before dateFilter
     db.loanApplication.findMany({
-      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'DISBURSED'] } },
+      where: {
+        ...(companyId ? { companyId } : {}),
+        status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] },
+        disbursedAt: { lte: dateFilter }
+      },
       select: {
         disbursedAmount: true,
-        emiSchedules: { select: { paidPrincipal: true } }
+        emiSchedules: {
+          where: {
+            paymentStatus: 'PAID',
+            paidDate: { lte: dateFilter }
+          },
+          select: { paidPrincipal: true }
+        }
       }
     }),
     // Offline loans
     db.offlineLoan.findMany({
-      where: { ...(companyId ? { companyId } : {}), status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
-      select: { loanAmount: true, emis: { select: { paidPrincipal: true } } }
-    }),
-    // Active (non-overdue) pending interest → account 1301
-    db.eMISchedule.aggregate({
-      where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
-      _sum: { interestAmount: true, paidInterest: true }
-    }),
-    db.offlineLoanEMI.aggregate({
-      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
-      _sum: { interestAmount: true, paidInterest: true }
-    }),
-    // Overdue interest → account 1305
-    db.eMISchedule.aggregate({
-      where: { loanApplication: { ...(companyId ? { companyId } : {}) }, paymentStatus: 'OVERDUE' },
-      _sum: { interestAmount: true, paidInterest: true }
-    }),
-    db.offlineLoanEMI.aggregate({
-      where: { offlineLoan: { ...(companyId ? { companyId } : {}) }, paymentStatus: 'OVERDUE' },
-      _sum: { interestAmount: true, paidInterest: true }
+      where: {
+        ...(companyId ? { companyId } : {}),
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED', 'CLOSED'] },
+        disbursementDate: { lte: dateFilter }
+      },
+      select: {
+        loanAmount: true,
+        emis: {
+          where: {
+            paymentStatus: 'PAID',
+            paidDate: { lte: dateFilter }
+          },
+          select: { paidPrincipal: true }
+        }
+      }
     })
   ]);
 
-  // Compute ground truths
-  const actualCash      = cashBook?.currentBalance || 0;
-  const actualBankTotal = bankAccountsData.reduce((s, b) => s + (b.currentBalance || 0), 0);
-  const actualCapital    = equityEntries.reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
+  // Compute historical ground truths up to dateFilter
   
-  // Online loans outstanding = disbursedAmount - total paidPrincipal (actual principal repaid)
-  // This is the only correct calculation — never use principalAmount from schedule (that's scheduled, not paid)
+  // 1. Cash Balance up to dateFilter
+  const cbWhere: any = { entryDate: { lte: dateFilter } };
+  if (companyId) cbWhere.cashBook = { companyId };
+  const [cbCredits, cbDebits] = await Promise.all([
+    db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'CREDIT' }, _sum: { amount: true } }),
+    db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'DEBIT' }, _sum: { amount: true } })
+  ]);
+  const openingCash = cashBook?.openingBalance || 0;
+  const actualCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
+
+  // 2. Bank Balance up to dateFilter
+  let actualBankTotal = 0;
+  const bankAccountsDataWithHistorical = await Promise.all(
+    bankAccountsData.map(async (bank) => {
+      const txCredits = await db.bankTransaction.aggregate({
+        where: { bankAccountId: bank.id, transactionDate: { lte: dateFilter }, transactionType: 'CREDIT' },
+        _sum: { amount: true }
+      });
+      const txDebits = await db.bankTransaction.aggregate({
+        where: { bankAccountId: bank.id, transactionDate: { lte: dateFilter }, transactionType: 'DEBIT' },
+        _sum: { amount: true }
+      });
+      const historicalBalance = bank.openingBalance + (txCredits._sum.amount || 0) - (txDebits._sum.amount || 0);
+      actualBankTotal += historicalBalance;
+      return {
+        ...bank,
+        currentBalance: historicalBalance
+      };
+    })
+  );
+
+  // 3. Capital (Equity) up to dateFilter
+  const actualCapital = equityEntries
+    .filter(e => new Date(e.entryDate || e.createdAt) <= dateFilter)
+    .reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
+
+  // 4. Online Loans outstanding principal up to dateFilter
   const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
     const disbursed = loan.disbursedAmount || 0;
     const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
     return sum + Math.max(0, disbursed - paidPrincipal);
   }, 0);
-  
-  // Offline loans outstanding = loanAmount - total paidPrincipal (excluding mirror loans already filtered above)
+
+  // 5. Offline Loans outstanding principal up to dateFilter
   const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
     const disbursed = loan.loanAmount || 0;
     const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
     return sum + Math.max(0, disbursed - paidPrincipal);
   }, 0);
-
-
-  const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
-  const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
-  const interestReceivable     = Math.max(0, onlinePendingInterest + offlinePendingInterest);
-
-  // Overdue interest (account 1305)
-  const overdueOnlineInterest  = (overdueOnlineEMIs._sum.interestAmount  || 0) - (overdueOnlineEMIs._sum.paidInterest  || 0);
-  const overdueOfflineInterest = (overdueOfflineEMIs._sum.interestAmount || 0) - (overdueOfflineEMIs._sum.paidInterest || 0);
-  const overdueInterestReceivable = Math.max(0, overdueOnlineInterest + overdueOfflineInterest);
 
   // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
   const drMap: Record<string, number> = {};
@@ -356,9 +418,6 @@ async function getBalanceSheet(companyId: string | null) {
     if (acc.accountCode === '1102') balance = actualBankTotal;
     if (acc.accountCode === '1201') balance = actualOnlineLoans;
     if (acc.accountCode === '1210') balance = actualOfflineLoans;
-    // REMOVED 1301 and 1305 overrides: Forcing unearned future interest into assets 
-    // without corresponding income/equity entries unbalances the Balance Sheet. 
-    // They must natively reflect the Journal Entries (accrual-helper creates these automatically).
     if (acc.accountCode === '3002') {
       balance = actualCapital > 0 || actualCapital < 0 ? actualCapital : balance;
     }
@@ -373,10 +432,10 @@ async function getBalanceSheet(companyId: string | null) {
     { accountCode: '1101', accountName: 'Cash in Hand', amount: accountBalances['1101'] || 0 },
     {
       accountCode: '1102', accountName: 'Bank Accounts', amount: actualBankTotal, isHead: true,
-      subAccounts: bankAccountsData.map(b => ({
+      subAccounts: bankAccountsDataWithHistorical.map(b => ({
         accountCode: b.id,
         accountName: `${b.bankName} \u2013 ${b.accountNumber?.slice(-4) || 'XXXX'}`,
-        amount: b.currentBalance || 0, isSubHead: true
+        amount: b.currentBalance, isSubHead: true
       }))
     },
     { accountCode: 'SEC_LP', accountName: '── Loans Portfolio ──', amount: 0, isSection: true },
@@ -430,7 +489,7 @@ async function getBalanceSheet(companyId: string | null) {
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
   // Current Year P&L
-  const pnlRes = await getProfitAndLoss(companyId);
+  const pnlRes = await getProfitAndLoss(companyId, null, dateFilter.toISOString());
   const pnlData = await pnlRes.json();
   const currentYearProfit = pnlData.netProfit || 0;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
