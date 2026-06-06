@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
     // Query mirror mapping separately (no Prisma FK on OfflineLoan)
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId },
+      where: { originalLoanId: loanId, isOfflineLoan: true },
       include: {
         mirrorCompany:   { select: { id: true, name: true, code: true } },
         originalCompany: { select: { id: true, name: true, code: true } },
@@ -132,7 +132,7 @@ export async function POST(request: NextRequest) {
 
     // Find mirror mapping — we close mirror too if it exists
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId }
+      where: { originalLoanId: loanId, isOfflineLoan: true }
     });
 
     let effectiveCompanyId = companyId || loan.companyId || '';
@@ -304,16 +304,17 @@ export async function POST(request: NextRequest) {
           const actualWriteOff = totalRemainingPrincipal + totalAccruedInterest + totalReclassifiedInterest;
 
           if (actualWriteOff > 0) {
+            const custId = loan.customerId || undefined;
             const lines = [
-              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
-              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, narration: `Loan ${loan.loanNumber} principal removed from Loans Receivable` }
+              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, loanId, customerId: custId, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
+              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, loanId, customerId: custId, narration: `Loan ${loan.loanNumber} principal removed from Loans Receivable` }
             ];
 
             if (totalAccruedInterest > 0) {
-              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Waived accrued interest removed from Interest Receivable` });
+              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, loanId, customerId: custId, narration: `Waived accrued interest removed from Interest Receivable` });
             }
             if (totalReclassifiedInterest > 0) {
-              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Waived overdue interest removed from Irrecoverable Interest` });
+              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId, customerId: custId, narration: `Waived overdue interest removed from Irrecoverable Interest` });
             }
 
             await accSvc.createJournalEntry({
@@ -567,19 +568,20 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          const custId = loan.customerId || undefined;
           const lines: any[] = [
-            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
-            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` }
+            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, loanId, customerId: custId, narration: `Foreclosure collected (${paymentMode})` },
+            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, loanId, customerId: custId, narration: `Loan principal recovered` }
           ];
 
           if (totalAccruedInterest > 0) {
-            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Accrued interest cleared` });
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, loanId, customerId: custId, narration: `Accrued interest cleared` });
           }
           if (totalReclassifiedInterest > 0) {
-            lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Overdue interest cleared` });
+            lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId, customerId: custId, narration: `Overdue interest cleared` });
           }
           if (totalDirectInterest > 0) {
-            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `Interest income on foreclosure` });
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, loanId, customerId: custId, narration: `Interest income on foreclosure` });
           }
 
           // 2. Double-entry journal in the same transaction

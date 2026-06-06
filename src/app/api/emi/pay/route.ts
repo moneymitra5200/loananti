@@ -1314,9 +1314,9 @@ export async function POST(request: NextRequest) {
               where: { id: mirrorEMIForPO.id },
               data: {
                 paymentStatus: 'PAID',
-                paidAmount:    (Number(mirrorEMIForPO.paidAmount || 0)) + mirrorP,
-                paidPrincipal: mirrorP,
-                paidInterest:  0,   // NOT collected
+                paidAmount:    (Number(mirrorEMIForPO.paidAmount    || 0)) + mirrorP,
+                paidPrincipal: (Number(mirrorEMIForPO.paidPrincipal || 0)) + mirrorP,  // accumulate, not overwrite
+                paidInterest:  Number(mirrorEMIForPO.paidInterest || 0),  // preserve existing (not collected this session)
                 paidDate:      new Date(),
                 paymentMode:   paymentMode,
                 notes: isAdv
