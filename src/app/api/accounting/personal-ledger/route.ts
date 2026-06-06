@@ -1009,6 +1009,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
       const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
       const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
+      const isClose   = je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' || je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' || je.referenceType === 'LOSS_WRITE_OFF';
       const isDisbursement = je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
 
       let principalPaid = 0;
@@ -1045,6 +1046,16 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           ['1200', '1201', '1210'].includes(l.account?.accountCode || '')
         );
         principalDisbursed = principalLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+      } else if (isClose) {
+        // Close/Foreclosure: credit to 1200 = principal recovered/written off; credit to interest accounts = interest cleared
+        const principalLines = loanLines.filter((l: any) =>
+          ['1200', '1201', '1210'].includes(l.account?.accountCode || '')
+        );
+        principalPaid = principalLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        const interestLines = loanLines.filter((l: any) =>
+          ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '')
+        );
+        interestPaid = interestLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
       } else {
         // Fallback for manual/other journal entries
         const lrLines = loanLines.filter((l: any) => 
@@ -1100,6 +1111,48 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       });
     }
 
+    // ── Synthetic "Loan Closed" entry for closed loans with no close journal entry ──
+    // This handles legacy closures that happened before loanId tagging was added.
+    if (meta.status === 'CLOSED') {
+      const hasCloseJE = loanJEs.some(je =>
+        je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
+        je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' ||
+        je.referenceType === 'LOAN_FORECLOSURE' ||
+        je.referenceType === 'LOSS_WRITE_OFF'
+      );
+      if (!hasCloseJE) {
+        // Use EMI data to compute what was settled on close
+        const emiList2 = meta.emis || meta.emiSchedules || [];
+        const closedEMIs = emiList2.filter((e: any) => e.paymentStatus === 'PAID' || e.paymentStatus === 'WAIVED');
+        const closePrincipal = closedEMIs.reduce((s: number, e: any) => s + (Number(e.paidPrincipal) || 0), 0);
+        const closeInterest  = closedEMIs.reduce((s: number, e: any) => s + (Number(e.paidInterest)  || 0), 0);
+        // Find latest paidDate or closedAt
+        const latestPaidDates = closedEMIs.map((e: any) => e.paidDate ? new Date(e.paidDate) : null).filter(Boolean) as Date[];
+        const closeDate = latestPaidDates.length > 0 ? new Date(Math.max(...latestPaidDates.map(d => d.getTime()))) : new Date();
+        if (closePrincipal > 0 || closeInterest > 0) {
+          allEntries.push({
+            id: `synth-close-${loanId}`,
+            date: closeDate,
+            referenceType: 'LOAN_CLOSURE',
+            referenceId: loanId,
+            loanId,
+            loanNumber: meta.loanNumber,
+            emiNumber: undefined,
+            narration: `Loan Closed — ${meta.loanNumber}`,
+            description: `Loan Closed (Foreclosure / Full Settlement) — ${meta.loanNumber}`,
+            principalDisbursed: 0,
+            principalPaid: closePrincipal,
+            interestPaid: closeInterest,
+            totalPayment: closePrincipal + closeInterest,
+            lines: [
+              { accountCode: '1200', accountName: `Loan Given — ${customer?.name || ''}`, debitAmount: 0, creditAmount: closePrincipal, narration: 'Principal settled on loan close (synthetic)' },
+              ...(closeInterest > 0 ? [{ accountCode: '1301', accountName: `Interest — ${customer?.name || ''}`, debitAmount: 0, creditAmount: closeInterest, narration: 'Interest settled/waived on close (synthetic)' }] : [])
+            ]
+          });
+        }
+      }
+    }
+
     // Compute outstanding for this loan from its journal entries
     const loanJEsAll = entriesByLoan.get(loanId) || [];
     const isLineForThisLoanSummary = (l: any) => String(l.loanId) === String(loanId) || originalToMirrorLoanId.get(String(l.loanId)) === String(loanId);
@@ -1116,16 +1169,22 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
 
     const totalRepaid = loanJEsAll.reduce((s, je) => {
-      const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
-      if (!isPayment) return s;
-      const lrLines = je.lines.filter((l: any) => 
+      const isAnyPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' ||
+        je.referenceType === 'INTEREST_ONLY_PAYMENT' || je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
+        je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' ||
+        je.referenceType === 'LOSS_WRITE_OFF';
+      if (!isAnyPayment) return s;
+      const lrLines = je.lines.filter((l: any) =>
         ['1200', '1201', '1210'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
       );
       return s + lrLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
     }, 0);
     const totalInterestCollected = loanJEsAll.reduce((s, je) => {
-      const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
-      if (!isPayment) return s;
+      const isAnyPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' ||
+        je.referenceType === 'INTEREST_ONLY_PAYMENT' || je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
+        je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' ||
+        je.referenceType === 'LOSS_WRITE_OFF';
+      if (!isAnyPayment) return s;
       const iLines = je.lines.filter((l: any) =>
         ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
       );
