@@ -232,26 +232,77 @@ export async function POST(request: NextRequest) {
       await closeMirrorLoan();
 
       // ── Accounting: Irrecoverable Debt write-off journal — ORIGINAL COMPANY
-      if (effectiveCompanyId && totalWriteOff > 0) {
+      if (effectiveCompanyId) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
           const accSvc = new AccountingService(effectiveCompanyId);
           await accSvc.initializeChartOfAccounts();
-          await accSvc.createJournalEntry({
-            entryDate:     now,
-            referenceType: 'PRINCIPAL_ONLY_PAYMENT',
-            referenceId:   `${loanId}-LOSS-WRITEOFF`,
-            narration:     `Loan ${loan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${writeOffInterestOnly ? 0 : totalRemainingInterest.toFixed(2)}. ${remarks || ''}`,
-            lines: [
-              // Dr Irrecoverable Debt (expense) — the loss
-              { accountCode: '5500', debitAmount: totalWriteOff,  creditAmount: 0,             narration: `Write-off to Irrecoverable Debt (${writeOffInterestOnly ? 'P-only' : 'P+I'})` },
-              // Cr Loans Receivable — remove from books
-              { accountCode: '1200', debitAmount: 0,              creditAmount: totalWriteOff, narration: `Loan ${loan.applicationNo} removed from Loans Receivable` },
-            ],
-            createdById: userId,
-            isAutoEntry: true,
-          });
-          console.log(`[Close/Loss] ✅ Write-off journal (original co.): ₹${totalWriteOff}`);
+
+          let totalAccruedInterest = 0;
+          let totalReclassifiedInterest = 0;
+
+          if (!writeOffInterestOnly && unpaidEMIIds.length > 0) {
+            const existingEntries = await db.journalEntry.findMany({
+              where: {
+                companyId: effectiveCompanyId,
+                referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
+                referenceId: { in: unpaidEMIIds },
+                isReversed: false
+              },
+              select: {
+                referenceId: true,
+                referenceType: true
+              }
+            });
+
+            const accrualMap = new Map<string, string>();
+            for (const ent of existingEntries) {
+              const refId = ent.referenceId;
+              const refType = ent.referenceType;
+              if (refId && refType && (refType === 'INTEREST_RECLASSIFICATION' || !accrualMap.has(refId))) {
+                accrualMap.set(refId, refType);
+              }
+            }
+
+            for (const emi of unpaidEMIs) {
+              const remI = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+              if (remI > 0) {
+                const type = accrualMap.get(emi.id);
+                if (type === 'INTEREST_RECLASSIFICATION') {
+                  totalReclassifiedInterest += remI;
+                } else if (type === 'INTEREST_ACCRUAL') {
+                  totalAccruedInterest += remI;
+                }
+              }
+            }
+          }
+
+          const actualWriteOff = totalRemainingPrincipal + totalAccruedInterest + totalReclassifiedInterest;
+
+          if (actualWriteOff > 0) {
+            const lines = [
+              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, narration: `Write-off to Irrecoverable Debt (${writeOffInterestOnly ? 'P-only' : 'P+I'})` },
+              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, narration: `Loan ${loan.applicationNo} principal removed from Loans Receivable` }
+            ];
+
+            if (totalAccruedInterest > 0) {
+              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Waived accrued interest removed from Interest Receivable` });
+            }
+            if (totalReclassifiedInterest > 0) {
+              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Waived overdue interest removed from Irrecoverable Interest` });
+            }
+
+            await accSvc.createJournalEntry({
+              entryDate:     now,
+              referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+              referenceId:   `${loanId}-LOSS-WRITEOFF`,
+              narration:     `Loan ${loan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${(totalAccruedInterest + totalReclassifiedInterest).toFixed(2)}. ${remarks || ''}`,
+              lines,
+              createdById: userId,
+              isAutoEntry: true,
+            });
+            console.log(`[Close/Loss] ✅ Write-off journal (original co.): ₹${actualWriteOff}`);
+          }
         } catch (e: any) {
           const msg = `Write-off journal failed: ${e?.message}`;
           accountingWarnings.push(msg);
@@ -267,25 +318,74 @@ export async function POST(request: NextRequest) {
           });
           if (mirrorLoan) {
             const mirrorUnpaid = mirrorLoan.emiSchedules.filter(isCloseable);
-            let mirrorP = 0, mirrorI = 0;
+            const mirrorUnpaidIds = mirrorUnpaid.map(e => e.id);
+            let mirrorP = 0;
+            let mirrorAccruedI = 0;
+            let mirrorReclassifiedI = 0;
+
+            let existingMirrorEntries: any[] = [];
+            if (!writeOffInterestOnly && mirrorUnpaidIds.length > 0) {
+              existingMirrorEntries = await db.journalEntry.findMany({
+                where: {
+                  companyId: mirrorMapping.mirrorCompanyId,
+                  referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
+                  referenceId: { in: mirrorUnpaidIds },
+                  isReversed: false
+                },
+                select: {
+                  referenceId: true,
+                  referenceType: true
+                }
+              });
+            }
+
+            const mirrorAccrualMap = new Map<string, string>();
+            for (const ent of existingMirrorEntries) {
+              const refId = ent.referenceId;
+              const refType = ent.referenceType;
+              if (refId && refType && (refType === 'INTEREST_RECLASSIFICATION' || !mirrorAccrualMap.has(refId))) {
+                mirrorAccrualMap.set(refId, refType);
+              }
+            }
+
             for (const e of mirrorUnpaid) {
               mirrorP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
-              mirrorI += Math.max(0, Number(e.interestAmount  ?? 0) - Number(e.paidInterest  ?? 0));
+              const remI = Math.max(0, Number(e.interestAmount ?? 0) - Number(e.paidInterest ?? 0));
+              if (remI > 0) {
+                const type = mirrorAccrualMap.get(e.id);
+                if (type === 'INTEREST_RECLASSIFICATION') {
+                  mirrorReclassifiedI += remI;
+                } else if (type === 'INTEREST_ACCRUAL') {
+                  mirrorAccruedI += remI;
+                }
+              }
             }
-            const mirrorWriteOff = writeOffInterestOnly ? mirrorP : mirrorP + mirrorI;
+
+            const mirrorWriteOff = mirrorP + mirrorAccruedI + mirrorReclassifiedI;
+
             if (mirrorWriteOff > 0) {
               const { AccountingService } = await import('@/lib/accounting-service');
               const mirrorAccSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
               await mirrorAccSvc.initializeChartOfAccounts();
+
+              const lines = [
+                { accountCode: '5500', debitAmount: mirrorWriteOff, creditAmount: 0, narration: `[MIRROR] Write-off to Irrecoverable Debt` },
+                { accountCode: '1200', debitAmount: 0, creditAmount: mirrorP, narration: `[MIRROR] Loan ${mirrorLoan.applicationNo} principal removed from Loans Receivable` }
+              ];
+
+              if (mirrorAccruedI > 0) {
+                lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: mirrorAccruedI, narration: `[MIRROR] Waived accrued interest removed from Interest Receivable` });
+              }
+              if (mirrorReclassifiedI > 0) {
+                lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: mirrorReclassifiedI, narration: `[MIRROR] Waived overdue interest removed from Irrecoverable Interest` });
+              }
+
               await mirrorAccSvc.createJournalEntry({
                 entryDate:     now,
                 referenceType: 'PRINCIPAL_ONLY_PAYMENT',
                 referenceId:   `${mirrorMapping.mirrorLoanId}-LOSS-WRITEOFF`,
-                narration:     `[MIRROR] Loan ${mirrorLoan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}) P:₹${mirrorP.toFixed(2)} I:₹${mirrorI.toFixed(2)}`,
-                lines: [
-                  { accountCode: '5500', debitAmount: mirrorWriteOff, creditAmount: 0,            narration: `[MIRROR] Write-off to Irrecoverable Debt` },
-                  { accountCode: '1200', debitAmount: 0,              creditAmount: mirrorWriteOff, narration: `[MIRROR] Loan ${mirrorLoan.applicationNo} removed from Loans Receivable` },
-                ],
+                narration:     `[MIRROR] Loan ${mirrorLoan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}) P:₹${mirrorP.toFixed(2)} I:₹${(mirrorAccruedI + mirrorReclassifiedI).toFixed(2)}`,
+                lines,
                 createdById: userId,
                 isAutoEntry: true,
               });
