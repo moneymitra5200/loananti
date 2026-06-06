@@ -16,7 +16,7 @@ import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
-  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar
+  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar, RotateCcw
 } from 'lucide-react';
 import { EMIDateChangeDialog } from '../loan/sections';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -213,6 +213,30 @@ export default function OfflineLoanDetailPanel({
   const [summary, setSummary] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [actionLogs, setActionLogs] = useState<any[]>([]);
+  const [undoingLogId, setUndoingLogId] = useState<string | null>(null);
+
+  const handleUndo = async (logId: string) => {
+    setUndoingLogId(logId);
+    try {
+      const res = await fetch('/api/action-log', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'undo', actionLogId: logId, userId: userId || user?.id, userRole: userRole || user?.role }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast({ title: '✅ Action Undone', description: data.message || 'The action has been successfully reversed.' });
+        await fetchLoanDetails();
+        if (onPaymentSuccess) onPaymentSuccess();
+      } else {
+        toast({ title: 'Undo Failed', description: data.error || 'Could not undo this action.', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Network error during undo.', variant: 'destructive' });
+    } finally {
+      setUndoingLogId(null);
+    }
+  };
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMI | null>(null);
@@ -2487,6 +2511,22 @@ export default function OfflineLoanDetailPanel({
                                               By User ID: {log.userId} ({log.userRole}) {log.isUndone ? '• Undone' : ''}
                                             </p>
                                           </div>
+                                          {/* Undo Button — only for undoable, not-yet-undone logs within 24h */}
+                                          {log.canUndo && !log.isUndone && (
+                                            new Date().getTime() - new Date(log.createdAt).getTime() < 24 * 60 * 60 * 1000
+                                          ) && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              className="ml-2 h-7 px-2 text-xs text-amber-700 border-amber-300 hover:bg-amber-50 flex-shrink-0"
+                                              disabled={undoingLogId === log.id}
+                                              onClick={() => handleUndo(log.id)}
+                                            >
+                                              {undoingLogId === log.id
+                                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                                : <><RotateCcw className="h-3 w-3 mr-1" />Undo</>}
+                                            </Button>
+                                          )}
                                         </div>
                                       );
                                     })}
