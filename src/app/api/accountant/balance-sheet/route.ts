@@ -285,6 +285,13 @@ export async function GET(request: NextRequest) {
         description: 'Loans taken from banks'
       },
       {
+        name: 'Investor Capital',
+        amount: investorCapital,
+        type: 'LIABILITY',
+        accountCode: ACCOUNT_CODES.INVESTOR_CAPITAL,
+        description: 'Capital from investors'
+      },
+      {
         name: 'Borrowed Funds',
         amount: borrowedFunds,
         type: 'LIABILITY',
@@ -292,6 +299,32 @@ export async function GET(request: NextRequest) {
         description: 'Funds borrowed from other sources'
       }
     ];
+
+    // Dynamically append any other liability or equity accounts not handled above
+    const handledLeftCodes = new Set([
+      ACCOUNT_CODES.OWNERS_CAPITAL,
+      ACCOUNT_CODES.OPENING_BALANCE_EQUITY,
+      ACCOUNT_CODES.RETAINED_EARNINGS,
+      ACCOUNT_CODES.CURRENT_YEAR_PROFIT,
+      ACCOUNT_CODES.BANK_LOANS,
+      ACCOUNT_CODES.INVESTOR_CAPITAL,
+      ACCOUNT_CODES.BORROWED_FUNDS,
+    ]);
+
+    const otherLeftAccounts = accounts.filter(a => 
+      (a.accountCode.startsWith('2') || a.accountCode.startsWith('3')) &&
+      !handledLeftCodes.has(a.accountCode)
+    );
+
+    for (const acc of otherLeftAccounts) {
+      leftSideItems.push({
+        name: acc.accountName,
+        amount: acc.currentBalance,
+        type: acc.accountCode.startsWith('2') ? 'LIABILITY' : 'EQUITY',
+        accountCode: acc.accountCode,
+        description: `Other ${acc.accountCode.startsWith('2') ? 'Liability' : 'Equity'} account: ${acc.accountName}`
+      });
+    }
 
     // Right Side Items (Assets)
     const rightSideItems = [
@@ -341,6 +374,36 @@ export async function GET(request: NextRequest) {
         description: 'Interest reclassified to overdue (unpaid past due date)'
       }
     ];
+
+    // Dynamically append any other asset accounts not handled above
+    const handledRightCodes = new Set([
+      ACCOUNT_CODES.CASH_IN_HAND,
+      ACCOUNT_CODES.BANK_MAIN,
+      ACCOUNT_CODES.LOANS_RECEIVABLE,
+      ACCOUNT_CODES.ONLINE_LOANS_RECEIVABLE,
+      ACCOUNT_CODES.OFFLINE_LOANS_RECEIVABLE,
+      ACCOUNT_CODES.INTEREST_RECEIVABLE,
+      ACCOUNT_CODES.IRRECOVERABLE_INTEREST,
+      '1102' // Exclude generic bank code
+    ]);
+
+    const otherRightAccounts = accounts.filter(a =>
+      a.accountCode.startsWith('1') &&
+      !handledRightCodes.has(a.accountCode) &&
+      !a.accountCode.startsWith('1102') &&
+      !a.accountCode.startsWith('1103') &&
+      !a.accountCode.startsWith('1104')
+    );
+
+    for (const acc of otherRightAccounts) {
+      rightSideItems.push({
+        name: acc.accountName,
+        amount: acc.currentBalance,
+        type: 'ASSET',
+        accountCode: acc.accountCode,
+        description: `Other Asset account: ${acc.accountName}`
+      });
+    }
 
     // ============================================
     // CALCULATE TOTALS

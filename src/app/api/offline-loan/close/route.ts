@@ -263,12 +263,27 @@ export async function POST(request: NextRequest) {
           let totalAccruedInterest = 0;
           let totalReclassifiedInterest = 0;
 
-          if (!writeOffInterest && unpaidEMIIds.length > 0) {
+          let unpaidMirrorEMIIds: string[] = [];
+          let mirrorEMIs: any[] = [];
+          if (mirrorMapping?.mirrorLoanId) {
+            mirrorEMIs = await db.offlineLoanEMI.findMany({
+              where: { offlineLoanId: mirrorMapping.mirrorLoanId },
+              orderBy: { installmentNumber: 'asc' }
+            });
+            const unpaidInstallmentNumbers = unpaidEMIs.map((e: any) => e.installmentNumber);
+            unpaidMirrorEMIIds = mirrorEMIs
+              .filter((e: any) => unpaidInstallmentNumbers.includes(e.installmentNumber))
+              .map((e: any) => e.id);
+          }
+
+          const existingEntriesQueryIds = mirrorMapping ? unpaidMirrorEMIIds : unpaidEMIIds;
+
+          if (!writeOffInterest && existingEntriesQueryIds.length > 0) {
             const existingEntries = await db.journalEntry.findMany({
               where: {
                 companyId: writeOffTargetCompanyId,
                 referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
-                referenceId: { in: unpaidEMIIds },
+                referenceId: { in: existingEntriesQueryIds },
                 isReversed: false
               },
               select: {
@@ -291,7 +306,10 @@ export async function POST(request: NextRequest) {
                 : Math.min(Number(emi.paidAmount ?? 0), Number(emi.interestAmount ?? 0));
               const remI = Math.max(0, Number(emi.interestAmount ?? 0) - paidI);
               if (remI > 0) {
-                const type = accrualMap.get(emi.id);
+                const emiQueryId = mirrorMapping
+                  ? (mirrorEMIs.find((me: any) => me.installmentNumber === emi.installmentNumber)?.id || emi.id)
+                  : emi.id;
+                const type = accrualMap.get(emiQueryId);
                 if (type === 'INTEREST_RECLASSIFICATION') {
                   totalReclassifiedInterest += remI;
                 } else if (type === 'INTEREST_ACCRUAL') {
@@ -304,22 +322,23 @@ export async function POST(request: NextRequest) {
           const actualWriteOff = totalRemainingPrincipal + totalAccruedInterest + totalReclassifiedInterest;
 
           if (actualWriteOff > 0) {
+            const targetLoanId = mirrorMapping ? mirrorMapping.mirrorLoanId : loanId;
             const custId = loan.customerId || undefined;
             const lines = [
-              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, loanId, customerId: custId, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
-              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, loanId, customerId: custId, narration: `Loan ${loan.loanNumber} principal removed from Loans Receivable` }
+              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, loanId: targetLoanId, customerId: custId, narration: `Write-off to Irrecoverable Debt (${writeOffInterest ? 'P-only' : 'P+I'})` },
+              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, loanId: targetLoanId, customerId: custId, narration: `Loan ${loan.loanNumber} principal removed from Loans Receivable` }
             ];
 
             if (totalAccruedInterest > 0) {
-              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, loanId, customerId: custId, narration: `Waived accrued interest removed from Interest Receivable` });
+              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, loanId: targetLoanId, customerId: custId, narration: `Waived accrued interest removed from Interest Receivable` });
             }
             if (totalReclassifiedInterest > 0) {
-              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId, customerId: custId, narration: `Waived overdue interest removed from Irrecoverable Interest` });
+              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId: targetLoanId, customerId: custId, narration: `Waived overdue interest removed from Irrecoverable Interest` });
             }
 
             await accSvc.createJournalEntry({
               entryDate:     now,
-              referenceType: 'PRINCIPAL_ONLY_PAYMENT',
+              referenceType: 'LOSS_WRITE_OFF',
               referenceId:   `${loanId}-LOSS-WRITEOFF`,
               narration:     `Loan ${loan.loanNumber} written off (${remarks || (writeOffInterest ? 'principal-only irrecoverable loss' : 'irrecoverable loss')}) P:₹${totalRemainingPrincipal.toFixed(2)} I:₹${(totalAccruedInterest + totalReclassifiedInterest).toFixed(2)}`,
               lines,
@@ -327,6 +346,30 @@ export async function POST(request: NextRequest) {
               isAutoEntry: true,
             });
             console.log(`[Close/Loss] ✅ Write-off journal in ${mirrorMapping ? 'MIRROR' : 'original'} co. (${writeOffTargetCompanyId}): ₹${actualWriteOff}`);
+
+            // Inter-company settlement entry for original company (KESARDEEP)
+            if (mirrorMapping) {
+              try {
+                const origAccSvc = new AccountingService(mirrorMapping.originalCompanyId || loan.companyId);
+                await origAccSvc.initializeChartOfAccounts();
+                await origAccSvc.createJournalEntry({
+                  entryDate:     now,
+                  referenceType: 'LOSS_WRITE_OFF',
+                  referenceId:   `${loanId}-LOSS-WRITEOFF-SETTLEMENT`,
+                  narration:     `Loan ${loan.loanNumber} write-off inter-company settlement (funded via mirror)`,
+                  lines: [
+                    { accountCode: '2100', debitAmount: totalRemainingPrincipal, creditAmount: 0, narration: 'Inter-company Accounts Payable cleared' },
+                    { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, loanId, customerId: custId, narration: `Loans Receivable cleared for original loan` }
+                  ],
+                  createdById: userId,
+                  isAutoEntry: true,
+                });
+                console.log(`[Close/Loss] ✅ Intercompany settlement journal in original co. (${mirrorMapping.originalCompanyId}): ₹${totalRemainingPrincipal}`);
+              } catch (settleErr: any) {
+                console.error('[Close/Loss] ❌ Intercompany settlement journal failed:', settleErr?.message);
+                accountingWarnings.push(`Intercompany settlement journal failed: ${settleErr?.message}`);
+              }
+            }
           }
         } catch (e: any) {
           const msg = `Write-off journal failed: ${e?.message}`;
@@ -508,13 +551,19 @@ export async function POST(request: NextRequest) {
         const accSvc = new AccountingService(foreClosureTargetCompanyId);
         await accSvc.initializeChartOfAccounts();
 
+        let origAccSvc: any = null;
+        if (mirrorMapping) {
+          origAccSvc = new AccountingService(mirrorMapping.originalCompanyId || loan.companyId);
+          await origAccSvc.initializeChartOfAccounts();
+        }
+
         await withRetry(() => db.$transaction(async (tx) => {
           // 1. Cashbook or bank entry (participates in outer tx)
           const entryArgs = {
             companyId:     foreClosureTargetCompanyId,
             amount:        totalForeclosureAmount,
             description:   `Foreclosure - ${loan.loanNumber} (P:Rs.${totalPrincipal.toFixed(2)} + I:Rs.${totalInterest.toFixed(2)})`,
-            referenceType: 'EMI_PAYMENT' as const,
+            referenceType: 'OFFLINE_LOAN_FORECLOSURE' as const,
             referenceId:   `${loanId}-FORECLOSURE`,
             createdById:   userId,
             tx,
@@ -526,10 +575,25 @@ export async function POST(request: NextRequest) {
           }
 
           // Query existing accrual/reclassification entries for unpaid EMIs to prevent double-counting
+          let unpaidMirrorEMIIds: string[] = [];
+          let mirrorEMIs: any[] = [];
+          if (mirrorMapping?.mirrorLoanId) {
+            mirrorEMIs = await tx.offlineLoanEMI.findMany({
+              where: { offlineLoanId: mirrorMapping.mirrorLoanId },
+              orderBy: { installmentNumber: 'asc' }
+            });
+            const unpaidInstallmentNumbers = unpaidEMIs.map((e: any) => e.installmentNumber);
+            unpaidMirrorEMIIds = mirrorEMIs
+              .filter((e: any) => unpaidInstallmentNumbers.includes(e.installmentNumber))
+              .map((e: any) => e.id);
+          }
+
+          const existingEntriesQueryIds = mirrorMapping ? unpaidMirrorEMIIds : unpaidEMIIds;
+
           const existingEntries = await tx.journalEntry.findMany({
             where: {
               companyId: foreClosureTargetCompanyId,
-              referenceId: { in: unpaidEMIIds },
+              referenceId: { in: existingEntriesQueryIds },
               isReversed: false
             },
             select: {
@@ -554,9 +618,14 @@ export async function POST(request: NextRequest) {
           for (const emi of unpaidEMIs) {
             const monthHasStarted = new Date(emi.dueDate) <= now;
             if (monthHasStarted) {
-              const remI = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+              const paidI = emi.paidInterest != null ? Number(emi.paidInterest)
+                : Math.min(Number(emi.paidAmount ?? 0), Number(emi.interestAmount ?? 0));
+              const remI = Math.max(0, Number(emi.interestAmount ?? 0) - paidI);
               if (remI > 0) {
-                const type = accrualMap.get(emi.id);
+                const emiQueryId = mirrorMapping
+                  ? (mirrorEMIs.find((me: any) => me.installmentNumber === emi.installmentNumber)?.id || emi.id)
+                  : emi.id;
+                const type = accrualMap.get(emiQueryId);
                 if (type === 'INTEREST_RECLASSIFICATION') {
                   totalReclassifiedInterest += remI;
                 } else if (type === 'INTEREST_ACCRUAL') {
@@ -568,33 +637,50 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          const targetLoanId = mirrorMapping ? mirrorMapping.mirrorLoanId : loanId;
           const custId = loan.customerId || undefined;
           const lines: any[] = [
-            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, loanId, customerId: custId, narration: `Foreclosure collected (${paymentMode})` },
-            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, loanId, customerId: custId, narration: `Loan principal recovered` }
+            { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, loanId: targetLoanId, customerId: custId, narration: `Foreclosure collected (${paymentMode})` },
+            { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, loanId: targetLoanId, customerId: custId, narration: `Loan principal recovered` }
           ];
 
           if (totalAccruedInterest > 0) {
-            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, loanId, customerId: custId, narration: `Accrued interest cleared` });
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, loanId: targetLoanId, customerId: custId, narration: `Accrued interest cleared` });
           }
           if (totalReclassifiedInterest > 0) {
-            lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId, customerId: custId, narration: `Overdue interest cleared` });
+            lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, loanId: targetLoanId, customerId: custId, narration: `Overdue interest cleared` });
           }
           if (totalDirectInterest > 0) {
-            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, loanId, customerId: custId, narration: `Interest income on foreclosure` });
+            lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, loanId: targetLoanId, customerId: custId, narration: `Interest income on foreclosure` });
           }
 
           // 2. Double-entry journal in the same transaction
           await accSvc.createJournalEntry({
             entryDate:     now,
-            referenceType: 'EMI_PAYMENT',
+            referenceType: 'OFFLINE_LOAN_FORECLOSURE',
             referenceId:   `${loanId}-FORECLOSURE-JE`,
             narration:     `Foreclosure - ${loan.loanNumber} - P:Rs.${totalPrincipal.toFixed(2)} I:Rs.${totalInterest.toFixed(2)} via ${paymentMode}`,
             lines,
             createdById: userId,
             isAutoEntry: true,
           }, tx); // Pass tx to run within transaction!
-        }));
+
+          // 3. Inter-company settlement entry for original company (KESARDEEP) in the same transaction
+          if (mirrorMapping && origAccSvc) {
+            await origAccSvc.createJournalEntry({
+              entryDate:     now,
+              referenceType: 'OFFLINE_LOAN_FORECLOSURE',
+              referenceId:   `${loanId}-FORECLOSURE-SETTLEMENT`,
+              narration:     `Loan ${loan.loanNumber} foreclosure inter-company settlement (funded via mirror)`,
+              lines: [
+                { accountCode: '2100', debitAmount: totalPrincipal, creditAmount: 0, narration: 'Inter-company Accounts Payable cleared' },
+                { accountCode: '1200', debitAmount: 0, creditAmount: totalPrincipal, loanId, customerId: custId, narration: `Loans Receivable cleared for original loan` }
+              ],
+              createdById: userId,
+              isAutoEntry: true,
+            }, tx);
+          }
+        }, { maxWait: 15000, timeout: 30000 }));
         console.log(`[Close/Payment] DONE Foreclosure accounting (cashbook+journal) in ${mirrorMapping ? 'MIRROR' : 'original'} co. (${foreClosureTargetCompanyId}): Rs.${totalForeclosureAmount}`);
       } catch (e: any) {
         const msg = `Foreclosure accounting failed: ${e?.message}`;

@@ -708,8 +708,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       
       // If it's the original loan of a mirrored pair
       if (mirroredOfflineIds.has(l.id)) {
-        // ONLY show it if we are viewing the original company
-        return l.companyId === companyId;
+        // Show if we are viewing the original company OR the mirror company
+        const mirrorCo = offlineMirrorCoMap.get(l.id);
+        return l.companyId === companyId || mirrorCo === companyId;
       }
       
       // If it's the mirror loan of a mirrored pair
@@ -1484,7 +1485,7 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
 // Single loan ledger
 // ─────────────────────────────────────────────────────────────────────────────
 async function getSingleLoanLedger(loanId: string, companyId: string | null) {
-  const loan = await db.loanApplication.findUnique({
+  let loan = await db.loanApplication.findUnique({
     where: { id: loanId },
     include: {
       customer:     { select: { id: true, name: true, phone: true } },
@@ -1494,12 +1495,32 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     }
   });
 
+  let offlineLoan: any = null;
+
   if (!loan) {
-    return NextResponse.json({ success: false, error: 'Loan not found' }, { status: 404 });
+    offlineLoan = await db.offlineLoan.findUnique({
+      where: { id: loanId },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        company:  { select: { id: true, name: true } },
+        emis:     { orderBy: { installmentNumber: 'asc' } }
+      }
+    });
+
+    if (!offlineLoan) {
+      return NextResponse.json({ success: false, error: 'Loan not found' }, { status: 404 });
+    }
   }
 
-  const lrAccountIds = await getLRAccountIds(companyId || loan.companyId);
-  const targetCompanyId = companyId || loan.companyId;
+  const effectiveCompanyId = loan ? loan.companyId : offlineLoan.companyId;
+  const applicationNo = loan ? loan.applicationNo : offlineLoan.loanNumber;
+  const customer = loan ? loan.customer : (offlineLoan.customer || (offlineLoan.customerName ? { id: `offline_${offlineLoan.id}`, name: offlineLoan.customerName, phone: offlineLoan.customerPhone } : null));
+  const company = loan ? loan.company : offlineLoan.company;
+  const disbursedAt = loan ? loan.disbursedAt : offlineLoan.disbursementDate;
+  const loanAmount = loan ? (loan.sessionForm?.approvedAmount || loan.requestedAmount || 0) : offlineLoan.loanAmount;
+
+  const lrAccountIds = await getLRAccountIds(companyId || effectiveCompanyId);
+  const targetCompanyId = companyId || effectiveCompanyId;
   const journalEntries = lrAccountIds.length > 0 && targetCompanyId
     ? await db.journalEntry.findMany({
         where: {
@@ -1517,18 +1538,17 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && l.loanId === loanId)
   );
 
-  const loanAmount = loan.sessionForm?.approvedAmount || loan.requestedAmount || 0;
   const mappedEntries = journalEntries.map(je => ({
     id: je.id, date: je.entryDate, referenceType: je.referenceType,
-    narration: je.narration, loanId, loanNumber: loan.applicationNo,
+    narration: je.narration, loanId, loanNumber: applicationNo,
     lines: je.lines.map(l => ({
       accountCode: l.account?.accountCode,
       accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
         ? (l.account.accountCode === '1301'
-            ? `Interest Receivable — ${loan.customer?.name || ''}`
+            ? `Interest Receivable — ${customer?.name || ''}`
             : l.account.accountCode === '1305'
-              ? `Overdue Interest Receivable — ${loan.customer?.name || ''}`
-              : `Loans Receivable — ${loan.customer?.name || ''}`)
+              ? `Overdue Interest Receivable — ${customer?.name || ''}`
+              : `Loans Receivable — ${customer?.name || ''}`)
         : l.account?.accountName,
       debitAmount: l.debitAmount,
       creditAmount: l.creditAmount,
@@ -1538,15 +1558,15 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
   if (!hasDisbursement && loanAmount > 0) {
     mappedEntries.unshift({
       id: `synth-disb-${loanId}`,
-      date: loan.disbursedAt || new Date(),
+      date: disbursedAt || new Date(),
       referenceType: 'LOAN_DISBURSEMENT',
-      narration: `Loan Disbursed — ${loan.applicationNo}`,
+      narration: `Loan Disbursed — ${applicationNo}`,
       loanId,
-      loanNumber: loan.applicationNo,
+      loanNumber: applicationNo,
       lines: [
         {
           accountCode: '1200',
-          accountName: `Loans Receivable — ${loan.customer?.name || ''}`,
+          accountName: `Loans Receivable — ${customer?.name || ''}`,
           debitAmount: loanAmount,
           creditAmount: 0,
         },
@@ -1562,7 +1582,7 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
 
   return NextResponse.json({
     success: true,
-    loanSummary: { id: loan.id, loanNumber: loan.applicationNo, customer: loan.customer, company: loan.company },
+    loanSummary: { id: loanId, loanNumber: applicationNo, customer, company },
     entries: mappedEntries,
     source: (journalEntries.length > 0 || !hasDisbursement) ? 'journal_entries' : 'no_data',
   });
