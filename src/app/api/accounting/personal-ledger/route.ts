@@ -408,16 +408,15 @@ async function listCustomersFallback(companyId: string | null) {
     }
 
     // --- Offline mirror loans ---
-    // For offline loans there is NO separate OfflineLoan record for the mirror.
-    // The mirror is tracked only in MirrorLoanMapping; we must use the ORIGINAL loan.
     const offlineMirrorMappings = await db.mirrorLoanMapping.findMany({
       where: { mirrorCompanyId: companyId, isOfflineLoan: true },
-      select: { originalLoanId: true }
+      select: { originalLoanId: true, mirrorLoanId: true }
     });
 
     for (const mapping of offlineMirrorMappings) {
+      const loanId = mapping.mirrorLoanId || mapping.originalLoanId;
       const loan = await db.offlineLoan.findUnique({
-        where: { id: mapping.originalLoanId },
+        where: { id: loanId },
         include: {
           customer: { select: { id: true, name: true, phone: true, email: true } },
           emis: { select: { paymentStatus: true, totalAmount: true, paidAmount: true } }
@@ -708,9 +707,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       
       // If it's the original loan of a mirrored pair
       if (mirroredOfflineIds.has(l.id)) {
-        // Show if we are viewing the original company OR the mirror company
-        const mirrorCo = offlineMirrorCoMap.get(l.id);
-        return l.companyId === companyId || mirrorCo === companyId;
+        // Show if viewing the original company.
+        // If viewing the mirror company, hide it because the mirror loan record (MR-...) will represent it.
+        return l.companyId === companyId;
       }
       
       // If it's the mirror loan of a mirrored pair
@@ -1521,24 +1520,58 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
 
   const lrAccountIds = await getLRAccountIds(companyId || effectiveCompanyId);
   const targetCompanyId = companyId || effectiveCompanyId;
-  const journalEntries = lrAccountIds.length > 0 && targetCompanyId
+
+  // Find mirror mapping if any
+  const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+    where: {
+      OR: [
+        { originalLoanId: loanId },
+        { mirrorLoanId: loanId }
+      ]
+    }
+  });
+
+  const queryLoanIds = [loanId];
+  if (mirrorMapping) {
+    if (mirrorMapping.originalLoanId) queryLoanIds.push(mirrorMapping.originalLoanId);
+    if (mirrorMapping.mirrorLoanId) queryLoanIds.push(mirrorMapping.mirrorLoanId);
+  }
+
+  // Fetch standard journal entries in the target company
+  const standardEntries = lrAccountIds.length > 0 && targetCompanyId
     ? await db.journalEntry.findMany({
         where: {
           isReversed: false,
           companyId: targetCompanyId,
-          lines: { some: { accountId: { in: lrAccountIds }, loanId } }
+          lines: { some: { accountId: { in: lrAccountIds }, loanId: { in: queryLoanIds } } }
         },
         include: { lines: { include: { account: true } } },
         orderBy: { entryDate: 'asc' }
       })
     : [];
 
-  const hasDisbursement = journalEntries.some(je => 
+  // Fetch interest accrual and reclassification entries globally
+  const accrualEntries = await db.journalEntry.findMany({
+    where: {
+      isReversed: false,
+      referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
+      lines: { some: { loanId: { in: queryLoanIds } } }
+    },
+    include: { lines: { include: { account: true } } },
+    orderBy: { entryDate: 'asc' }
+  });
+
+  // Merge and sort
+  const allJEs = [...standardEntries, ...accrualEntries];
+  const uniqueJEs = Array.from(new Map(allJEs.map(j => [j.id, j])).values());
+  uniqueJEs.sort((a, b) => new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime());
+
+  const hasDisbursement = uniqueJEs.some(je => 
     (je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT') &&
-    je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && l.loanId === loanId)
+    je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && queryLoanIds.includes(l.loanId))
   );
 
-  const mappedEntries = journalEntries.map(je => ({
+  const mappedEntries = uniqueJEs.map(je => ({
     id: je.id, date: je.entryDate, referenceType: je.referenceType,
     narration: je.narration, loanId, loanNumber: applicationNo,
     lines: je.lines.map(l => ({
@@ -1584,7 +1617,7 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     success: true,
     loanSummary: { id: loanId, loanNumber: applicationNo, customer, company },
     entries: mappedEntries,
-    source: (journalEntries.length > 0 || !hasDisbursement) ? 'journal_entries' : 'no_data',
+    source: (uniqueJEs.length > 0 || !hasDisbursement) ? 'journal_entries' : 'no_data',
   });
 }
 
