@@ -585,7 +585,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } },
     select: {
       id: true, applicationNo: true, status: true, companyId: true,
-      requestedAmount: true, disbursedAt: true,
+      requestedAmount: true, disbursedAt: true, closedAt: true,
       sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true, processingFee: true } },
       company: { select: { id: true, name: true } },
       emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
@@ -598,6 +598,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
            id: true, loanNumber: true, status: true, companyId: true,
            loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
            customerName: true, customerPhone: true, customerEmail: true,
+           closedAt: true,
            company: { select: { id: true, name: true } },
            emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
          }
@@ -608,6 +609,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
            id: true, loanNumber: true, status: true, companyId: true,
            loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
            customerName: true, customerPhone: true, customerEmail: true,
+           closedAt: true,
            company: { select: { id: true, name: true } },
            emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
          }
@@ -638,7 +640,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         where: { id: mapping.mirrorLoanId! },
         select: {
           id: true, applicationNo: true, status: true, companyId: true,
-          requestedAmount: true, disbursedAt: true,
+          requestedAmount: true, disbursedAt: true, closedAt: true,
           sessionForm: { select: { approvedAmount: true, interestRate: true, tenure: true } },
           company: { select: { id: true, name: true } },
           emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
@@ -842,7 +844,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
   // ── Build per-loan statements from journal entries ─────────────────────────
-  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; isMirror: boolean; companyName: string; mirrorInterestRate?: number; emis?: any[]; emiSchedules?: any[] }>();
+  const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; closedAt?: any; isMirror: boolean; companyName: string; mirrorInterestRate?: number; emis?: any[]; emiSchedules?: any[] }>();
   for (const l of validOnlineLoans) {
     loanDataMap.set(l.id, {
       loanNumber: l.applicationNo,
@@ -852,6 +854,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       tenure: l.sessionForm?.tenure || 0,
       status: l.status,
       disbursementDate: l.disbursedAt,
+      closedAt: l.closedAt,
       isMirror: mirroredIds.has(l.id) || (l as any)._isMirrorRecord,
       companyName: l.company?.name || '',
       emiSchedules: l.emiSchedules,
@@ -867,6 +870,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       tenure: l.tenure || 0,
       status: l.status,
       disbursementDate: l.disbursementDate,
+      closedAt: l.closedAt,
       isMirror: isOfflineMirror,
       mirrorInterestRate: isOfflineMirror ? offlineMirrorRateMap.get(l.id) : undefined,
       companyName: l.company?.name || '',
@@ -961,7 +965,21 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         return m && parseInt(m[1]) === emi.installmentNumber;
       });
 
-      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
+      let isAccrued = false;
+      if (meta.status === 'CLOSED') {
+        if (meta.closedAt) {
+          const emiDueDate = new Date(emi.dueDate);
+          const closedDate = new Date(meta.closedAt);
+          const emiDueDateStart = new Date(emiDueDate.getFullYear(), emiDueDate.getMonth(), emiDueDate.getDate());
+          const closedDateStart = new Date(closedDate.getFullYear(), closedDate.getMonth(), closedDate.getDate());
+          
+          isAccrued = emiDueDateStart <= closedDateStart;
+        } else {
+          isAccrued = new Date(emi.dueDate) <= today;
+        }
+      } else {
+        isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
+      }
       
       const effectiveInterestAmount = emi.interestAmount;
       
