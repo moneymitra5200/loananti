@@ -1097,13 +1097,13 @@ export async function POST(request: NextRequest) {
                     accountCode: isOnlinePF ? PF_CODES.BANK_ACCOUNT : PF_CODES.CASH_IN_HAND,
                     debitAmount: procFee,
                     creditAmount: 0,
-                    narration: `Processing fee = Regular EMI â‚¹${regularEMI} - Last Mirror EMI â‚¹${regularEMI - procFee} [${isOnlinePF ? 'Bank' : 'Cash'}]`,
+                    narration: `Processing fee received via ${isOnlinePF ? 'Bank' : 'Cash'}`,
                   },
                   {
-                    accountCode: PF_CODES.PROCESSING_FEE_INCOME,
+                    accountCode: PF_CODES.PROCESSING_FEE_RECEIVABLE,
                     debitAmount: 0,
                     creditAmount: procFee,
-                    narration: 'Processing fee income recognized (Last EMI adjustment)',
+                    narration: 'Processing fee receivable cleared',
                   },
                 ],
               });
@@ -1705,7 +1705,7 @@ export async function POST(request: NextRequest) {
                 createdById: paidBy || 'SYSTEM', isAutoEntry: true,
                 lines: [
                   { accountCode: isPfOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: procFee, creditAmount: 0, narration: 'Processing fee collected' },
-                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee income' },
+                  { accountCode: ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE, debitAmount: 0, creditAmount: procFee, narration: 'Processing fee receivable cleared' },
                 ],
               });
               console.log(`[Processing Fee] ₹${procFee} recorded (${isPfOnline ? 'bank' : 'cashbook'}) for loan ${loanId}`);

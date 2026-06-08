@@ -1173,8 +1173,8 @@ export async function PUT(request: NextRequest) {
                       await accSvc.createJournalEntry({ entryDate: new Date(), referenceType: 'PROCESSING_FEE_COLLECTION',
                         referenceId: `${loan.id}-MIR-PF-PR`, narration: `Mirror Processing Fee EMI#1 ₹${procFee}`,
                         createdById: reviewedById, isAutoEntry: true, lines: [
-                          { accountCode: AC.BANK_ACCOUNT,          debitAmount: procFee, creditAmount: 0,       narration: 'Processing fee bank' },
-                          { accountCode: AC.PROCESSING_FEE_INCOME, debitAmount: 0,       creditAmount: procFee, narration: 'Processing fee income' }
+                          { accountCode: AC.BANK_ACCOUNT,              debitAmount: procFee, creditAmount: 0,       narration: 'Processing fee bank' },
+                          { accountCode: AC.PROCESSING_FEE_RECEIVABLE, debitAmount: 0,       creditAmount: procFee, narration: 'Processing fee receivable cleared' }
                         ]});
                       await db.mirrorLoanMapping.update({ where: { id: selfAsMirror.id }, data: { processingFeeRecorded: true, mirrorProcessingFee: procFee } });
                     } else {
@@ -1407,8 +1407,8 @@ export async function PUT(request: NextRequest) {
                       createdById:   reviewedById,
                       isAutoEntry:   true,
                       lines: [
-                        { accountCode: AC.BANK_ACCOUNT,           debitAmount: procFee, creditAmount: 0,       narration: `Processing fee = Regular ₹${regularEMI} - Last Mirror EMI ₹${mirrorEmi?.totalAmount ?? 0}` },
-                        { accountCode: AC.PROCESSING_FEE_INCOME,  debitAmount: 0,       creditAmount: procFee, narration: 'Processing fee income recognised (Last EMI adjustment)' }
+                        { accountCode: AC.BANK_ACCOUNT,              debitAmount: procFee, creditAmount: 0,       narration: `Processing fee = Regular ₹${regularEMI} - Last Mirror EMI ₹${mirrorEmi?.totalAmount ?? 0}` },
+                        { accountCode: AC.PROCESSING_FEE_RECEIVABLE, debitAmount: 0,       creditAmount: procFee, narration: 'Processing fee receivable cleared' }
                       ]
                     });
 

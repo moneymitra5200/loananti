@@ -156,6 +156,17 @@ export async function POST(request: NextRequest) {
         // Accounting journal entry for processing fee
         const accountingService = new AccountingService(companyId);
         await accountingService.initializeChartOfAccounts();
+        
+        // 1. Record Accrual: Debit 1302, Credit 4121
+        await accountingService.recordProcessingFeeAccrual({
+          loanId,
+          customerId: loan.customerId || loanId,
+          amount: parsedProcessingFee,
+          accrualDate: new Date(),
+          createdById: startedBy || 'system',
+        });
+
+        // 2. Record Collection: Debit Bank/Cash, Credit 1302
         await accountingService.recordProcessingFee({
           loanId,
           customerId: loan.customerId || loanId,
@@ -259,6 +270,21 @@ export async function POST(request: NextRequest) {
             processingFeeRecorded: false,
           }
         });
+
+        // Record mirror processing fee accrual in the mirror company
+        const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
+        if (mirrorCompanyId && autoProcessingFee > 0) {
+          const mirrorAccSvc = new AccountingService(mirrorCompanyId);
+          await mirrorAccSvc.initializeChartOfAccounts();
+          await mirrorAccSvc.recordProcessingFeeAccrual({
+            loanId: mirrorLoan.id,
+            customerId: mirrorLoan.customerId || mirrorLoan.id,
+            amount: autoProcessingFee,
+            accrualDate: new Date(),
+            createdById: startedBy || 'system',
+          });
+          console.log(`[Mirror Start] Recorded mirror processing fee accrual: ₹${autoProcessingFee} in company ${mirrorCompanyId}`);
+        }
 
         // Note: No journal entry for disbursement is needed here because the loan 
         // was already disbursed when it was created in Phase 1 (INTEREST_ONLY).

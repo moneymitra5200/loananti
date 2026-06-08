@@ -170,6 +170,7 @@ export type JournalEntryType =
   | 'MIRROR_PRINCIPAL_ENTRY'
   | 'EXTRA_EMI_PAYMENT'
   | 'PROCESSING_FEE_COLLECTION'
+  | 'PROCESSING_FEE_ACCRUAL'
   | 'INTEREST_COLLECTION'
   | 'PENALTY_COLLECTION'
   | 'LATE_FEE_COLLECTION'
@@ -1059,18 +1060,58 @@ export class AccountingService {
           narration: `Processing fee received via ${params.paymentMode}`,
         },
         {
-          accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME,
+          accountCode: ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE,
           debitAmount: 0,
           creditAmount: params.amount,
           loanId: params.loanId,
           customerId: params.customerId,
-          narration: 'Processing fee income',
+          narration: 'Processing fee receivable cleared',
         },
       ],
       createdById: params.createdById,
       paymentMode: params.paymentMode,
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
+      isAutoEntry: true,
+    }, tx);
+  }
+
+  /**
+   * PROCESSING FEE ACCRUAL
+   * Debit: Processing Fee Receivable (1302)
+   * Credit: Processing Fee Income (4121)
+   */
+  async recordProcessingFeeAccrual(params: {
+    loanId: string;
+    customerId: string;
+    amount: number;
+    accrualDate: Date;
+    createdById: string;
+  }, tx?: any): Promise<string> {
+    return this.createJournalEntry({
+      entryDate: params.accrualDate,
+      referenceType: 'PROCESSING_FEE_ACCRUAL',
+      referenceId: params.loanId,
+      narration: `Processing fee accrued: ₹${params.amount.toLocaleString()}`,
+      lines: [
+        {
+          accountCode: ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE,
+          debitAmount: params.amount,
+          creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Processing fee receivable charged',
+        },
+        {
+          accountCode: ACCOUNT_CODES.PROCESSING_FEE_INCOME,
+          debitAmount: 0,
+          creditAmount: params.amount,
+          loanId: params.loanId,
+          customerId: params.customerId,
+          narration: 'Processing fee income recognised',
+        },
+      ],
+      createdById: params.createdById,
       isAutoEntry: true,
     }, tx);
   }

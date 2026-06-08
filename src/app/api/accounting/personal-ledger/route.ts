@@ -26,7 +26,7 @@ import { performOnDemandAccrual } from '@/lib/accrual-helper';
  */
 
 // Loans Receivable and Interest Receivable account codes
-const LR_CODES = ['1200', '1201', '1210', '1301', '1305'];
+const LR_CODES = ['1200', '1201', '1210', '1301', '1305', '1302'];
 
 export async function GET(request: NextRequest) {
   try {
@@ -1025,6 +1025,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       const loanLines = je.lines.filter((l: any) => isLineForThisLoan(l));
       if (loanLines.length === 0) continue;
 
+      const isPFAccrual = je.referenceType === 'PROCESSING_FEE_ACCRUAL';
+      const isPFPayment = je.referenceType === 'PROCESSING_FEE_COLLECTION' || je.referenceType === 'PROCESSING_FEE';
       const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
       const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT';
       const isClose   = je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' || je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' || je.referenceType === 'LOSS_WRITE_OFF';
@@ -1034,7 +1036,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       let principalDisbursed = 0;
       let interestPaid = 0;
 
-      if (isAccrual) {
+      if (isPFAccrual) {
+        const pfReceivableLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
+        principalDisbursed = pfReceivableLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+      } else if (isPFPayment) {
+        const pfReceivableLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
+        interestPaid = pfReceivableLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+      } else if (isAccrual) {
         // Accruals: Debit column (principalDisbursed) represents interest charged
         const interestReceivableLines = loanLines.filter((l: any) => 
           ['1301', '1305'].includes(l.account?.accountCode || '')
@@ -1120,7 +1128,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
                 ? `Interest Receivable — ${customer?.name || ''}`
                 : l.account.accountCode === '1305'
                   ? `Overdue Interest Receivable — ${customer?.name || ''}`
-                  : toLoanGivenLabel('Loan Given', customer?.name || ''))
+                  : l.account.accountCode === '1302'
+                    ? `Processing Fee — ${customer?.name || ''}`
+                    : toLoanGivenLabel('Loan Given', customer?.name || ''))
             : (l.account?.accountName || 'Account'),
           debitAmount: l.debitAmount,
           creditAmount: l.creditAmount,
@@ -1294,6 +1304,8 @@ function buildDescription(refType: string, narration: string, emiNumber: number 
   if (t === 'PARTIAL_EMI_PAYMENT') return `EMI #${emiNumber || '?'} - Partial Payment - ${name}`;
   if (t === 'PENALTY_COLLECTION') return `Late Penalty - ${name}`;
   if (t === 'EXTRA_EMI_PAYMENT') return `Extra EMI #${emiNumber || ''} - ${name}`;
+  if (t === 'PROCESSING_FEE_ACCRUAL') return `Processing Fee Accrued — ${name}`;
+  if (t === 'PROCESSING_FEE_COLLECTION' || t === 'PROCESSING_FEE') return `Processing Fee Received — ${name}`;
   return narration?.replace(/\[.*?\]/g, '').replace(/mirror/gi, '').trim() || refType?.replace(/_/g, ' ') || 'Transaction';
 }
 
