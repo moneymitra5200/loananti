@@ -22,7 +22,10 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         dueDate: { lte: today },
         interestAccrued: false,
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
-        interestAmount: { gt: 0 }
+        interestAmount: { gt: 0 },
+        loanApplication: {
+          status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }
+        }
       },
       include: {
         loanApplication: {
@@ -84,6 +87,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         interestAmount: { gt: 0 },
         offlineLoan: {
           companyId: { not: null },
+          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] },
           company: {
             accountingType: 'FULL'
           }

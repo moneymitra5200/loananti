@@ -52,8 +52,17 @@ interface ForeclosureData {
   }>;
   mirrorLoan: {
     isMirrorLoan: boolean;
+    isMirrorChild?: boolean;
+    originalLoanNo?: string;
     mirrorCompany?: { id: string; name: string; code: string };
     originalCompany?: { id: string; name: string; code: string };
+    details?: {
+      loanNumber: string;
+      totalPrincipal: number;
+      totalInterest: number;
+      totalForeclosureAmount: number;
+      unpaidEMIsCount: number;
+    } | null;
   } | null;
 }
 
@@ -218,8 +227,70 @@ export default function CloseLoanDialog({
         ) : data ? (
           <div className="px-6 pb-6 space-y-5">
 
-            {/* ── Mirror badge ── */}
-            {data.mirrorLoan?.isMirrorLoan && (
+            {/* ── Mirror Child Block Alert ── */}
+            {data.mirrorLoan?.isMirrorLoan && data.mirrorLoan.isMirrorChild && (
+              <div className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+                <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-red-900 animate-pulse">Direct Closure Blocked</p>
+                  <p className="text-xs text-red-700 leading-relaxed">
+                    This is a <strong>Mirror Loan</strong>. It cannot be closed directly.
+                    Please close the original loan (<strong>{data.mirrorLoan.originalLoanNo}</strong>) in the parent company (<strong>{data.mirrorLoan.originalCompany?.name}</strong>) instead.
+                    Closing the original loan will automatically trigger foreclosure and accounting for this mirror loan.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── Mirror Loan Details (Original Loan Close View) ── */}
+            {data.mirrorLoan?.isMirrorLoan && !data.mirrorLoan.isMirrorChild && data.mirrorLoan.details && (
+              <div className="bg-amber-50/60 border border-amber-200/80 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Info className="h-4 w-4 text-amber-700" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-amber-800">Linked Mirror Loan</span>
+                  </div>
+                  <Badge variant="outline" className="bg-white text-amber-800 border-amber-300 text-[10px] py-0.5 px-2 font-medium">
+                    {data.mirrorLoan.mirrorCompany?.code || data.mirrorLoan.mirrorCompany?.name}
+                  </Badge>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-gray-500 block">Mirror Loan Number</span>
+                    <strong className="text-gray-900">{data.mirrorLoan.details.loanNumber || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 block">Unpaid EMIs</span>
+                    <strong className="text-gray-900">{data.mirrorLoan.details.unpaidEMIsCount}</strong>
+                  </div>
+                </div>
+
+                <Separator className="border-amber-200/50" />
+
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+                    <p className="text-[10px] text-gray-500 font-medium mb-0.5">Mirror Principal</p>
+                    <p className="text-sm font-bold text-gray-800">₹{formatCurrency(data.mirrorLoan.details.totalPrincipal)}</p>
+                  </div>
+                  <div className="bg-white/80 rounded-lg p-2 border border-amber-100">
+                    <p className="text-[10px] text-gray-500 font-medium mb-0.5">Mirror Interest</p>
+                    <p className="text-sm font-bold text-gray-800">₹{formatCurrency(data.mirrorLoan.details.totalInterest)}</p>
+                  </div>
+                  <div className="bg-white/80 rounded-lg p-2 border border-amber-200">
+                    <p className="text-[10px] text-amber-700 font-bold mb-0.5">Mirror Foreclose</p>
+                    <p className="text-sm font-extrabold text-amber-800">₹{formatCurrency(data.mirrorLoan.details.totalForeclosureAmount)}</p>
+                  </div>
+                </div>
+
+                <p className="text-[10px] text-amber-700 leading-relaxed">
+                  * Foreclosure of the original loan will automatically trigger payment collection and accounting of <strong>₹{formatCurrency(data.mirrorLoan.details.totalForeclosureAmount)}</strong> in the mirror company (<strong>{data.mirrorLoan.mirrorCompany?.name}</strong>).
+                </p>
+              </div>
+            )}
+
+            {/* ── Fallback Mirror Info Badge ── */}
+            {data.mirrorLoan?.isMirrorLoan && !data.mirrorLoan.isMirrorChild && !data.mirrorLoan.details && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
                 <Info className="h-4 w-4 flex-shrink-0" />
                 <span>
@@ -478,7 +549,7 @@ export default function CloseLoanDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={saving || loading || !data}
+            disabled={saving || loading || !data || data.mirrorLoan?.isMirrorChild}
             className={`flex-1 ${mode === 'LOSS'
               ? 'bg-red-600 hover:bg-red-700 text-white'
               : 'bg-green-600 hover:bg-green-700 text-white'}`}

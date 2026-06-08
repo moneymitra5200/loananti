@@ -22,7 +22,12 @@ export async function GET(request: NextRequest) {
 
     // Query mirror mapping separately (no Prisma FK on OfflineLoan)
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: true },
+      where: {
+        OR: [
+          { originalLoanId: loanId, isOfflineLoan: true },
+          { mirrorLoanId: loanId, isOfflineLoan: true }
+        ]
+      },
       include: {
         mirrorCompany:   { select: { id: true, name: true, code: true } },
         originalCompany: { select: { id: true, name: true, code: true } },
@@ -73,6 +78,54 @@ export async function GET(request: NextRequest) {
     const totalForeclosureAmount = totalPrincipal + totalInterest;
     const savings = originalRemainingAmount - totalForeclosureAmount;
 
+    let mirrorDetails: any = null;
+    let isMirrorChild = false;
+    let originalLoanNo = "";
+
+    if (mirrorMapping) {
+      isMirrorChild = mirrorMapping.mirrorLoanId === loanId;
+      
+      // If we are viewing the original offline loan, get mirror offline loan details
+      if (!isMirrorChild && mirrorMapping.mirrorLoanId) {
+        const mLoan = await (db.offlineLoan as any).findUnique({
+          where: { id: mirrorMapping.mirrorLoanId },
+          include: { emis: { orderBy: { installmentNumber: 'asc' } } }
+        });
+        if (mLoan) {
+          const mirrorUnpaid = ((mLoan.emis ?? []) as any[]).filter(isCloseable);
+          let mirrorP = 0;
+          let mirrorI = 0;
+          for (const emi of mirrorUnpaid) {
+            const monthHasStarted = new Date(emi.dueDate) <= now;
+            const paidP = emi.paidPrincipal != null ? Number(emi.paidPrincipal)
+              : Math.max(0, Number(emi.paidAmount ?? 0) - Number(emi.interestAmount ?? 0));
+            const paidI = emi.paidInterest != null ? Number(emi.paidInterest)
+              : Math.min(Number(emi.paidAmount ?? 0), Number(emi.interestAmount ?? 0));
+            mirrorP += Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
+            if (monthHasStarted) {
+              mirrorI += Math.max(0, Number(emi.interestAmount ?? 0) - paidI);
+            }
+          }
+          mirrorDetails = {
+            loanNumber: mLoan.loanNumber,
+            totalPrincipal: mirrorP,
+            totalInterest: mirrorI,
+            totalForeclosureAmount: mirrorP + mirrorI,
+            unpaidEMIsCount: mirrorUnpaid.length,
+          };
+        }
+      } else if (isMirrorChild) {
+        // If we are viewing the mirror offline loan, fetch original offline loan's number
+        const origLoan = await (db.offlineLoan as any).findUnique({
+          where: { id: mirrorMapping.originalLoanId },
+          select: { loanNumber: true }
+        });
+        if (origLoan) {
+          originalLoanNo = origLoan.loanNumber;
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       foreclosure: {
@@ -92,8 +145,11 @@ export async function GET(request: NextRequest) {
         mirrorLoan: mirrorMapping
           ? {
               isMirrorLoan:    true,
+              isMirrorChild,
+              originalLoanNo,
               mirrorCompany:   mirrorMapping.mirrorCompany,
               originalCompany: mirrorMapping.originalCompany,
+              details:         mirrorDetails,
             }
           : { isMirrorLoan: false },
       }
@@ -147,6 +203,35 @@ export async function POST(request: NextRequest) {
     const unpaidEMIs          = emis.filter(isCloseable);
     const unpaidEMIIds        = unpaidEMIs.map((e: any) => e.id);
     const accountingWarnings: string[] = [];
+
+    // Resolve mirror loan details if mapping exists
+    let mirrorLoan: any = null;
+    let mirrorUnpaidEMIs: any[] = [];
+    let mirrorTotalPrincipal = 0;
+    let mirrorTotalInterest  = 0;
+    let mirrorTotalForeclosureAmount = 0;
+
+    if (mirrorMapping?.mirrorLoanId) {
+      mirrorLoan = await (db.offlineLoan as any).findUnique({
+        where:   { id: mirrorMapping.mirrorLoanId },
+        include: { emis: { orderBy: { installmentNumber: 'asc' } } }
+      });
+      if (mirrorLoan) {
+        mirrorUnpaidEMIs = ((mirrorLoan.emis ?? []) as any[]).filter(isCloseable);
+        for (const emi of mirrorUnpaidEMIs) {
+          const monthHasStarted = new Date(emi.dueDate) <= now;
+          const paidP = emi.paidPrincipal != null ? Number(emi.paidPrincipal)
+            : Math.max(0, Number(emi.paidAmount ?? 0) - Number(emi.interestAmount ?? 0));
+          const paidI = emi.paidInterest != null ? Number(emi.paidInterest)
+            : Math.min(Number(emi.paidAmount ?? 0), Number(emi.interestAmount ?? 0));
+          mirrorTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
+          if (monthHasStarted) {
+            mirrorTotalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - paidI);
+          }
+        }
+        mirrorTotalForeclosureAmount = mirrorTotalPrincipal + mirrorTotalInterest;
+      }
+    }
 
     // ─── Helper: close mirror loan (BATCH — avoids sequential round-trips) ─────
     const closeMirrorLoan = async () => {
@@ -245,17 +330,13 @@ export async function POST(request: NextRequest) {
 
       // ── Accounting: Write-off journal ─────────────────────────────────────
       if (mirrorMapping) {
-        if (mirrorMapping.mirrorCompanyId && mirrorMapping.mirrorLoanId) {
+        if (mirrorMapping.mirrorCompanyId && mirrorMapping.mirrorLoanId && mirrorLoan) {
           try {
             const { AccountingService } = await import('@/lib/accounting-service');
             const mirrorAccSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
             await mirrorAccSvc.initializeChartOfAccounts();
 
-            const mirrorEMIs = await db.offlineLoanEMI.findMany({
-              where: { offlineLoanId: mirrorMapping.mirrorLoanId },
-              orderBy: { installmentNumber: 'asc' }
-            });
-            const mirrorUnpaid = mirrorEMIs.filter(isCloseable);
+            const mirrorUnpaid = mirrorUnpaidEMIs;
             const unpaidMirrorEMIIds = mirrorUnpaid.map((e: any) => e.id);
 
             let mirrorRemainingPrincipal = 0;
@@ -447,34 +528,7 @@ export async function POST(request: NextRequest) {
     }
     const totalForeclosureAmount = totalPrincipal + totalInterest;
 
-    let mirrorLoan: any = null;
-    let mirrorUnpaidEMIs: any[] = [];
-    let mirrorTotalPrincipal = 0;
-    let mirrorTotalInterest = 0;
-    let mirrorTotalForeclosureAmount = 0;
 
-    if (mirrorMapping?.mirrorLoanId) {
-      mirrorLoan = await db.offlineLoan.findUnique({
-        where: { id: mirrorMapping.mirrorLoanId },
-        include: { emis: { orderBy: { installmentNumber: 'asc' } } }
-      });
-      if (mirrorLoan) {
-        const mirrorEmis = (mirrorLoan.emis ?? []) as any[];
-        mirrorUnpaidEMIs = mirrorEmis.filter(isCloseable);
-        for (const emi of mirrorUnpaidEMIs) {
-          const monthHasStarted = new Date(emi.dueDate) <= now;
-          const paidP = emi.paidPrincipal != null ? Number(emi.paidPrincipal)
-            : Math.max(0, Number(emi.paidAmount ?? 0) - Number(emi.interestAmount ?? 0));
-          mirrorTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
-          if (monthHasStarted) {
-            const paidI = emi.paidInterest != null ? Number(emi.paidInterest)
-              : Math.min(Number(emi.paidAmount ?? 0), Number(emi.interestAmount ?? 0));
-            mirrorTotalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - paidI);
-          }
-        }
-        mirrorTotalForeclosureAmount = mirrorTotalPrincipal + mirrorTotalInterest;
-      }
-    }
 
     const effectiveCreditType = creditType === 'PERSONAL' ? 'PERSONAL' : 'COMPANY';
     const isOnlinePayment = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
