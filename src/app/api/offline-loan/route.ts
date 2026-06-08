@@ -1929,6 +1929,16 @@ export async function POST(request: NextRequest) {
                 referenceId: `${loan.id}-PF`, createdById });
             }
             // 2. Double-entry journal for processing fee
+            // First: Record Accrual (Dr 1302 / Cr 4121)
+            await accountingService.recordProcessingFeeAccrual({
+              loanId: loan.id,
+              customerId: effectiveCustomerId,
+              amount: processingFee,
+              accrualDate: new Date(disbursementDate),
+              createdById,
+            });
+
+            // Second: Record Collection (Dr Bank/Cash / Cr 1302)
             await accountingService.recordProcessingFee({
               loanId: loan.id,
               customerId: effectiveCustomerId,

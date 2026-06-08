@@ -1611,7 +1611,9 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
             ? `Interest Receivable — ${customer?.name || ''}`
             : l.account.accountCode === '1305'
               ? `Overdue Interest Receivable — ${customer?.name || ''}`
-              : `Loans Receivable — ${customer?.name || ''}`)
+              : l.account.accountCode === '1302'
+                ? `Processing Fee — ${customer?.name || ''}`
+                : `Loans Receivable — ${customer?.name || ''}`)
         : l.account?.accountName,
       debitAmount: l.debitAmount,
       creditAmount: l.creditAmount,

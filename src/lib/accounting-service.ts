@@ -1044,6 +1044,34 @@ export class AccountingService {
     bankAccountId?: string;
     reference?: string;
   }, tx?: any): Promise<string> {
+    if (!params.amount || params.amount <= 0) {
+      console.log(`[AccountingService] recordProcessingFee: Skipping zero or negative amount ₹${params.amount}`);
+      return '';
+    }
+
+    // Safety guard: Auto-accrue if not already accrued in this company
+    const executor = tx || db;
+    const existingAccrual = await executor.journalEntry.findFirst({
+      where: {
+        companyId: this.companyId,
+        referenceId: params.loanId,
+        referenceType: 'PROCESSING_FEE_ACCRUAL',
+        isReversed: false
+      },
+      select: { id: true }
+    });
+
+    if (!existingAccrual) {
+      console.log(`[AccountingService] Auto-accruing processing fee of ₹${params.amount} for loan ${params.loanId} before collection.`);
+      await this.recordProcessingFeeAccrual({
+        loanId: params.loanId,
+        customerId: params.customerId,
+        amount: params.amount,
+        accrualDate: params.collectionDate,
+        createdById: params.createdById
+      }, executor);
+    }
+
     const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE'].includes((params.paymentMode || '').toUpperCase());
     const debitAccount = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
 
@@ -1088,6 +1116,11 @@ export class AccountingService {
     accrualDate: Date;
     createdById: string;
   }, tx?: any): Promise<string> {
+    if (!params.amount || params.amount <= 0) {
+      console.log(`[AccountingService] recordProcessingFeeAccrual: Skipping zero or negative amount ₹${params.amount}`);
+      return '';
+    }
+
     return this.createJournalEntry({
       entryDate: params.accrualDate,
       referenceType: 'PROCESSING_FEE_ACCRUAL',
