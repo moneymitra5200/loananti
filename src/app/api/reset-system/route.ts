@@ -192,9 +192,8 @@ export async function POST(request: NextRequest) {
     stats.fixedAssets               = (await db.fixedAsset.deleteMany({})).count;
     stats.ledgers                   = (await db.ledger.deleteMany({})).count;
     stats.reportsCache              = (await db.reportsCache.deleteMany({})).count;
-    // ⚠️ Do NOT delete loanSequence — it prevents loan number collisions after reset.
-    // If deleted, new loans would restart from sequence 1 and collide with pre-reset loan numbers.
-    // stats.loanSequence = (await db.loanSequence.deleteMany({})).count; // REMOVED
+    // Clear loanSequence so it restarts from 1
+    stats.loanSequence = (await db.loanSequence.deleteMany({})).count;
 
     // Reset company financial balances to zero (but do NOT delete the company records)
     await db.company.updateMany({ data: { companyCredit: 0, myCash: 0 } });

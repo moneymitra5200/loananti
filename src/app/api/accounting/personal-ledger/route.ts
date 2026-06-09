@@ -688,7 +688,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // Fetch any mirror offline loans explicitly if they are not in allOfflineLoans
   let extraMirrorOfflineLoans: any[] = [];
   if (companyId) {
-    const customerOfflineMirrorMappings = offlineMirrorMappings.filter(m => m.mirrorCompanyId === companyId && m.mirrorLoanId);
+    const customerOfflineLoanIds = new Set(allOfflineLoans.map(l => l.id));
+    const customerOfflineMirrorMappings = offlineMirrorMappings.filter(m => 
+      m.mirrorCompanyId === companyId && 
+      m.mirrorLoanId && 
+      (customerOfflineLoanIds.has(m.originalLoanId) || customerOfflineLoanIds.has(m.mirrorLoanId))
+    );
     for (const mapping of customerOfflineMirrorMappings) {
       if (!allOfflineLoans.find(l => l.id === mapping.mirrorLoanId)) {
         const mirrorLoan = await db.offlineLoan.findUnique({

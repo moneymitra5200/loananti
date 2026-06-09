@@ -701,12 +701,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 400 });
     }
 
-    // Generate loan number: Company Code + Product Code + Customer Name
-    const loanNumber = await generateOriginalLoanNumber(
-      company.code,
-      loanType || 'PERSONAL',
-      customerName
-    );
+    // Generate loan number using the global sequence number
+    const sequence = await getNextLoanSequence();
+    const sequenceStr = sequence.toString().padStart(5, '0');
+    const loanNumber = `${company.code}-${(loanType || 'PERSONAL').toUpperCase()}-${sequenceStr}`;
 
     // Extract document URLs from uploadedDocs
     const docUrls: Record<string, string> = {};
@@ -963,11 +961,8 @@ export async function POST(request: NextRequest) {
         const extraEMICount = Math.max(0, originalTenure - mirrorTenure);
         const leftoverAmount = mirrorCalc.leftoverAmount;
 
-        // Generate mirror loan number: Company Code + Product Code + Global Sequence (00001)
-        const mirrorLoanNumber = await generateMirrorLoanNumber(
-          mirrorCompany.code,
-          loanType || 'PERSONAL'
-        );
+        // Generate mirror loan number using the SAME sequence as the original loan
+        const mirrorLoanNumber = `${mirrorCompany.code}-${(loanType || 'PERSONAL').toUpperCase()}-${sequenceStr}`;
 
         // ============================================
         // CREATE ACTUAL MIRROR LOAN (SAME AS ONLINE LOANS)
