@@ -1482,6 +1482,18 @@ export async function POST(request: NextRequest) {
           });
 
           console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${mirrorDisbursementResult}` : '(PENDING)'}`);
+
+          // Record mirror processing fee accrual in the mirror company instantly upon creation
+          if (mirrorProcessingFee > 0) {
+            await accountingService.recordProcessingFeeAccrual({
+              loanId: mirrorLoan.id,
+              customerId: customerId || mirrorLoan.id,
+              amount: mirrorProcessingFee,
+              accrualDate: new Date(disbursementDate),
+              createdById: createdById || 'system',
+            });
+            console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${mirrorCompanyId}`);
+          }
         } catch (accountingError) {
           console.error('[Mirror Loan Accounting] Failed to create journal entry:', accountingError);
         }
