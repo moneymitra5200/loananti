@@ -126,7 +126,20 @@ export async function GET(request: NextRequest) {
           },
           company: { select: { id: true, name: true, code: true } },
           goldLoanDetail: true,
-          vehicleLoanDetail: true
+          vehicleLoanDetail: true,
+          secondaryPaymentPage: {
+            select: {
+              id: true,
+              name: true,
+              upiId: true,
+              qrCodeUrl: true,
+              roleId: true,
+              bankName: true,
+              accountNumber: true,
+              accountName: true,
+              ifscCode: true
+            }
+          }
         }
       });
 
@@ -619,6 +632,7 @@ export async function POST(request: NextRequest) {
       vehicleLoanDetail,
       // Interest Only Loan
       isInterestOnly,
+      allowInterestOnly = true,
       // Mirror Loan
       isMirrorLoan,
       mirrorCompanyId,
@@ -780,6 +794,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let hasExtraEMIs = false;
+    if (isMirrorLoan && mirrorCompanyId) {
+      const mirrorCompany = await db.company.findUnique({
+        where: { id: mirrorCompanyId }
+      });
+      if (mirrorCompany) {
+        const mirrorCodeUpper = (mirrorCompany.code || '').toUpperCase();
+        const isCompany1 = mirrorCodeUpper === 'C1' || mirrorCodeUpper.startsWith('C1');
+        const mirrorRate = mirrorInterestRate ? parseFloat(mirrorInterestRate) : (isCompany1 ? 15 : 24);
+        const mirrorTypeInterest = 'REDUCING';
+        const { calculateMirrorLoan: calcMirror } = await import('@/lib/mirror-loan');
+        const mirrorCalc = calcMirror(
+          loanAmount,
+          interestRate,
+          tenure || 12,
+          actualInterestType,
+          mirrorRate,
+          mirrorTypeInterest as 'FLAT' | 'REDUCING'
+        );
+        const originalTenure = tenure || 12;
+        const mirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
+        const extraEMICount = Math.max(0, originalTenure - mirrorTenure);
+        hasExtraEMIs = extraEMICount > 0;
+      }
+    }
+
     // ============ STEP: ATOMIC LOAN + EMI CREATION ============
     // withRetry: handles Prisma deadlock (P2034) up to 3x.
     // $transaction: ensures loan + entire EMI schedule are created atomically.
@@ -828,6 +868,7 @@ export async function POST(request: NextRequest) {
           internalNotes,
           bankAccountId: bankAccountIdUsed,
           secondaryPaymentPageId: secondaryPaymentPageId || null,
+          allowInterestOnly: hasExtraEMIs ? false : (allowInterestOnly === true),
           isInterestOnlyLoan,
           interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
           interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
@@ -2514,12 +2555,21 @@ export async function PUT(request: NextRequest) {
 
     // Pay EMI with partial payment support - OPTIMIZED VERSION
     if (action === 'pay-emi' && emiId && userId) {
-      const { paymentMode, paymentReference, amount, paymentType, bankAccountId, creditType, remainingPaymentDate, isAdvancePayment,
+      const { paymentReference, amount, paymentType, bankAccountId, remainingPaymentDate, isAdvancePayment,
         penaltyAmount: rawPenaltyAmount, penaltyWaiver: rawPenaltyWaiver, penaltyPaymentMode: rawPenaltyMode,
-        // Split payment support: part cash + part online in one EMI
-        isSplitPayment, splitCashAmount: rawSplitCash, splitOnlineAmount: rawSplitOnline,
-        // Staff-editable principal/interest split for journal entry (optional)
-        principalComponent: staffPrincipal, interestComponent: staffInterest } = body;
+        splitCashAmount: rawSplitCash, splitOnlineAmount: rawSplitOnline,
+        principalComponent: staffPrincipal, interestComponent: staffInterest, secondaryPaymentPageId } = body;
+
+      let paymentMode = body.paymentMode;
+      let creditType = body.creditType;
+      let isSplitPayment = body.isSplitPayment;
+
+      if (paymentType === 'INTEREST_ONLY') {
+        paymentMode = 'CASH';
+        creditType = 'COMPANY';
+        isSplitPayment = false;
+      }
+
       const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
       const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
       const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
@@ -2799,6 +2849,14 @@ export async function PUT(request: NextRequest) {
           where: { id: userId },
           data: creditUpdateData
         });
+
+        // Update secondaryPaymentPageId on the loan if selected
+        if (secondaryPaymentPageId) {
+          await tx.offlineLoan.update({
+            where: { id: emi.offlineLoanId },
+            data: { secondaryPaymentPageId }
+          });
+        }
 
         // Create credit transaction
         await tx.creditTransaction.create({

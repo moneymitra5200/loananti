@@ -253,6 +253,28 @@ export default function OfflineLoanDetailPanel({
   const [paymentRemarks, setPaymentRemarks] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [dialogSecondaryPages, setDialogSecondaryPages] = useState<any[]>([]);
+  const [selectedSecondaryPageId, setSelectedSecondaryPageId] = useState<string>('');
+
+  useEffect(() => {
+    if (paymentDialogOpen) {
+      const fetchDialogSecondaryPages = async () => {
+        try {
+          const res = await fetch('/api/secondary-payment-pages?activeOnly=true');
+          const data = await res.json();
+          if (data.success) {
+            setDialogSecondaryPages(data.pages || []);
+          }
+        } catch (e) {
+          console.error('Failed to fetch secondary pages for dialog:', e);
+        }
+      };
+      fetchDialogSecondaryPages();
+      
+      // Pre-populate with loan's secondaryPaymentPageId if present
+      setSelectedSecondaryPageId((loan as any)?.secondaryPaymentPageId || '');
+    }
+  }, [paymentDialogOpen, (loan as any)?.secondaryPaymentPageId]);
 
   // Date Change State
   const [showDateChangeDialog, setShowDateChangeDialog] = useState(false);
@@ -680,6 +702,14 @@ export default function OfflineLoanDetailPanel({
       }
     }
 
+    // Validation for secondary payment page on Interest Only payments
+    if (paymentType === 'INTEREST_ONLY' && !isMultiEmiPayment) {
+      if (!selectedSecondaryPageId) {
+        toast({ title: 'Secondary Payment Page Required', description: 'Please select a secondary payment page to proceed.', variant: 'destructive' });
+        return;
+      }
+    }
+
     // Proof validation for non-CASH payments
     const requiresProof = creditType === 'PERSONAL' || (paymentMode !== 'CASH');
     if (requiresProof && !proofFile && !isInterestOnlyLoanPayment) {
@@ -831,11 +861,12 @@ export default function OfflineLoanDetailPanel({
         userId,
         userRole,
         // BUG-1 fix: send CASH as effective mode when SPLIT, plus isSplitPayment flag
-        paymentMode: isSplitMode ? 'CASH' : paymentMode,
+        paymentMode: paymentType === 'INTEREST_ONLY' ? 'CASH' : (isSplitMode ? 'CASH' : paymentMode),
         paymentReference,
-        creditType,
+        creditType: paymentType === 'INTEREST_ONLY' ? 'COMPANY' : creditType,
         proofUrl,
         remarks: paymentRemarks,
+        secondaryPaymentPageId: paymentType === 'INTEREST_ONLY' ? selectedSecondaryPageId : undefined,
         // FIX: Send GROSS penalty (before waiver) — backend computes netPenalty = penaltyAmount - penaltyWaiver
         // Previously was sending netPenalty here causing double-deduction of the waiver
         penaltyAmount: grossPenalty > 0 ? grossPenalty : undefined,
@@ -2668,19 +2699,21 @@ export default function OfflineLoanDetailPanel({
                     <Receipt className="h-4 w-4 mr-1" />
                     Partial
                   </Button>
-                  <Button
-                    type="button"
-                    variant={paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
-                    className={paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}
-                    onClick={() => {
-                      setPaymentType('INTEREST_ONLY');
-                      // Use REMAINING interest (not full interestAmount)
-                      setPaymentAmount((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0));
-                    }}
-                  >
-                    <Percent className="h-4 w-4 mr-1" />
-                    Interest Only
-                  </Button>
+                  {loan?.allowInterestOnly !== false && !(loan?.isMirrored && loan?.mirrorTenure && loan?.tenure && loan.tenure > loan.mirrorTenure) && (
+                    <Button
+                      type="button"
+                      variant={paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
+                      className={paymentType === 'INTEREST_ONLY' ? 'bg-blue-500 hover:bg-blue-600' : ''}
+                      onClick={() => {
+                        setPaymentType('INTEREST_ONLY');
+                        // Use REMAINING interest (not full interestAmount)
+                        setPaymentAmount((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0));
+                      }}
+                    >
+                      <Percent className="h-4 w-4 mr-1" />
+                      Interest Only
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant={paymentType === 'PRINCIPAL_ONLY' ? 'default' : 'outline'}
@@ -2727,6 +2760,63 @@ export default function OfflineLoanDetailPanel({
               </div>
             )}
 
+            {paymentType === 'INTEREST_ONLY' && (() => {
+              const selectedPage = dialogSecondaryPages.find(p => p.id === selectedSecondaryPageId) || (loan as any)?.secondaryPaymentPage;
+              return (
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+                  <Label className="text-blue-800 font-semibold mb-1 block">
+                    Secondary Payment Page *
+                  </Label>
+                  
+                  {/* Selector */}
+                  <select
+                    value={selectedSecondaryPageId}
+                    onChange={(e) => setSelectedSecondaryPageId(e.target.value)}
+                    className="w-full p-2 border border-blue-300 rounded bg-white text-sm"
+                  >
+                    <option value="">Select Secondary Payment Page...</option>
+                    {dialogSecondaryPages.map((page) => (
+                      <option key={page.id} value={page.id}>
+                        {page.name} ({page.upiId || 'No UPI'})
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Selected Page Details */}
+                  {selectedPage ? (
+                    <div className="p-3 bg-white rounded border border-blue-200 text-xs space-y-2 mt-2">
+                      <p className="font-semibold text-blue-800">{selectedPage.name}</p>
+                      {selectedPage.upiId && (
+                        <p className="text-gray-700"><strong>UPI ID:</strong> {selectedPage.upiId}</p>
+                      )}
+                      {selectedPage.bankName && (
+                        <div className="border-t pt-2 space-y-1 text-gray-600">
+                          <p><strong>Bank Name:</strong> {selectedPage.bankName}</p>
+                          <p><strong>Account Name:</strong> {selectedPage.accountName}</p>
+                          <p><strong>Account Number:</strong> {selectedPage.accountNumber}</p>
+                          <p><strong>IFSC Code:</strong> {selectedPage.ifscCode}</p>
+                        </div>
+                      )}
+                      {selectedPage.qrCodeUrl && (
+                        <div className="border-t pt-2 flex flex-col items-center">
+                          <p className="font-semibold text-blue-800 mb-2">Scan QR Code to Pay</p>
+                          <img
+                            src={selectedPage.qrCodeUrl}
+                            alt="QR Code"
+                            className="w-40 h-40 border rounded object-cover shadow-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-red-500 font-medium">
+                      ⚠️ Please select a secondary payment page to view details and proceed.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Principal Only Payment Info */}
             {paymentType === 'PRINCIPAL_ONLY' && (
               <div className="p-4 bg-red-50 rounded-lg border border-red-200">
@@ -2745,8 +2835,39 @@ export default function OfflineLoanDetailPanel({
             {/* CREDIT TYPE SELECTION - MAIN CHOICE */}
             {/* ========================================== */}
             
-            {/* For MIRROR loans - Credit type depends on EMI type */}
-            {isMirroredLoan ? (
+            {paymentType === 'INTEREST_ONLY' ? (
+              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                <div className="flex items-center gap-2 mb-3">
+                  <Info className="h-4 w-4 text-blue-600" />
+                  <Label className="text-blue-800 font-semibold">
+                    Credit Type (Forced)
+                  </Label>
+                </div>
+                <button
+                  type="button"
+                  className="w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-left"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building className="h-5 w-5 text-blue-600" />
+                    <span className="font-semibold text-blue-800">
+                      Company Credit (Forced for Interest-Only)
+                    </span>
+                  </div>
+                  <div className="text-xs space-y-1">
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <Banknote className="h-3 w-3" />
+                      <span>CASH only</span>
+                    </div>
+                    <div className="text-blue-600">
+                      Entry: {loan?.company?.name || 'Company'}&apos;s Books (Cash)
+                    </div>
+                    <div className="font-medium text-blue-700">
+                      Current: ₹{formatCurrency(companyCredit)}
+                    </div>
+                  </div>
+                </button>
+              </div>
+            ) : isMirroredLoan ? (
               <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
                 <div className="flex items-center gap-2 mb-3">
                   <Info className="h-4 w-4 text-blue-600" />
@@ -2891,7 +3012,7 @@ export default function OfflineLoanDetailPanel({
                     onClick={() => {
                       setCreditType('COMPANY');
                       // For interest/principal only payments, force CASH (no online allowed)
-                      if (paymentType === 'INTEREST_ONLY' || paymentType === 'PRINCIPAL_ONLY') {
+                      if ((paymentType as string) === 'INTEREST_ONLY' || paymentType === 'PRINCIPAL_ONLY') {
                         setPaymentMode('CASH');
                       } else {
                         setPaymentMode('CASH'); // Default to CASH (safer default)
@@ -2971,7 +3092,7 @@ export default function OfflineLoanDetailPanel({
             )}
 
             {/* Company Credit - ONLINE or CASH (or CASH only for Company 3 non-mirrored) */}
-            {creditType === 'COMPANY' && (
+            {creditType === 'COMPANY' && paymentType !== 'INTEREST_ONLY' && (
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
                 
@@ -3115,7 +3236,7 @@ export default function OfflineLoanDetailPanel({
                   <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
                     {/* ONLINE Option - hidden for Interest Only / Principal Only payments */}
-                    {paymentType !== 'INTEREST_ONLY' && paymentType !== 'PRINCIPAL_ONLY' && (
+                    {(paymentType as string) !== 'INTEREST_ONLY' && paymentType !== 'PRINCIPAL_ONLY' && (
                     <button
                       type="button"
                       onClick={() => setPaymentMode('ONLINE')}
@@ -3252,6 +3373,31 @@ export default function OfflineLoanDetailPanel({
                     </p>
                   </div>
                 )}
+              </div>
+            )}
+
+            {paymentType === 'INTEREST_ONLY' && (
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-blue-800 font-semibold">Payment Mode</Label>
+                    <p className="text-xs text-blue-600 mt-1">
+                      Interest-only payments are recorded in CASH
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 px-4 py-2 bg-blue-100 rounded-lg border border-blue-300">
+                    <Banknote className="h-5 w-5 text-blue-700" />
+                    <span className="font-semibold text-blue-800">CASH</span>
+                  </div>
+                </div>
+                <div className="mt-3 p-3 bg-blue-100 rounded-lg">
+                  <p className="text-xs text-blue-700">
+                    <strong>Entry will be recorded in:</strong> {loan?.company?.name || 'Company'}&apos;s Cashbook
+                  </p>
+                  <p className="text-xs text-blue-600 mt-1">
+                    +₹{formatCurrency(paymentAmount)} will be added to Company Credit
+                  </p>
+                </div>
               </div>
             )}
 

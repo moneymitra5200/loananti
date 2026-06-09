@@ -158,6 +158,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [secondaryPaymentPages, setSecondaryPaymentPages] = useState<any[]>([]);
   const [selectedSecondaryPageId, setSelectedSecondaryPageId] = useState('');
   const [loadingSecPages, setLoadingSecPages] = useState(false);
+  const [allowInterestOnly, setAllowInterestOnly] = useState(true);
 
   // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
@@ -734,6 +735,16 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         description: 'Please fill all required fields including Company',
         variant: 'destructive'
       });
+    }
+
+    const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
+    const showSecondaryPage = (!isMirrorLoan || !hasExtraEMIs) && isSelectedCompany3() && !isInterestOnly;
+    if (showSecondaryPage && !selectedSecondaryPageId) {
+      toast({
+        title: 'Secondary Payment Page Required',
+        description: 'Please select a secondary payment page for this Company 3 loan.',
+        variant: 'destructive'
+      });
       return;
     }
 
@@ -828,6 +839,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         }
       }
 
+      const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
+
       const requestBody: Record<string, unknown> = {
         createdById,
         createdByRole,
@@ -841,12 +854,13 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         customerMonthlyIncome: formData.customerMonthlyIncome ? parseFloat(formData.customerMonthlyIncome) : null,
         customerDOB: formData.customerDOB || null,
         bankAccountId: formData.bankAccountId || null,
-        // Secondary payment page for C3 non-mirror loans
-        secondaryPaymentPageId: (isSelectedCompany3() && !isMirrorLoan) ? selectedSecondaryPageId || null : null,
+        // Secondary payment page for C3 loans (non-mirror or mirror without extra EMIs)
+        secondaryPaymentPageId: (isSelectedCompany3() && (!isMirrorLoan || !hasExtraEMIs)) ? selectedSecondaryPageId || null : null,
         // Documents
         documents: uploadedDocs,
         // Interest Only Loan
         isInterestOnly,
+        allowInterestOnly: hasExtraEMIs ? false : allowInterestOnly,
         // Mirror Loan
         isMirrorLoan,
         mirrorCompanyId: isMirrorLoan ? mirrorCompanyId : null,
@@ -1182,6 +1196,24 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     </div>
                   </div>
                 )}
+                {(() => {
+                  const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
+                  if (hasExtraEMIs || isInterestOnly) return null;
+                  return (
+                    <div className="flex items-center space-x-2 pt-2 col-span-2">
+                      <input
+                        type="checkbox"
+                        id="allowInterestOnly"
+                        checked={allowInterestOnly}
+                        onChange={(e) => setAllowInterestOnly(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <Label htmlFor="allowInterestOnly" className="font-semibold text-gray-700 cursor-pointer select-none">
+                        Allow Interest-Only payment mode for EMIs
+                      </Label>
+                    </div>
+                  );
+                })()}
                 <div className="space-y-2">
                   <Label>{isInterestOnly ? 'Monthly Interest' : 'EMI Amount (Auto-calculated)'}</Label>
                   <div className="flex items-center gap-2">
@@ -1458,63 +1490,67 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               {/* Mirror loan is now available for ALL companies - no info message needed */}
             </div>
 
-            {/* Secondary Payment Page section removed — not required at loan creation time */}
-            {false && !isInterestOnly && isSelectedCompany3() && !isMirrorLoan && (
-              <div className="space-y-3 pt-4 border-t">
-                <div className="flex items-center gap-2">
-                  <Landmark className="h-5 w-5 text-violet-600" />
-                  <h3 className="font-semibold text-violet-800">Payment Collection Page</h3>
-                  <Badge className="bg-violet-100 text-violet-700 text-xs">Required for C3 Loans</Badge>
-                </div>
-                <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
-                  <p className="text-sm text-violet-700">
-                    Since <strong>Company 3 (PD Rangani)</strong> has no bank account, all EMI payments will be recorded
-                    in the <strong>Cashbook</strong> and <strong>DayBook</strong>. The money the customer pays will 
-                    go to the selected payment page owner's <strong>personal credit</strong>.
-                  </p>
-                  <div>
-                    <Label className="font-medium text-violet-800">
-                      Select Secondary Payment Page <span className="text-red-500">*</span>
-                    </Label>
-                    <Select
-                      value={selectedSecondaryPageId}
-                      onValueChange={setSelectedSecondaryPageId}
-                    >
-                      <SelectTrigger className="mt-1 border-violet-300">
-                        <SelectValue placeholder={loadingSecPages ? 'Loading…' : 'Select payment collection page…'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {secondaryPaymentPages.map(page => (
-                          <SelectItem key={page.id} value={page.id}>
-                            {page.name} {page.upiId ? `— UPI: ${page.upiId}` : ''} {page.accountNumber ? `— Acc: ${page.accountNumber}` : ''}
-                          </SelectItem>
-                        ))}
-                        {secondaryPaymentPages.length === 0 && !loadingSecPages && (
-                          <SelectItem value="__none" disabled>No pages found — create one first</SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                    {secondaryPaymentPages.length === 0 && !loadingSecPages && (
-                      <p className="text-xs text-red-500 mt-1">
-                        ⚠️ No secondary payment pages configured. Please create one in the payment pages section.
-                      </p>
-                    )}
-                    {selectedSecondaryPageId && (() => {
-                      const pg = secondaryPaymentPages.find(p => p.id === selectedSecondaryPageId);
-                      if (!pg) return null;
-                      return (
-                        <div className="mt-2 p-3 bg-white rounded-lg border border-violet-200 text-sm">
-                          <p className="font-semibold text-violet-800">{pg.name}</p>
-                          {pg.upiId && <p className="text-violet-600">UPI: <code>{pg.upiId}</code></p>}
-                          {pg.bankName && <p className="text-violet-600">Bank: {pg.bankName} | {pg.accountNumber}</p>}
-                          {pg.ifscCode && <p className="text-violet-600">IFSC: {pg.ifscCode}</p>}
-                        </div>
-                      );
-                    })()}
+            {(() => {
+              const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
+              const showSecondaryPage = (!isMirrorLoan || !hasExtraEMIs) && isSelectedCompany3() && !isInterestOnly;
+              if (!showSecondaryPage) return null;
+              return (
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex items-center gap-2">
+                    <Landmark className="h-5 w-5 text-violet-600" />
+                    <h3 className="font-semibold text-violet-800">Payment Collection Page</h3>
+                    <Badge className="bg-violet-100 text-violet-700 text-xs">Required for C3 Loans</Badge>
+                  </div>
+                  <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
+                    <p className="text-sm text-violet-700">
+                      Since <strong>Company 3 (PD Rangani)</strong> has no bank account, all EMI payments will be recorded
+                      in the <strong>Cashbook</strong> and <strong>DayBook</strong>. The money the customer pays will 
+                      go to the selected payment page owner's <strong>personal credit</strong>.
+                    </p>
+                    <div>
+                      <Label className="font-medium text-violet-800">
+                        Select Secondary Payment Page <span className="text-red-500">*</span>
+                      </Label>
+                      <Select
+                        value={selectedSecondaryPageId}
+                        onValueChange={setSelectedSecondaryPageId}
+                      >
+                        <SelectTrigger className="mt-1 border-violet-300">
+                          <SelectValue placeholder={loadingSecPages ? 'Loading…' : 'Select payment collection page…'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {secondaryPaymentPages.map(page => (
+                            <SelectItem key={page.id} value={page.id}>
+                              {page.name} {page.upiId ? `— UPI: ${page.upiId}` : ''} {page.accountNumber ? `— Acc: ${page.accountNumber}` : ''}
+                            </SelectItem>
+                          ))}
+                          {secondaryPaymentPages.length === 0 && !loadingSecPages && (
+                            <SelectItem value="__none" disabled>No pages found — create one first</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                      {secondaryPaymentPages.length === 0 && !loadingSecPages && (
+                        <p className="text-xs text-red-500 mt-1">
+                          ⚠️ No secondary payment pages configured. Please create one in the payment pages section.
+                        </p>
+                      )}
+                      {selectedSecondaryPageId && (() => {
+                        const pg = secondaryPaymentPages.find(p => p.id === selectedSecondaryPageId);
+                        if (!pg) return null;
+                        return (
+                          <div className="mt-2 p-3 bg-white rounded-lg border border-violet-200 text-sm">
+                            <p className="font-semibold text-violet-800">{pg.name}</p>
+                            {pg.upiId && <p className="text-violet-600">UPI: <code>{pg.upiId}</code></p>}
+                            {pg.bankName && <p className="text-violet-600">Bank: {pg.bankName} | {pg.accountNumber}</p>}
+                            {pg.ifscCode && <p className="text-violet-600">IFSC: {pg.ifscCode}</p>}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Gold Loan Receipt - Shows when loan type is GOLD */}
             {formData.loanType === 'GOLD' && (

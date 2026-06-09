@@ -27,6 +27,16 @@ export async function POST(request: NextRequest) {
     }
 
     const actionUserId = userId || 'SYSTEM';
+    let userRole = 'SYSTEM';
+    if (actionUserId !== 'SYSTEM') {
+      const user = await db.user.findUnique({
+        where: { id: actionUserId },
+        select: { role: true }
+      });
+      if (user) {
+        userRole = user.role;
+      }
+    }
 
     console.log(`[EMI Date Change] Starting for EMI: ${emiId}, new date: ${newDueDate}`);
 
@@ -243,6 +253,7 @@ export async function POST(request: NextRequest) {
       db.actionLog.create({
         data: {
           userId: actionUserId,
+          userRole: userRole,
           actionType: 'DATE_CHANGE',
           module: 'OFFLINE_LOAN',
           recordId: emiId,
