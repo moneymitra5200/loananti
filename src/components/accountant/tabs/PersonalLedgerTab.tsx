@@ -228,7 +228,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       for (const entry of loanEntries) {
         if (entry.referenceType === 'LOAN_DISBURSEMENT' || entry.referenceType === 'MIRROR_LOAN_DISBURSEMENT') {
           const amount = (entry.lines || []).find(l => ['1200', '1201', '1210'].includes(l.accountCode))?.debitAmount || loan.amount || loan.loanAmount || 0;
-          runningBalance = amount;
+          runningBalance += amount;
           rows.push({
             date: entry.date,
             description: `Loan Disbursed — ${loan.loanNumber}`,
@@ -243,8 +243,44 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           continue;
         }
 
-        // Never show processing fee in the loan statement
+        if (entry.referenceType === 'PROCESSING_FEE_ACCRUAL') {
+          const pfDebit = (entry.lines || []).filter(l => l.accountCode === '1302').reduce((s, l) => s + l.debitAmount, 0) || entry.principalDisbursed || 0;
+          if (pfDebit > 0) {
+            runningBalance += pfDebit;
+            rows.push({
+              date: entry.date,
+              description: `To-PROCESSING FEE (Accrued)`,
+              totalPayment: null,
+              interestPaid: null,
+              principalPaid: null,
+              debit: pfDebit,
+              credit: 0,
+              remainingBalance: runningBalance,
+              referenceType: 'PROCESSING_FEE_ACCRUAL',
+              emiNumber: entry.emiNumber
+            });
+          }
+          continue;
+        }
+
         if (entry.referenceType === 'PROCESSING_FEE_COLLECTION' || entry.referenceType === 'PROCESSING_FEE') {
+          const pfCredit = (entry.lines || []).filter(l => l.accountCode === '1302').reduce((s, l) => s + l.creditAmount, 0) || entry.interestPaid || 0;
+          if (pfCredit > 0) {
+            runningBalance -= pfCredit;
+            const paymentMethod = entry.narration?.toLowerCase().includes('bank') || entry.narration?.toLowerCase().includes('online') || (entry as any).paymentMode === 'ONLINE' ? 'By-TRANSFER' : 'By-CASH';
+            rows.push({
+              date: entry.date,
+              description: `${paymentMethod} — Processing Fee Collected`,
+              totalPayment: pfCredit,
+              interestPaid: null,
+              principalPaid: null,
+              debit: 0,
+              credit: pfCredit,
+              remainingBalance: runningBalance,
+              referenceType: 'PROCESSING_FEE_COLLECTION',
+              emiNumber: entry.emiNumber
+            });
+          }
           continue;
         }
 

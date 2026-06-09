@@ -1258,8 +1258,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
       // 1c. Within the same EMI (or same date), Accrual is ALWAYS before Payment
       if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
-        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
-        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
+        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
         if (isAccrualA && !isAccrualB) return -1;
         if (!isAccrualA && isAccrualB) return 1;
       }
@@ -1271,8 +1271,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     if (timeA !== timeB) return timeA - timeB;
 
     // 3. Ultimate fallback for same date (if no EMI number)
-    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
-    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
+    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
+    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
     if (isAccrualA && !isAccrualB) return -1;
     if (!isAccrualA && isAccrualB) return 1;
 
