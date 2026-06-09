@@ -30,11 +30,30 @@ export async function POST(request: NextRequest) {
 
     console.log(`[EMI Date Change] Starting for EMI: ${emiId}, new date: ${newDueDate}`);
 
-    // Get EMI details
-    const emi = await db.eMISchedule.findUnique({
+    // Get EMI details (check online first)
+    let emi = await db.eMISchedule.findUnique({
       where: { id: emiId },
       select: { id: true, loanApplicationId: true, installmentNumber: true, dueDate: true, originalDueDate: true, paymentStatus: true }
-    });
+    }) as any;
+
+    let isOffline = false;
+    if (!emi) {
+      const offlineEmi = await db.offlineLoanEMI.findUnique({
+        where: { id: emiId },
+        select: { id: true, offlineLoanId: true, installmentNumber: true, dueDate: true, originalDueDate: true, paymentStatus: true }
+      });
+      if (offlineEmi) {
+        isOffline = true;
+        emi = {
+          id: offlineEmi.id,
+          loanApplicationId: offlineEmi.offlineLoanId,
+          installmentNumber: offlineEmi.installmentNumber,
+          dueDate: offlineEmi.dueDate,
+          originalDueDate: offlineEmi.originalDueDate,
+          paymentStatus: offlineEmi.paymentStatus
+        };
+      }
+    }
 
     if (!emi) {
       return NextResponse.json({ success: false, error: 'EMI not found' }, { status: 404 });
@@ -68,20 +87,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Run all operations in parallel for maximum speed
+    // Run subsequent EMIs and mirror mapping in parallel
     const [subsequentEmis, mirrorMapping] = await Promise.all([
-      // Get subsequent EMIs
-      db.eMISchedule.findMany({
-        where: {
-          loanApplicationId: emi.loanApplicationId,
-          installmentNumber: { gt: emi.installmentNumber },
-          paymentStatus: { not: 'PAID' }
-        },
-        select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
-      }),
-      // Check for mirror loan
+      isOffline
+        ? db.offlineLoanEMI.findMany({
+            where: {
+              offlineLoanId: emi.loanApplicationId,
+              installmentNumber: { gt: emi.installmentNumber },
+              paymentStatus: { not: 'PAID' }
+            },
+            select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
+          })
+        : db.eMISchedule.findMany({
+            where: {
+              loanApplicationId: emi.loanApplicationId,
+              installmentNumber: { gt: emi.installmentNumber },
+              paymentStatus: { not: 'PAID' }
+            },
+            select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
+          }),
       db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: emi.loanApplicationId },
+        where: isOffline 
+          ? { originalLoanId: emi.loanApplicationId, isOfflineLoan: true }
+          : { originalLoanId: emi.loanApplicationId },
         select: { mirrorLoanId: true }
       })
     ]);
@@ -89,14 +117,25 @@ export async function POST(request: NextRequest) {
     console.log(`[EMI Date Change] Found ${subsequentEmis.length} subsequent EMIs to shift`);
 
     // Update main EMI
-    await db.eMISchedule.update({
-      where: { id: emiId },
-      data: {
-        dueDate: newDate,
-        originalDueDate: emi.originalDueDate || oldDueDate,
-        notes: `Date changed from ${oldDueDate.toISOString().split('T')[0]} to ${newDate.toISOString().split('T')[0]}. Reason: ${reason}`
-      }
-    });
+    if (isOffline) {
+      await db.offlineLoanEMI.update({
+        where: { id: emiId },
+        data: {
+          dueDate: newDate,
+          originalDueDate: emi.originalDueDate || oldDueDate,
+          notes: `Date changed from ${oldDueDate.toISOString().split('T')[0]} to ${newDate.toISOString().split('T')[0]}. Reason: ${reason}`
+        }
+      });
+    } else {
+      await db.eMISchedule.update({
+        where: { id: emiId },
+        data: {
+          dueDate: newDate,
+          originalDueDate: emi.originalDueDate || oldDueDate,
+          notes: `Date changed from ${oldDueDate.toISOString().split('T')[0]} to ${newDate.toISOString().split('T')[0]}. Reason: ${reason}`
+        }
+      });
+    }
 
     // We compute the new dates sequentially by adding months
     function addMonths(date: Date, months: number) {
@@ -121,14 +160,23 @@ export async function POST(request: NextRequest) {
       nextDate.setHours(12, 0, 0, 0);
       
       updates.push(
-        db.eMISchedule.update({
-          where: { id: sEmi.id },
-          data: {
-            dueDate: nextDate,
-            originalDueDate: sEmi.originalDueDate || sEmi.dueDate,
-            notes: `Auto-shifted to match new day of month (from EMI #${emi.installmentNumber} change)`
-          }
-        })
+        isOffline
+          ? db.offlineLoanEMI.update({
+              where: { id: sEmi.id },
+              data: {
+                dueDate: nextDate,
+                originalDueDate: sEmi.originalDueDate || sEmi.dueDate,
+                notes: `Auto-shifted to match new day of month (from EMI #${emi.installmentNumber} change)`
+              }
+            })
+          : db.eMISchedule.update({
+              where: { id: sEmi.id },
+              data: {
+                dueDate: nextDate,
+                originalDueDate: sEmi.originalDueDate || sEmi.dueDate,
+                notes: `Auto-shifted to match new day of month (from EMI #${emi.installmentNumber} change)`
+              }
+            })
       );
     }
 
@@ -136,15 +184,25 @@ export async function POST(request: NextRequest) {
     let mirrorSyncCount = 0;
     if (mirrorMapping?.mirrorLoanId) {
       try {
-        const mirrorEmis = await db.eMISchedule.findMany({
-          where: {
-            loanApplicationId: mirrorMapping.mirrorLoanId,
-            installmentNumber: { gte: emi.installmentNumber },
-            paymentStatus: { not: 'PAID' }
-          },
-          orderBy: { installmentNumber: 'asc' },
-          select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
-        });
+        const mirrorEmis = isOffline
+          ? await db.offlineLoanEMI.findMany({
+              where: {
+                offlineLoanId: mirrorMapping.mirrorLoanId,
+                installmentNumber: { gte: emi.installmentNumber },
+                paymentStatus: { not: 'PAID' }
+              },
+              orderBy: { installmentNumber: 'asc' },
+              select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
+            })
+          : await db.eMISchedule.findMany({
+              where: {
+                loanApplicationId: mirrorMapping.mirrorLoanId,
+                installmentNumber: { gte: emi.installmentNumber },
+                paymentStatus: { not: 'PAID' }
+              },
+              orderBy: { installmentNumber: 'asc' },
+              select: { id: true, installmentNumber: true, dueDate: true, originalDueDate: true }
+            });
         
         for (let i = 0; i < mirrorEmis.length; i++) {
           const mEmi = mirrorEmis[i];
@@ -152,14 +210,23 @@ export async function POST(request: NextRequest) {
           mDate.setHours(12, 0, 0, 0);
           
           mirrorUpdates.push(
-            db.eMISchedule.update({
-              where: { id: mEmi.id },
-              data: {
-                dueDate: mDate,
-                originalDueDate: mEmi.originalDueDate || mEmi.dueDate,
-                notes: `Synced from original loan, shifted to new day of month`
-              }
-            })
+            isOffline
+              ? db.offlineLoanEMI.update({
+                  where: { id: mEmi.id },
+                  data: {
+                    dueDate: mDate,
+                    originalDueDate: mEmi.originalDueDate || mEmi.dueDate,
+                    notes: `Synced from original loan, shifted to new day of month`
+                  }
+                })
+              : db.eMISchedule.update({
+                  where: { id: mEmi.id },
+                  data: {
+                    dueDate: mDate,
+                    originalDueDate: mEmi.originalDueDate || mEmi.dueDate,
+                    notes: `Synced from original loan, shifted to new day of month`
+                  }
+                })
           );
         }
         mirrorSyncCount = mirrorUpdates.length;
@@ -171,27 +238,41 @@ export async function POST(request: NextRequest) {
     // Execute all updates in a transaction
     await db.$transaction([...updates, ...mirrorUpdates]);
 
-    // Create workflow log (non-blocking) - Super Admin will see this in the Audit Log
-    db.workflowLog.create({
-      data: {
-        loanApplicationId: emi.loanApplicationId,
-        action: 'EMI_DATE_CHANGE',
-        previousStatus: emi.paymentStatus,
-        newStatus: emi.paymentStatus,
-        remarks: `EMI Date globally changed! EMI #${emi.installmentNumber} moved to ${newDate.toISOString().split('T')[0]}. All remaining EMIs shifted accordingly. Reason: ${reason}`,
-        actionById: actionUserId
-      }
-    }).catch(() => {}); // Ignore log errors
+    // Create action / workflow logs
+    if (isOffline) {
+      db.actionLog.create({
+        data: {
+          userId: actionUserId,
+          actionType: 'DATE_CHANGE',
+          module: 'OFFLINE_LOAN',
+          recordId: emiId,
+          recordType: 'OfflineLoanEMI',
+          previousData: JSON.stringify({ oldDueDate: oldDueDate.toISOString() }),
+          newData: JSON.stringify({ newDueDate: newDate.toISOString(), reason }),
+          description: `EMI Date globally changed! EMI #${emi.installmentNumber} moved to ${newDate.toISOString().split('T')[0]}. All remaining EMIs shifted accordingly. Reason: ${reason}`
+        }
+      }).catch(() => {});
+    } else {
+      db.workflowLog.create({
+        data: {
+          loanApplicationId: emi.loanApplicationId,
+          action: 'EMI_DATE_CHANGE',
+          previousStatus: emi.paymentStatus,
+          newStatus: emi.paymentStatus,
+          remarks: `EMI Date globally changed! EMI #${emi.installmentNumber} moved to ${newDate.toISOString().split('T')[0]}. All remaining EMIs shifted accordingly. Reason: ${reason}`,
+          actionById: actionUserId
+        }
+      }).catch(() => {});
+    }
 
     // Notify Super Admin if the person changing the date is not a SUPER_ADMIN
-    // Actually, create a notification in the system
     db.user.findMany({
       where: { role: 'SUPER_ADMIN' }
     }).then(superAdmins => {
       const notifications = superAdmins.map(sa => ({
         userId: sa.id,
         title: 'EMI Date Changed',
-        message: `EMI Date changed for loan ${emi.loanApplicationId}. New Date: ${newDate.toISOString().split('T')[0]}`,
+        message: `EMI Date changed for ${isOffline ? 'offline loan' : 'loan'} ${emi.loanApplicationId}. New Date: ${newDate.toISOString().split('T')[0]}`,
         type: 'SYSTEM',
         isRead: false
       }));

@@ -1049,12 +1049,47 @@ export class AccountingService {
       return '';
     }
 
-    // Safety guard: Auto-accrue if not already accrued in this company
     const executor = tx || db;
+    
+    // Resolve original and mirror loan IDs
+    const targetLoanIds = [params.loanId];
+    try {
+      const mapping = await executor.mirrorLoanMapping.findFirst({
+        where: {
+          OR: [
+            { originalLoanId: params.loanId },
+            { mirrorLoanId: params.loanId }
+          ]
+        }
+      });
+      if (mapping) {
+        if (mapping.originalLoanId) targetLoanIds.push(mapping.originalLoanId);
+        if (mapping.mirrorLoanId) targetLoanIds.push(mapping.mirrorLoanId);
+      }
+    } catch (err) {
+      console.error('[AccountingService] Error fetching mirror mappings:', err);
+    }
+
+    // Safety guard: check if collection is already recorded (idempotency)
+    const existingCollection = await executor.journalEntry.findFirst({
+      where: {
+        companyId: this.companyId,
+        referenceId: { in: targetLoanIds },
+        referenceType: 'PROCESSING_FEE_COLLECTION',
+        isReversed: false
+      },
+      select: { id: true }
+    });
+    if (existingCollection) {
+      console.log(`[AccountingService] recordProcessingFee: Already collected for loan ${params.loanId} (or mapped loan). Skipping.`);
+      return existingCollection.id;
+    }
+
+    // Safety guard: Auto-accrue if not already accrued in this company
     const existingAccrual = await executor.journalEntry.findFirst({
       where: {
         companyId: this.companyId,
-        referenceId: params.loanId,
+        referenceId: { in: targetLoanIds },
         referenceType: 'PROCESSING_FEE_ACCRUAL',
         isReversed: false
       },
@@ -1119,6 +1154,42 @@ export class AccountingService {
     if (!params.amount || params.amount <= 0) {
       console.log(`[AccountingService] recordProcessingFeeAccrual: Skipping zero or negative amount ₹${params.amount}`);
       return '';
+    }
+
+    const executor = tx || db;
+
+    // Resolve original and mirror loan IDs for idempotency check
+    const targetLoanIds = [params.loanId];
+    try {
+      const mapping = await executor.mirrorLoanMapping.findFirst({
+        where: {
+          OR: [
+            { originalLoanId: params.loanId },
+            { mirrorLoanId: params.loanId }
+          ]
+        }
+      });
+      if (mapping) {
+        if (mapping.originalLoanId) targetLoanIds.push(mapping.originalLoanId);
+        if (mapping.mirrorLoanId) targetLoanIds.push(mapping.mirrorLoanId);
+      }
+    } catch (err) {
+      console.error('[AccountingService] Error fetching mirror mappings:', err);
+    }
+
+    const existingAccrual = await executor.journalEntry.findFirst({
+      where: {
+        companyId: this.companyId,
+        referenceId: { in: targetLoanIds },
+        referenceType: 'PROCESSING_FEE_ACCRUAL',
+        isReversed: false
+      },
+      select: { id: true }
+    });
+
+    if (existingAccrual) {
+      console.log(`[AccountingService] recordProcessingFeeAccrual: Already accrued for loan ${params.loanId} (or mapped loan). Skipping.`);
+      return existingAccrual.id;
     }
 
     return this.createJournalEntry({

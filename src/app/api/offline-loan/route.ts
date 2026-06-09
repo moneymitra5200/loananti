@@ -2985,11 +2985,11 @@ export async function PUT(request: NextRequest) {
                 }});
                 console.log(`[Mirror IO Deferred] Created deferred EMI #${mNextInst} for mirror loan: I:₹${mDeferredInterest} at ${mirrorLoanRate}%`);
               }
-            } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
+            } else if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true)) {
               // ── PRINCIPAL_ONLY / ADVANCE: Only principal is collected, interest is written off or waived ──
               const mirrorPrincipalToCollect = Math.max(0, (mirrorEmi.principalAmount || 0) - (mirrorEmi.paidPrincipal || 0));
               const mirrorInterestToWriteOff = Math.max(0, (mirrorEmi.interestAmount || 0) - (mirrorEmi.paidInterest || 0));
-              const isAdv = paymentType === 'ADVANCE';
+              const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true);
               
               await tx.offlineLoanEMI.update({
                 where: { id: mirrorEmi.id },
@@ -3439,7 +3439,7 @@ export async function PUT(request: NextRequest) {
           const acctPrincipal = sessionPrincipal;
           const acctInterest  = sessionInterest;
           let accountingResult: { bankTransaction?: any; cashBookEntry?: any; journalEntryId?: string } = {};
-          if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE') {
+          if (paymentType === 'PRINCIPAL_ONLY' || paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true)) {
             // ── PRINCIPAL-ONLY: Journal entry handles everything (no separate CashBook entry needed) ──
             // The journal entry creates:
             //   Dr  Cash/Bank        = principalAmount  (money received)
@@ -3492,7 +3492,7 @@ export async function PUT(request: NextRequest) {
                   isMirrorReclass = !!mReclass;
                 }
 
-                const isAdv = paymentType === 'ADVANCE';
+                const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true);
                 const mirrorJournalResult = await recordPrincipalOnlyJournal({
                   companyId:          mirrorLoanMapping.mirrorCompanyId,
                   loanId:             mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId,
@@ -3523,7 +3523,7 @@ export async function PUT(request: NextRequest) {
               // correctly in arithmetic — explicit calculation is more robust.
               // Use sessionPrincipal (delta this payment) as primary source.
               // Fall back to emi.principalAmount if session delta is 0 due to Prisma Decimal coercion.
-              const isAdv = paymentType === 'ADVANCE';
+              const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true);
               const principalToCollect = sessionPrincipal > 0
                 ? sessionPrincipal
                 : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));

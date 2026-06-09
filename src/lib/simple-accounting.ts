@@ -347,41 +347,63 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     if (accEntry) {
       finalInterestAccrued = true;
     } else if (interestComponent > 0) {
-      // Perform on-demand accrual if company has FULL accounting
-      const targetCompany = await db.company.findUnique({
-        where: { id: targetCompanyId },
-        select: { accountingType: true }
-      });
-      if (targetCompany?.accountingType === 'FULL') {
-        try {
-          const { AccountingService } = await import('@/lib/accounting-service');
-          const accSvc = new AccountingService(targetCompanyId);
-          await accSvc.recordInterestAccrual({
-            loanId: loanId,
-            customerId: customerId || '',
-            customerName: customerLabel || 'Customer',
-            emiId: emiId,
-            interestAmount: interestComponent,
-            accrualDate: new Date(),
-            createdById: userId || 'SYSTEM'
-          });
+      let isPhase1InterestOnly = false;
+      let isEmiDue = false;
 
-          const onlineEmi = await db.eMISchedule.findUnique({
-            where: { id: emiId }
-          });
-          if (onlineEmi) {
-            await db.eMISchedule.update({
-              where: { id: emiId },
-              data: {
-                interestAccrued: true,
-                accruedAt: new Date()
-              }
+      const onlineEmi = await db.eMISchedule.findUnique({
+        where: { id: emiId },
+        include: { loanApplication: true }
+      });
+      if (onlineEmi) {
+        isEmiDue = new Date(onlineEmi.dueDate) <= new Date();
+        isPhase1InterestOnly = onlineEmi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
+      } else {
+        const offlineEmi = await db.offlineLoanEMI.findUnique({
+          where: { id: emiId },
+          include: { offlineLoan: true }
+        });
+        if (offlineEmi) {
+          isEmiDue = new Date(offlineEmi.dueDate) <= new Date();
+          isPhase1InterestOnly = offlineEmi.offlineLoan?.status === 'INTEREST_ONLY';
+        }
+      }
+
+      const shouldAccrue = !isPhase1InterestOnly || isEmiDue;
+
+      if (shouldAccrue) {
+        // Perform on-demand accrual if company has FULL accounting
+        const targetCompany = await db.company.findUnique({
+          where: { id: targetCompanyId },
+          select: { accountingType: true }
+        });
+        if (targetCompany?.accountingType === 'FULL') {
+          try {
+            const { AccountingService } = await import('@/lib/accounting-service');
+            const accSvc = new AccountingService(targetCompanyId);
+            await accSvc.recordInterestAccrual({
+              loanId: loanId,
+              customerId: customerId || '',
+              customerName: customerLabel || 'Customer',
+              emiId: emiId,
+              interestAmount: interestComponent,
+              accrualDate: new Date(),
+              createdById: userId || 'SYSTEM'
             });
+
+            if (onlineEmi) {
+              await db.eMISchedule.update({
+                where: { id: emiId },
+                data: {
+                  interestAccrued: true,
+                  accruedAt: new Date()
+                }
+              });
+            }
+            finalInterestAccrued = true;
+            console.log(`[Accounting] Auto-accrued interest of ₹${interestComponent} on-demand for original EMI #${installmentNumber}`);
+          } catch (accErr) {
+            console.error('[Accounting] Failed to auto-accrue original interest:', accErr);
           }
-          finalInterestAccrued = true;
-          console.log(`[Accounting] Auto-accrued interest of ₹${interestComponent} on-demand for original EMI #${installmentNumber}`);
-        } catch (accErr) {
-          console.error('[Accounting] Failed to auto-accrue original interest:', accErr);
         }
       }
     }
@@ -441,38 +463,65 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       if (accEntry) {
         finalMirrorInterestAccrued = true;
       } else if (mirrorInterest !== undefined && mirrorInterest > 0) {
-        // Perform on-demand accrual for mirror loan if mirror company has FULL accounting
-        const mirrorCompany = await db.company.findUnique({
-          where: { id: mirrorCompanyId! },
-          select: { accountingType: true }
-        });
-        if (mirrorCompany?.accountingType === 'FULL') {
-          try {
-            const { AccountingService } = await import('@/lib/accounting-service');
-            const accSvc = new AccountingService(mirrorCompanyId!);
-            await accSvc.recordInterestAccrual({
-              loanId: mirrorLoanId,
-              customerId: customerId || '',
-              customerName: customerLabel || 'Customer',
-              emiId: mirrorEmiId,
-              interestAmount: mirrorInterest,
-              accrualDate: new Date(),
-              createdById: userId || 'SYSTEM'
-            });
+        let isMirrorPhase1InterestOnly = false;
+        let isMirrorEmiDue = false;
 
-            if (mirrorEmiType === 'ONLINE') {
-              await db.eMISchedule.update({
-                where: { id: mirrorEmiId },
-                data: {
-                  interestAccrued: true,
-                  accruedAt: new Date()
-                }
+        if (mirrorEmiType === 'ONLINE') {
+          const onlineMirrorEmi = await db.eMISchedule.findUnique({
+            where: { id: mirrorEmiId },
+            include: { loanApplication: true }
+          });
+          if (onlineMirrorEmi) {
+            isMirrorEmiDue = new Date(onlineMirrorEmi.dueDate) <= new Date();
+            isMirrorPhase1InterestOnly = onlineMirrorEmi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
+          }
+        } else {
+          const offlineMirrorEmi = await db.offlineLoanEMI.findUnique({
+            where: { id: mirrorEmiId },
+            include: { offlineLoan: true }
+          });
+          if (offlineMirrorEmi) {
+            isMirrorEmiDue = new Date(offlineMirrorEmi.dueDate) <= new Date();
+            isMirrorPhase1InterestOnly = offlineMirrorEmi.offlineLoan?.status === 'INTEREST_ONLY';
+          }
+        }
+
+        const shouldAccrueMirror = !isMirrorPhase1InterestOnly || isMirrorEmiDue;
+
+        if (shouldAccrueMirror) {
+          // Perform on-demand accrual for mirror loan if mirror company has FULL accounting
+          const mirrorCompany = await db.company.findUnique({
+            where: { id: mirrorCompanyId! },
+            select: { accountingType: true }
+          });
+          if (mirrorCompany?.accountingType === 'FULL') {
+            try {
+              const { AccountingService } = await import('@/lib/accounting-service');
+              const accSvc = new AccountingService(mirrorCompanyId!);
+              await accSvc.recordInterestAccrual({
+                loanId: mirrorLoanId,
+                customerId: customerId || '',
+                customerName: customerLabel || 'Customer',
+                emiId: mirrorEmiId,
+                interestAmount: mirrorInterest,
+                accrualDate: new Date(),
+                createdById: userId || 'SYSTEM'
               });
+
+              if (mirrorEmiType === 'ONLINE') {
+                await db.eMISchedule.update({
+                  where: { id: mirrorEmiId },
+                  data: {
+                    interestAccrued: true,
+                    accruedAt: new Date()
+                  }
+                });
+              }
+              finalMirrorInterestAccrued = true;
+              console.log(`[Accounting] Auto-accrued mirror interest of ₹${mirrorInterest} on-demand for EMI #${installmentNumber}`);
+            } catch (accErr) {
+              console.error('[Accounting] Failed to auto-accrue mirror interest:', accErr);
             }
-            finalMirrorInterestAccrued = true;
-            console.log(`[Accounting] Auto-accrued mirror interest of ₹${mirrorInterest} on-demand for EMI #${installmentNumber}`);
-          } catch (accErr) {
-            console.error('[Accounting] Failed to auto-accrue mirror interest:', accErr);
           }
         }
       }
