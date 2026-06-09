@@ -42,6 +42,8 @@ const ACCOUNT_CODES = {
   ONLINE_LOANS_RECEIVABLE: '1201',
   OFFLINE_LOANS_RECEIVABLE: '1210',
   INTEREST_RECEIVABLE: '1301',
+  PROCESSING_FEE_RECEIVABLE: '1302',
+  PENALTY_RECEIVABLE: '1303',
   IRRECOVERABLE_INTEREST: '1305',
   
   // Liabilities
@@ -237,6 +239,8 @@ export async function GET(request: NextRequest) {
 
     // Other Receivables
     const interestReceivable = getAccountBalance(ACCOUNT_CODES.INTEREST_RECEIVABLE);
+    const processingFeeReceivable = getAccountBalance(ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE);
+    const penaltyReceivable = getAccountBalance(ACCOUNT_CODES.PENALTY_RECEIVABLE);
     const overdueInterestReceivable = getAccountBalance(ACCOUNT_CODES.IRRECOVERABLE_INTEREST);
 
     // ============================================
@@ -367,6 +371,20 @@ export async function GET(request: NextRequest) {
         description: 'Interest accrued but not yet received'
       },
       {
+        name: 'Processing Fee Receivable',
+        amount: Math.max(0, processingFeeReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE,
+        description: 'Processing fees due from customers'
+      },
+      {
+        name: 'Penalty Receivable',
+        amount: Math.max(0, penaltyReceivable),
+        type: 'ASSET',
+        accountCode: ACCOUNT_CODES.PENALTY_RECEIVABLE,
+        description: 'Late payment penalties due'
+      },
+      {
         name: 'Overdue Interest Receivable',
         amount: Math.max(0, overdueInterestReceivable),
         type: 'ASSET',
@@ -383,6 +401,8 @@ export async function GET(request: NextRequest) {
       ACCOUNT_CODES.ONLINE_LOANS_RECEIVABLE,
       ACCOUNT_CODES.OFFLINE_LOANS_RECEIVABLE,
       ACCOUNT_CODES.INTEREST_RECEIVABLE,
+      ACCOUNT_CODES.PROCESSING_FEE_RECEIVABLE,
+      ACCOUNT_CODES.PENALTY_RECEIVABLE,
       ACCOUNT_CODES.IRRECOVERABLE_INTEREST,
       '1102' // Exclude generic bank code
     ]);
@@ -390,6 +410,7 @@ export async function GET(request: NextRequest) {
     const otherRightAccounts = accounts.filter(a =>
       a.accountCode.startsWith('1') &&
       !handledRightCodes.has(a.accountCode) &&
+      !a.accountCode.startsWith('14') && // Exclude custom bank accounts starting with 14
       !a.accountCode.startsWith('1102') &&
       !a.accountCode.startsWith('1103') &&
       !a.accountCode.startsWith('1104')

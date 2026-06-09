@@ -442,6 +442,8 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     { accountCode: '1201', accountName: 'Online Loans Given', amount: accountBalances['1201'] || 0 },
     { accountCode: '1210', accountName: 'Offline Loans Given', amount: accountBalances['1210'] || 0 },
     { accountCode: '1301', accountName: 'Interest Receivable', amount: accountBalances['1301'] || 0 },
+    { accountCode: '1302', accountName: 'Processing Fee Receivable', amount: accountBalances['1302'] || 0 },
+    { accountCode: '1303', accountName: 'Penalty Receivable', amount: accountBalances['1303'] || 0 },
     { accountCode: '1305', accountName: 'Overdue Interest Receivable', amount: accountBalances['1305'] || 0 }
   ];
 
@@ -458,11 +460,11 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
 
   const otherAssetAccounts = accounts.filter(a => 
     a.accountType === 'ASSET' && 
-    !['1101', '1102', '1200', '1201', '1210', '1301', '1305'].includes(a.accountCode) &&
+    !['1101', '1102', '1200', '1201', '1210', '1301', '1302', '1303', '1305'].includes(a.accountCode) &&
     !a.accountCode.startsWith('110') &&
+    !a.accountCode.startsWith('14') && // Exclude custom bank accounts starting with 14
     !bankNamesToExclude.has(a.accountName) &&
-    !a.accountName.toUpperCase().includes('BANK OF BARODA') &&
-    !a.accountName.toUpperCase().includes('RECEIVABLE')
+    !a.accountName.toUpperCase().includes('BANK OF BARODA')
   );
   if (otherAssetAccounts.length > 0) {
     assets.push({ accountCode: 'SEC_OA', accountName: '── Other Assets ──', amount: 0, isSection: true });
@@ -473,7 +475,7 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
 
   // LIABILITIES (Keep structure permanent even if 0)
   const liabilities: any[] = accounts
-    .filter(a => a.accountType === 'LIABILITY' && a.accountCode !== '2110') // Hide Investor Capital 
+    .filter(a => a.accountType === 'LIABILITY') // Include all liabilities (including Investor Capital 2110)
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
     
   // Add Owner's Capital to Liabilities instead of Equity

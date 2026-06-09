@@ -174,13 +174,35 @@ export async function POST(request: NextRequest) {
     // Chart of Accounts STRUCTURE is PRESERVED — only balances are zeroed
     // ========================================
 
-    // ⚠️ IMPORTANT: Do NOT delete chartOfAccount records — they are structural headers.
-    // Instead, reset balances to zero so the accounting portal stays functional.
+    // ⚠️ IMPORTANT: Do NOT delete standard chartOfAccount records — they are structural headers.
+    // However, delete any custom/dynamic bank accounts or other dynamic accounts (codes not in the default list)
+    // so they do not persist after system reset.
+    const defaultCodes = [
+      '1101', '1102', '1200', '1201', '1210', '1301', '1302', '1303', '1304', '1305', '1500', '1501', '1502',
+      '2100', '2101', '2110', '2120', '2130', '2201', '2202',
+      '3001', '3002', '3003', '3004',
+      '4100', '4110', '4120', '4121', '4122', '4123', '4124', '4125', '4300', '4301',
+      '5100', '5101', '5102', '5103', '5104', '5105', '5106', '5107', '5200', '5201', '5202', '5203', '5300', '5301', '5302'
+    ];
+
+    try {
+      const { AccountingService } = await import('@/lib/accounting-service');
+      AccountingService.clearAllCaches();
+    } catch (cacheErr) {
+      console.error('Error clearing caches during system reset:', cacheErr);
+    }
+
+    stats.customChartOfAccountsDeleted = (await db.chartOfAccount.deleteMany({
+      where: {
+        accountCode: { notIn: defaultCodes }
+      }
+    })).count;
+
+    // Reset remaining standard account balances to zero
     const coaReset = await db.chartOfAccount.updateMany({
       data: { currentBalance: 0 }
     });
     stats.chartOfAccountsBalancesReset = coaReset.count;
-    // Old: stats.chartOfAccounts = (await db.chartOfAccount.deleteMany({})).count; // REMOVED
 
     stats.financialYears            = (await db.financialYear.deleteMany({})).count;
     stats.gstConfigs                = (await db.gSTConfig.deleteMany({})).count;

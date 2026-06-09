@@ -2434,6 +2434,60 @@ function BalanceSheetSection({
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Liabilities & Equity */}
+          <Card>
+            <CardHeader className="bg-red-50">
+              <CardTitle className="text-red-700">LIABILITIES & EQUITY</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableBody>
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">LIABILITIES</TableCell>
+                  </TableRow>
+                  {(balanceSheet?.liabilities || []).length > 0 ? (
+                    balanceSheet.liabilities.map((liab: any, idx: number) => (
+                      <TableRow key={idx}>
+                        <TableCell className="font-medium">{liab.accountName}</TableCell>
+                        <TableCell className="text-right text-red-600">{formatCurrency(liab.amount)}</TableCell>
+                      </TableRow>
+                    ))
+                  ) : (
+                    <TableRow>
+                      <TableCell className="text-gray-500">No liabilities</TableCell>
+                      <TableCell className="text-right">₹0.00</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow className="bg-red-50">
+                    <TableCell className="font-medium">Total Liabilities</TableCell>
+                    <TableCell className="text-right text-red-700">{formatCurrency(balanceSheet?.totalLiabilities || 0)}</TableCell>
+                  </TableRow>
+                  
+                  <TableRow>
+                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">EQUITY</TableCell>
+                  </TableRow>
+                  {(balanceSheet?.equity || []).map((eq: any, idx: number) => (
+                    <TableRow key={idx}>
+                      <TableCell className="font-medium">{eq.accountName}</TableCell>
+                      <TableCell className="text-right text-purple-600">{formatCurrency(eq.amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow className="bg-purple-50">
+                    <TableCell className="font-medium">Total Equity</TableCell>
+                    <TableCell className="text-right text-purple-700">{formatCurrency(balanceSheet?.totalEquity || 0)}</TableCell>
+                  </TableRow>
+                  
+                  <TableRow className="bg-gray-100 font-bold">
+                    <TableCell>Total Liabilities & Equity</TableCell>
+                    <TableCell className="text-right text-lg">
+                      {formatCurrency((balanceSheet?.totalLiabilities || 0) + (balanceSheet?.totalEquity || 0))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
           {/* Assets */}
           <Card>
             <CardHeader className="bg-blue-50">
@@ -2486,61 +2540,6 @@ function BalanceSheetSection({
                     <TableCell>Total Assets</TableCell>
                     <TableCell className="text-right text-blue-700 text-lg">
                       {formatCurrency(balanceSheet?.totalAssets || 0)}
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
-
-          {/* Liabilities & Equity */}
-          <Card>
-            <CardHeader className="bg-red-50">
-              <CardTitle className="text-red-700">LIABILITIES & EQUITY</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableBody>
-                  <TableRow>
-                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">LIABILITIES</TableCell>
-                  </TableRow>
-                  {(balanceSheet?.liabilities || []).length > 0 ? (
-                    balanceSheet.liabilities.map((liab: any, idx: number) => (
-                      <TableRow key={idx}>
-                        <TableCell className="font-medium">{liab.accountName}</TableCell>
-                        <TableCell className="text-right text-red-600">{formatCurrency(liab.amount)}</TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell className="text-gray-500">No liabilities</TableCell>
-                      <TableCell className="text-right">₹0.00</TableCell>
-                    </TableRow>
-                  )}
-                  <TableRow className="bg-red-50">
-                    <TableCell className="font-medium">Total Liabilities</TableCell>
-                    <TableCell className="text-right text-red-700">{formatCurrency(balanceSheet?.totalLiabilities || 0)}</TableCell>
-                  </TableRow>
-                  
-                  <TableRow>
-                    <TableCell colSpan={2} className="font-bold text-gray-600 bg-gray-50">EQUITY</TableCell>
-                  </TableRow>
-                  {(balanceSheet?.equity || []).map((eq: any, idx: number) => (
-                    <TableRow key={idx}>
-                      <TableCell className="font-medium">{eq.accountName}</TableCell>
-                      <TableCell className="text-right text-purple-600">{formatCurrency(eq.amount)}</TableCell>
-                    </TableRow>
-                  ))}
-                  <TableRow className="bg-purple-50">
-                    <TableCell className="font-medium">Total Equity</TableCell>
-                    <TableCell className="text-right text-purple-700">{formatCurrency(balanceSheet?.totalEquity || 0)}</TableCell>
-                  </TableRow>
-                  
-                  <TableRow className="bg-gray-100 font-bold">
-                    <TableCell>Total Liabilities & Equity</TableCell>
-                    <TableCell className="text-right text-lg">
-                      {formatCurrency((balanceSheet?.totalLiabilities || 0) + (balanceSheet?.totalEquity || 0))}
                     </TableCell>
                   </TableRow>
                 </TableBody>
