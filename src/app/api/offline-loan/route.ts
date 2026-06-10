@@ -2454,7 +2454,14 @@ export async function PUT(request: NextRequest) {
             });
           }
 
-          // ── Accrual-basis accounting for IO payment (same pattern as normal EMI) ──
+          // ── Accrual-basis accounting for IO payment ──────────────────────────────
+          // RULE (same as normal EMI, as per user spec):
+          //   ALWAYS create INTEREST_ACCRUAL first, then record payment clearing the receivable.
+          //   - Advance payment (before due date): accrue today (Dr 1301 / Cr 4110), then pay (Dr Cash / Cr 1301)
+          //   - Overdue payment (after due date):  accrue on due date (Dr 1301 / Cr 4110), then pay (Dr Cash / Cr 1301)
+          //   - Accrual already exists:            skip accrual creation, directly clear receivable
+          // ─────────────────────────────────────────────────────────────────────────
+
           // Step 1: Check if INTEREST_ACCRUAL already exists for this EMI
           const existingAccrual = await db.journalEntry.findFirst({
             where: { companyId: targetCompanyId, referenceType: 'INTEREST_ACCRUAL', referenceId: currentEMI.id, isReversed: false }
@@ -2462,10 +2469,12 @@ export async function PUT(request: NextRequest) {
 
           const emiDueDate    = new Date(currentEMI.dueDate);
           const dueDatePassed = emiDueDate <= now;
+          // Accrual date: on/after due date → use due date; advance payment → use today
+          const accrualDate   = dueDatePassed ? emiDueDate : now;
           let interestWasAccrued = !!existingAccrual;
 
-          if (!existingAccrual && dueDatePassed) {
-            // Step 2: Accrue interest dated AT the due date — exactly as performOnDemandAccrual does
+          if (!existingAccrual) {
+            // Step 2: Create INTEREST_ACCRUAL — always, whether advance or overdue
             // Dr: Interest Receivable (1301) / Cr: Interest Income (4110)
             try {
               await accSvc.recordInterestAccrual({
@@ -2474,29 +2483,28 @@ export async function PUT(request: NextRequest) {
                 customerName:   loan.customerName || 'Customer',
                 emiId:          currentEMI.id,
                 interestAmount: targetAmount,
-                accrualDate:    emiDueDate,   // ← dated at due date, NOT payment date
+                accrualDate,   // due date if overdue; payment date if advance
                 createdById:    'SYSTEM',
               });
               interestWasAccrued = true;
-              console.log(`[IO Accounting] ✓ INTEREST_ACCRUAL created (dated: ${emiDueDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}) — ₹${targetAmount}`);
+              const label = dueDatePassed ? 'overdue' : 'ADVANCE';
+              console.log(`[IO Accounting] ✓ INTEREST_ACCRUAL (${label}) dated ${accrualDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} — ₹${targetAmount}`);
             } catch (accrualErr) {
               console.error('[IO Accounting] INTEREST_ACCRUAL failed (non-fatal):', accrualErr);
             }
-          } else if (existingAccrual) {
+          } else {
+            interestWasAccrued = true;
             console.log(`[IO Accounting] INTEREST_ACCRUAL already exists for EMI ${currentEMI.id} — skipping`);
           }
 
-          // Step 3: Record payment journal — clearing Interest Receivable (accrual-basis)
-          // If accrued: Dr Cash/Bank / Cr 1301 Interest Receivable  ← clears the receivable
-          // If not yet due (edge case): Dr Cash/Bank / Cr 4110 Interest Income (cash-basis fallback)
-          const creditCode = interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME;
-
+          // Step 3: Record payment journal — ALWAYS clears Interest Receivable (1301)
+          // Dr: Cash/Bank / Cr: Interest Receivable (1301)
           await accSvc.createJournalEntry({
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
             narration: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
             lines: [
               { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: loan.id },
-              { accountCode: creditCode, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
+              { accountCode: interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });

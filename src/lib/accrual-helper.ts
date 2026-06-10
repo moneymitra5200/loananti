@@ -87,10 +87,10 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         interestAmount: { gt: 0 },
         offlineLoan: {
           companyId: { not: null },
-          // IMPORTANT: Exclude INTEREST_ONLY (Phase 1) loans — they have no amortising EMI schedule.
-          // Interest accrual for Phase 1 is NOT applicable; it only begins after the loan
-          // is shifted to ACTIVE (Phase 2) via /api/offline-loan/start.
-          status: { in: ['ACTIVE', 'DEFAULTED', 'RESTRUCTURED'] },
+          // Phase 1 INTEREST_ONLY loans ARE included — accrual must happen when due date passes
+          // (the dueDate <= today filter above already guards against pre-emptive accruals).
+          // Accrual rule: Dr Interest Receivable (1301) / Cr Interest Income (4110) on due date.
+          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] },
           company: {
             accountingType: 'FULL'
           }
