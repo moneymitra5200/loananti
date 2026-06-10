@@ -9,81 +9,38 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
         OR: [
           { referenceId: refId },
           { referenceId: { startsWith: refId } }
-        ],
-        isReversed: false
+        ]
       },
       include: { lines: { include: { account: true } } }
     });
 
-    console.log(`[Undo Reversal] Found ${originalEntries.length} journal entries to reverse for refId: ${refId}`);
+    console.log(`[Undo Delete] Found ${originalEntries.length} journal entries to delete for refId: ${refId}`);
 
     for (const originalEntry of originalEntries) {
       const companyId = originalEntry.companyId;
-      const count = await tx.journalEntry.count({ where: { companyId } });
-      const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
-
       const accService = new AccountingService(companyId);
       const financialYearId = await accService.getCurrentFinancialYear(tx);
 
-      // Mark original as reversed
-      await tx.journalEntry.update({
-        where: { id: originalEntry.id },
-        data: {
-          isReversed: true,
-          reversedById: userId,
-          reversedAt: new Date(),
-        },
-      });
-
-      // Create reversal entry
-      const reversal = await tx.journalEntry.create({
-        data: {
-          companyId,
-          entryNumber,
-          entryDate: new Date(),
-          referenceType: originalEntry.referenceType || 'MANUAL_ENTRY',
-          referenceId: `${originalEntry.referenceId}-REV`,
-          narration: `REVERSAL: ${originalEntry.narration}. Reason: Undo Action Log`,
-          totalDebit: originalEntry.totalCredit,
-          totalCredit: originalEntry.totalDebit,
-          isAutoEntry: true,
-          isApproved: true,
-          createdById: userId,
-        },
-      });
-
-      // Create reversal lines
+      // Revert ChartOfAccount and LedgerBalances for each line
       for (const line of originalEntry.lines) {
-        await tx.journalEntryLine.create({
-          data: {
-            journalEntryId: reversal.id,
-            accountId: line.accountId,
-            debitAmount: line.creditAmount,
-            creditAmount: line.debitAmount,
-            narration: `Reversal of ${originalEntry.entryNumber}`,
-            loanId: line.loanId,
-            customerId: line.customerId,
-          },
-        });
-
-        // Update account balance
         const account = line.account;
         if (account) {
           let balanceChange = 0;
           if (account.accountType === 'ASSET' || account.accountType === 'EXPENSE') {
-            balanceChange = line.creditAmount - line.debitAmount;
-          } else {
             balanceChange = line.debitAmount - line.creditAmount;
+          } else {
+            balanceChange = line.creditAmount - line.debitAmount;
           }
 
+          // To undo/delete the entry, we subtract the original balanceChange!
           await tx.chartOfAccount.update({
             where: { id: line.accountId },
             data: {
-              currentBalance: { increment: balanceChange }
+              currentBalance: { decrement: balanceChange }
             },
           });
 
-          // Update ledger balance
+          // Revert the ledger balance counts
           if (financialYearId) {
             await tx.ledgerBalance.updateMany({
               where: {
@@ -91,18 +48,90 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
                 financialYearId,
               },
               data: {
-                totalDebits: { increment: line.creditAmount },
-                totalCredits: { increment: line.debitAmount },
-                closingBalance: { increment: balanceChange },
+                totalDebits: { decrement: line.debitAmount },
+                totalCredits: { decrement: line.creditAmount },
+                closingBalance: { decrement: balanceChange },
               },
             });
           }
         }
       }
-      console.log(`[Undo Reversal] Successfully reversed journal entry ${originalEntry.entryNumber} (${originalEntry.id})`);
+
+      // Delete the lines and the journal entry itself
+      await tx.journalEntryLine.deleteMany({
+        where: { journalEntryId: originalEntry.id }
+      });
+      await tx.journalEntry.delete({
+        where: { id: originalEntry.id }
+      });
+
+      console.log(`[Undo Delete] Successfully deleted journal entry ${originalEntry.entryNumber} (${originalEntry.id})`);
     }
   } catch (err) {
-    console.error('[Undo Reversal] Error reversing journal entries:', err);
+    console.error('[Undo Delete] Error deleting journal entries:', err);
+    throw err;
+  }
+}
+
+async function deleteBankOrCashEntriesForRef(refId: string, tx: any) {
+  try {
+    // 1. Revert and delete BankTransactions
+    const bankTransactions = await tx.bankTransaction.findMany({
+      where: {
+        OR: [
+          { referenceId: refId },
+          { referenceId: { startsWith: refId } }
+        ]
+      }
+    });
+
+    for (const bt of bankTransactions) {
+      const multiplier = bt.transactionType === 'CREDIT' ? -1 : 1;
+      await tx.bankAccount.update({
+        where: { id: bt.bankAccountId },
+        data: {
+          currentBalance: { increment: bt.amount * multiplier }
+        }
+      });
+      await tx.bankTransaction.delete({ where: { id: bt.id } });
+      console.log(`[Undo] Deleted BankTransaction ${bt.id} and reverted balance by ${bt.amount * multiplier}`);
+    }
+
+    // 2. Revert and delete CashBookEntries
+    const cashBookEntries = await tx.cashBookEntry.findMany({
+      where: {
+        OR: [
+          { referenceId: refId },
+          { referenceId: { startsWith: refId } }
+        ]
+      }
+    });
+
+    for (const cbe of cashBookEntries) {
+      const multiplier = cbe.entryType === 'CREDIT' ? -1 : 1;
+      await tx.cashBook.update({
+        where: { id: cbe.cashBookId },
+        data: {
+          currentBalance: { increment: cbe.amount * multiplier }
+        }
+      });
+      await tx.cashBookEntry.delete({ where: { id: cbe.id } });
+      console.log(`[Undo] Deleted CashBookEntry ${cbe.id} and reverted balance by ${cbe.amount * multiplier}`);
+    }
+
+    // 3. Delete CreditTransactions
+    await tx.creditTransaction.deleteMany({
+      where: {
+        OR: [
+          { sourceId: refId },
+          { loanApplicationId: refId },
+          { emiScheduleId: refId }
+        ]
+      }
+    });
+    console.log(`[Undo] Deleted related CreditTransactions for refId: ${refId}`);
+  } catch (err) {
+    console.error('[Undo] Error in deleteBankOrCashEntriesForRef:', err);
     throw err;
   }
 }
@@ -251,13 +280,24 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'This action cannot be undone' }, { status: 400 });
       }
 
-      const previousData = actionLog.previousData ? JSON.parse(actionLog.previousData) : null;
-      const newData      = actionLog.newData      ? JSON.parse(actionLog.newData)      : null;
+      let previousData: any = null;
+      try {
+        previousData = actionLog.previousData ? JSON.parse(actionLog.previousData) : null;
+      } catch (parseErr) {
+        console.error('[ActionLog Undo] Failed to parse previousData:', parseErr, 'Raw:', actionLog.previousData);
+      }
+
+      let newData: any = null;
+      try {
+        newData = actionLog.newData ? JSON.parse(actionLog.newData) : null;
+      } catch (parseErr) {
+        console.error('[ActionLog Undo] Failed to parse newData:', parseErr, 'Raw:', actionLog.newData);
+      }
       const undoResult = await db.$transaction(async (tx) => {
         let localUndoResult: { type: string; recordId: string; detail?: string } | null = null;
         // ── OFFLINE LOAN ─────────────────────────────────────────────────────────
         if (actionLog.module === 'OFFLINE_LOAN') {
-          // CREATE → fully reverse the loan + mirror + accounting
+          // CREATE → fully delete the loan + mirror + accounting
           if (actionLog.actionType === 'CREATE') {
             const loan = await tx.offlineLoan.findUnique({ where: { id: actionLog.recordId } });
             if (!loan) throw new Error('Loan not found');
@@ -268,108 +308,30 @@ export async function PUT(request: NextRequest) {
             });
             if (mirrorMapping) {
               if (mirrorMapping.mirrorLoanId) {
+                // Delete mirror EMIs
                 await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: mirrorMapping.mirrorLoanId } });
-                await tx.offlineLoan.update({ where: { id: mirrorMapping.mirrorLoanId }, data: { status: 'CLOSED' } });
-
-                // Reverse mirror company disbursement (credit back to bank/cash)
-                const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
-                try {
-                  const loanAmt = loan.loanAmount;
-                  // Try bank reversal first
-                  const mirrorBank = await tx.bankAccount.findFirst({ where: { companyId: mirrorCompanyId, isActive: true } });
-                  if (mirrorBank) {
-                    await tx.bankAccount.update({
-                      where: { id: mirrorBank.id },
-                      data: { currentBalance: { increment: loanAmt } }
-                    });
-                    await tx.bankTransaction.create({
-                      data: {
-                        bankAccountId: mirrorBank.id,
-                        transactionType: 'CREDIT',
-                        amount: loanAmt,
-                        balanceAfter: mirrorBank.currentBalance + loanAmt,
-                        description: `[UNDO] Reversal of mirror loan disbursement - ${loan.loanNumber}`,
-                        referenceType: 'UNDO_REVERSAL',
-                        referenceId: `${actionLog.recordId}-MIR-REV`,
-                        createdById: userId
-                      }
-                    });
-                  } else {
-                    // Cash reversal
-                    const cashBook = await tx.cashBook.findUnique({ where: { companyId: mirrorCompanyId } });
-                    if (cashBook) {
-                      await tx.cashBook.update({ where: { companyId: mirrorCompanyId }, data: { currentBalance: { increment: loanAmt } } });
-                      await tx.cashBookEntry.create({
-                        data: {
-                          cashBookId: cashBook.id,
-                          entryType: 'CREDIT',
-                          amount: loanAmt,
-                          balanceAfter: cashBook.currentBalance + loanAmt,
-                          description: `[UNDO] Reversal of mirror loan disbursement - ${loan.loanNumber}`,
-                          referenceType: 'UNDO_REVERSAL',
-                          referenceId: `${actionLog.recordId}-MIR-REV`,
-                          createdById: userId
-                        }
-                      });
-                    }
-                  }
-                } catch (mirrorReversalErr) {
-                  console.error('[Undo] Mirror company bank reversal failed (non-critical):', mirrorReversalErr);
-                }
-
-                // Reverse mirror loan journal entries
+                
+                // Delete mirror loan bank/cash transactions & revert balances
+                await deleteBankOrCashEntriesForRef(mirrorMapping.mirrorLoanId, tx);
+                
+                // Delete mirror loan journal entries
                 await reverseJournalEntriesForRef(mirrorMapping.mirrorLoanId, userId, tx);
+
+                // Delete mirror loan record
+                await tx.offlineLoan.delete({ where: { id: mirrorMapping.mirrorLoanId } });
               }
               await tx.mirrorLoanMapping.delete({ where: { id: mirrorMapping.id } });
             }
 
-            // 2. Reverse original company disbursement
-            const origCompanyId = loan.companyId;
-            if (origCompanyId) {
-              const loanAmt = loan.loanAmount;
-              const origBank = await tx.bankAccount.findFirst({ where: { companyId: origCompanyId, isActive: true } });
-              if (origBank) {
-                await tx.bankAccount.update({ where: { id: origBank.id }, data: { currentBalance: { increment: loanAmt } } });
-                await tx.bankTransaction.create({
-                  data: {
-                    bankAccountId: origBank.id,
-                    transactionType: 'CREDIT',
-                    amount: loanAmt,
-                    balanceAfter: origBank.currentBalance + loanAmt,
-                    description: `[UNDO] Reversal of loan disbursement - ${loan.loanNumber}`,
-                    referenceType: 'UNDO_REVERSAL',
-                    referenceId: `${actionLog.recordId}-REV`,
-                    createdById: userId
-                  }
-                });
-              } else {
-                const cashBook = await tx.cashBook.findUnique({ where: { companyId: origCompanyId } });
-                if (cashBook) {
-                  await tx.cashBook.update({ where: { companyId: origCompanyId }, data: { currentBalance: { increment: loanAmt } } });
-                  await tx.cashBookEntry.create({
-                    data: {
-                      cashBookId: cashBook.id,
-                      entryType: 'CREDIT',
-                      amount: loanAmt,
-                      balanceAfter: cashBook.currentBalance + loanAmt,
-                      description: `[UNDO] Reversal of loan disbursement - ${loan.loanNumber}`,
-                      referenceType: 'UNDO_REVERSAL',
-                      referenceId: `${actionLog.recordId}-REV`,
-                      createdById: userId
-                    }
-                  });
-                }
-              }
-            }
+            // 2. Delete original loan bank/cash transactions & revert balances
+            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
 
-            // 3. Delete EMIs and close the original loan
+            // 3. Delete EMIs, journal entries, and original loan record
             await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: actionLog.recordId } });
-            await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: { status: 'CLOSED' } });
-
-            // Reverse original loan journal entries
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
+            await tx.offlineLoan.delete({ where: { id: actionLog.recordId } });
 
-            localUndoResult = { type: 'loan_creation_reversed', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} closed + disbursement reversed` };
+            localUndoResult = { type: 'loan_creation_deleted', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} and all its accounting entries were completely deleted` };
           }
 
           // DELETE → restore loan to ACTIVE
@@ -444,88 +406,37 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // 3. Revert cash/bank balance if closeType was PAYMENT (Foreclosure)
-            if (newData && newData.closeType === 'PAYMENT') {
+            // 3. Delete foreclosure bank/cash transactions and revert balances
+            await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
+            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+            // Revert collector credit for foreclosure if applicable
+            if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
               const paymentAmount = newData.totalForeclosureAmount || 0;
-              const companyId = newData.companyId;
               const paymentMode = (newData.paymentMode || '').toUpperCase();
-
-              if (companyId && paymentAmount > 0) {
-                try {
-                  const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-                  if (isOnline) {
-                    const bank = await tx.bankAccount.findFirst({ where: { companyId, isActive: true } });
-                    if (bank) {
-                      await tx.bankAccount.update({ where: { id: bank.id }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.bankTransaction.create({
-                        data: {
-                          bankAccountId: bank.id, transactionType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: bank.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Offline Loan Foreclosure`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV-CLOSE`, createdById: userId
-                        }
-                      });
-                    }
-                  } else {
-                    const cashBook = await tx.cashBook.findUnique({ where: { companyId } });
-                    if (cashBook) {
-                      await tx.cashBook.update({ where: { companyId }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.cashBookEntry.create({
-                        data: {
-                          cashBookId: cashBook.id, entryType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: cashBook.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Offline Loan Foreclosure`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV-CLOSE`, createdById: userId
-                        }
-                      });
-                    }
+              const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              if (paymentAmount > 0 && !isOnlinePayment) {
+                const creditType = newData.creditType || 'COMPANY';
+                const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
+                const companyCreditBefore = user?.companyCredit || 0;
+                const personalCreditBefore = user?.personalCredit || 0;
+                
+                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                const creditAfter = companyCreditAfter + personalCreditAfter;
+                
+                await tx.user.update({
+                  where: { id: newData.collectorId },
+                  data: {
+                    credit: creditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
                   }
-                } catch (balanceErr) {
-                  console.error('[Undo OFFLINE_LOAN CLOSE] Balance reversal failed:', balanceErr);
-                }
-              }
-
-              // Revert collector credit for offline loan close too
-              if (newData.collectorId && paymentAmount > 0 && !['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode)) {
-                try {
-                  const creditType = newData.creditType || 'COMPANY';
-                  const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                  const creditBefore = user?.credit || 0;
-                  const creditAfter = Math.max(0, creditBefore - paymentAmount);
-                  
-                  await tx.user.update({
-                    where: { id: newData.collectorId },
-                    data: {
-                      credit: creditAfter,
-                      personalCredit: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
-                      companyCredit: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
-                    }
-                  });
-
-                  await tx.creditTransaction.create({
-                    data: {
-                      userId: newData.collectorId,
-                      transactionType: 'CREDIT_DECREASE',
-                      amount: paymentAmount,
-                      paymentMode: (newData.paymentMode || 'CASH') as any,
-                      creditType: creditType,
-                      sourceType: 'REVERSAL',
-                      loanApplicationId: actionLog.recordId,
-                      customerName: newData.customerName || 'Reversal',
-                      companyBalanceAfter: creditType === 'COMPANY' ? Math.max(0, (user?.companyCredit || 0) - paymentAmount) : undefined,
-                      personalBalanceAfter: creditType === 'PERSONAL' ? Math.max(0, (user?.personalCredit || 0) - paymentAmount) : undefined,
-                      balanceAfter: creditAfter,
-                      description: `[UNDO] Reversal of foreclosure credit for ${actionLog.recordId}`,
-                      transactionDate: new Date(),
-                    }
-                  });
-                } catch (creditErr) {
-                  console.error('[Undo OFFLINE_LOAN CLOSE] Collector credit reversal failed:', creditErr);
-                }
+                });
               }
             }
 
-            // 4. Reverse writeoff / foreclosure journal entries
+            // 4. Delete writeoff / foreclosure journal entries
             await reverseJournalEntriesForRef(`${actionLog.recordId}-LOSS`, userId, tx);
             await reverseJournalEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, userId, tx);
 
@@ -544,56 +455,21 @@ export async function PUT(request: NextRequest) {
                 paidPrincipal:   previousData.paidPrincipal   ?? 0,
                 paidInterest:    previousData.paidInterest    ?? 0,
                 paymentStatus:   previousData.paymentStatus   ?? 'PENDING',
-                paidDate:        null,
-                paymentMode:     null,
-                collectedById:   null,
-                collectedByName: null,
-                collectedAt:     null
+                paidDate:        previousData.paidDate ? new Date(previousData.paidDate) : null,
+                paymentMode:     previousData.paymentMode || null,
+                collectedById:   previousData.collectedById || null,
+                collectedByName: previousData.collectedByName || null,
+                collectedAt:     previousData.collectedAt ? new Date(previousData.collectedAt) : null
               }
             });
 
-            // 2. Reverse bank/cash balance change
+            // 2. Delete bank/cash transactions and revert balances
+            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+            // 3. Revert collector credit
             if (newData) {
               const paymentAmount = newData.paymentAmount || newData.amount || 0;
-              const companyId     = newData.companyId;
               const paymentMode   = (newData.paymentMode || '').toUpperCase();
-
-              if (companyId && paymentAmount > 0) {
-                try {
-                  const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-                  if (isOnline) {
-                    const bank = await tx.bankAccount.findFirst({ where: { companyId, isActive: true } });
-                    if (bank) {
-                      await tx.bankAccount.update({ where: { id: bank.id }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.bankTransaction.create({
-                        data: {
-                          bankAccountId: bank.id, transactionType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: bank.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of EMI payment`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV`, createdById: userId
-                        }
-                      });
-                    }
-                  } else {
-                    const cashBook = await tx.cashBook.findUnique({ where: { companyId } });
-                    if (cashBook) {
-                      await tx.cashBook.update({ where: { companyId }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.cashBookEntry.create({
-                        data: {
-                          cashBookId: cashBook.id, entryType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: cashBook.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of EMI payment`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV`, createdById: userId
-                        }
-                      });
-                    }
-                  }
-                } catch (balanceErr) {
-                  console.error('[Undo] Balance reversal failed (non-critical):', balanceErr);
-                }
-              }
-
-              // 3. Reverse collector credit (only if it was cash/split payment, i.e. not online/bank direct)
               const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
               if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
@@ -614,32 +490,13 @@ export async function PUT(request: NextRequest) {
                     personalCredit: personalCreditAfter
                   }
                 });
-
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: newData.collectorId,
-                    transactionType: 'CREDIT_DECREASE',
-                    amount: paymentAmount,
-                    paymentMode: (newData.paymentMode || 'CASH') as any,
-                    creditType: creditType,
-                    sourceType: 'REVERSAL',
-                    loanApplicationId: actionLog.recordId,
-                    customerName: newData.customerName || 'Reversal',
-                    loanApplicationNo: newData.loanNumber || '',
-                    companyBalanceAfter: companyCreditAfter,
-                    personalBalanceAfter: personalCreditAfter,
-                    balanceAfter: creditAfter,
-                    description: `[UNDO] Reversal of payment for ${newData.loanNumber || 'EMI'}`,
-                    transactionDate: new Date(),
-                  }
-                });
               }
             }
 
-            // 4. Reverse journal entries
+            // 4. Delete journal entries
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
 
-            localUndoResult = { type: 'payment_reverted', recordId: actionLog.recordId };
+            localUndoResult = { type: 'payment_deleted', recordId: actionLog.recordId };
           }
         }
 
@@ -654,52 +511,19 @@ export async function PUT(request: NextRequest) {
                 data: {
                   paymentStatus: previousData.emiStatus   || 'PENDING',
                   paidAmount:    previousData.paidAmount   ?? 0,
-                  paidDate:      null,
-                  paymentMode:   null
+                  paidDate:      previousData.paidDate ? new Date(previousData.paidDate) : null,
+                  paymentMode:   previousData.paymentMode || null
                 }
               });
             }
 
-            // Reverse balance
+            // Delete bank/cash transactions & revert balances
+            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+            // Revert collector credit
             if (newData) {
               const paymentAmount = newData.amount || newData.paymentAmount || 0;
-              const companyId     = newData.companyId;
               const paymentMode   = (newData.paymentMode || '').toUpperCase();
-
-              if (companyId && paymentAmount > 0) {
-                try {
-                  const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-                  if (isOnline) {
-                    const bank = await tx.bankAccount.findFirst({ where: { companyId, isActive: true } });
-                    if (bank) {
-                      await tx.bankAccount.update({ where: { id: bank.id }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.bankTransaction.create({
-                        data: {
-                          bankAccountId: bank.id, transactionType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: bank.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Online EMI payment`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV`, createdById: userId
-                        }
-                      });
-                    }
-                  } else {
-                    const cashBook = await tx.cashBook.findUnique({ where: { companyId } });
-                    if (cashBook) {
-                      await tx.cashBook.update({ where: { companyId }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.cashBookEntry.create({
-                        data: {
-                          cashBookId: cashBook.id, entryType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: cashBook.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Online EMI payment`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV`, createdById: userId
-                        }
-                      });
-                    }
-                  }
-                } catch (e) { console.error('[Undo Online EMI] Balance reversal failed:', e); }
-              }
-
-              // Reverse collector credit (only if it was cash/split payment, i.e. not online/bank direct)
               const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
               if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
@@ -720,32 +544,13 @@ export async function PUT(request: NextRequest) {
                     personalCredit: personalCreditAfter
                   }
                 });
-
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: newData.collectorId,
-                    transactionType: 'CREDIT_DECREASE',
-                    amount: paymentAmount,
-                    paymentMode: (newData.paymentMode || 'CASH') as any,
-                    creditType: creditType,
-                    sourceType: 'REVERSAL',
-                    loanApplicationId: actionLog.recordId,
-                    customerName: newData.customerName || 'Reversal',
-                    loanApplicationNo: newData.loanNumber || '',
-                    companyBalanceAfter: companyCreditAfter,
-                    personalBalanceAfter: personalCreditAfter,
-                    balanceAfter: creditAfter,
-                    description: `[UNDO] Reversal of online payment for ${newData.loanNumber || 'EMI'}`,
-                    transactionDate: new Date(),
-                  }
-                });
               }
             }
 
-            // Reverse journal entries
+            // Delete journal entries
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
 
-            localUndoResult = { type: 'online_payment_reverted', recordId: actionLog.recordId };
+            localUndoResult = { type: 'online_payment_deleted', recordId: actionLog.recordId };
           }
         }
 
@@ -754,17 +559,23 @@ export async function PUT(request: NextRequest) {
           if (actionLog.actionType === 'CREATE') {
             const settlement = await tx.cashierSettlement.findUnique({ where: { id: actionLog.recordId } });
             if (settlement) {
-              await tx.cashierSettlement.update({ where: { id: actionLog.recordId }, data: { status: 'REJECTED' } });
+              // Revert cashier credit
               const user = await tx.user.findUnique({ where: { id: settlement.userId }, select: { credit: true } });
               await tx.user.update({
                 where: { id: settlement.userId },
                 data: { credit: (user?.credit || 0) + settlement.amount }
               });
 
-              // Reverse settlement journal entries
+              // Delete settlement bank/cash transactions & revert balances
+              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+              // Delete settlement journal entries
               await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
 
-              localUndoResult = { type: 'settlement_reverted', recordId: actionLog.recordId };
+              // Delete the settlement record itself
+              await tx.cashierSettlement.delete({ where: { id: actionLog.recordId } });
+
+              localUndoResult = { type: 'settlement_deleted', recordId: actionLog.recordId };
             }
           }
         }
@@ -812,50 +623,16 @@ export async function PUT(request: NextRequest) {
               });
             }
 
-            // 3. Revert cash/bank balance & collector credit if closeType was PAYMENT (Foreclosure)
-            if (newData && newData.closeType === 'PAYMENT') {
+            // 3. Delete bank/cash transactions & revert balances
+            await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
+            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+            // Revert collector credit
+            if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
               const paymentAmount = newData.totalForeclosureAmount || 0;
-              const companyId = newData.companyId;
               const paymentMode = (newData.paymentMode || '').toUpperCase();
-
-              if (companyId && paymentAmount > 0) {
-                try {
-                  const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-                  if (isOnline) {
-                    const bank = await tx.bankAccount.findFirst({ where: { companyId, isActive: true } });
-                    if (bank) {
-                      await tx.bankAccount.update({ where: { id: bank.id }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.bankTransaction.create({
-                        data: {
-                          bankAccountId: bank.id, transactionType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: bank.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Loan Foreclosure`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV-CLOSE`, createdById: userId
-                        }
-                      });
-                    }
-                  } else {
-                    const cashBook = await tx.cashBook.findUnique({ where: { companyId } });
-                    if (cashBook) {
-                      await tx.cashBook.update({ where: { companyId }, data: { currentBalance: { decrement: paymentAmount } } });
-                      await tx.cashBookEntry.create({
-                        data: {
-                          cashBookId: cashBook.id, entryType: 'DEBIT', amount: paymentAmount,
-                          balanceAfter: cashBook.currentBalance - paymentAmount,
-                          description: `[UNDO] Reversal of Loan Foreclosure`,
-                          referenceType: 'UNDO_REVERSAL', referenceId: `${actionLog.recordId}-REV-CLOSE`, createdById: userId
-                        }
-                      });
-                    }
-                  }
-                } catch (balanceErr) {
-                  console.error('[Undo LOAN_CLOSE] Balance reversal failed:', balanceErr);
-                }
-              }
-
-              // Revert collector credit
               const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-              if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
+              if (paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
                 
@@ -874,28 +651,10 @@ export async function PUT(request: NextRequest) {
                     personalCredit: personalCreditAfter
                   }
                 });
-
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: newData.collectorId,
-                    transactionType: 'CREDIT_DECREASE',
-                    amount: paymentAmount,
-                    paymentMode: (newData.paymentMode || 'CASH') as any,
-                    creditType: creditType,
-                    sourceType: 'REVERSAL',
-                    loanApplicationId: actionLog.recordId,
-                    customerName: newData.customerName || 'Reversal',
-                    companyBalanceAfter: companyCreditAfter,
-                    personalBalanceAfter: personalCreditAfter,
-                    balanceAfter: creditAfter,
-                    description: `[UNDO] Reversal of foreclosure credit for ${actionLog.recordId}`,
-                    transactionDate: new Date(),
-                  }
-                });
               }
             }
 
-            // 4. Reverse writeoff / foreclosure journal entries
+            // 4. Delete writeoff / foreclosure journal entries
             await reverseJournalEntriesForRef(`${actionLog.recordId}-LOSS`, userId, tx);
             await reverseJournalEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, userId, tx);
 
@@ -908,45 +667,16 @@ export async function PUT(request: NextRequest) {
           if (actionLog.actionType === 'CREATE') {
             const expense = await tx.expense.findUnique({ where: { id: actionLog.recordId } });
             if (expense) {
-              if (expense.isApproved) {
-                // Revert bank/cash balance
-                if (expense.payeeName === 'BANK' && expense.paymentReference) {
-                  const bank = await tx.bankAccount.findUnique({ where: { id: expense.paymentReference } });
-                  if (bank) {
-                    await tx.bankAccount.update({ where: { id: bank.id }, data: { currentBalance: { increment: expense.amount } } });
-                    await tx.bankTransaction.create({
-                      data: {
-                        bankAccountId: bank.id, transactionType: 'CREDIT', amount: expense.amount,
-                        balanceAfter: bank.currentBalance + expense.amount,
-                        description: `[UNDO] Reversal of Expense: ${expense.description}`,
-                        referenceType: 'UNDO_REVERSAL', referenceId: `${expense.id}-REV`, createdById: userId
-                      }
-                    });
-                  }
-                } else {
-                  const cashBook = await tx.cashBook.findUnique({ where: { companyId: expense.companyId } });
-                  if (cashBook) {
-                    await tx.cashBook.update({ where: { companyId: expense.companyId }, data: { currentBalance: { increment: expense.amount } } });
-                    await tx.cashBookEntry.create({
-                      data: {
-                        cashBookId: cashBook.id, entryType: 'CREDIT', amount: expense.amount,
-                        balanceAfter: cashBook.currentBalance + expense.amount,
-                        description: `[UNDO] Reversal of Expense: ${expense.description}`,
-                        referenceType: 'UNDO_REVERSAL', referenceId: `${expense.id}-REV`, createdById: userId
-                      }
-                    });
-                  }
-                }
-                // Reverse journal entries
-                await reverseJournalEntriesForRef(expense.id, userId, tx);
-              }
-              // Mark expense as rejected
-              await tx.expense.update({
-                where: { id: expense.id },
-                data: { categoryId: 'REJECTED', isApproved: false }
-              });
+              // Delete expense bank/cash transactions & revert balances
+              await deleteBankOrCashEntriesForRef(expense.id, tx);
 
-              localUndoResult = { type: 'expense_reverted', recordId: actionLog.recordId };
+              // Delete journal entries
+              await reverseJournalEntriesForRef(expense.id, userId, tx);
+
+              // Delete the expense record itself
+              await tx.expense.delete({ where: { id: expense.id } });
+
+              localUndoResult = { type: 'expense_deleted', recordId: actionLog.recordId };
             }
           }
         }
@@ -958,7 +688,7 @@ export async function PUT(request: NextRequest) {
             const creditType = newData.creditType;
 
             if (newData.toUserId) {
-              // User-to-user reversal
+              // Revert receiver credit
               const toUser = await tx.user.findUnique({ where: { id: newData.toUserId } });
               if (toUser) {
                 await tx.user.update({
@@ -969,23 +699,9 @@ export async function PUT(request: NextRequest) {
                     credit: { decrement: amount }
                   }
                 });
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: newData.toUserId,
-                    transactionType: 'CREDIT_DECREASE',
-                    amount: -amount,
-                    paymentMode: newData.paymentMode || 'CASH',
-                    creditType: creditType,
-                    companyBalanceAfter: creditType === 'COMPANY' ? toUser.companyCredit - amount : toUser.companyCredit,
-                    personalBalanceAfter: creditType === 'PERSONAL' ? toUser.personalCredit - amount : toUser.personalCredit,
-                    balanceAfter: toUser.credit - amount,
-                    sourceType: 'CREDIT_TRANSFER_REVERSAL',
-                    description: `[UNDO] Transfer reversal to sender`,
-                    transactionDate: new Date()
-                  }
-                });
               }
 
+              // Revert sender credit
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
               if (fromUser) {
                 await tx.user.update({
@@ -996,46 +712,15 @@ export async function PUT(request: NextRequest) {
                     credit: { increment: amount }
                   }
                 });
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: actionLog.recordId,
-                    transactionType: 'CREDIT_INCREASE',
-                    amount: amount,
-                    paymentMode: newData.paymentMode || 'CASH',
-                    creditType: creditType,
-                    companyBalanceAfter: creditType === 'COMPANY' ? fromUser.companyCredit + amount : fromUser.companyCredit,
-                    personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit + amount : fromUser.personalCredit,
-                    balanceAfter: fromUser.credit + amount,
-                    sourceType: 'CREDIT_TRANSFER_REVERSAL',
-                    description: `[UNDO] Transfer reversal from receiver`,
-                    transactionDate: new Date()
-                  }
-                });
               }
 
-              localUndoResult = { type: 'credit_transfer_reverted', recordId: actionLog.recordId };
+              // Delete credit transactions
+              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+              localUndoResult = { type: 'credit_transfer_deleted', recordId: actionLog.recordId };
             } else if (newData.bankAccountId) {
-              // User-to-bank reversal
-              const bank = await tx.bankAccount.findUnique({ where: { id: newData.bankAccountId } });
-              if (bank) {
-                await tx.bankAccount.update({
-                  where: { id: newData.bankAccountId },
-                  data: { currentBalance: { decrement: amount } }
-                });
-                await tx.bankTransaction.create({
-                  data: {
-                    bankAccountId: newData.bankAccountId,
-                    transactionType: 'DEBIT',
-                    amount: amount,
-                    balanceAfter: bank.currentBalance - amount,
-                    description: `[UNDO] Reversal of credit deposit to bank`,
-                    referenceType: 'CREDIT_TRANSFER',
-                    referenceId: `CREDIT-TRANSFER-${actionLog.recordId}-REV`,
-                    createdById: userId,
-                    transactionDate: new Date()
-                  }
-                });
-              }
+              // Revert bank and sender credit
+              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
 
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
               if (fromUser) {
@@ -1047,24 +732,9 @@ export async function PUT(request: NextRequest) {
                     credit: { increment: amount }
                   }
                 });
-                await tx.creditTransaction.create({
-                  data: {
-                    userId: actionLog.recordId,
-                    transactionType: 'CREDIT_INCREASE',
-                    amount: amount,
-                    paymentMode: 'BANK_TRANSFER',
-                    creditType: creditType,
-                    companyBalanceAfter: creditType === 'COMPANY' ? fromUser.companyCredit + amount : fromUser.companyCredit,
-                    personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit + amount : fromUser.personalCredit,
-                    balanceAfter: fromUser.credit + amount,
-                    sourceType: 'BANK_DEPOSIT_REVERSAL',
-                    description: `[UNDO] Reversal of bank deposit`,
-                    transactionDate: new Date()
-                  }
-                });
               }
 
-              localUndoResult = { type: 'credit_deposit_reverted', recordId: actionLog.recordId };
+              localUndoResult = { type: 'credit_deposit_deleted', recordId: actionLog.recordId };
             }
           }
         }
@@ -1111,7 +781,12 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'This action cannot be redone' }, { status: 400 });
       }
 
-      const newData = actionLog.newData ? JSON.parse(actionLog.newData) : null;
+      let newData: any = null;
+      try {
+        newData = actionLog.newData ? JSON.parse(actionLog.newData) : null;
+      } catch (parseErr) {
+        console.error('[ActionLog Redo] Failed to parse newData:', parseErr, 'Raw:', actionLog.newData);
+      }
       let redoResult: { type: string; recordId: string } | null = null;
 
       if (actionLog.module === 'OFFLINE_LOAN') {

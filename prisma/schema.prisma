@@ -2371,8 +2371,8 @@ model ActionLog {
   recordId     String // ID of the affected record
   recordType   String // OfflineLoan, OfflineLoanEMI, Payment, etc.
   // Data snapshots
-  previousData String? // JSON string of data before action
-  newData      String? // JSON string of data after action
+  previousData String?   @db.LongText // JSON string of data before action
+  newData      String?   @db.LongText // JSON string of data after action
   // Undo tracking
   canUndo      Boolean   @default(true)
   isUndone     Boolean   @default(false)
