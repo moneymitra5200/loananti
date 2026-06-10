@@ -2395,7 +2395,7 @@ export async function PUT(request: NextRequest) {
               interestAmount,
               paymentAmount: interestAmount,
               paymentMode,
-              // companyId required for undo balance reversal
+              loanId: loan.id,              // ← required for undo: find rolling next EMI
               companyId: loan.companyId,
               collectorId: userId,
               collectorName: user.name,

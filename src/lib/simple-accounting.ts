@@ -349,13 +349,15 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     } else if (interestComponent > 0) {
       let isPhase1InterestOnly = false;
       let isEmiDue = false;
+      let emiDueDate: Date = new Date(); // hoisted so it's accessible in accrual block below
 
       const onlineEmi = await db.eMISchedule.findUnique({
         where: { id: emiId },
         include: { loanApplication: true }
       });
       if (onlineEmi) {
-        isEmiDue = new Date(onlineEmi.dueDate) <= new Date();
+        emiDueDate = new Date(onlineEmi.dueDate);
+        isEmiDue = emiDueDate <= new Date();
         isPhase1InterestOnly = onlineEmi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
       } else {
         const offlineEmi = await db.offlineLoanEMI.findUnique({
@@ -363,7 +365,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           include: { offlineLoan: true }
         });
         if (offlineEmi) {
-          isEmiDue = new Date(offlineEmi.dueDate) <= new Date();
+          emiDueDate = new Date(offlineEmi.dueDate);
+          isEmiDue = emiDueDate <= new Date();
           isPhase1InterestOnly = offlineEmi.offlineLoan?.status === 'INTEREST_ONLY';
         }
       }
@@ -386,7 +389,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               customerName: customerLabel || 'Customer',
               emiId: emiId,
               interestAmount: interestComponent,
-              accrualDate: new Date(),
+              accrualDate: emiDueDate, // ← EMI due date, not now()
               createdById: userId || 'SYSTEM'
             });
 
@@ -504,7 +507,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
                 customerName: customerLabel || 'Customer',
                 emiId: mirrorEmiId,
                 interestAmount: mirrorInterest,
-                accrualDate: new Date(),
+                accrualDate: mirrorEmiType === 'ONLINE'
+                  ? (await db.eMISchedule.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date()
+                  : (await db.offlineLoanEMI.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date(),
                 createdById: userId || 'SYSTEM'
               });
 

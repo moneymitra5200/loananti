@@ -447,9 +447,17 @@ export async function PUT(request: NextRequest) {
         // ── EMI PAYMENT (Offline) ─────────────────────────────────────────────
         else if (actionLog.module === 'EMI_PAYMENT') {
           if (actionLog.actionType === 'PAY' && previousData) {
-            // 1. Revert the EMI record to its pre-payment state
+            const emiId  = actionLog.recordId;
+            const loanId = newData?.loanId || newData?.sourceId || null;
+            // Look up mirror loan dynamically — not stored in newData (older logs)
+            const mirrorMapping = loanId
+              ? await tx.mirrorLoanMapping.findFirst({ where: { originalLoanId: loanId }, select: { mirrorLoanId: true } })
+              : null;
+            const mirrorLoanId = newData?.mirrorLoanId || mirrorMapping?.mirrorLoanId || null;
+
+            // 1. Revert the paid EMI back to its pre-payment state
             await tx.offlineLoanEMI.update({
-              where: { id: actionLog.recordId },
+              where: { id: emiId },
               data: {
                 paidAmount:      previousData.paidAmount      ?? 0,
                 paidPrincipal:   previousData.paidPrincipal   ?? 0,
@@ -457,35 +465,107 @@ export async function PUT(request: NextRequest) {
                 paymentStatus:   previousData.paymentStatus   ?? 'PENDING',
                 paidDate:        previousData.paidDate ? new Date(previousData.paidDate) : null,
                 paymentMode:     previousData.paymentMode || null,
-                collectedById:   previousData.collectedById || null,
+                collectedById:   previousData.collectedById   || null,
                 collectedByName: previousData.collectedByName || null,
-                collectedAt:     previousData.collectedAt ? new Date(previousData.collectedAt) : null
+                collectedAt:     previousData.collectedAt ? new Date(previousData.collectedAt) : null,
+                interestOnlyPaidAt: null,
               }
             });
+            console.log(`[Undo EMI] Reverted EMI ${emiId} to ${previousData.paymentStatus ?? 'PENDING'}`);
 
-            // 2. Delete bank/cash transactions and revert balances
-            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+            // 2. Delete the rolling NEXT EMI that was auto-created after this payment
+            //    (installmentNumber = paid EMI's installmentNumber + 1)
+            if (loanId) {
+              const paidEMI = await tx.offlineLoanEMI.findUnique({
+                where: { id: emiId }, select: { installmentNumber: true }
+              });
+              if (paidEMI) {
+                const nextInstNum = paidEMI.installmentNumber + 1;
+                // Only delete if it has NEVER been paid (PENDING) — safety guard
+                const deletedCount = await tx.offlineLoanEMI.deleteMany({
+                  where: {
+                    offlineLoanId: loanId,
+                    installmentNumber: nextInstNum,
+                    paymentStatus: 'PENDING'
+                  }
+                });
+                console.log(`[Undo EMI] Deleted ${deletedCount.count} rolling next-EMI (#${nextInstNum}) for loan ${loanId}`);
+              }
+            }
 
-            // 3. Revert collector credit
+            // 3. Revert mirror loan EMI and delete mirror's rolling next EMI
+            if (mirrorLoanId) {
+              const paidEMI = await tx.offlineLoanEMI.findUnique({
+                where: { id: emiId }, select: { installmentNumber: true }
+              });
+              const installmentNumber = paidEMI?.installmentNumber;
+
+              if (installmentNumber) {
+                // Revert mirror EMI to PENDING
+                await tx.offlineLoanEMI.updateMany({
+                  where: {
+                    offlineLoanId: mirrorLoanId,
+                    installmentNumber,
+                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID'] }
+                  },
+                  data: {
+                    paymentStatus: 'PENDING',
+                    paidAmount: 0, paidPrincipal: 0, paidInterest: 0,
+                    paidDate: null, paymentMode: null,
+                    collectedById: null, collectedByName: null, collectedAt: null,
+                    interestOnlyPaidAt: null,
+                  }
+                });
+
+                // Delete mirror's rolling next EMI
+                await tx.offlineLoanEMI.deleteMany({
+                  where: {
+                    offlineLoanId: mirrorLoanId,
+                    installmentNumber: installmentNumber + 1,
+                    paymentStatus: 'PENDING'
+                  }
+                });
+                console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI deleted`);
+              }
+            }
+
+            // 4. Revert loan's totalInterestPaid
+            if (loanId) {
+              const interestPaid = newData?.interestAmount || newData?.paymentAmount || 0;
+              if (interestPaid > 0) {
+                await tx.offlineLoan.update({
+                  where: { id: loanId },
+                  data: { totalInterestPaid: { decrement: interestPaid } }
+                });
+                // Also re-open loan if it was auto-closed by this payment
+                await tx.offlineLoan.updateMany({
+                  where: { id: loanId, status: 'CLOSED', closedAt: { gte: new Date(new Date(actionLog.createdAt).getTime() - 60000) } },
+                  data: { status: 'INTEREST_ONLY', closedAt: null }
+                });
+              }
+            }
+
+            // 5. Revert collector credit
             if (newData) {
-              const paymentAmount = newData.paymentAmount || newData.amount || 0;
+              const paymentAmount = newData.paymentAmount || newData.interestAmount || newData.amount || 0;
               const paymentMode   = (newData.paymentMode || '').toUpperCase();
-              const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-              if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
+              const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              if (newData.collectorId && paymentAmount > 0 && !isOnline) {
                 const creditType = newData.creditType || 'COMPANY';
-                const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                
-                const companyCreditBefore = user?.companyCredit || 0;
-                const personalCreditBefore = user?.personalCredit || 0;
-                
-                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
-                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
-                const creditAfter = companyCreditAfter + personalCreditAfter;
-
+                const user = await tx.user.findUnique({
+                  where: { id: newData.collectorId },
+                  select: { credit: true, personalCredit: true, companyCredit: true }
+                });
+                const companyCreditAfter  = creditType === 'COMPANY'
+                  ? Math.max(0, (user?.companyCredit  || 0) - paymentAmount)
+                  : (user?.companyCredit  || 0);
+                const personalCreditAfter = creditType === 'PERSONAL'
+                  ? Math.max(0, (user?.personalCredit || 0) - paymentAmount)
+                  : (user?.personalCredit || 0);
                 await tx.user.update({
                   where: { id: newData.collectorId },
                   data: {
-                    credit: creditAfter,
+                    credit: companyCreditAfter + personalCreditAfter,
                     companyCredit: companyCreditAfter,
                     personalCredit: personalCreditAfter
                   }
@@ -493,12 +573,32 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // 4. Delete journal entries
-            await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
+            // 6. Delete bank/cash transactions tied to this EMI
+            await deleteBankOrCashEntriesForRef(emiId, tx);
 
-            localUndoResult = { type: 'payment_deleted', recordId: actionLog.recordId };
+            // 7. Delete ALL journal entries referencing this EMI id:
+            //    covers INTEREST_ACCRUAL + INTEREST_ONLY_PAYMENT + EMI_PAYMENT
+            await reverseJournalEntriesForRef(emiId, userId, tx);
+
+            // 8. Also delete credit transactions referencing this EMI (IO_PAYMENT sourceId = loanId)
+            if (loanId) {
+              await tx.creditTransaction.deleteMany({
+                where: {
+                  OR: [
+                    { sourceId: emiId },
+                    { sourceId: loanId, sourceType: 'INTEREST_ONLY_PAYMENT' },
+                    { emiScheduleId: emiId }
+                  ],
+                  createdAt: { gte: new Date(new Date(actionLog.createdAt).getTime() - 60000) }
+                }
+              });
+            }
+
+            localUndoResult = { type: 'payment_fully_reversed', recordId: emiId,
+              detail: 'EMI reverted, rolling EMI deleted, mirror synced, journals deleted, credit restored' };
           }
         }
+
 
         // ── ONLINE EMI PAYMENT ────────────────────────────────────────────────
         else if (actionLog.module === 'ONLINE_LOAN' || actionLog.module === 'PAYMENT') {
