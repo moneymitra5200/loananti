@@ -1005,7 +1005,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
 
     // ── Inject missing Interest Accruals (for companies without full accounting) ──
-    const today = new Date();
+    // Use UTC end-of-today to avoid IST timezone boundary issues (IST midnight = UTC 18:30 prev day)
+    const todaySynthUTC = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 23, 59, 59, 999));
     const emiList = meta.emis || meta.emiSchedules || [];
     
     for (const emi of emiList) {
@@ -1019,27 +1020,31 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       });
 
       let isAccrued = false;
+      const emiDueDateUTC = new Date(emi.dueDate);
       if (meta.status === 'CLOSED') {
         if (meta.closedAt) {
-          const emiDueDate = new Date(emi.dueDate);
+          const emiDueDateStart = new Date(emiDueDateUTC.getFullYear(), emiDueDateUTC.getMonth(), emiDueDateUTC.getDate());
           const closedDate = new Date(meta.closedAt);
-          const emiDueDateStart = new Date(emiDueDate.getFullYear(), emiDueDate.getMonth(), emiDueDate.getDate());
           const closedDateStart = new Date(closedDate.getFullYear(), closedDate.getMonth(), closedDate.getDate());
-          
           isAccrued = emiDueDateStart <= closedDateStart;
         } else {
-          isAccrued = new Date(emi.dueDate) <= today;
+          isAccrued = emiDueDateUTC <= todaySynthUTC;
         }
       } else {
-        isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && Number(emi.paidAmount) > 0);
+        // FIXED: use UTC end-of-day, and only include paid EMIs (not future PENDING ones)
+        const isDuePassed = emiDueDateUTC <= todaySynthUTC;
+        const isPaidEMI = !!(emi.paidDate && Number(emi.paidAmount) > 0);
+        isAccrued = isDuePassed || isPaidEMI;
       }
       
       const effectiveInterestAmount = emi.interestAmount;
       
       if (!hasRealAccrual && isAccrued && effectiveInterestAmount > 0) {
+        // Cap display date to today — never show a future-dated synthetic accrual row
+        const synthDisplayDate = emiDueDateUTC > new Date() ? new Date() : emi.dueDate;
         allEntries.push({
           id: `synth-accrual-${emi.id}`,
-          date: emi.dueDate,
+          date: synthDisplayDate,
           referenceType: 'INTEREST_ACCRUAL',
           referenceId: emi.id,
           loanId,
