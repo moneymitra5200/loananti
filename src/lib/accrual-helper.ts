@@ -9,8 +9,13 @@ import { cache } from './cache';
  */
 export async function performOnDemandAccrual(): Promise<{ processedCount: number }> {
   let processedCount = 0;
-  const today = new Date();
-  today.setHours(23, 59, 59, 999);
+
+  // Use UTC end-of-day to avoid IST timezone edge cases.
+  // Problem: setHours(23,59,59,999) in IST = 18:29:59 UTC, while "July 10 midnight IST" = July 9 18:30:00 UTC.
+  // This causes a 1-second gap where the IST end-of-day and the next month's EMI due date (in UTC) are nearly equal.
+  // Fix: explicitly set to end of UTC day, ensuring a full day buffer.
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
 
   const date35DaysFromNow = new Date();
   date35DaysFromNow.setDate(date35DaysFromNow.getDate() + 35);

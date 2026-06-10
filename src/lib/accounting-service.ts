@@ -426,12 +426,15 @@ export class AccountingService {
     });
 
     const executeEntry = async (transaction: any) => {
+      // SAFETY: Never store a future-dated journal entry — cap to today in UTC
+      const safeEntryDate = params.entryDate > new Date() ? new Date() : params.entryDate;
+
       // 1. Create journal entry header (1 query)
       const entry = await transaction.journalEntry.create({
         data: {
           companyId: this.companyId,
           entryNumber,
-          entryDate: params.entryDate,
+          entryDate: safeEntryDate,
           referenceType: params.referenceType,
           referenceId: params.referenceId,
           narration: params.narration,
