@@ -854,13 +854,13 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         customerMonthlyIncome: formData.customerMonthlyIncome ? parseFloat(formData.customerMonthlyIncome) : null,
         customerDOB: formData.customerDOB || null,
         bankAccountId: formData.bankAccountId || null,
-        // Secondary payment page for C3 loans (non-mirror or mirror without extra EMIs)
-        secondaryPaymentPageId: (isSelectedCompany3() && (!isMirrorLoan || !hasExtraEMIs)) ? selectedSecondaryPageId || null : null,
+        // Secondary payment page for C3 loans or mirror loans with extra EMIs
+        secondaryPaymentPageId: ((isSelectedCompany3() && (!isMirrorLoan || !hasExtraEMIs)) || (isMirrorLoan && hasExtraEMIs)) ? selectedSecondaryPageId || null : null,
         // Documents
         documents: uploadedDocs,
         // Interest Only Loan
         isInterestOnly,
-        allowInterestOnly: hasExtraEMIs ? false : allowInterestOnly,
+        allowInterestOnly: true,
         // Mirror Loan
         isMirrorLoan,
         mirrorCompanyId: isMirrorLoan ? mirrorCompanyId : null,
@@ -1196,24 +1196,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                     </div>
                   </div>
                 )}
-                {(() => {
-                  const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
-                  if (hasExtraEMIs || isInterestOnly) return null;
-                  return (
-                    <div className="flex items-center space-x-2 pt-2 col-span-2">
-                      <input
-                        type="checkbox"
-                        id="allowInterestOnly"
-                        checked={allowInterestOnly}
-                        onChange={(e) => setAllowInterestOnly(e.target.checked)}
-                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <Label htmlFor="allowInterestOnly" className="font-semibold text-gray-700 cursor-pointer select-none">
-                        Allow Interest-Only payment mode for EMIs
-                      </Label>
-                    </div>
-                  );
-                })()}
+
                 <div className="space-y-2">
                   <Label>{isInterestOnly ? 'Monthly Interest' : 'EMI Amount (Auto-calculated)'}</Label>
                   <div className="flex items-center gap-2">
@@ -1492,20 +1475,19 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
 
             {(() => {
               const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
-              const showSecondaryPage = (!isMirrorLoan || !hasExtraEMIs) && isSelectedCompany3() && !isInterestOnly;
+              const showSecondaryPage = (isMirrorLoan && hasExtraEMIs) || (!isMirrorLoan && isSelectedCompany3());
               if (!showSecondaryPage) return null;
               return (
                 <div className="space-y-3 pt-4 border-t">
                   <div className="flex items-center gap-2">
                     <Landmark className="h-5 w-5 text-violet-600" />
                     <h3 className="font-semibold text-violet-800">Payment Collection Page</h3>
-                    <Badge className="bg-violet-100 text-violet-700 text-xs">Required for C3 Loans</Badge>
+                    <Badge className="bg-violet-100 text-violet-700 text-xs">Required</Badge>
                   </div>
                   <div className="p-4 bg-violet-50 border border-violet-200 rounded-lg space-y-3">
                     <p className="text-sm text-violet-700">
-                      Since <strong>Company 3 (PD Rangani)</strong> has no bank account, all EMI payments will be recorded
-                      in the <strong>Cashbook</strong> and <strong>DayBook</strong>. The money the customer pays will 
-                      go to the selected payment page owner's <strong>personal credit</strong>.
+                      Select a secondary payment page to route collections.
+                      {isSelectedCompany3() ? " Since Company 3 (PD Rangani) has no bank account, payments go to the page owner's personal credit." : " For mirror loans with extra EMIs, this page will receive the extra payments and online Interest-Only repayments."}
                     </p>
                     <div>
                       <Label className="font-medium text-violet-800">

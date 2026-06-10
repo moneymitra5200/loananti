@@ -2564,11 +2564,7 @@ export async function PUT(request: NextRequest) {
       let creditType = body.creditType;
       let isSplitPayment = body.isSplitPayment;
 
-      if (paymentType === 'INTEREST_ONLY') {
-        paymentMode = 'CASH';
-        creditType = 'COMPANY';
-        isSplitPayment = false;
-      }
+
 
       const penaltyAmount = rawPenaltyAmount ? parseFloat(rawPenaltyAmount) : 0;
       const penaltyWaiver = rawPenaltyWaiver ? parseFloat(rawPenaltyWaiver) : 0;
@@ -2624,10 +2620,7 @@ export async function PUT(request: NextRequest) {
         }, { status: 400 });
       }
 
-      // Check if payment type is allowed
-      if (paymentType === 'INTEREST_ONLY' && emi.offlineLoan.allowInterestOnly === false) {
-        return NextResponse.json({ error: 'Interest-only payments are not allowed for this loan' }, { status: 400 });
-      }
+
       if (paymentType === 'PARTIAL' && emi.offlineLoan.allowPartialPayment === false) {
         return NextResponse.json({ error: 'Partial payments are not allowed for this loan' }, { status: 400 });
       }
@@ -3368,8 +3361,11 @@ export async function PUT(request: NextRequest) {
         const loanCompanyId = emi.offlineLoan.companyId || company3Id || '';
         const isLoanFromC3 = company3Id && loanCompanyId === company3Id;
 
-        // FIX-ISSUE-3: Force CASH mode for C3 loans (C3 has no bank account)
-        const effectivePaymentMode = (isLoanFromC3 && !isMirrorLoan)
+        // Force CASH mode for C3 loans (C3 has no bank account) unless it is an ONLINE Interest-Only payment
+        const isOnlineInterestOnly = paymentType === 'INTEREST_ONLY' &&
+          ['ONLINE', 'UPI', 'BANK_TRANSFER'].includes(String(paymentMode).toUpperCase());
+
+        const effectivePaymentMode = (isLoanFromC3 && !isMirrorLoan && !isOnlineInterestOnly)
           ? 'CASH'
           : (paymentMode as string);
 
@@ -3377,10 +3373,9 @@ export async function PUT(request: NextRequest) {
           ? mirrorLoanMapping!.mirrorCompanyId
           : loanCompanyId;
 
-        // ── FIX-ISSUE-4: Secondary payment page credit for C3 non-mirror loans ──
-        // If this is a C3 non-mirror loan with a secondaryPaymentPageId, route credit to that user
-        // emi.offlineLoan is already fetched via include: { offlineLoan: true } above
-        const c3SecondaryPageId = (!isMirrorLoan && isLoanFromC3)
+        // ── FIX-ISSUE-4: Secondary payment page credit for C3 non-mirror loans or ONLINE Interest-Only payments ──
+        // If this is a C3 non-mirror loan, or an ONLINE Interest-Only payment with a secondaryPaymentPageId, route credit to that user
+        const c3SecondaryPageId = ((!isMirrorLoan && isLoanFromC3) || isOnlineInterestOnly)
           ? (emi.offlineLoan as any).secondaryPaymentPageId || null
           : null;
 

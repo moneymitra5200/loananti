@@ -843,15 +843,30 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   // PERSONAL CREDIT - Cash payment
   // ============================================
   if (creditType === 'PERSONAL') {
-    result.cashBookEntry = await recordCashBookEntry({
-      companyId: company3Id,
-      entryType: 'CREDIT',
-      amount,
-      description: `${description} [Personal Credit]`,
-      referenceType: 'EMI_PAYMENT_PERSONAL',
-      referenceId: paymentId,
-      createdById: userId
-    });
+    const isOnlineMode = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((paymentMode || '').toUpperCase());
+    const debitAccountCode = isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
+
+    if (isOnlineMode) {
+      result.bankTransaction = await recordBankTransaction({
+        companyId: company3Id,
+        transactionType: 'CREDIT',
+        amount,
+        description: `${description} [Personal Credit - Online]`,
+        referenceType: 'EMI_PAYMENT_PERSONAL',
+        referenceId: paymentId,
+        createdById: userId
+      });
+    } else {
+      result.cashBookEntry = await recordCashBookEntry({
+        companyId: company3Id,
+        entryType: 'CREDIT',
+        amount,
+        description: `${description} [Personal Credit]`,
+        referenceType: 'EMI_PAYMENT_PERSONAL',
+        referenceId: paymentId,
+        createdById: userId
+      });
+    }
     
     // Create journal entry (always balanced)
     try {
@@ -882,11 +897,11 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         referenceId: paymentId,
         narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
         lines: [
-          { accountCode: ACCOUNT_CODES.CASH_IN_HAND, debitAmount: amount, creditAmount: 0, loanId, customerId, narration: 'Cash received for EMI' },
+          { accountCode: debitAccountCode, debitAmount: amount, creditAmount: 0, loanId, customerId, narration: isOnlineMode ? 'Bank received for EMI' : 'Cash received for EMI' },
           ...personalCreditLines,
         ],
         createdById: userId,
-        paymentMode: 'CASH'
+        paymentMode: paymentMode || 'CASH'
       });
     } catch (journalError) {
       console.error('Failed to create journal entry for personal credit EMI:', journalError);

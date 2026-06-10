@@ -703,8 +703,9 @@ export default function OfflineLoanDetailPanel({
     }
 
     // Validation for secondary payment page on Interest Only payments
-    if (paymentType === 'INTEREST_ONLY' && !isMultiEmiPayment) {
-      if (!selectedSecondaryPageId) {
+    if (paymentType === 'INTEREST_ONLY' && !isMultiEmiPayment && paymentMode === 'ONLINE') {
+      const hasExtraEMIs = loan?.isMirrored && loan?.mirrorTenure && loan?.tenure && loan.tenure > loan.mirrorTenure;
+      if (!hasExtraEMIs && !selectedSecondaryPageId) {
         toast({ title: 'Secondary Payment Page Required', description: 'Please select a secondary payment page to proceed.', variant: 'destructive' });
         return;
       }
@@ -861,12 +862,18 @@ export default function OfflineLoanDetailPanel({
         userId,
         userRole,
         // BUG-1 fix: send CASH as effective mode when SPLIT, plus isSplitPayment flag
-        paymentMode: paymentType === 'INTEREST_ONLY' ? 'CASH' : (isSplitMode ? 'CASH' : paymentMode),
+        paymentMode: paymentType === 'INTEREST_ONLY' ? paymentMode : (isSplitMode ? 'CASH' : paymentMode),
         paymentReference,
-        creditType: paymentType === 'INTEREST_ONLY' ? 'COMPANY' : creditType,
+        creditType: paymentType === 'INTEREST_ONLY' ? creditType : creditType,
         proofUrl,
         remarks: paymentRemarks,
-        secondaryPaymentPageId: paymentType === 'INTEREST_ONLY' ? selectedSecondaryPageId : undefined,
+        secondaryPaymentPageId: paymentType === 'INTEREST_ONLY'
+          ? (paymentMode === 'ONLINE'
+              ? (loan?.isMirrored && loan?.mirrorTenure && loan?.tenure && loan.tenure > loan.mirrorTenure
+                  ? (loan as any)?.secondaryPaymentPageId
+                  : selectedSecondaryPageId)
+              : undefined)
+          : undefined,
         // FIX: Send GROSS penalty (before waiver) — backend computes netPenalty = penaltyAmount - penaltyWaiver
         // Previously was sending netPenalty here causing double-deduction of the waiver
         penaltyAmount: grossPenalty > 0 ? grossPenalty : undefined,
@@ -2699,7 +2706,7 @@ export default function OfflineLoanDetailPanel({
                     <Receipt className="h-4 w-4 mr-1" />
                     Partial
                   </Button>
-                  {loan?.allowInterestOnly !== false && !(loan?.isMirrored && loan?.mirrorTenure && loan?.tenure && loan.tenure > loan.mirrorTenure) && (
+                  {true && (
                     <Button
                       type="button"
                       variant={paymentType === 'INTEREST_ONLY' ? 'default' : 'outline'}
@@ -2708,6 +2715,8 @@ export default function OfflineLoanDetailPanel({
                         setPaymentType('INTEREST_ONLY');
                         // Use REMAINING interest (not full interestAmount)
                         setPaymentAmount((selectedEmi?.interestAmount || 0) - (selectedEmi?.paidInterest || 0));
+                        setPaymentMode('CASH');
+                        setCreditType('COMPANY');
                       }}
                     >
                       <Percent className="h-4 w-4 mr-1" />
@@ -2760,63 +2769,6 @@ export default function OfflineLoanDetailPanel({
               </div>
             )}
 
-            {paymentType === 'INTEREST_ONLY' && (() => {
-              const selectedPage = dialogSecondaryPages.find(p => p.id === selectedSecondaryPageId) || (loan as any)?.secondaryPaymentPage;
-              return (
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
-                  <Label className="text-blue-800 font-semibold mb-1 block">
-                    Secondary Payment Page *
-                  </Label>
-                  
-                  {/* Selector */}
-                  <select
-                    value={selectedSecondaryPageId}
-                    onChange={(e) => setSelectedSecondaryPageId(e.target.value)}
-                    className="w-full p-2 border border-blue-300 rounded bg-white text-sm"
-                  >
-                    <option value="">Select Secondary Payment Page...</option>
-                    {dialogSecondaryPages.map((page) => (
-                      <option key={page.id} value={page.id}>
-                        {page.name} ({page.upiId || 'No UPI'})
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Selected Page Details */}
-                  {selectedPage ? (
-                    <div className="p-3 bg-white rounded border border-blue-200 text-xs space-y-2 mt-2">
-                      <p className="font-semibold text-blue-800">{selectedPage.name}</p>
-                      {selectedPage.upiId && (
-                        <p className="text-gray-700"><strong>UPI ID:</strong> {selectedPage.upiId}</p>
-                      )}
-                      {selectedPage.bankName && (
-                        <div className="border-t pt-2 space-y-1 text-gray-600">
-                          <p><strong>Bank Name:</strong> {selectedPage.bankName}</p>
-                          <p><strong>Account Name:</strong> {selectedPage.accountName}</p>
-                          <p><strong>Account Number:</strong> {selectedPage.accountNumber}</p>
-                          <p><strong>IFSC Code:</strong> {selectedPage.ifscCode}</p>
-                        </div>
-                      )}
-                      {selectedPage.qrCodeUrl && (
-                        <div className="border-t pt-2 flex flex-col items-center">
-                          <p className="font-semibold text-blue-800 mb-2">Scan QR Code to Pay</p>
-                          <img
-                            src={selectedPage.qrCodeUrl}
-                            alt="QR Code"
-                            className="w-40 h-40 border rounded object-cover shadow-sm"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-red-500 font-medium">
-                      ⚠️ Please select a secondary payment page to view details and proceed.
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
-
             {/* Principal Only Payment Info */}
             {paymentType === 'PRINCIPAL_ONLY' && (
               <div className="p-4 bg-red-50 rounded-lg border border-red-200">
@@ -2836,36 +2788,175 @@ export default function OfflineLoanDetailPanel({
             {/* ========================================== */}
             
             {paymentType === 'INTEREST_ONLY' ? (
-              <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                <div className="flex items-center gap-2 mb-3">
-                  <Info className="h-4 w-4 text-blue-600" />
-                  <Label className="text-blue-800 font-semibold">
-                    Credit Type (Forced)
+              <div className="space-y-4">
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                  <Label className="text-blue-800 font-semibold mb-3 block">
+                    <Wallet className="h-4 w-4 inline mr-2 text-blue-600" />
+                    Payment Method *
                   </Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* CASH Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentMode('CASH');
+                        setCreditType('COMPANY');
+                      }}
+                      className={`p-4 rounded-lg border-2 text-left transition-all ${
+                        paymentMode === 'CASH' && creditType === 'COMPANY'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Banknote className={`h-5 w-5 ${paymentMode === 'CASH' ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className={`font-semibold ${paymentMode === 'CASH' ? 'text-blue-800' : 'text-gray-700'}`}>
+                          CASH (Offline)
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div>Entry: Company Cashbook</div>
+                        <div className="font-medium text-blue-600">Company Credit (Forced)</div>
+                      </div>
+                    </button>
+
+                    {/* ONLINE Option */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentMode('ONLINE');
+                        setCreditType('PERSONAL');
+                      }}
+                      className={`p-4 rounded-lg border-2 text-left transition-all ${
+                        paymentMode === 'ONLINE' && creditType === 'PERSONAL'
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Landmark className={`h-5 w-5 ${paymentMode === 'ONLINE' ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className={`font-semibold ${paymentMode === 'ONLINE' ? 'text-blue-800' : 'text-gray-700'}`}>
+                          ONLINE (Bank)
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div>Entry: Secondary Payment Page</div>
+                        <div className="font-medium text-amber-600">Personal Credit (Forced)</div>
+                      </div>
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="w-full p-4 rounded-lg border-2 border-blue-500 bg-blue-50 text-left"
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <Building className="h-5 w-5 text-blue-600" />
-                    <span className="font-semibold text-blue-800">
-                      Company Credit (Forced for Interest-Only)
-                    </span>
-                  </div>
-                  <div className="text-xs space-y-1">
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <Banknote className="h-3 w-3" />
-                      <span>CASH only</span>
-                    </div>
-                    <div className="text-blue-600">
-                      Entry: {loan?.company?.name || 'Company'}&apos;s Books (Cash)
-                    </div>
-                    <div className="font-medium text-blue-700">
-                      Current: ₹{formatCurrency(companyCredit)}
-                    </div>
-                  </div>
-                </button>
+
+                {/* Secondary Page Selector / Info based on Online Interest Only */}
+                {paymentMode === 'ONLINE' && (() => {
+                  const hasExtraEMIs = isMirroredLoan && loan?.mirrorTenure && loan?.tenure && loan.tenure > loan.mirrorTenure;
+                  
+                  if (hasExtraEMIs) {
+                    const extraEmiPage = (loan as any)?.secondaryPaymentPage;
+                    return (
+                      <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-amber-600" />
+                          <Label className="text-amber-800 font-semibold">
+                            Extra EMI Payment Page (Auto-Selected)
+                          </Label>
+                        </div>
+                        <p className="text-xs text-amber-700">
+                          This mirror loan has extra EMIs. The payment will use the secondary payment page selected during disbursement.
+                        </p>
+                        {extraEmiPage ? (
+                          <div className="p-3 bg-white rounded border border-amber-200 text-xs space-y-2 mt-1">
+                            <p className="font-semibold text-amber-800">{extraEmiPage.name}</p>
+                            {extraEmiPage.upiId && (
+                              <p className="text-gray-700"><strong>UPI ID:</strong> {extraEmiPage.upiId}</p>
+                            )}
+                            {extraEmiPage.bankName && (
+                              <div className="border-t pt-2 space-y-1 text-gray-600">
+                                <p><strong>Bank Name:</strong> {extraEmiPage.bankName}</p>
+                                <p><strong>Account Name:</strong> {extraEmiPage.accountName}</p>
+                                <p><strong>Account Number:</strong> {extraEmiPage.accountNumber}</p>
+                                <p><strong>IFSC Code:</strong> {extraEmiPage.ifscCode}</p>
+                              </div>
+                            )}
+                            {extraEmiPage.qrCodeUrl && (
+                              <div className="border-t pt-2 flex flex-col items-center">
+                                <p className="font-semibold text-blue-800 mb-2 text-center">Scan QR Code to Pay</p>
+                                <img
+                                  src={extraEmiPage.qrCodeUrl}
+                                  alt="QR Code"
+                                  className="w-40 h-40 border rounded object-cover shadow-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-red-500 font-medium">
+                            ⚠️ No payment page was selected during disbursement.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  } else {
+                    const selectedPage = dialogSecondaryPages.find(p => p.id === selectedSecondaryPageId);
+                    return (
+                      <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="h-4 w-4 text-blue-600" />
+                          <Label className="text-blue-800 font-semibold">
+                            Select Secondary Payment Page *
+                          </Label>
+                        </div>
+                        <p className="text-xs text-blue-600">
+                          Since this is a non-mirror original loan, you must select a secondary payment page for this online interest payment.
+                        </p>
+                        
+                        <select
+                          value={selectedSecondaryPageId}
+                          onChange={(e) => setSelectedSecondaryPageId(e.target.value)}
+                          className="w-full p-2 border border-blue-300 rounded bg-white text-sm"
+                        >
+                          <option value="">Select Secondary Payment Page...</option>
+                          {dialogSecondaryPages.map((page) => (
+                            <option key={page.id} value={page.id}>
+                              {page.name} ({page.upiId || 'No UPI'})
+                            </option>
+                          ))}
+                        </select>
+
+                        {selectedPage ? (
+                          <div className="p-3 bg-white rounded border border-blue-200 text-xs space-y-2">
+                            <p className="font-semibold text-blue-800">{selectedPage.name}</p>
+                            {selectedPage.upiId && (
+                              <p className="text-gray-700"><strong>UPI ID:</strong> {selectedPage.upiId}</p>
+                            )}
+                            {selectedPage.bankName && (
+                              <div className="border-t pt-2 space-y-1 text-gray-600">
+                                <p><strong>Bank Name:</strong> {selectedPage.bankName}</p>
+                                <p><strong>Account Name:</strong> {selectedPage.accountName}</p>
+                                <p><strong>Account Number:</strong> {selectedPage.accountNumber}</p>
+                                <p><strong>IFSC Code:</strong> {selectedPage.ifscCode}</p>
+                              </div>
+                            )}
+                            {selectedPage.qrCodeUrl && (
+                              <div className="border-t pt-2 flex flex-col items-center">
+                                <p className="font-semibold text-blue-800 mb-2 text-center">Scan QR Code to Pay</p>
+                                <img
+                                  src={selectedPage.qrCodeUrl}
+                                  alt="QR Code"
+                                  className="w-40 h-40 border rounded object-cover shadow-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-red-500 font-medium">
+                            ⚠️ Please select a secondary payment page to proceed.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+                })()}
               </div>
             ) : isMirroredLoan ? (
               <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
