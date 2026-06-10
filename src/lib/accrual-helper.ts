@@ -142,7 +142,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
             customerName: emi.offlineLoan.customerName || 'Customer',
             emiId: emi.id,
             interestAmount: emi.interestAmount,
-            accrualDate: new Date(),
+            accrualDate: emi.dueDate,
             createdById: 'SYSTEM'
           }, tx);
         }, { maxWait: 25000, timeout: 50000 });

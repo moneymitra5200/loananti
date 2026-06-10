@@ -2240,10 +2240,14 @@ export async function PUT(request: NextRequest) {
       }
 
       // Calculate next EMI due date (always set to same day-of-month, next month)
-      const nextDueDate = new Date(currentEMI.dueDate);
-      nextDueDate.setMonth(nextDueDate.getMonth() + 1);
-      // Guard: if the next due date is today or in the past (late payment), push it to tomorrow.
-      // This prevents performOnDemandAccrual from immediately accruing the freshly-created EMI.
+      // Safe: clamp to last day of next month to avoid JS setMonth overflow (e.g. Jan 31 → Feb 28)
+      const _nd = new Date(currentEMI.dueDate);
+      const _ndYear  = _nd.getMonth() === 11 ? _nd.getFullYear() + 1 : _nd.getFullYear();
+      const _ndMonth = (_nd.getMonth() + 1) % 12; // next month (0-indexed)
+      const _ndLastDay = new Date(_ndYear, _ndMonth + 1, 0).getDate(); // last day of next month
+      const _ndDay   = Math.min(_nd.getDate(), _ndLastDay);
+      const nextDueDate = new Date(_ndYear, _ndMonth, _ndDay, 0, 0, 0, 0);
+      // Guard: if next due date is today or past (late payment scenario), push to tomorrow
       const tomorrowGuard = new Date();
       tomorrowGuard.setDate(tomorrowGuard.getDate() + 1);
       tomorrowGuard.setHours(0, 0, 0, 0);
@@ -2561,8 +2565,13 @@ export async function PUT(request: NextRequest) {
 
           // Create next-month IO EMI on mirror (rolling, indefinite)
           const nextInstNum = currentEMI.installmentNumber + 1;
-          const nextDue = new Date(currentEMI.dueDate);
-          nextDue.setMonth(nextDue.getMonth() + 1);
+          // Safe addOneMonth — avoids JS setMonth overflow on 29/30/31st
+          const _md = new Date(currentEMI.dueDate);
+          const _mdYear  = _md.getMonth() === 11 ? _md.getFullYear() + 1 : _md.getFullYear();
+          const _mdMonth = (_md.getMonth() + 1) % 12;
+          const _mdLastDay = new Date(_mdYear, _mdMonth + 1, 0).getDate();
+          const _mdDay   = Math.min(_md.getDate(), _mdLastDay);
+          const nextDue = new Date(_mdYear, _mdMonth, _mdDay, 0, 0, 0, 0);
           // Guard: prevent immediate accrual of newly-created EMI if due date is today/past
           const tomorrowMirrorGuard = new Date();
           tomorrowMirrorGuard.setDate(tomorrowMirrorGuard.getDate() + 1);
