@@ -116,7 +116,7 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
 
     for (const emi of pendingOfflineEMIs) {
       try {
-        const companyId = emi.offlineLoan.companyId!;
+        const originalCompanyId = emi.offlineLoan.companyId!;
 
         // Only accrue if the due date has arrived/passed
         let accrualTriggerDate = emi.dueDate;
@@ -124,10 +124,24 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
           continue;
         }
 
+        // ── Mirror-aware accrual routing ──────────────────────────────────────
+        // For mirrored offline loans, the payment flow creates INTEREST_ACCRUAL in
+        // the MIRROR company. If we only check the original company, we'll create a
+        // duplicate "ghost" accrual on every personal-ledger page load.
+        // Fix: resolve the mirror mapping and check BOTH companies before accruing.
+        const mirrorMap = await db.mirrorLoanMapping.findFirst({
+          where: { originalLoanId: emi.offlineLoanId, isOfflineLoan: true },
+          select: { mirrorCompanyId: true, mirrorInterestRate: true, mirrorLoanId: true }
+        });
+
+        const hasMirror = !!(mirrorMap?.mirrorCompanyId);
+        const targetCompanyId = hasMirror ? mirrorMap!.mirrorCompanyId : originalCompanyId;
+
         // Check if interest has already been accrued for this offline EMI
+        // in EITHER company to prevent duplicates across mirror/original boundaries.
         const existingAccrual = await db.journalEntry.findFirst({
           where: {
-            companyId,
+            companyId: { in: [originalCompanyId, ...(hasMirror ? [mirrorMap!.mirrorCompanyId] : [])] },
             referenceType: 'INTEREST_ACCRUAL',
             referenceId: emi.id,
             isReversed: false
@@ -135,12 +149,17 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
         });
 
         if (existingAccrual) {
-          continue; // Already accrued, skip
+          continue; // Already accrued (in original or mirror company), skip
         }
 
-        // Perform accrual in a transaction
+        // For mirrored loans: use mirror interest rate if available
+        const interestAmount = hasMirror && mirrorMap!.mirrorInterestRate
+          ? Math.round((emi.offlineLoan.loanAmount * mirrorMap!.mirrorInterestRate / 100 / 12) * 100) / 100
+          : emi.interestAmount;
+
+        // Perform accrual in a transaction in the TARGET company (mirror if mapped)
         await db.$transaction(async (tx) => {
-          const accSvc = new AccountingService(companyId);
+          const accSvc = new AccountingService(targetCompanyId);
           // Cap accrualDate to today — NEVER create a future-dated journal entry
           const accrualDate = emi.dueDate <= new Date() ? emi.dueDate : new Date();
           await accSvc.recordInterestAccrual({
@@ -148,7 +167,7 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
             customerId: emi.offlineLoan.customerId || `offline_${emi.offlineLoanId}`,
             customerName: emi.offlineLoan.customerName || 'Customer',
             emiId: emi.id,
-            interestAmount: emi.interestAmount,
+            interestAmount,
             accrualDate,   // ← EMI due date if past/today, today if EMI date is future (safety)
             createdById: 'SYSTEM'
           }, tx);

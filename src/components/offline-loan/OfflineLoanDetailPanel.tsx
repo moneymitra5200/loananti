@@ -2655,7 +2655,11 @@ export default function OfflineLoanDetailPanel({
               </div>
             ) : isInterestOnlyPayment ? (
               <p className="text-sm text-gray-600 mb-4">
-                Pay monthly interest of {formatCurrency(loan?.interestOnlyMonthlyAmount || 0)}
+                Pay monthly interest of {formatCurrency(
+                  loan?.mirrorInterestRate
+                    ? Math.round((loan.loanAmount * loan.mirrorInterestRate / 100 / 12) * 100) / 100
+                    : (loan?.interestOnlyMonthlyAmount || 0)
+                )}
               </p>
             ) : selectedEmi && (
               <div className="mb-4">
@@ -3537,8 +3541,11 @@ export default function OfflineLoanDetailPanel({
                 const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
                 summaryNetPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
               }
+              const effectiveIOAmount = loan?.mirrorInterestRate
+                ? Math.round((loan.loanAmount * loan.mirrorInterestRate / 100 / 12) * 100) / 100
+                : (loan?.interestOnlyMonthlyAmount || 0);
               const baseAmount = isInterestOnlyPayment
-                ? (loan?.interestOnlyMonthlyAmount || 0)
+                ? effectiveIOAmount
                 : paymentAmount;
               const totalAmount = baseAmount + summaryNetPenalty;
 
@@ -3582,8 +3589,11 @@ export default function OfflineLoanDetailPanel({
                     const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
                     buttonNetPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
                   }
+                  const effectiveBtnIOAmount = loan?.mirrorInterestRate
+                    ? Math.round((loan.loanAmount * loan.mirrorInterestRate / 100 / 12) * 100) / 100
+                    : (loan?.interestOnlyMonthlyAmount || 0);
                   const buttonAmount = (isInterestOnlyPayment
-                    ? (loan?.interestOnlyMonthlyAmount || 0)
+                    ? effectiveBtnIOAmount
                     : paymentAmount) + buttonNetPenalty;
                   return (
                     <>
