@@ -7,7 +7,7 @@ import { cache } from './cache';
  * This runs on-demand (e.g. before loading ledger statements) to ensure 
  * that interest entries are recorded instantly without waiting for a daily cron.
  */
-export async function performOnDemandAccrual(): Promise<{ processedCount: number }> {
+export async function performOnDemandAccrual(filterCompanyId?: string | null): Promise<{ processedCount: number }> {
   let processedCount = 0;
 
   // Use UTC end-of-day to avoid IST timezone edge cases.
@@ -29,7 +29,8 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
         interestAmount: { gt: 0 },
         loanApplication: {
-          status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }
+          status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] },
+          ...(filterCompanyId ? { companyId: filterCompanyId } : {})
         }
       },
       include: {
@@ -91,7 +92,7 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] },
         interestAmount: { gt: 0 },
         offlineLoan: {
-          companyId: { not: null },
+          companyId: filterCompanyId ? filterCompanyId : { not: null },
           // Phase 1 INTEREST_ONLY loans ARE included — accrual must happen when due date passes
           // (the dueDate <= today filter above already guards against pre-emptive accruals).
           // Accrual rule: Dr Interest Receivable (1301) / Cr Interest Income (4110) on due date.

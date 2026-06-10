@@ -71,12 +71,12 @@ const ACCOUNT_CODES = {
 
 export async function GET(request: NextRequest) {
   try {
-    // Run on-demand accruals to ensure reports are real-time
-    await performOnDemandAccrual();
-
     const { searchParams } = new URL(request.url);
     const companyId = searchParams.get('companyId');
     const year = searchParams.get('year'); // e.g., "2024" for FY 2024-25
+
+    // Run on-demand accruals to ensure reports are real-time
+    await performOnDemandAccrual(companyId);
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });

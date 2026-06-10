@@ -17,12 +17,12 @@ import { performOnDemandAccrual } from '@/lib/accrual-helper';
  */
 export async function GET(request: NextRequest) {
   try {
-    // Run on-demand accruals to ensure reports are real-time
-    await performOnDemandAccrual();
-
     const searchParams = request.nextUrl.searchParams;
     const companyId = searchParams.get('companyId');
     const asOfDate = searchParams.get('asOfDate');
+
+    // Run on-demand accruals to ensure reports are real-time
+    await performOnDemandAccrual(companyId);
 
     if (!companyId) {
       return NextResponse.json({ error: 'Company ID is required' }, { status: 400 });

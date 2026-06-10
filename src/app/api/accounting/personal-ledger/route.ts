@@ -30,13 +30,13 @@ const LR_CODES = ['1200', '1201', '1210', '1301', '1305', '1302'];
 
 export async function GET(request: NextRequest) {
   try {
-    // Run on-demand accruals to ensure ledger is real-time
-    await performOnDemandAccrual();
-
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get('customerId');
     const loanId     = searchParams.get('loanId');
     const companyId  = searchParams.get('companyId');
+
+    // Run on-demand accruals to ensure ledger is real-time
+    await performOnDemandAccrual(companyId);
 
     if (!customerId && !loanId) {
       return await listCustomersForCompany(companyId);
@@ -496,7 +496,7 @@ async function listCustomersFallback(companyId: string | null) {
   );
 
   const offlineWhere: any = {
-    status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'COMPLETED'] },
+    status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] },
   };
   if (companyId) offlineWhere.companyId = companyId;
   // Exclude offline originals that have mirrors (handled above via mirrorMappings)
@@ -622,7 +622,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   if (isNameGroupId && groupName) {
     const nameWhere: any = {
       customerName: groupName,
-      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'COMPLETED'] },
+      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] },
     };
     if (companyId) nameWhere.companyId = companyId;
     allOfflineLoans = await db.offlineLoan.findMany({
