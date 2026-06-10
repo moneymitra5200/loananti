@@ -650,6 +650,7 @@ export async function POST(request: NextRequest) {
     // Validate required fields (COMPANY IS NOW REQUIRED)
     // For Interest Only loans, tenure can be 0
     const isInterestOnlyLoan = isInterestOnly === true;
+    const effectiveProcessingFee = isInterestOnlyLoan ? 0 : (processingFee || 0);
     
     if (!createdById || !createdByRole || !customerName || !customerPhone ||
         !loanAmount || !interestRate || !disbursementDate || !startDate || !companyId) {
@@ -858,7 +859,7 @@ export async function POST(request: NextRequest) {
           interestRate,
           tenure: isInterestOnlyLoan ? 0 : (tenure || 0),
           emiAmount: calculatedEmiAmount,
-          processingFee: processingFee || 0,
+          processingFee: effectiveProcessingFee,
           disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
           disbursementMode: finalDisbursementMode,
           disbursementRef,
@@ -1916,7 +1917,7 @@ export async function POST(request: NextRequest) {
           loanNo: loanNumber,
           customerName,
           amount: loanAmount,
-          processingFee: processingFee || 0,
+          processingFee: effectiveProcessingFee,
           paymentMode: effectiveDisbursementMode,
           createdById
         });
@@ -1962,17 +1963,17 @@ export async function POST(request: NextRequest) {
 
         // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
         // FIX-ISSUE-2: Record processing fee at disbursement + mark processingFeeRecorded=true
-        if (processingFee && processingFee > 0) {
+        if (effectiveProcessingFee && effectiveProcessingFee > 0) {
           try {
             // 1. Cashbook or bank entry so it appears in DayBook
             const { recordCashBookEntry: pfCb, recordBankTransaction: pfBank } = await import('@/lib/simple-accounting');
             const isPfOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes((effectiveDisbursementMode||'').toUpperCase());
             if (isPfOnline) {
-              await pfBank({ companyId, transactionType: 'CREDIT', amount: processingFee,
+              await pfBank({ companyId, transactionType: 'CREDIT', amount: effectiveProcessingFee,
                 description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
                 referenceId: `${loan.id}-PF`, createdById });
             } else {
-              await pfCb({ companyId, entryType: 'CREDIT', amount: processingFee,
+              await pfCb({ companyId, entryType: 'CREDIT', amount: effectiveProcessingFee,
                 description: `Processing Fee - ${loanNumber}`, referenceType: 'PROCESSING_FEE',
                 referenceId: `${loan.id}-PF`, createdById });
             }
@@ -1981,7 +1982,7 @@ export async function POST(request: NextRequest) {
             await accountingService.recordProcessingFeeAccrual({
               loanId: loan.id,
               customerId: effectiveCustomerId,
-              amount: processingFee,
+              amount: effectiveProcessingFee,
               accrualDate: new Date(disbursementDate),
               createdById,
             });
@@ -1990,7 +1991,7 @@ export async function POST(request: NextRequest) {
             await accountingService.recordProcessingFee({
               loanId: loan.id,
               customerId: effectiveCustomerId,
-              amount: processingFee,
+              amount: effectiveProcessingFee,
               collectionDate: new Date(disbursementDate),
               createdById,
               paymentMode: effectiveDisbursementMode,
@@ -1999,7 +2000,7 @@ export async function POST(request: NextRequest) {
             });
             // 3. Mark fee as recorded on the loan
             await db.offlineLoan.update({ where: { id: loan.id }, data: { processingFeeRecorded: true } as any });
-            console.log(`[Accounting] ✓ Processing fee: ₹${processingFee} for ${loanNumber}`);
+            console.log(`[Accounting] ✓ Processing fee: ₹${effectiveProcessingFee} for ${loanNumber}`);
           } catch (pfError) {
             console.error('[Accounting] Processing fee recording failed:', pfError);
             throw pfError;
