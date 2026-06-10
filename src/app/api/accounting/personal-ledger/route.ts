@@ -1398,13 +1398,21 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
     // Only EMI entries (which reduce the Loans Receivable balance)
 
     let totalPrincipalPaid = 0, totalInterestPaid = 0, totalInterestAccrued = 0;
-    const today = new Date();
+    // Use UTC end-of-today to avoid IST timezone boundary issues
+    const todayUTC = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 23, 59, 59, 999));
     for (const emi of (fullLoan.emiSchedules || [])) {
-      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && emi.paidAmount > 0);
+      // Only show synthetic accrual if: EMI due date has passed (UTC) OR EMI is paid
+      // NEVER show future-dated synthetic accruals for PENDING (unpaid) EMIs
+      const dueDateUTC = new Date(emi.dueDate);
+      const isDuePassed = dueDateUTC <= todayUTC;
+      const isPaid = !!(emi.paidDate && emi.paidAmount > 0);
+      const isAccrued = isDuePassed || isPaid;
       if (isAccrued && emi.interestAmount > 0) {
         totalInterestAccrued += emi.interestAmount;
+        // Use dueDate as the synthetic accrual date — but cap to today if it's future
+        const accrualDisplayDate = dueDateUTC > new Date() ? new Date() : emi.dueDate;
         allEntries.push({
-          id: `accrual-${emi.id}`, date: emi.dueDate,
+          id: `accrual-${emi.id}`, date: accrualDisplayDate,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.applicationNo,
           emiNumber: emi.installmentNumber,
           description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
@@ -1470,13 +1478,21 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
     }
 
     let totalPrincipalPaid = 0, totalInterestPaid = 0, totalInterestAccrued = 0;
-    const today = new Date();
+    // Use UTC end-of-today to avoid IST timezone boundary issues
+    const todayUTC2 = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate(), 23, 59, 59, 999));
     for (const emi of (fullLoan.emis || [])) {
-      const isAccrued = new Date(emi.dueDate) <= today || (emi.paidDate && emi.paidAmount > 0);
+      // Only show synthetic accrual if: EMI due date has passed (UTC) OR EMI is paid
+      // NEVER show future-dated synthetic accruals for PENDING (unpaid) EMIs
+      const dueDateUTC2 = new Date(emi.dueDate);
+      const isDuePassed2 = dueDateUTC2 <= todayUTC2;
+      const isPaid2 = !!(emi.paidDate && emi.paidAmount > 0);
+      const isAccrued = isDuePassed2 || isPaid2;
       if (isAccrued && emi.interestAmount > 0) {
         totalInterestAccrued += emi.interestAmount;
+        // Cap display date to today if EMI due date is future
+        const accrualDisplayDate2 = dueDateUTC2 > new Date() ? new Date() : emi.dueDate;
         allEntries.push({
-          id: `offline-accrual-${emi.id}`, date: emi.dueDate,
+          id: `offline-accrual-${emi.id}`, date: accrualDisplayDate2,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.loanNumber,
           emiNumber: emi.installmentNumber,
           description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
