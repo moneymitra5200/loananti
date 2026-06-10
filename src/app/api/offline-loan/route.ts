@@ -2239,9 +2239,17 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      // Calculate next EMI due date
+      // Calculate next EMI due date (always set to same day-of-month, next month)
       const nextDueDate = new Date(currentEMI.dueDate);
       nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+      // Guard: if the next due date is today or in the past (late payment), push it to tomorrow.
+      // This prevents performOnDemandAccrual from immediately accruing the freshly-created EMI.
+      const tomorrowGuard = new Date();
+      tomorrowGuard.setDate(tomorrowGuard.getDate() + 1);
+      tomorrowGuard.setHours(0, 0, 0, 0);
+      if (nextDueDate < tomorrowGuard) {
+        nextDueDate.setTime(tomorrowGuard.getTime());
+      }
 
       // Update loan, mark EMI as PAID, create next EMI, and update records
       const result = await db.$transaction(async (tx) => {
@@ -2547,6 +2555,13 @@ export async function PUT(request: NextRequest) {
           const nextInstNum = currentEMI.installmentNumber + 1;
           const nextDue = new Date(currentEMI.dueDate);
           nextDue.setMonth(nextDue.getMonth() + 1);
+          // Guard: prevent immediate accrual of newly-created EMI if due date is today/past
+          const tomorrowMirrorGuard = new Date();
+          tomorrowMirrorGuard.setDate(tomorrowMirrorGuard.getDate() + 1);
+          tomorrowMirrorGuard.setHours(0, 0, 0, 0);
+          if (nextDue < tomorrowMirrorGuard) {
+            nextDue.setTime(tomorrowMirrorGuard.getTime());
+          }
           const alreadyExists = await db.offlineLoanEMI.findFirst({
             where: { offlineLoanId: mirrorLoanId, installmentNumber: nextInstNum }
           });
