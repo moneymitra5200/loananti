@@ -87,7 +87,10 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         interestAmount: { gt: 0 },
         offlineLoan: {
           companyId: { not: null },
-          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] },
+          // IMPORTANT: Exclude INTEREST_ONLY (Phase 1) loans — they have no amortising EMI schedule.
+          // Interest accrual for Phase 1 is NOT applicable; it only begins after the loan
+          // is shifted to ACTIVE (Phase 2) via /api/offline-loan/start.
+          status: { in: ['ACTIVE', 'DEFAULTED', 'RESTRUCTURED'] },
           company: {
             accountingType: 'FULL'
           }
