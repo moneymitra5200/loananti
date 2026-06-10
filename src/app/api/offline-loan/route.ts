@@ -897,10 +897,13 @@ export async function POST(request: NextRequest) {
 
       // Generate EMI schedule inside the same transaction
       if (isInterestOnlyLoan) {
-        const dueDate = requiredDate(disbursementDate, 'disbursementDate');
-        dueDate.setMonth(dueDate.getMonth() + 1);
-        dueDate.setDate(requiredDate(disbursementDate, 'disbursementDate').getDate());
-        dueDate.setHours(0, 0, 0, 0);
+        // Safe addOneMonth — avoids JS setMonth overflow (e.g. Jan 31 → Mar 1)
+        const _d = requiredDate(disbursementDate, 'disbursementDate');
+        const _year  = _d.getMonth() === 11 ? _d.getFullYear() + 1 : _d.getFullYear();
+        const _month = (_d.getMonth() + 1) % 12; // next month, 0-indexed
+        const _lastDay = new Date(_year, _month + 1, 0).getDate(); // last day of next month
+        const _day   = Math.min(_d.getDate(), _lastDay);
+        const dueDate = new Date(_year, _month, _day, 0, 0, 0, 0);
         await tx.offlineLoanEMI.create({
           data: {
             offlineLoanId: newLoan.id,
@@ -916,7 +919,7 @@ export async function POST(request: NextRequest) {
             interestOnlyAmount: monthlyInterestAmount
           }
         });
-        console.log(`[Offline Loan] Created first Interest EMI for loan ${loanNumber}`);
+        console.log(`[Offline Loan] Created first Interest EMI for loan ${loanNumber}, due: ${dueDate.toLocaleDateString('en-IN')}`);
       } else if (tenure > 0 && emiSchedule.length > 0) {
         const emis = emiSchedule.map((item, index) => {
           const dueDate = requiredDate(startDate, 'startDate');

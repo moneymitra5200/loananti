@@ -135,14 +135,15 @@ export async function performOnDemandAccrual(): Promise<{ processedCount: number
         // Perform accrual in a transaction
         await db.$transaction(async (tx) => {
           const accSvc = new AccountingService(companyId);
-          
+          // Cap accrualDate to today — NEVER create a future-dated journal entry
+          const accrualDate = emi.dueDate <= new Date() ? emi.dueDate : new Date();
           await accSvc.recordInterestAccrual({
             loanId: emi.offlineLoanId,
             customerId: emi.offlineLoan.customerId || `offline_${emi.offlineLoanId}`,
             customerName: emi.offlineLoan.customerName || 'Customer',
             emiId: emi.id,
             interestAmount: emi.interestAmount,
-            accrualDate: emi.dueDate,
+            accrualDate,   // ← EMI due date if past/today, today if EMI date is future (safety)
             createdById: 'SYSTEM'
           }, tx);
         }, { maxWait: 25000, timeout: 50000 });
