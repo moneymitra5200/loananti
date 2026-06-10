@@ -520,19 +520,21 @@ async function listCustomersFallback(companyId: string | null) {
       // Linked customer account
       addOrMerge(loan.customer.id, {
         id: loan.customer.id,
-        name: loan.customer.name || loan.customerName || 'Unknown',
-        phone: loan.customer.phone || loan.customerPhone || 'N/A',
+        name: loan.customer.name || (loan as any).customerName || 'Unknown',
+        phone: loan.customer.phone || (loan as any).customerPhone || 'N/A',
         email: loan.customer.email,
         totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
       });
     } else {
-      // No linked user account — use loan ID as key
-      const syntheticId = `offline_${loan.id}`;
-      addOrMerge(syntheticId, {
-        id: syntheticId,
-        name: loan.customerName || 'Unknown',
-        phone: loan.customerPhone || 'N/A',
-        email: loan.customerEmail || '',
+      // No linked user account — group by name+phone so all loans for same person share one row
+      const rawName  = (loan as any).customerName  || 'Unknown';
+      const rawPhone = (loan as any).customerPhone || 'N/A';
+      const groupKey = `offline_name_${rawName.trim().toLowerCase()}_${rawPhone.trim()}`;
+      addOrMerge(groupKey, {
+        id: groupKey,
+        name: rawName,
+        phone: rawPhone,
+        email: (loan as any).customerEmail || '',
         totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
       });
     }
@@ -555,14 +557,38 @@ async function listCustomersFallback(companyId: string | null) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function getPersonalLedger(customerId: string, companyId: string | null) {
   // Handle synthetic IDs for offline loans without linked user accounts
-  // Format: 'offline_{loanId}'
+  // Format 1 (old): 'offline_{loanId}'  — single loan
+  // Format 2 (new): 'offline_name_{name}_{phone}' — name+phone group
   const isSyntheticId = customerId.startsWith('offline_');
-  const syntheticLoanId = isSyntheticId ? customerId.replace('offline_', '') : null;
+  const isNameGroupId = customerId.startsWith('offline_name_');
+  const syntheticLoanId = (isSyntheticId && !isNameGroupId) ? customerId.replace('offline_', '') : null;
+
+  // Parse name+phone from the group key
+  let groupName: string | null = null;
+  let groupPhone: string | null = null;
+  if (isNameGroupId) {
+    // format: offline_name_{lowercaseName}_{phone}
+    const parts = customerId.replace('offline_name_', '').split('_');
+    // phone is the last part; name is everything else joined back
+    groupPhone = parts[parts.length - 1];
+    groupName  = parts.slice(0, parts.length - 1).join(' ');
+  }
 
   let customer: { id: string; name: string | null; phone: string | null; email: string | null; address?: string | null } | null = null;
 
-  if (isSyntheticId && syntheticLoanId) {
-    // Fetch customer info directly from the offline loan
+  if (isNameGroupId && groupName) {
+    // Fetch customer info from any offline loan with matching name (case-insensitive)
+    const sampleLoan = await db.offlineLoan.findFirst({
+      where: { customerName: groupName },
+      select: { customerName: true, customerPhone: true, customerEmail: true }
+    });
+    if (sampleLoan) {
+      customer = { id: customerId, name: sampleLoan.customerName || groupName, phone: sampleLoan.customerPhone || groupPhone || '', email: sampleLoan.customerEmail || '' };
+    } else {
+      customer = { id: customerId, name: groupName, phone: groupPhone || '', email: '' };
+    }
+  } else if (isSyntheticId && syntheticLoanId) {
+    // Fetch customer info directly from the offline loan (old format)
     const offlineLoan = await db.offlineLoan.findUnique({
       where: { id: syntheticLoanId },
       select: { customerName: true, customerPhone: true, customerEmail: true }
@@ -578,9 +604,6 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
   // Get all loans for this customer
-  // For synthetic IDs (offline loans without linked user): fetch the specific loan directly
-  // Get all loans for this customer
-  // For synthetic IDs (offline loans without linked user): fetch the specific loan directly
   const allOnlineLoans = isSyntheticId ? [] : await db.loanApplication.findMany({
     where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } },
     select: {
@@ -591,29 +614,54 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       emiSchedules: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
     }
   });
-  const allOfflineLoans = isSyntheticId && syntheticLoanId
-    ? await db.offlineLoan.findMany({
-         where: { id: syntheticLoanId },
-         select: {
-           id: true, loanNumber: true, status: true, companyId: true,
-           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-           customerName: true, customerPhone: true, customerEmail: true,
-           closedAt: true,
-           company: { select: { id: true, name: true } },
-           emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
-         }
-       })
-     : await db.offlineLoan.findMany({
-         where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
-         select: {
-           id: true, loanNumber: true, status: true, companyId: true,
-           loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-           customerName: true, customerPhone: true, customerEmail: true,
-           closedAt: true,
-           company: { select: { id: true, name: true } },
-           emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
-         }
-       });
+
+  // For name-grouped IDs: fetch ALL offline loans with matching name
+  // For old single-loan syntheticId: fetch just that one loan
+  // For real user ID: fetch by customerId field
+  let allOfflineLoans: any[];
+  if (isNameGroupId && groupName) {
+    const nameWhere: any = {
+      customerName: groupName,
+      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'COMPLETED'] },
+    };
+    if (companyId) nameWhere.companyId = companyId;
+    allOfflineLoans = await db.offlineLoan.findMany({
+      where: nameWhere,
+      select: {
+        id: true, loanNumber: true, status: true, companyId: true,
+        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+        customerName: true, customerPhone: true, customerEmail: true,
+        closedAt: true,
+        company: { select: { id: true, name: true } },
+        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+      }
+    });
+  } else if (isSyntheticId && syntheticLoanId) {
+    allOfflineLoans = await db.offlineLoan.findMany({
+      where: { id: syntheticLoanId },
+      select: {
+        id: true, loanNumber: true, status: true, companyId: true,
+        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+        customerName: true, customerPhone: true, customerEmail: true,
+        closedAt: true,
+        company: { select: { id: true, name: true } },
+        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+      }
+    });
+  } else {
+    allOfflineLoans = await db.offlineLoan.findMany({
+      where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
+      select: {
+        id: true, loanNumber: true, status: true, companyId: true,
+        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+        customerName: true, customerPhone: true, customerEmail: true,
+        closedAt: true,
+        company: { select: { id: true, name: true } },
+        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+      }
+    });
+  }
+
 
   // Mirror rule: which online loans are mirrored ORIGINALS?
   const onlineLoanIds = allOnlineLoans.map(l => l.id);

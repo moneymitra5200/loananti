@@ -129,12 +129,18 @@ const formatCurrency = (amount: number) => {
 
 const formatDate = (date: Date | string) => {
   if (!date) return '-';
-  return format(new Date(date), 'dd MMM yyyy');
+  return new Date(date).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short', year: 'numeric'
+  });
 };
 
 const formatDateShort = (date: Date | string) => {
   if (!date) return '-';
-  return format(new Date(date), 'dd/MM/yyyy');
+  return new Date(date).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: '2-digit', year: 'numeric'
+  });
 };
 
 // Company type rule (simple and definitive):

@@ -613,8 +613,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                     >
                       <TableCell className="text-sm py-2 whitespace-nowrap">
                         <div className="flex flex-col">
-                          <span>{format(new Date(row.date), 'dd MMM yyyy')}</span>
-                          <span className="text-xs text-slate-500">{format(new Date(row.date), 'HH:mm:ss')}</span>
+                          <span>{new Date(row.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                          <span className="text-xs text-slate-500">{new Date(row.date).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
                         </div>
                       </TableCell>
                       <TableCell className="py-2">
