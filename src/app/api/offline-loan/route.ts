@@ -2446,13 +2446,49 @@ export async function PUT(request: NextRequest) {
             });
           }
 
-          // Double-entry journal
+          // ── Accrual-basis accounting for IO payment (same pattern as normal EMI) ──
+          // Step 1: Check if INTEREST_ACCRUAL already exists for this EMI
+          const existingAccrual = await db.journalEntry.findFirst({
+            where: { companyId: targetCompanyId, referenceType: 'INTEREST_ACCRUAL', referenceId: currentEMI.id, isReversed: false }
+          });
+
+          const emiDueDate    = new Date(currentEMI.dueDate);
+          const dueDatePassed = emiDueDate <= now;
+          let interestWasAccrued = !!existingAccrual;
+
+          if (!existingAccrual && dueDatePassed) {
+            // Step 2: Accrue interest dated AT the due date — exactly as performOnDemandAccrual does
+            // Dr: Interest Receivable (1301) / Cr: Interest Income (4110)
+            try {
+              await accSvc.recordInterestAccrual({
+                loanId:         loan.id,
+                customerId:     loan.customerId || `offline_${loan.id}`,
+                customerName:   loan.customerName || 'Customer',
+                emiId:          currentEMI.id,
+                interestAmount: targetAmount,
+                accrualDate:    emiDueDate,   // ← dated at due date, NOT payment date
+                createdById:    'SYSTEM',
+              });
+              interestWasAccrued = true;
+              console.log(`[IO Accounting] ✓ INTEREST_ACCRUAL created (dated: ${emiDueDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}) — ₹${targetAmount}`);
+            } catch (accrualErr) {
+              console.error('[IO Accounting] INTEREST_ACCRUAL failed (non-fatal):', accrualErr);
+            }
+          } else if (existingAccrual) {
+            console.log(`[IO Accounting] INTEREST_ACCRUAL already exists for EMI ${currentEMI.id} — skipping`);
+          }
+
+          // Step 3: Record payment journal — clearing Interest Receivable (accrual-basis)
+          // If accrued: Dr Cash/Bank / Cr 1301 Interest Receivable  ← clears the receivable
+          // If not yet due (edge case): Dr Cash/Bank / Cr 4110 Interest Income (cash-basis fallback)
+          const creditCode = interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME;
+
           await accSvc.createJournalEntry({
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
             narration: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
             lines: [
               { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: loan.id },
-              { accountCode: CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest income - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
+              { accountCode: creditCode, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });
