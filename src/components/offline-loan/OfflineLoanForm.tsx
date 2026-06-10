@@ -737,8 +737,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       });
     }
 
-    const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
-    const showSecondaryPage = (!isMirrorLoan || !hasExtraEMIs) && isSelectedCompany3() && !isInterestOnly;
+    const showSecondaryPage = false;
     if (showSecondaryPage && !selectedSecondaryPageId) {
       toast({
         title: 'Secondary Payment Page Required',
@@ -855,7 +854,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         customerDOB: formData.customerDOB || null,
         bankAccountId: formData.bankAccountId || null,
         // Secondary payment page for C3 loans or mirror loans with extra EMIs
-        secondaryPaymentPageId: ((isSelectedCompany3() && (!isMirrorLoan || !hasExtraEMIs)) || (isMirrorLoan && hasExtraEMIs)) ? selectedSecondaryPageId || null : null,
+        secondaryPaymentPageId: null,
         // Documents
         documents: uploadedDocs,
         // Interest Only Loan
@@ -1474,8 +1473,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             </div>
 
             {(() => {
-              const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
-              const showSecondaryPage = (isMirrorLoan && hasExtraEMIs) || (!isMirrorLoan && isSelectedCompany3());
+              const showSecondaryPage = false;
               if (!showSecondaryPage) return null;
               return (
                 <div className="space-y-3 pt-4 border-t">
