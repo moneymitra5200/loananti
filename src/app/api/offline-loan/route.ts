@@ -2455,14 +2455,21 @@ export async function PUT(request: NextRequest) {
           }
 
           // ── Accrual-basis accounting for IO payment ──────────────────────────────
-          // RULE (same as normal EMI, as per user spec):
-          //   ALWAYS create INTEREST_ACCRUAL first, then record payment clearing the receivable.
+          // RULE: ALWAYS create INTEREST_ACCRUAL first, then record payment clearing the receivable.
           //   - Advance payment (before due date): accrue today (Dr 1301 / Cr 4110), then pay (Dr Cash / Cr 1301)
           //   - Overdue payment (after due date):  accrue on due date (Dr 1301 / Cr 4110), then pay (Dr Cash / Cr 1301)
           //   - Accrual already exists:            skip accrual creation, directly clear receivable
+          //
+          // IMPORTANT: When recording in the MIRROR company, loanId in JE lines MUST be the
+          // mirror loan ID (not the original loan ID) so that the personal ledger can find
+          // these entries when querying by mirror loan ID.
           // ─────────────────────────────────────────────────────────────────────────
 
-          // Step 1: Check if INTEREST_ACCRUAL already exists for this EMI
+          // Resolve the correct loanId for JE lines: mirror loan ID if mirror exists
+          const targetLoanId = hasMirror ? mirrorMapForIO!.mirrorLoanId! : loan.id;
+          const targetCustomerId = loan.customerId || `offline_${loan.id}`;
+
+          // Step 1: Check if INTEREST_ACCRUAL already exists for this EMI (in target company)
           const existingAccrual = await db.journalEntry.findFirst({
             where: { companyId: targetCompanyId, referenceType: 'INTEREST_ACCRUAL', referenceId: currentEMI.id, isReversed: false }
           });
@@ -2474,37 +2481,41 @@ export async function PUT(request: NextRequest) {
           let interestWasAccrued = !!existingAccrual;
 
           if (!existingAccrual) {
-            // Step 2: Create INTEREST_ACCRUAL — always, whether advance or overdue
+            // Step 2: Create INTEREST_ACCRUAL
             // Dr: Interest Receivable (1301) / Cr: Interest Income (4110)
+            // Use targetLoanId so personal ledger queries (by mirrorLoanId) can find this entry
             try {
               await accSvc.recordInterestAccrual({
-                loanId:         loan.id,
-                customerId:     loan.customerId || `offline_${loan.id}`,
+                loanId:         targetLoanId,
+                customerId:     targetCustomerId,
                 customerName:   loan.customerName || 'Customer',
                 emiId:          currentEMI.id,
                 interestAmount: targetAmount,
-                accrualDate,   // due date if overdue; payment date if advance
+                accrualDate,
                 createdById:    'SYSTEM',
               });
               interestWasAccrued = true;
               const label = dueDatePassed ? 'overdue' : 'ADVANCE';
-              console.log(`[IO Accounting] ✓ INTEREST_ACCRUAL (${label}) dated ${accrualDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} — ₹${targetAmount}`);
+              console.log(`[IO Accounting] ✓ INTEREST_ACCRUAL (${label}) in ${targetCompanyId} for loanId=${targetLoanId} — ₹${targetAmount}`);
             } catch (accrualErr) {
-              console.error('[IO Accounting] INTEREST_ACCRUAL failed (non-fatal):', accrualErr);
+              // Log clearly — do NOT silently skip, so admins can diagnose
+              console.error('[IO Accounting] ✗ INTEREST_ACCRUAL failed:', accrualErr);
+              interestWasAccrued = false; // ensure payment entry credits Interest Income, not missing 1301
             }
           } else {
             interestWasAccrued = true;
             console.log(`[IO Accounting] INTEREST_ACCRUAL already exists for EMI ${currentEMI.id} — skipping`);
           }
 
-          // Step 3: Record payment journal — ALWAYS clears Interest Receivable (1301)
-          // Dr: Cash/Bank / Cr: Interest Receivable (1301)
+          // Step 3: Record payment journal — clears Interest Receivable (1301) if accrued
+          // Dr: Cash/Bank / Cr: Interest Receivable (1301) [accrual-basis] OR Interest Income (4110) [cash-basis]
+          // Use targetLoanId so personal ledger can find this entry
           await accSvc.createJournalEntry({
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
             narration: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
             lines: [
-              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: loan.id },
-              { accountCode: interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: loan.id },
+              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: targetLoanId },
+              { accountCode: interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: targetLoanId },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });
