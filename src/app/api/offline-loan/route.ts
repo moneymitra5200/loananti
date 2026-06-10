@@ -1520,8 +1520,10 @@ export async function POST(request: NextRequest) {
 
           console.log(`[Mirror Loan Accounting] ✓ Created journal entry for mirror loan disbursement - Loans Receivable: ₹${loanAmount} ${disbursementSuccess ? `via ${mirrorDisbursementResult}` : '(PENDING)'}`);
 
-          // Record mirror processing fee accrual in the mirror company instantly upon creation
-          if (mirrorProcessingFee > 0) {
+          // Record mirror processing fee accrual in the mirror company ONLY during Phase 2 (active EMI).
+          // For Phase 1 (interest-only) loans, the processing fee has not yet been decided — it will be
+          // calculated and accrued automatically when the loan is started via /api/offline-loan/start.
+          if (mirrorProcessingFee > 0 && !isInterestOnlyLoan) {
             await accountingService.recordProcessingFeeAccrual({
               loanId: mirrorLoan.id,
               customerId: customerId || mirrorLoan.id,
@@ -1530,6 +1532,8 @@ export async function POST(request: NextRequest) {
               createdById: createdById || 'system',
             });
             console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${mirrorCompanyId}`);
+          } else if (isInterestOnlyLoan) {
+            console.log(`[Mirror Loan Accounting] Skipping processing fee accrual for Phase 1 interest-only loan — will be recorded at Phase 2 transition.`);
           }
         } catch (accountingError) {
           console.error('[Mirror Loan Accounting] Failed to create journal entry:', accountingError);
