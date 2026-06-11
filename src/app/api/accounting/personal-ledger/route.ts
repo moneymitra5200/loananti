@@ -1124,6 +1124,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '')
         );
         interestPaid = interestLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+
+        // INTEREST_ONLY_PAYMENT never reduces principal.
+        // Old broken JEs incorrectly credit 1200 (Loans Receivable) instead of 1301 (Interest Receivable).
+        // Detect this: if it's an IO payment and credit is only on 1200 with no interest lines, reclassify.
+        if (je.referenceType === 'INTEREST_ONLY_PAYMENT' && interestPaid === 0 && principalPaid > 0) {
+          interestPaid = principalPaid;
+          principalPaid = 0;
+        }
+
       } else if (isDisbursement) {
         // Disbursement: Debit column is principal disbursed
         const principalLines = loanLines.filter((l: any) => 
@@ -1255,8 +1264,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
 
     const totalRepaid = loanJEsAll.reduce((s, je) => {
+      // INTEREST_ONLY_PAYMENT never repays principal — exclude from principal sum.
+      // (Old broken JEs had Cr 1200 in IO payment which would incorrectly reduce outstanding principal)
       const isAnyPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' ||
-        je.referenceType === 'INTEREST_ONLY_PAYMENT' || je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
+        je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
         je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' ||
         je.referenceType === 'LOSS_WRITE_OFF';
       if (!isAnyPayment) return s;
@@ -1265,6 +1276,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       );
       return s + lrLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
     }, 0);
+
     const totalInterestCollected = loanJEsAll.reduce((s, je) => {
       const isAnyPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' ||
         je.referenceType === 'INTEREST_ONLY_PAYMENT' || je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' ||
@@ -1274,8 +1286,18 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       const iLines = je.lines.filter((l: any) =>
         ['1301', '1305', '4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
       );
-      return s + iLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
+      let interestAmt = iLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
+      // Old broken IO payment JEs credit 1200 instead of 1301.
+      // Since IO never repays principal, any Cr 1200 in an IO payment is actually interest collected.
+      if (je.referenceType === 'INTEREST_ONLY_PAYMENT' && interestAmt === 0) {
+        const lrLines = je.lines.filter((l: any) =>
+          ['1200', '1201', '1210'].includes(l.account?.accountCode || '') && isLineForThisLoanSummary(l)
+        );
+        interestAmt = lrLines.reduce((ss: number, l: any) => ss + l.creditAmount, 0);
+      }
+      return s + interestAmt;
     }, 0);
+
     const outstanding = Math.max(0, totalDisbursed - totalRepaid);
     const totalPaid = totalRepaid + totalInterestCollected;
 
