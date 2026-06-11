@@ -172,13 +172,14 @@ export async function GET(request: NextRequest) {
       },
       select: {
         disbursedAmount: true,
+        status: true,
         emiSchedules: {
-          where: { paymentStatus: 'PAID' },
           select: { paidPrincipal: true }
         }
       }
     });
     const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
+      if (loan.status === 'CLOSED') return sum;
       const disbursed = loan.disbursedAmount || 0;
       const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
       return sum + Math.max(0, disbursed - paidPrincipal);
@@ -192,13 +193,14 @@ export async function GET(request: NextRequest) {
       },
       select: {
         loanAmount: true,
+        status: true,
         emis: {
-          where: { paymentStatus: 'PAID' },
           select: { paidPrincipal: true }
         }
       }
     });
     const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
+      if (loan.status === 'CLOSED') return sum;
       const disbursed = loan.loanAmount || 0;
       const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
       return sum + Math.max(0, disbursed - paidPrincipal);

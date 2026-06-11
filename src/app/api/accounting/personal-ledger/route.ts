@@ -605,7 +605,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   // Get all loans for this customer
   const allOnlineLoans = isSyntheticId ? [] : await db.loanApplication.findMany({
-    where: { customerId, status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY'] } },
+    where: {
+      customerId,
+      status: {
+        notIn: ['REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED']
+      }
+    },
     select: {
       id: true, applicationNo: true, status: true, companyId: true,
       requestedAmount: true, disbursedAt: true, closedAt: true,
@@ -885,7 +890,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     const accrualEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
-        referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
+        referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION', 'PROCESSING_FEE_ACCRUAL', 'PROCESSING_FEE_COLLECTION', 'PROCESSING_FEE'] },
         lines: {
           some: {
             loanId: { in: queryLoanIds },
@@ -1036,11 +1041,17 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const entriesByLoan = new Map<string, any[]>();
   for (const je of journalEntries) {
     // Find which loanId(s) this entry touches via its LR or Interest lines
-    // For accrual entries from original companies, their account IDs won't be in allTargetAccountIds (which belongs to the current company).
-    const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
+    // For accrual/fee entries, their account IDs won't necessarily be in allTargetAccountIds (especially if cross-company).
+    const isAccrualOrPF = [
+      'INTEREST_ACCRUAL',
+      'INTEREST_RECLASSIFICATION',
+      'PROCESSING_FEE_ACCRUAL',
+      'PROCESSING_FEE_COLLECTION',
+      'PROCESSING_FEE'
+    ].includes(je.referenceType);
     
     const rawLoanIds = je.lines
-        .filter((l: any) => (isAccrual || allTargetAccountIds.includes(l.accountId)) && l.loanId)
+        .filter((l: any) => (isAccrualOrPF || allTargetAccountIds.includes(l.accountId)) && l.loanId)
         .map((l: any) => String(l.loanId));
         
     const loanIdsInEntry: string[] = Array.from(new Set<string>(rawLoanIds));
@@ -1203,9 +1214,23 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       if (isPFAccrual) {
         const pfReceivableLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
         principalDisbursed = pfReceivableLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+        if (principalDisbursed === 0) {
+          const incomeLines = loanLines.filter((l: any) => ['4121', '4120'].includes(l.account?.accountCode || ''));
+          principalDisbursed = incomeLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        }
+        if (principalDisbursed === 0) {
+          principalDisbursed = loanLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+        }
       } else if (isPFPayment) {
         const pfReceivableLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
         interestPaid = pfReceivableLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        if (interestPaid === 0) {
+          const incomeLines = loanLines.filter((l: any) => ['4121', '4120'].includes(l.account?.accountCode || ''));
+          interestPaid = incomeLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        }
+        if (interestPaid === 0) {
+          interestPaid = loanLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+        }
       } else if (isAccrual) {
         // Accruals: Debit column (principalDisbursed) represents interest charged
         const interestReceivableLines = loanLines.filter((l: any) => 

@@ -337,6 +337,21 @@ export async function POST(request: NextRequest) {
     console.log(`[EMI Pay] nextPaymentDateValue: ${nextPaymentDateValue ? nextPaymentDateValue.toISOString() : 'null'}`);
     console.log(`[EMI Pay] Will update dueDate: ${isPartialPayment && nextPaymentDateValue ? 'YES' : 'NO'}`);
 
+    // Pre-sync capture variables — read by the accounting block to compute session delta for mirror journal entries.
+    let mirrorEmiPreSyncPaidInterest  = 0;
+    let mirrorEmiPreSyncPaidPrincipal = 0;
+
+    if (mirrorMapping?.mirrorLoanId) {
+      const preSyncMirrorEMI = await db.eMISchedule.findFirst({
+        where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+      });
+      if (preSyncMirrorEMI) {
+        mirrorEmiPreSyncPaidInterest  = Number(preSyncMirrorEMI.paidInterest  || 0);
+        mirrorEmiPreSyncPaidPrincipal = Number(preSyncMirrorEMI.paidPrincipal || 0);
+        console.log(`[Pre-Sync Capture] Captured pre-sync paid values for mirror EMI #${emi.installmentNumber}: Interest=₹${mirrorEmiPreSyncPaidInterest}, Principal=₹${mirrorEmiPreSyncPaidPrincipal}`);
+      }
+    }
+
     const updateData: Record<string, unknown> = {
       paymentStatus: newEmiStatus,
       paidAmount: (emi.paidAmount || 0) + paidAmount,
@@ -1125,9 +1140,7 @@ export async function POST(request: NextRequest) {
 
 
 
-    // Pre-sync capture variables â€” read by the accounting block to compute session delta for mirror journal entries.
-    let mirrorEmiPreSyncPaidInterest  = 0;
-    let mirrorEmiPreSyncPaidPrincipal = 0;
+    // Pre-sync capture variables were already captured at the top of the handler before any updates.
 
     // ============ MIRROR LOAN SYNC FOR FULL EMI PAYMENT ============
     if (mirrorMapping && paymentType === 'FULL_EMI') {
@@ -1206,7 +1219,7 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[Mirror Loan] Extra EMI #${installmentNumber} paid. ₹${paidAmount} profit recorded for Company 3 in CashBook`);
-      } else {
+      } else if (paymentType === 'FULL_EMI' || paymentType === 'PARTIAL_PAYMENT') {
         // Regular EMI - Sync to mirror loan
         await db.mirrorLoanMapping.update({
           where: { id: mirrorMapping.id },
@@ -1368,16 +1381,11 @@ export async function POST(request: NextRequest) {
         });
         if (mirrorEMIForIO) {
           if (mirrorEMIForIO.paymentStatus === 'INTEREST_ONLY_PAID') {
-            // Block 1 already handled the mirror sync. Just capture pre-sync values for accounting.
-            // Since Block 1 already updated paidInterest, pre-sync = 0 (nothing paid before this request).
-            mirrorEmiPreSyncPaidInterest  = 0;
-            mirrorEmiPreSyncPaidPrincipal = 0;
-            console.log(`[Mirror IO Sync] Block 1 already handled mirror EMI #${emi.installmentNumber}. Accounting pre-sync = 0.`);
+            // Block 1 already handled the mirror sync. Pre-sync values were already captured at the start of the request.
+            console.log(`[Mirror IO Sync] Block 1 already handled mirror EMI #${emi.installmentNumber}.`);
           } else if (mirrorEMIForIO.paymentStatus === 'PENDING' || mirrorEMIForIO.paymentStatus === 'PARTIALLY_PAID') {
             // Block 1 did NOT run for this mirror EMI → handle full sync here.
-            // Capture PRE-SYNC (for session-delta in accounting block)
-            mirrorEmiPreSyncPaidInterest  = Number(mirrorEMIForIO.paidInterest  || 0);
-            mirrorEmiPreSyncPaidPrincipal = Number(mirrorEMIForIO.paidPrincipal || 0);
+            // Pre-sync values were already captured at the start of the request.
 
             const mirrorRemInt = Math.max(0, Number(mirrorEMIForIO.interestAmount  || 0) - mirrorEmiPreSyncPaidInterest);
             // CRITICAL FIX: Use FULL stored principalAmount (not remaining) for deferred EMI.
