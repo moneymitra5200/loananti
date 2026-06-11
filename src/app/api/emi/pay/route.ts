@@ -1670,14 +1670,26 @@ export async function POST(request: NextRequest) {
             mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
             console.log(`[Accounting] ONLINE MIRROR INTEREST_ONLY session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
           } else {
-            // ── FULL / ADVANCE: Use SESSION DELTA (fixes full payment after partial payment) ──
-            // Previously this used stored interestAmount/principalAmount, which double-counted
-            // if the EMI was already partially paid.
-            const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
-            const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
-            mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
-            mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
-            console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
+            // ── PHASE 1 IO via FULL_EMI: principal is DEFERRED (paidPrincipal=0) ──
+            // For Phase 1 ACTIVE_INTEREST_ONLY loans, the cashier pays with paymentType='FULL_EMI'
+            // but only interest is collected (paidPrincipal=0). The session-delta approach
+            // may read 0 if the mirror EMI sync transaction (line ~1271) hasn't been
+            // fully flushed before this read. Use stored interestAmount directly instead.
+            const isPhase1IOEmiPayment = paidPrincipal === 0 && emi.isInterestOnly === true;
+            if (isPhase1IOEmiPayment) {
+              mirrorInterestForAccounting  = Number(mirrorEmiForAcc.interestAmount || 0);
+              mirrorPrincipalForAccounting = 0;
+              console.log(`[Accounting] ONLINE MIRROR PHASE1_IO via FULL_EMI: Using stored interestAmount I:₹${mirrorInterestForAccounting} P:₹0 (avoids delta=0 timing issue)`);
+            } else {
+              // ── FULL / ADVANCE: Use SESSION DELTA (fixes full payment after partial payment) ──
+              // Previously this used stored interestAmount/principalAmount, which double-counted
+              // if the EMI was already partially paid.
+              const postPaidInterest  = Number(mirrorEmiForAcc.paidInterest  || 0);
+              const postPaidPrincipal = Number(mirrorEmiForAcc.paidPrincipal || 0);
+              mirrorInterestForAccounting  = Math.max(0, Math.round((postPaidInterest  - mirrorEmiPreSyncPaidInterest)  * 100) / 100);
+              mirrorPrincipalForAccounting = Math.max(0, Math.round((postPaidPrincipal - mirrorEmiPreSyncPaidPrincipal) * 100) / 100);
+              console.log(`[Accounting] ONLINE MIRROR FULL session-delta: I:₹${mirrorInterestForAccounting} P:₹${mirrorPrincipalForAccounting} (pre I:₹${mirrorEmiPreSyncPaidInterest} P:₹${mirrorEmiPreSyncPaidPrincipal} → post I:₹${postPaidInterest} P:₹${postPaidPrincipal})`);
+            }
           }
         }
       }
