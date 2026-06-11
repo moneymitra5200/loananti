@@ -2,8 +2,49 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountingService } from '@/lib/accounting-service';
 
+async function deleteDaybookEntriesForRef(refId: string, tx: any) {
+  try {
+    const entries = await tx.daybookEntry.findMany({
+      where: {
+        OR: [
+          { referenceId: refId },
+          { referenceId: { startsWith: refId } },
+          { sourceType: refId },
+          { sourceId: refId },
+          { sourceId: { startsWith: refId } }
+        ]
+      }
+    });
+
+    console.log(`[Undo Daybook] Found ${entries.length} daybook entries to delete for refId: ${refId}`);
+
+    for (const entry of entries) {
+      // Revert account head balance
+      const balanceChange = entry.debit - entry.credit;
+      await tx.accountHead.update({
+        where: { id: entry.accountHeadId },
+        data: {
+          currentBalance: { decrement: balanceChange }
+        }
+      });
+
+      // Delete daybook entry
+      await tx.daybookEntry.delete({
+        where: { id: entry.id }
+      });
+      console.log(`[Undo Daybook] Deleted daybook entry ${entry.entryNumber} and reverted account head balance by ${balanceChange}`);
+    }
+  } catch (err) {
+    console.error('[Undo Daybook] Error deleting daybook entries:', err);
+    throw err;
+  }
+}
+
 async function reverseJournalEntriesForRef(refId: string, userId: string, tx: any) {
   try {
+    // Revert and delete Daybook entries matching this reference/source ID
+    await deleteDaybookEntriesForRef(refId, tx);
+
     const originalEntries = await tx.journalEntry.findMany({
       where: {
         OR: [
@@ -75,6 +116,9 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
 
 async function deleteBankOrCashEntriesForRef(refId: string, tx: any) {
   try {
+    // Revert and delete Daybook entries matching this reference/source ID
+    await deleteDaybookEntriesForRef(refId, tx);
+
     // 1. Revert and delete BankTransactions
     const bankTransactions = await tx.bankTransaction.findMany({
       where: {
