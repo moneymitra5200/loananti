@@ -896,6 +896,43 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     return getPersonalLedgerFallback(customerId, companyId, customer, validOnlineLoans, validOfflineLoans, mirroredIds);
   }
 
+  // Build a map of counterpart EMI IDs for mirror/original loans to correctly reconcile accruals
+  const emiCounterpartMap = new Map<string, string>();
+  
+  // Offline counterpart mapping
+  for (const m of offlineMirrorMappings) {
+    if (!m.mirrorLoanId || !m.originalLoanId) continue;
+    const origLoan = allOfflineLoans.find(l => l.id === m.originalLoanId);
+    const mirrorLoan = [...allOfflineLoans, ...extraMirrorOfflineLoans].find(l => l.id === m.mirrorLoanId);
+    
+    if (origLoan?.emis && mirrorLoan?.emis) {
+      for (const oEmi of origLoan.emis) {
+        const mEmi = mirrorLoan.emis.find((e: any) => e.installmentNumber === oEmi.installmentNumber);
+        if (mEmi) {
+          emiCounterpartMap.set(oEmi.id, mEmi.id);
+          emiCounterpartMap.set(mEmi.id, oEmi.id);
+        }
+      }
+    }
+  }
+
+  // Online counterpart mapping
+  for (const m of relevantMirrorMappings) {
+    if (!m.mirrorLoanId || !m.originalLoanId) continue;
+    const origLoan = allOnlineLoans.find(l => l.id === m.originalLoanId);
+    const mirrorLoan = [...allOnlineLoans, ...extraMirrorOnlineLoans].find(l => l.id === m.mirrorLoanId);
+    
+    if (origLoan?.emiSchedules && mirrorLoan?.emiSchedules) {
+      for (const oEmi of origLoan.emiSchedules) {
+        const mEmi = mirrorLoan.emiSchedules.find((e: any) => e.installmentNumber === oEmi.installmentNumber);
+        if (mEmi) {
+          emiCounterpartMap.set(oEmi.id, mEmi.id);
+          emiCounterpartMap.set(mEmi.id, oEmi.id);
+        }
+      }
+    }
+  }
+
   // ── Build per-loan statements from journal entries ─────────────────────────
   const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; closedAt?: any; isMirror: boolean; companyName: string; mirrorInterestRate?: number; emis?: any[]; emiSchedules?: any[] }>();
   for (const l of validOnlineLoans) {
@@ -1015,6 +1052,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         if (je.referenceType !== 'INTEREST_ACCRUAL' && je.referenceType !== 'INTEREST_RECLASSIFICATION') return false;
         // Match by referenceId (which is emi.id) or by narration matching EMI number
         if (je.referenceId === emi.id) return true;
+        const counterpartId = emiCounterpartMap.get(emi.id);
+        if (counterpartId && je.referenceId === counterpartId) return true;
         const m = je.narration?.match(/#(\d+)/);
         return m && parseInt(m[1]) === emi.installmentNumber;
       });
