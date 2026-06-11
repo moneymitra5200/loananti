@@ -673,9 +673,26 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const mirrorMappings = onlineLoanIds.length > 0
     ? await db.mirrorLoanMapping.findMany({
         where: { originalLoanId: { in: onlineLoanIds }, isOfflineLoan: false },
-        select: { originalLoanId: true, mirrorLoanId: true, mirrorCompanyId: true }
+        select: { originalLoanId: true, mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
       })
     : [];
+
+  // Build a map from mirrorLoanId → correct mirror principal (from the mirror EMI schedule EMI #1)
+  // The mirror LoanApplication reuses the original loan's requestedAmount — so we cannot trust
+  // sessionForm.approvedAmount for the disbursement row. Instead, derive it from the first EMI's
+  // outstandingPrincipal, which is set at mirror-loan creation time using the mirror-specific principal.
+  const mirrorLoanPrincipalMap = new Map<string, number>();
+  const mirrorOnlineLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+  if (mirrorOnlineLoanIds.length > 0) {
+    const firstMirrorEmis = await db.eMISchedule.findMany({
+      where: { loanApplicationId: { in: mirrorOnlineLoanIds }, installmentNumber: 1 },
+      select: { loanApplicationId: true, outstandingPrincipal: true, principalAmount: true }
+    });
+    for (const emi of firstMirrorEmis) {
+      const principal = Number(emi.outstandingPrincipal || emi.principalAmount || 0);
+      if (principal > 0) mirrorLoanPrincipalMap.set(emi.loanApplicationId, principal);
+    }
+  }
   const mirroredIds    = new Set(mirrorMappings.map(m => m.originalLoanId));
   const mirrorLoanIds  = new Set(mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[]);
 
@@ -1005,16 +1022,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   // ── Build per-loan statements from journal entries ─────────────────────────
   const loanDataMap = new Map<string, { loanNumber: string; loanType: string; loanAmount: number; interestRate: number; tenure: number; status: string; disbursementDate: any; closedAt?: any; isMirror: boolean; companyName: string; mirrorInterestRate?: number; emis?: any[]; emiSchedules?: any[] }>();
   for (const l of validOnlineLoans) {
+    const isMirrorRecord = mirroredIds.has(l.id) ? false : (mirrorLoanPrincipalMap.has(l.id) || (l as any)._isMirrorRecord);
+    // For mirror loan records: use the principal from the mirror EMI schedule (EMI #1 outstandingPrincipal)
+    // rather than the loan application's requestedAmount (which copies the original loan amount).
+    const mirrorPrincipal = isMirrorRecord ? mirrorLoanPrincipalMap.get(l.id) : undefined;
     loanDataMap.set(l.id, {
       loanNumber: l.applicationNo,
       loanType: 'ONLINE',
-      loanAmount: l.sessionForm?.approvedAmount || l.requestedAmount || 0,
+      loanAmount: mirrorPrincipal ?? (l.sessionForm?.approvedAmount || l.requestedAmount || 0),
       interestRate: l.sessionForm?.interestRate || 0,
       tenure: l.sessionForm?.tenure || 0,
       status: l.status,
       disbursementDate: l.disbursedAt,
       closedAt: l.closedAt,
-      isMirror: mirroredIds.has(l.id) || (l as any)._isMirrorRecord,
+      isMirror: isMirrorRecord,
       companyName: l.company?.name || '',
       emiSchedules: l.emiSchedules,
     });
