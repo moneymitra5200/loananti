@@ -900,35 +900,75 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   const emiCounterpartMap = new Map<string, string>();
   
   // Offline counterpart mapping
+  const displayedOfflineLoanIds = validOfflineLoans.map(l => l.id);
+  const allOfflineLoanIdsInMappings = new Set<string>();
   for (const m of offlineMirrorMappings) {
-    if (!m.mirrorLoanId || !m.originalLoanId) continue;
-    const origLoan = allOfflineLoans.find(l => l.id === m.originalLoanId);
-    const mirrorLoan = [...allOfflineLoans, ...extraMirrorOfflineLoans].find(l => l.id === m.mirrorLoanId);
+    if (m.mirrorLoanId && (displayedOfflineLoanIds.includes(m.mirrorLoanId) || displayedOfflineLoanIds.includes(m.originalLoanId))) {
+      allOfflineLoanIdsInMappings.add(m.originalLoanId);
+      allOfflineLoanIdsInMappings.add(m.mirrorLoanId);
+    }
+  }
+
+  const counterpartOfflineEmis = allOfflineLoanIdsInMappings.size > 0
+    ? await db.offlineLoanEMI.findMany({
+        where: { offlineLoanId: { in: Array.from(allOfflineLoanIdsInMappings) } },
+        select: { id: true, installmentNumber: true, offlineLoanId: true }
+      })
+    : [];
+
+  const offlineEmisByLoanId = new Map<string, typeof counterpartOfflineEmis>();
+  for (const e of counterpartOfflineEmis) {
+    if (!offlineEmisByLoanId.has(e.offlineLoanId)) offlineEmisByLoanId.set(e.offlineLoanId, []);
+    offlineEmisByLoanId.get(e.offlineLoanId)!.push(e);
+  }
+
+  for (const m of offlineMirrorMappings) {
+    if (!m.mirrorLoanId) continue;
+    const origEmis = offlineEmisByLoanId.get(m.originalLoanId) || [];
+    const mirrorEmis = offlineEmisByLoanId.get(m.mirrorLoanId) || [];
     
-    if (origLoan?.emis && mirrorLoan?.emis) {
-      for (const oEmi of origLoan.emis) {
-        const mEmi = mirrorLoan.emis.find((e: any) => e.installmentNumber === oEmi.installmentNumber);
-        if (mEmi) {
-          emiCounterpartMap.set(oEmi.id, mEmi.id);
-          emiCounterpartMap.set(mEmi.id, oEmi.id);
-        }
+    for (const oEmi of origEmis) {
+      const mEmi = mirrorEmis.find(e => e.installmentNumber === oEmi.installmentNumber);
+      if (mEmi) {
+        emiCounterpartMap.set(oEmi.id, mEmi.id);
+        emiCounterpartMap.set(mEmi.id, oEmi.id);
       }
     }
   }
 
   // Online counterpart mapping
+  const displayedOnlineLoanIds = validOnlineLoans.map(l => l.id);
+  const allOnlineLoanIdsInMappings = new Set<string>();
   for (const m of relevantMirrorMappings) {
-    if (!m.mirrorLoanId || !m.originalLoanId) continue;
-    const origLoan = allOnlineLoans.find(l => l.id === m.originalLoanId);
-    const mirrorLoan = [...allOnlineLoans, ...extraMirrorOnlineLoans].find(l => l.id === m.mirrorLoanId);
+    if (m.mirrorLoanId && (displayedOnlineLoanIds.includes(m.mirrorLoanId) || displayedOnlineLoanIds.includes(m.originalLoanId))) {
+      allOnlineLoanIdsInMappings.add(m.originalLoanId);
+      allOnlineLoanIdsInMappings.add(m.mirrorLoanId);
+    }
+  }
+
+  const counterpartOnlineEmis = allOnlineLoanIdsInMappings.size > 0
+    ? await db.eMISchedule.findMany({
+        where: { loanApplicationId: { in: Array.from(allOnlineLoanIdsInMappings) } },
+        select: { id: true, installmentNumber: true, loanApplicationId: true }
+      })
+    : [];
+
+  const onlineEmisByLoanId = new Map<string, typeof counterpartOnlineEmis>();
+  for (const e of counterpartOnlineEmis) {
+    if (!onlineEmisByLoanId.has(e.loanApplicationId)) onlineEmisByLoanId.set(e.loanApplicationId, []);
+    onlineEmisByLoanId.get(e.loanApplicationId)!.push(e);
+  }
+
+  for (const m of relevantMirrorMappings) {
+    if (!m.mirrorLoanId) continue;
+    const origEmis = onlineEmisByLoanId.get(m.originalLoanId) || [];
+    const mirrorEmis = onlineEmisByLoanId.get(m.mirrorLoanId) || [];
     
-    if (origLoan?.emiSchedules && mirrorLoan?.emiSchedules) {
-      for (const oEmi of origLoan.emiSchedules) {
-        const mEmi = mirrorLoan.emiSchedules.find((e: any) => e.installmentNumber === oEmi.installmentNumber);
-        if (mEmi) {
-          emiCounterpartMap.set(oEmi.id, mEmi.id);
-          emiCounterpartMap.set(mEmi.id, oEmi.id);
-        }
+    for (const oEmi of origEmis) {
+      const mEmi = mirrorEmis.find(e => e.installmentNumber === oEmi.installmentNumber);
+      if (mEmi) {
+        emiCounterpartMap.set(oEmi.id, mEmi.id);
+        emiCounterpartMap.set(mEmi.id, oEmi.id);
       }
     }
   }
