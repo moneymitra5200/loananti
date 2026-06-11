@@ -1041,7 +1041,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       
       if (!hasRealAccrual && isAccrued && effectiveInterestAmount > 0) {
         // Cap display date to today — never show a future-dated synthetic accrual row
-        const synthDisplayDate = emiDueDateUTC > new Date() ? new Date() : emi.dueDate;
+        // If the EMI is paid, show the interest accrual on the actual payment date (for advance payments)
+        const synthDisplayDate = emiDueDateUTC > todaySynthUTC
+          ? (emi.paidDate ? new Date(emi.paidDate) : new Date())
+          : emi.dueDate;
         allEntries.push({
           id: `synth-accrual-${emi.id}`,
           date: synthDisplayDate,
@@ -1437,7 +1440,10 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       if (isAccrued && emi.interestAmount > 0) {
         totalInterestAccrued += emi.interestAmount;
         // Use dueDate as the synthetic accrual date — but cap to today if it's future
-        const accrualDisplayDate = dueDateUTC > new Date() ? new Date() : emi.dueDate;
+        // If the EMI is paid, show the interest accrual on the actual payment date
+        const accrualDisplayDate = dueDateUTC > todayUTC
+          ? (emi.paidDate ? new Date(emi.paidDate) : new Date())
+          : emi.dueDate;
         allEntries.push({
           id: `accrual-${emi.id}`, date: accrualDisplayDate,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.applicationNo,
@@ -1517,7 +1523,10 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       if (isAccrued && emi.interestAmount > 0) {
         totalInterestAccrued += emi.interestAmount;
         // Cap display date to today if EMI due date is future
-        const accrualDisplayDate2 = dueDateUTC2 > new Date() ? new Date() : emi.dueDate;
+        // If the EMI is paid, show the interest accrual on the actual payment date
+        const accrualDisplayDate2 = dueDateUTC2 > todayUTC2
+          ? (emi.paidDate ? new Date(emi.paidDate) : new Date())
+          : emi.dueDate;
         allEntries.push({
           id: `offline-accrual-${emi.id}`, date: accrualDisplayDate2,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.loanNumber,
