@@ -2218,29 +2218,7 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      // Process bank transaction for CASH payments
-      let bankTransactionResult: Awaited<ReturnType<typeof processBankTransaction>> | null = null;
-      if (paymentMode === 'CASH' && targetBankAccountId && loan.companyId) {
-        try {
-          bankTransactionResult = await processBankTransaction({
-            bankAccountId: targetBankAccountId,
-            transactionType: 'EMI_PAYMENT',
-            amount: interestAmount,
-            description: `Interest EMI #${currentEMI.installmentNumber} Payment for ${loan.loanNumber}`,
-            referenceType: 'OFFLINE_EMI',
-            referenceId: currentEMI.id,
-            createdById: userId,
-            companyId: loan.companyId,
-            loanId: loan.id,
-            customerId: loan.customerId || undefined,
-            interestComponent: interestAmount,
-            paymentMode: paymentMode || 'CASH',
-            bankRefNumber: paymentReference
-          });
-        } catch (bankError) {
-          console.error('Bank transaction failed (continuing without):', bankError);
-        }
-      }
+      let bankTransactionResult = null;
 
       // Calculate next EMI due date (always set to same day-of-month, next month)
       // Safe: clamp to last day of next month to avoid JS setMonth overflow (e.g. Jan 31 → Feb 28)

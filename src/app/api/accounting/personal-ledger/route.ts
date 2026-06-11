@@ -1829,6 +1829,40 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     });
   }
 
+  mappedEntries.sort((a: any, b: any) => {
+    const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
+    const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
+    if (isDisbA && !isDisbB) return -1;
+    if (!isDisbA && isDisbB) return 1;
+
+    const matchA = a.narration?.match(/#(\d+)/);
+    const matchB = b.narration?.match(/#(\d+)/);
+    const emiA = matchA ? parseInt(matchA[1]) : undefined;
+    const emiB = matchB ? parseInt(matchB[1]) : undefined;
+
+    if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
+      return emiA - emiB;
+    }
+
+    if (emiA === emiB && emiA !== undefined) {
+      const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
+      const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
+      if (isAccrualA && !isAccrualB) return -1;
+      if (!isAccrualA && isAccrualB) return 1;
+    }
+
+    const timeA = new Date(a.date).getTime();
+    const timeB = new Date(b.date).getTime();
+    if (timeA !== timeB) return timeA - timeB;
+
+    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
+    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
+    if (isAccrualA && !isAccrualB) return -1;
+    if (!isAccrualA && isAccrualB) return 1;
+
+    return 0;
+  });
+
   return NextResponse.json({
     success: true,
     loanSummary: { id: loanId, loanNumber: applicationNo, customer, company },

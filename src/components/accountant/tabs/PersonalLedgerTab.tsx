@@ -461,6 +461,26 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   // VIEW 3 — Loan Statement Detail
   // ═══════════════════════════════════════════════════════════════════════════
   if (selectedCustomer && selectedLoan) {
+    const renderReferenceBadge = (type: string) => {
+      const t = type?.toUpperCase() || '';
+      if (t.includes('DISBURSEMENT')) {
+        return <Badge className="bg-blue-100 hover:bg-blue-200 text-blue-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">Disbursement</Badge>;
+      }
+      if (t.includes('ACCRUAL') || t.includes('CHARGE') || t.includes('INTEREST_CHARGE')) {
+        return <Badge className="bg-amber-100 hover:bg-amber-200 text-amber-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">Interest Accrued</Badge>;
+      }
+      if (t.includes('PAYMENT') || t.includes('COLLECTION') || t.includes('EMI')) {
+        return <Badge className="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">Payment</Badge>;
+      }
+      if (t.includes('CLOSE') || t.includes('FORECLOSURE')) {
+        return <Badge className="bg-slate-100 hover:bg-slate-200 text-slate-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">Closed</Badge>;
+      }
+      if (t.includes('WRITE_OFF')) {
+        return <Badge className="bg-rose-100 hover:bg-rose-200 text-rose-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">Write Off</Badge>;
+      }
+      return <Badge className="bg-gray-100 hover:bg-gray-200 text-gray-800 border-none text-[10px] px-1.5 py-0.5 font-semibold">{type}</Badge>;
+    };
+
     return (
       <div className="space-y-4">
         {/* Header */}
@@ -618,9 +638,12 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                         </div>
                       </TableCell>
                       <TableCell className="py-2">
-                        <span className={`text-sm font-medium ${isFirst ? 'text-slate-900' : 'text-slate-800'}`}>
-                          {row.description}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-sm font-medium ${isFirst ? 'text-slate-900 font-bold' : 'text-slate-800'}`}>
+                            {row.description}
+                          </span>
+                          {renderReferenceBadge(row.referenceType)}
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-slate-500 py-2">
                         {/* Empty Chq No. for now, or could map to reference */}
@@ -631,16 +654,16 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                       </TableCell>
                       <TableCell className="text-right py-2">
                         {row.debit && row.debit > 0
-                          ? <span className="font-medium text-slate-800">{row.debit.toFixed(2)}</span>
+                          ? <span className="font-semibold text-rose-600">+{row.debit.toFixed(2)}</span>
                           : <span className="text-slate-300">0.00</span>}
                       </TableCell>
                       <TableCell className="text-right py-2">
                         {row.credit && row.credit > 0
-                          ? <span className="font-medium text-slate-800">{row.credit.toFixed(2)}</span>
+                          ? <span className="font-semibold text-emerald-600">-{row.credit.toFixed(2)}</span>
                           : <span className="text-slate-300">0.00</span>}
                       </TableCell>
                       <TableCell className="text-right py-2">
-                        <span className={`font-semibold text-sm ${row.remainingBalance <= 0 ? 'text-green-600' : 'text-slate-900'}`}>
+                        <span className={`font-semibold text-sm ${row.remainingBalance <= 0 ? 'text-emerald-600 font-bold' : 'text-slate-900'}`}>
                           {row.remainingBalance.toFixed(2)} Dr
                         </span>
                       </TableCell>
