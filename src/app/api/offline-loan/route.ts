@@ -2470,8 +2470,23 @@ export async function PUT(request: NextRequest) {
           const targetCustomerId = loan.customerId || `offline_${loan.id}`;
 
           // Step 1: Check if INTEREST_ACCRUAL already exists for this EMI (in target company)
+          // FIX: When a mirror loan exists, the on-demand accrual job (accrual-helper.ts)
+          // records the INTEREST_ACCRUAL using the MIRROR EMI's ID as referenceId — not
+          // currentEMI.id (the original EMI's ID). Searching only by currentEMI.id would
+          // miss that existing accrual and create a second one (double-accrual bug).
+          // Solution: also fetch the mirror EMI for this installment and search both IDs.
+          const possibleAccrualEmiIds: string[] = [currentEMI.id];
+          if (hasMirror && mirrorMapForIO?.mirrorLoanId) {
+            const mirrorEmiForAccrualCheck = await db.offlineLoanEMI.findFirst({
+              where: { offlineLoanId: mirrorMapForIO.mirrorLoanId, installmentNumber: currentEMI.installmentNumber },
+              select: { id: true }
+            });
+            if (mirrorEmiForAccrualCheck) {
+              possibleAccrualEmiIds.push(mirrorEmiForAccrualCheck.id);
+            }
+          }
           const existingAccrual = await db.journalEntry.findFirst({
-            where: { companyId: targetCompanyId, referenceType: 'INTEREST_ACCRUAL', referenceId: currentEMI.id, isReversed: false }
+            where: { companyId: targetCompanyId, referenceType: 'INTEREST_ACCRUAL', referenceId: { in: possibleAccrualEmiIds }, isReversed: false }
           });
 
           const emiDueDate    = new Date(currentEMI.dueDate);
