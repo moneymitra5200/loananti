@@ -1100,7 +1100,7 @@ export async function PUT(request: NextRequest) {
                       customerName: loan.customer?.name || 'Customer',
                       emiId: mirrorOwnEmi.id,
                       interestAmount: mI,
-                      accrualDate: mirrorOwnEmi.dueDate,
+                      accrualDate: new Date(), // use payment date so accrual sorts before payment in ledger
                       createdById: reviewedById
                     });
                     await db.eMISchedule.update({
@@ -1228,7 +1228,7 @@ export async function PUT(request: NextRequest) {
                       customerName: loan.customer?.name || 'Customer',
                       emiId: emi.id,
                       interestAmount: emi.interestAmount,
-                      accrualDate: emi.dueDate,
+                      accrualDate: new Date(), // use payment date so accrual sorts before payment in ledger
                       createdById: reviewedById
                     });
                     await db.eMISchedule.update({
@@ -1325,7 +1325,7 @@ export async function PUT(request: NextRequest) {
                   customerName: loan.customer?.name || 'Customer',
                   emiId: mirrorEmi.id,
                   interestAmount: mirrorInterest,
-                  accrualDate: mirrorEmi.dueDate,
+                  accrualDate: new Date(), // use payment date so accrual sorts before payment in ledger
                   createdById: reviewedById
                 });
                 await db.eMISchedule.update({
