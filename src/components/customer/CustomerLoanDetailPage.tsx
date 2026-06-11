@@ -950,7 +950,13 @@ export default function CustomerLoanDetailPage() {
                       <div className="p-3 bg-white rounded-lg border border-amber-200">
                         <p className="text-xs text-gray-500">Monthly Interest</p>
                         <p className="text-lg font-bold text-amber-700">
-                          {formatCurrency(interestEmiData.loan.monthlyInterestAmount)}
+                          {/* Use the stored interestOnlyAmount from the actual EMI — this always
+                              reflects what the customer pays (original loan rate, not mirror rate).
+                              Fall back to calculated monthlyInterestAmount if no EMI exists yet. */}
+                          {formatCurrency(
+                            interestEmiData.currentEMI?.interestOnlyAmount ||
+                            interestEmiData.loan.monthlyInterestAmount
+                          )}
                         </p>
                       </div>
                     </div>
