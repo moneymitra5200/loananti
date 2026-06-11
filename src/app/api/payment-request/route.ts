@@ -1090,6 +1090,30 @@ export async function PUT(request: NextRequest) {
                 const mI = Number(mirrorOwnEmi?.interestAmount  ?? emi.interestAmount);
                 const mT = Number(mirrorOwnEmi?.totalAmount     ?? (mP + mI));
 
+                // On-demand interest accrual for CASE A mirror EMI
+                let isMirrorOwnEmiAccrued = mirrorOwnEmi?.interestAccrued || false;
+                if (mirrorOwnEmi && !isMirrorOwnEmiAccrued && mI > 0) {
+                  try {
+                    await accSvc.recordInterestAccrual({
+                      loanId: loan.id,
+                      customerId: paymentRequest.customerId,
+                      customerName: loan.customer?.name || 'Customer',
+                      emiId: mirrorOwnEmi.id,
+                      interestAmount: mI,
+                      accrualDate: mirrorOwnEmi.dueDate,
+                      createdById: reviewedById
+                    });
+                    await db.eMISchedule.update({
+                      where: { id: mirrorOwnEmi.id },
+                      data: { interestAccrued: true, accruedAt: new Date() }
+                    });
+                    isMirrorOwnEmiAccrued = true;
+                    console.log(`[PR Accounting CASE A] Auto-accrued mirror interest of ₹${mI} on-demand`);
+                  } catch (accErr) {
+                    console.error('[PR Accounting CASE A] Failed to auto-accrue mirror interest:', accErr);
+                  }
+                }
+
                 // ALL payment types use MIRROR EMI stored amounts — never original loan data
                 let mTotal: number;
                 let mInterest: number;
@@ -1121,7 +1145,7 @@ export async function PUT(request: NextRequest) {
                     const monthlyRate  = Number(selfAsMirror.mirrorInterestRate) / 100 / 12;
                     if (outstanding > 0 && monthlyRate > 0) {
                       finalInterest = Math.round(outstanding * monthlyRate * 100) / 100;
-                      console.log(`[PR Accounting CASE A IO] fallback rate-calc: ₹${finalInterest} (outstanding=₹${outstanding})`);
+                      console.log(`[PR Accounting CASE A] fallback rate-calc: ₹${finalInterest} (outstanding=₹${outstanding})`);
                     }
                   }
                   console.log(`[PR Accounting CASE A IO] preTxPaid=₹${preTxPaidInterest} mI=₹${mI} final=₹${finalInterest}`);
@@ -1145,7 +1169,7 @@ export async function PUT(request: NextRequest) {
                   totalAmount: mTotal, principalComponent: mPrincipal, interestComponent: mInterest,
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
                   reference: `PR#${paymentRequest.requestNumber} Mirror EMI #${emi.installmentNumber}`,
-                  isInterestAccrued: emi.interestAccrued
+                  isInterestAccrued: isMirrorOwnEmiAccrued
                 });
                 // Mark mirror's own EMI — use additive logic for PARTIAL/FULL
                 if (mirrorOwnEmi && pType !== 'INTEREST_ONLY') {
@@ -1193,6 +1217,31 @@ export async function PUT(request: NextRequest) {
                 const totalComp    = savedTotalComp;
                 const interestComp = savedInterestComp;
                 const principalComp= savedPrincipalComp;
+
+                // On-demand interest accrual for CASE C EMI
+                let isEmiAccrued = emi.interestAccrued || false;
+                if (!isEmiAccrued && interestComp > 0) {
+                  try {
+                    await accSvc.recordInterestAccrual({
+                      loanId: loan.id,
+                      customerId: paymentRequest.customerId,
+                      customerName: loan.customer?.name || 'Customer',
+                      emiId: emi.id,
+                      interestAmount: emi.interestAmount,
+                      accrualDate: emi.dueDate,
+                      createdById: reviewedById
+                    });
+                    await db.eMISchedule.update({
+                      where: { id: emi.id },
+                      data: { interestAccrued: true, accruedAt: new Date() }
+                    });
+                    isEmiAccrued = true;
+                    console.log(`[PR Accounting CASE C] Auto-accrued interest of ₹${emi.interestAmount} on-demand`);
+                  } catch (accErr) {
+                    console.error('[PR Accounting CASE C] Failed to auto-accrue interest:', accErr);
+                  }
+                }
+
                 await recordBankTransaction({
                   companyId: loan.companyId, transactionType: 'CREDIT', amount: totalComp,
                   description: `EMI RECEIPT (UPI) - ${loan.applicationNo} [${loan.customer?.name || 'Customer'}] EMI #${emi.installmentNumber}`,
@@ -1203,7 +1252,7 @@ export async function PUT(request: NextRequest) {
                   totalAmount: totalComp, principalComponent: principalComp, interestComponent: interestComp,
                   paymentDate: new Date(), paymentMode: payMode, createdById: reviewedById,
                   reference: `PR#${paymentRequest.requestNumber} EMI #${emi.installmentNumber}`,
-                  isInterestAccrued: emi.interestAccrued
+                  isInterestAccrued: isEmiAccrued
                 });
                 console.log(`[PR Accounting] ✓ CASE C: original company ₹${totalComp} (P:₹${principalComp} I:₹${interestComp})`);
                 const pfAmount = loan.sessionForm?.processingFee || 0;
@@ -1265,6 +1314,30 @@ export async function PUT(request: NextRequest) {
             const mirrorRemainingInterest  = Math.max(0, mirrorInterest  - (mirrorEmi?.paidInterest  || 0));
             const mirrorRemainingPrincipal = Math.max(0, mirrorPrincipal - (mirrorEmi?.paidPrincipal || 0));
             const mirrorRemainingTotal     = Math.round((mirrorRemainingInterest + mirrorRemainingPrincipal) * 100) / 100;
+
+            // On-demand interest accrual for mirror loan EMI
+            let isMirrorEmiAccrued = mirrorEmi?.interestAccrued || false;
+            if (mirrorEmi && !isMirrorEmiAccrued && mirrorInterest > 0) {
+              try {
+                await accSvc.recordInterestAccrual({
+                  loanId: mirrorMapping.mirrorLoanId || loan.id,
+                  customerId: paymentRequest.customerId,
+                  customerName: loan.customer?.name || 'Customer',
+                  emiId: mirrorEmi.id,
+                  interestAmount: mirrorInterest,
+                  accrualDate: mirrorEmi.dueDate,
+                  createdById: reviewedById
+                });
+                await db.eMISchedule.update({
+                  where: { id: mirrorEmi.id },
+                  data: { interestAccrued: true, accruedAt: new Date() }
+                });
+                isMirrorEmiAccrued = true;
+                console.log(`[PR Accounting Mirror] Auto-accrued mirror interest of ₹${mirrorInterest} on-demand`);
+              } catch (accErr) {
+                console.error('[PR Accounting Mirror] Failed to auto-accrue mirror interest:', accErr);
+              }
+            }
 
             // ==================================================================
             // FULL_EMI
@@ -1341,7 +1414,7 @@ export async function PUT(request: NextRequest) {
                 paymentMode:        payMode,
                 createdById:        reviewedById,
                 reference:          `PR#${paymentRequest.requestNumber} → Mirror EMI #${emi.installmentNumber}`,
-                isInterestAccrued:  emi.interestAccrued
+                isInterestAccrued:  isMirrorEmiAccrued
               });
               console.log(`[PR Accounting] ✓ Journal DR Bank ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company ${mirrorCompanyId}`);
 
@@ -1494,7 +1567,7 @@ export async function PUT(request: NextRequest) {
                 paymentMode:        payMode,
                 createdById:        reviewedById,
                 reference:          `PR#${paymentRequest.requestNumber} → Mirror Partial ${Math.round(ratio * 100)}%`,
-                isInterestAccrued:  emi.interestAccrued
+                isInterestAccrued:  isMirrorEmiAccrued
               });
               console.log(`[PR Accounting] ✓ PARTIAL Mirror Bank+Journal ₹${mirrorPartialAmt} (P:₹${mirrorPaidPrincipal} I:₹${mirrorPaidInterest}) in mirror company`);
             }
@@ -1547,7 +1620,7 @@ export async function PUT(request: NextRequest) {
                   paymentMode:        payMode,
                   createdById:        reviewedById,
                   reference:          `PR#${paymentRequest.requestNumber} → Mirror Interest-Only EMI #${emi.installmentNumber}`,
-                  isInterestAccrued:  emi.interestAccrued
+                  isInterestAccrued:  isMirrorEmiAccrued
                 });
                 console.log(`[PR Accounting] ✓ INTEREST_ONLY Mirror Bank+Journal ₹${ioMirrorInterest} in mirror company ${mirrorCompanyId}`);
               } else {
