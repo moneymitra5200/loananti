@@ -2218,7 +2218,7 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      let bankTransactionResult = null;
+      let bankTransactionResult: any = null;
 
       // Calculate next EMI due date (always set to same day-of-month, next month)
       // Safe: clamp to last day of next month to avoid JS setMonth overflow (e.g. Jan 31 → Feb 28)
