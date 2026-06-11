@@ -750,6 +750,73 @@ async function processSingleApproval({
       } else if (isSplitPayment) {
         console.log(`[Disbursement] SPLIT PAYMENT — skipping AccountingService (raw entries already created). Bank: ₹${disbursementData.bankAmount}, Cash: ₹${disbursementData.cashAmount}`);
       }
+
+      // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
+      // Record processing fee at disbursement for standard/non-mirror loans
+      const processingFee = typeof loan.sessionForm?.processingFee === 'number' 
+        ? loan.sessionForm.processingFee 
+        : parseFloat(loan.sessionForm?.processingFee as any) || 0;
+      if (targetCompanyId && processingFee > 0 && !pendingMirrorLoan) {
+        try {
+          // 1. Cashbook or bank entry so it appears in DayBook
+          const { recordCashBookEntry: pfCb, recordBankTransaction: pfBank } = await import('@/lib/simple-accounting');
+          const isPfOnline = disbursementData?.mode !== 'CASH' && !disbursementData?.isCashPayment && 
+            !(disbursementData?.bankAccountId && String(disbursementData?.bankAccountId).startsWith('cash_'));
+            
+          if (isPfOnline && disbursementData?.bankAccountId) {
+            await pfBank({ 
+              companyId: targetCompanyId, 
+              transactionType: 'CREDIT', 
+              amount: processingFee,
+              description: `Processing Fee - ${loan.applicationNo}`, 
+              referenceType: 'PROCESSING_FEE',
+              referenceId: `${loanId}-PF`, 
+              createdById: userId || 'SYSTEM' 
+            });
+          } else {
+            await pfCb({ 
+              companyId: targetCompanyId, 
+              entryType: 'CREDIT', 
+              amount: processingFee,
+              description: `Processing Fee - ${loan.applicationNo}`, 
+              referenceType: 'PROCESSING_FEE',
+              referenceId: `${loanId}-PF`, 
+              createdById: userId || 'SYSTEM' 
+            });
+          }
+
+          // 2. Double-entry journal for processing fee
+          const pfAccountingService = new AccountingService(targetCompanyId);
+          await pfAccountingService.initializeChartOfAccounts();
+
+          // First: Record Accrual (Dr 1302 / Cr 4121)
+          await pfAccountingService.recordProcessingFeeAccrual({
+            loanId,
+            customerId: loan.customerId,
+            amount: processingFee,
+            accrualDate: new Date(),
+            createdById: userId || 'SYSTEM',
+          }, tx);
+
+          // Second: Record Collection (Dr Bank/Cash / Cr 1302)
+          const isPfCashMode = !isPfOnline;
+          await pfAccountingService.recordProcessingFee({
+            loanId,
+            customerId: loan.customerId,
+            amount: processingFee,
+            collectionDate: new Date(),
+            createdById: userId || 'SYSTEM',
+            paymentMode: isPfCashMode ? 'CASH' : (disbursementData?.mode || 'BANK_TRANSFER'),
+            bankAccountId: isPfCashMode ? undefined : (disbursementData?.bankAccountId || undefined),
+            reference: `Processing Fee: ${loan.applicationNo}`
+          }, tx);
+
+          console.log(`[Disbursement] ✅ Processing fee: ₹${processingFee} recorded for ${loan.applicationNo}`);
+        } catch (pfError) {
+          console.error('[Disbursement] Processing fee recording failed:', pfError);
+          throw pfError;
+        }
+      }
       } // End of else block (no pending mirror loan)
     }
 

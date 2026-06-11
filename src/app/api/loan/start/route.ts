@@ -215,8 +215,19 @@ export async function POST(request: NextRequest) {
     });
 
     const parsedProcessingFee = parseFloat(processingFee) || 0;
-    // ONLY record if NOT a mirror loan. Mirror loans handle PF dynamically on EMI #1.
-    if (parsedProcessingFee > 0 && loan.companyId && !mirrorMappingForPF) {
+    
+    // Check if processing fee was already accrued (e.g. at disbursement)
+    const pfAlreadyAccrued = await db.journalEntry.findFirst({
+      where: {
+        companyId: loan.companyId || undefined,
+        referenceId: loanId,
+        referenceType: 'PROCESSING_FEE_ACCRUAL',
+        isReversed: false
+      }
+    });
+
+    // ONLY record if NOT a mirror loan and not already accrued. Mirror loans handle PF dynamically on EMI #1.
+    if (parsedProcessingFee > 0 && loan.companyId && !mirrorMappingForPF && !pfAlreadyAccrued) {
       try {
         const pfPaymentMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
         const pfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;

@@ -200,7 +200,9 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     setEmiPaymentForm({
                       ...emiPaymentForm,
                       paymentType: 'INTEREST_ONLY',
-                      amount: remainingInterest
+                      amount: remainingInterest,
+                      paymentMode: 'CASH',
+                      creditType: 'COMPANY'
                     });
                   }}
                 >
@@ -388,80 +390,82 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
           {/* ========================================== */}
           {/* CREDIT TYPE SELECTION - MAIN CHOICE */}
           {/* ========================================== */}
-          <div className="p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
-            <Label className="text-slate-800 font-semibold mb-3 block">
-              <Wallet className="h-4 w-4 inline mr-2" />
-              Credit Type *
-            </Label>
-            <div className="grid grid-cols-2 gap-3">
-              {/* Personal Credit Option */}
-              <button
-                type="button"
-                onClick={() => handleCreditTypeChange('PERSONAL')}
-                className={`p-4 rounded-lg border-2 text-left transition-all ${
-                  emiPaymentForm.creditType === 'PERSONAL' 
-                    ? 'border-amber-500 bg-amber-50' 
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <User className={`h-5 w-5 ${emiPaymentForm.creditType === 'PERSONAL' ? 'text-amber-600' : 'text-gray-400'}`} />
-                  <span className={`font-semibold ${emiPaymentForm.creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>
-                    Personal Credit
-                  </span>
-                </div>
-                <div className="text-xs space-y-1">
-                  <div className="flex items-center gap-1 text-gray-600">
-                    <Banknote className="h-3 w-3" />
-                    <span>CASH only</span>
+          {emiPaymentForm.paymentType !== 'INTEREST_ONLY' && (
+            <div className="p-4 bg-gradient-to-r from-slate-50 to-gray-50 rounded-lg border border-slate-200">
+              <Label className="text-slate-800 font-semibold mb-3 block">
+                <Wallet className="h-4 w-4 inline mr-2" />
+                Credit Type *
+              </Label>
+              <div className="grid grid-cols-2 gap-3">
+                {/* Personal Credit Option */}
+                <button
+                  type="button"
+                  onClick={() => handleCreditTypeChange('PERSONAL')}
+                  className={`p-4 rounded-lg border-2 text-left transition-all ${
+                    emiPaymentForm.creditType === 'PERSONAL' 
+                      ? 'border-amber-500 bg-amber-50' 
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <User className={`h-5 w-5 ${emiPaymentForm.creditType === 'PERSONAL' ? 'text-amber-600' : 'text-gray-400'}`} />
+                    <span className={`font-semibold ${emiPaymentForm.creditType === 'PERSONAL' ? 'text-amber-800' : 'text-gray-600'}`}>
+                      Personal Credit
+                    </span>
                   </div>
-                  <div className="text-gray-500">
-                    Entry: {originalCompanyName} Cashbook
+                  <div className="text-xs space-y-1">
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <Banknote className="h-3 w-3" />
+                      <span>CASH only</span>
+                    </div>
+                    <div className="text-gray-500">
+                      Entry: {originalCompanyName} Cashbook
+                    </div>
+                    <div className="font-medium text-amber-700">
+                      Current: ₹{formatCurrency(personalCredit)}
+                    </div>
                   </div>
-                  <div className="font-medium text-amber-700">
-                    Current: ₹{formatCurrency(personalCredit)}
-                  </div>
-                </div>
-              </button>
+                </button>
 
-              {/* Company Credit Option */}
-              <button
-                type="button"
-                onClick={() => handleCreditTypeChange('COMPANY')}
-                className={`p-4 rounded-lg border-2 text-left transition-all ${
-                  emiPaymentForm.creditType === 'COMPANY' 
-                    ? 'border-blue-500 bg-blue-50' 
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Building className={`h-5 w-5 ${emiPaymentForm.creditType === 'COMPANY' ? 'text-blue-600' : 'text-gray-400'}`} />
-                  <span className={`font-semibold ${emiPaymentForm.creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>
-                    Company Credit
-                  </span>
-                </div>
-                <div className="text-xs space-y-1">
-                  <div className="flex items-center gap-1 text-gray-600">
-                    <Landmark className="h-3 w-3" />
-                    <span>ONLINE or CASH</span>
+                {/* Company Credit Option */}
+                <button
+                  type="button"
+                  onClick={() => handleCreditTypeChange('COMPANY')}
+                  className={`p-4 rounded-lg border-2 text-left transition-all ${
+                    emiPaymentForm.creditType === 'COMPANY' 
+                      ? 'border-blue-500 bg-blue-50' 
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <Building className={`h-5 w-5 ${emiPaymentForm.creditType === 'COMPANY' ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <span className={`font-semibold ${emiPaymentForm.creditType === 'COMPANY' ? 'text-blue-800' : 'text-gray-600'}`}>
+                      Company Credit
+                    </span>
                   </div>
-                  <div className="text-gray-500">
-                    Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}'s Books` : `${originalCompanyName}'s Books`}
+                  <div className="text-xs space-y-1">
+                    <div className="flex items-center gap-1 text-gray-600">
+                      <Landmark className="h-3 w-3" />
+                      <span>ONLINE or CASH</span>
+                    </div>
+                    <div className="text-gray-500">
+                      Entry: {hasMirrorLoan && mirrorCompany ? `${mirrorCompany.name}'s Books` : `${originalCompanyName}'s Books`}
+                    </div>
+                    <div className="font-medium text-blue-700">
+                      Current: ₹{formatCurrency(companyCredit)}
+                    </div>
                   </div>
-                  <div className="font-medium text-blue-700">
-                    Current: ₹{formatCurrency(companyCredit)}
-                  </div>
-                </div>
-              </button>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* ========================================== */}
           {/* PAYMENT MODE - BASED ON CREDIT TYPE */}
           {/* ========================================== */}
           
           {/* Personal Credit - CASH only (fixed) */}
-          {emiPaymentForm.creditType === 'PERSONAL' && (
+          {emiPaymentForm.creditType === 'PERSONAL' && emiPaymentForm.paymentType !== 'INTEREST_ONLY' && (
             <div className="p-4 bg-amber-50 rounded-lg border border-amber-200">
               <div className="flex items-center justify-between">
                 <div>
@@ -487,12 +491,12 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
           )}
 
           {/* Company Credit - ONLINE or CASH */}
-          {emiPaymentForm.creditType === 'COMPANY' && (
+          {emiPaymentForm.creditType === 'COMPANY' && emiPaymentForm.paymentType !== 'INTEREST_ONLY' && (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
               <div className="grid grid-cols-2 gap-3">
               {/* ONLINE Option - hidden for Interest Only / Principal Only (cash only) */}
-              {emiPaymentForm.paymentType !== 'INTEREST_ONLY' && emiPaymentForm.paymentType !== 'PRINCIPAL_ONLY' && (
+              {emiPaymentForm.paymentType !== 'PRINCIPAL_ONLY' && (
                 <button
                   type="button"
                   onClick={() => setEmiPaymentForm({ ...emiPaymentForm, paymentMode: 'ONLINE' })}
@@ -670,6 +674,31 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
                     +₹{formatCurrency(emiPaymentForm.splitCashAmount || 0)} credit (cash portion only)
                   </p>
                 ) : null}
+              </div>
+            </div>
+          )}
+
+          {emiPaymentForm.paymentType === 'INTEREST_ONLY' && (
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-blue-800 font-semibold">Payment Mode</Label>
+                  <p className="text-xs text-blue-600 mt-1">
+                    Interest-only payments are recorded in CASH
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 px-4 py-2 bg-blue-100 rounded-lg border border-blue-300">
+                  <Banknote className="h-5 w-5 text-blue-700" />
+                  <span className="font-semibold text-blue-800">CASH</span>
+                </div>
+              </div>
+              <div className="mt-3 p-3 bg-blue-100 rounded-lg">
+                <p className="text-xs text-blue-700">
+                  <strong>Entry will be recorded in:</strong> {hasMirrorLoan && mirrorCompany ? (mirrorCompany.name || 'Mirror Company') : (originalCompanyName || 'Company')}&apos;s Cashbook
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  +₹{formatCurrency(emiPaymentForm.amount)} will be added to Company Credit
+                </p>
               </div>
             </div>
           )}

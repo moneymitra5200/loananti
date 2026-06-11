@@ -979,6 +979,28 @@ export async function PUT(request: NextRequest) {
         // Continue - disbursement is still successful
       }
 
+      // Record mirror processing fee accrual in the mirror company (just like offline loans)
+      try {
+        const mirrorProcessingFee = calculation.processingFee || 0;
+        if (mirrorProcessingFee > 0 && !isIOLoan) {
+          const { AccountingService } = await import('@/lib/accounting-service');
+          const mirrorAccSvc = new AccountingService(pendingLoan.mirrorCompanyId);
+          await mirrorAccSvc.initializeChartOfAccounts();
+          await mirrorAccSvc.recordProcessingFeeAccrual({
+            loanId: mirrorLoan.id,
+            customerId: originalLoan.customerId || mirrorLoan.id,
+            amount: mirrorProcessingFee,
+            accrualDate: new Date(),
+            createdById: userId || 'SYSTEM',
+          });
+          console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${pendingLoan.mirrorCompanyId}`);
+        } else if (isIOLoan) {
+          console.log(`[Mirror Loan Accounting] Skipping processing fee accrual for Phase 1 interest-only loan — will be recorded at Phase 2 transition.`);
+        }
+      } catch (pfAccrualErr) {
+        console.error(`[Mirror Loan Accounting] Mirror processing fee accrual FAILED:`, pfAccrualErr);
+      }
+
       // Update pending loan status
       const updated = await db.pendingMirrorLoan.update({
         where: { id },
