@@ -827,6 +827,30 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
   }
 
+  // Fetch installment numbers for payments and offline EMIs to map je.referenceId to emiNumber
+  const paymentToEmiNumber = new Map<string, number>();
+  const offlineEmiIdToNumber = new Map<string, number>();
+
+  if (queryLoanIds.length > 0) {
+    const paymentsForLedger = await db.payment.findMany({
+      where: { loanApplicationId: { in: queryLoanIds } },
+      select: { id: true, emiSchedule: { select: { installmentNumber: true } } }
+    });
+    for (const p of paymentsForLedger) {
+      if (p.emiSchedule?.installmentNumber) {
+        paymentToEmiNumber.set(p.id, p.emiSchedule.installmentNumber);
+      }
+    }
+
+    const offlineEmisForLedger = await db.offlineLoanEMI.findMany({
+      where: { offlineLoanId: { in: queryLoanIds } },
+      select: { id: true, installmentNumber: true }
+    });
+    for (const e of offlineEmisForLedger) {
+      offlineEmiIdToNumber.set(e.id, e.installmentNumber);
+    }
+  }
+
   // ── Fetch Journal Entries that have a line touching LR or Interest for these loans ────
   // This is the "posting from journal to personal ledger" step
   let journalEntries: any[] = [];
@@ -1248,9 +1272,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         ? principalPaid + interestPaid
         : null;
 
-      // Determine EMI number from narration
+      // Determine EMI number from narration, or DB mapping (payment/offline EMI lookup)
       const emiMatch = je.narration?.match(/#(\d+)/);
-      const emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
+      let emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
+      if (!emiNumber && je.referenceId) {
+        emiNumber = paymentToEmiNumber.get(je.referenceId) || offlineEmiIdToNumber.get(je.referenceId);
+      }
 
       // Description: derive from referenceType and narration
       const desc = buildDescription(je.referenceType, je.narration, emiNumber, meta.loanNumber, customer?.name || '');
@@ -1775,6 +1802,30 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     orderBy: { entryDate: 'asc' }
   });
 
+  // Fetch installment numbers for payments and offline EMIs to map je.referenceId to emiNumber
+  const paymentToEmiNumber = new Map<string, number>();
+  const offlineEmiIdToNumber = new Map<string, number>();
+
+  if (queryLoanIds.length > 0) {
+    const paymentsForLedger = await db.payment.findMany({
+      where: { loanApplicationId: { in: queryLoanIds } },
+      select: { id: true, emiSchedule: { select: { installmentNumber: true } } }
+    });
+    for (const p of paymentsForLedger) {
+      if (p.emiSchedule?.installmentNumber) {
+        paymentToEmiNumber.set(p.id, p.emiSchedule.installmentNumber);
+      }
+    }
+
+    const offlineEmisForLedger = await db.offlineLoanEMI.findMany({
+      where: { offlineLoanId: { in: queryLoanIds } },
+      select: { id: true, installmentNumber: true }
+    });
+    for (const e of offlineEmisForLedger) {
+      offlineEmiIdToNumber.set(e.id, e.installmentNumber);
+    }
+  }
+
   // Merge and sort
   const allJEs = [...standardEntries, ...accrualEntries];
   const uniqueJEs = Array.from(new Map(allJEs.map(j => [j.id, j])).values());
@@ -1785,24 +1836,34 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     je.lines.some((l: any) => lrAccountIds.includes(l.accountId) && l.debitAmount > 0 && queryLoanIds.includes(l.loanId))
   );
 
-  const mappedEntries = uniqueJEs.map(je => ({
-    id: je.id, date: je.entryDate, referenceType: je.referenceType,
-    narration: je.narration, loanId, loanNumber: applicationNo,
-    lines: je.lines.map(l => ({
-      accountCode: l.account?.accountCode,
-      accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
-        ? (l.account.accountCode === '1301'
-            ? `Interest Receivable — ${customer?.name || ''}`
-            : l.account.accountCode === '1305'
-              ? `Overdue Interest Receivable — ${customer?.name || ''}`
-              : l.account.accountCode === '1302'
-                ? `Processing Fee — ${customer?.name || ''}`
-                : `Loans Receivable — ${customer?.name || ''}`)
-        : l.account?.accountName,
-      debitAmount: l.debitAmount,
-      creditAmount: l.creditAmount,
-    }))
-  }));
+  const mappedEntries = uniqueJEs.map(je => {
+    // Determine EMI number from narration, or DB mapping (payment/offline EMI lookup)
+    const emiMatch = je.narration?.match(/#(\d+)/);
+    let emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
+    if (!emiNumber && je.referenceId) {
+      emiNumber = paymentToEmiNumber.get(je.referenceId) || offlineEmiIdToNumber.get(je.referenceId);
+    }
+
+    return {
+      id: je.id, date: je.entryDate, referenceType: je.referenceType,
+      narration: je.narration, loanId, loanNumber: applicationNo,
+      emiNumber,
+      lines: je.lines.map(l => ({
+        accountCode: l.account?.accountCode,
+        accountName: l.account?.accountCode && LR_CODES.includes(l.account.accountCode)
+          ? (l.account.accountCode === '1301'
+              ? `Interest Receivable — ${customer?.name || ''}`
+              : l.account.accountCode === '1305'
+                ? `Overdue Interest Receivable — ${customer?.name || ''}`
+                : l.account.accountCode === '1302'
+                  ? `Processing Fee — ${customer?.name || ''}`
+                  : `Loans Receivable — ${customer?.name || ''}`)
+          : l.account?.accountName,
+        debitAmount: l.debitAmount,
+        creditAmount: l.creditAmount,
+      }))
+    };
+  });
 
   if (!hasDisbursement && loanAmount > 0) {
     mappedEntries.unshift({
@@ -1812,6 +1873,7 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
       narration: `Loan Disbursed — ${applicationNo}`,
       loanId,
       loanNumber: applicationNo,
+      emiNumber: undefined,
       lines: [
         {
           accountCode: '1200',

@@ -81,6 +81,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   const [payingEMI, setPayingEMI] = useState(false);
   // Holds all EMIs for a multi-EMI bulk-payment flow
   const [pendingMultiEMIs, setPendingMultiEMIs] = useState<EMISchedule[]>([]);
+  const [isInterestOnlyPayment, setIsInterestOnlyPayment] = useState(false);
 
   // EMI Date Change State
   const [showDateChangeDialog, setShowDateChangeDialog] = useState(false);
@@ -460,19 +461,21 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     });
   };
 
-  const openEMIPaymentDialog = (emi: EMISchedule) => {
+  const openEMIPaymentDialog = (emi: EMISchedule, isInterestOnlyPay: boolean = false) => {
     setSelectedEMI(emi);
     setPendingMultiEMIs([]); // MUST CLEAR this, otherwise previous multi-select forces FULL_EMI payment!
+    setIsInterestOnlyPayment(isInterestOnlyPay);
     // Calculate remaining amount (total - already paid)
     const remainingAmount = emi.emiAmount - (emi.paidAmount || 0);
+    const remainingInterest = emi.interestAmount - (emi.paidInterest || 0);
     setEmiPaymentForm({
-      amount: remainingAmount, // EMI amount only — penalty handled separately
+      amount: isInterestOnlyPay ? remainingInterest : remainingAmount, // EMI amount only — penalty handled separately
       paymentMode: 'CASH',
       paymentRef: '',
       creditType: 'COMPANY',
-      remarks: '',
+      remarks: isInterestOnlyPay ? `Interest Only payment for EMI #${emi.emiNumber}` : '',
       proofFile: null,
-      paymentType: 'FULL',
+      paymentType: isInterestOnlyPay ? 'INTEREST_ONLY' : 'FULL',
       remainingAmount: 0,
       remainingPaymentDate: '',
       newDueDate: '',
@@ -858,7 +861,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                         .sort((a, b) => a.emiNumber - b.emiNumber)
                         .find(e => e.status === 'PENDING' && e.isInterestOnly);
                       if (pendingInterestEMI) {
-                        openEMIPaymentDialog(pendingInterestEMI);
+                        openEMIPaymentDialog(pendingInterestEMI, true);
                       } else {
                         toast({ title: 'No Pending Interest EMI', description: 'There is no pending monthly interest to pay.', variant: 'default' });
                       }
@@ -1062,7 +1065,12 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
     {/* EMI Payment Dialog */}
     <EMIPaymentDialog
       open={showEMIPaymentDialog}
-      onOpenChange={setShowEMIPaymentDialog}
+      onOpenChange={(isOpen) => {
+        setShowEMIPaymentDialog(isOpen);
+        if (!isOpen) {
+          setIsInterestOnlyPayment(false);
+        }
+      }}
       selectedEMI={selectedEMI}
       emiPaymentForm={emiPaymentForm}
       setEmiPaymentForm={setEmiPaymentForm}
@@ -1077,6 +1085,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       mirrorCompany={mirrorCompanyInfo}
       originalCompanyName={loanDetails?.company?.name || 'Your Company'}
       loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
+      isInterestOnlyPayment={isInterestOnlyPayment}
     />
 
     {/* EMI Date Change Dialog */}

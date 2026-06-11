@@ -57,6 +57,7 @@ interface EMIPaymentDialogProps {
   originalCompanyName?: string;
   /** Loan amount for auto penalty calculation (N lakh = N×₹100/day) */
   loanAmount?: number;
+  isInterestOnlyPayment?: boolean;
 }
 
 const EMIPaymentDialog = memo(function EMIPaymentDialog({
@@ -76,6 +77,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
   mirrorCompany = null,
   originalCompanyName = 'Your Company',
   loanAmount = 0,
+  isInterestOnlyPayment = false,
 }: EMIPaymentDialogProps) {
   // ── Auto-calculated penalty (editable) ─────────────────────────────────────
   // Key to reset penalty when EMI changes (parent passes key={selectedEMI?.id})
@@ -117,10 +119,14 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <IndianRupee className="h-5 w-5 text-emerald-600" />
-            Pay EMI #{selectedEMI?.emiNumber}
+            {isInterestOnlyPayment ? 'Pay Monthly Interest' : `Pay EMI #${selectedEMI?.emiNumber}`}
           </DialogTitle>
           <DialogDescription>
-            {alreadyPaid > 0 ? (
+            {isInterestOnlyPayment ? (
+              <span className="block text-sm">
+                Pay monthly interest of ₹{formatCurrency(remainingInterest)}
+              </span>
+            ) : alreadyPaid > 0 ? (
               <div className="space-y-1">
                 <div className="flex justify-between">
                   <span>Total EMI:</span>
@@ -154,7 +160,7 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
 
         <div className="space-y-4">
           {/* Payment Type Selection - Only for non-ACCOUNTANT roles */}
-          {currentUserRole !== 'ACCOUNTANT' && (
+          {currentUserRole !== 'ACCOUNTANT' && !isInterestOnlyPayment && (
             <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-200">
               <Label className="text-purple-800 font-semibold mb-3 block">Payment Type *</Label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

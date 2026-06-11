@@ -7,6 +7,7 @@ export const revalidate = 0;
 
 const LoanStatusConst = {
   ACTIVE: LoanStatus.ACTIVE,
+  ACTIVE_INTEREST_ONLY: LoanStatus.ACTIVE_INTEREST_ONLY,
   DISBURSED: LoanStatus.DISBURSED,
   CLOSED: LoanStatus.CLOSED,
 };
@@ -309,7 +310,7 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     db.loanApplication.findMany({
       where: {
         ...(companyId ? { companyId } : {}),
-        status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED'] },
+        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] },
         disbursedAt: { lte: dateFilter }
       },
       select: {
@@ -524,12 +525,12 @@ async function getLoanPortfolioReport(companyId: string | null) {
   try {
     // Build where clause
     const loanWhere = companyId 
-      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } } 
-      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } };
+      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } } 
+      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } };
     
     const activeLoanWhere = companyId 
-      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED] } } 
-      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.DISBURSED] } };
+      ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED] } } 
+      : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED] } };
 
     // Get loan statistics
     const [totalDisbursed, totalOutstanding, activeLoans] = await Promise.all([

@@ -223,6 +223,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
       const rows: StatementRow[] = [];
       let runningBalance = 0;
+      const accruedEmiNumbers = new Set<number>();
 
       // Sort and process all loan entries chronologically
       for (const entry of loanEntries) {
@@ -304,6 +305,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             || 0;
           if (interestAmt > 0) {
             runningBalance += interestAmt;
+            if (entry.emiNumber !== undefined && entry.emiNumber !== null) {
+              accruedEmiNumbers.add(entry.emiNumber);
+            }
             rows.push({
               date: entry.date,
               description: `To-INTEREST Normal Dr. Int. (Accrued)`,
@@ -337,9 +341,16 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
           // Effective interest for display (fallback to API field)
           const effectiveInterestAmt = interestIncomeAmount || interest1301Credit || entry.interestPaid || 0;
 
+          // Check if interest for this installment/payment was already accrued
+          const hasPriorAccrual = (entry.emiNumber !== undefined && entry.emiNumber !== null && accruedEmiNumbers.has(entry.emiNumber)) ||
+            loanEntries.some(e => 
+              e.referenceType === 'INTEREST_ACCRUAL' && 
+              Math.abs(new Date(e.date).getTime() - new Date(entry.date).getTime()) < 10000
+            );
+
           // Show synthetic interest Dr ONLY for cash-basis (no prior accrual row)
           // Accrual-basis: interest1301Credit > 0 means an INTEREST_ACCRUAL JE already ran
-          if (interestIncomeAmount > 0) {
+          if (interestIncomeAmount > 0 && !hasPriorAccrual) {
             // Cash-basis: interest income hits 4110 directly on this EMI payment
             runningBalance += interestIncomeAmount;
             rows.push({

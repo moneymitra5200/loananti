@@ -164,11 +164,54 @@ export async function GET(request: NextRequest) {
     const actualCashBalance = cashBookData?.currentBalance || 0;
     const actualCashOpening = cashBookData?.openingBalance || 0;
 
+    // Calculate actual outstanding online loans
+    const onlineLoans = await db.loanApplication.findMany({
+      where: {
+        companyId,
+        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] }
+      },
+      select: {
+        disbursedAmount: true,
+        emiSchedules: {
+          where: { paymentStatus: 'PAID' },
+          select: { paidPrincipal: true }
+        }
+      }
+    });
+    const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.disbursedAmount || 0;
+      const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
+
+    // Calculate actual outstanding offline loans
+    const offlineLoans = await db.offlineLoan.findMany({
+      where: {
+        companyId,
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED', 'CLOSED'] }
+      },
+      select: {
+        loanAmount: true,
+        emis: {
+          where: { paymentStatus: 'PAID' },
+          select: { paidPrincipal: true }
+        }
+      }
+    });
+    const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.loanAmount || 0;
+      const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
+
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {
       // For Bank Account (1102) and Cash in Hand (1101), use actual balances
       if (code === '1101') return actualCashBalance;
       if (code === '1102') return actualBankBalance;
+      if (code === '1201') return actualOnlineLoans;
+      if (code === '1210') return actualOfflineLoans;
+      if (code === '1200') return actualOnlineLoans + actualOfflineLoans;
       
       const account = accounts.find(a => a.accountCode === code);
       return account?.currentBalance || 0;
