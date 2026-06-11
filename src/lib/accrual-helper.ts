@@ -157,13 +157,17 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
           ? Math.round((emi.offlineLoan.loanAmount * mirrorMap!.mirrorInterestRate / 100 / 12) * 100) / 100
           : emi.interestAmount;
 
+        // loanId for JE lines: use mirror loan ID when recording in mirror company
+        // so personal ledger queries (by mirrorLoanId) can find these entries.
+        const targetLoanId = hasMirror && mirrorMap!.mirrorLoanId ? mirrorMap!.mirrorLoanId : emi.offlineLoanId;
+
         // Perform accrual in a transaction in the TARGET company (mirror if mapped)
         await db.$transaction(async (tx) => {
           const accSvc = new AccountingService(targetCompanyId);
           // Cap accrualDate to today — NEVER create a future-dated journal entry
           const accrualDate = emi.dueDate <= new Date() ? emi.dueDate : new Date();
           await accSvc.recordInterestAccrual({
-            loanId: emi.offlineLoanId,
+            loanId: targetLoanId,
             customerId: emi.offlineLoan.customerId || `offline_${emi.offlineLoanId}`,
             customerName: emi.offlineLoan.customerName || 'Customer',
             emiId: emi.id,
@@ -172,6 +176,7 @@ export async function performOnDemandAccrual(filterCompanyId?: string | null): P
             createdById: 'SYSTEM'
           }, tx);
         }, { maxWait: 25000, timeout: 50000 });
+
 
         processedCount++;
       } catch (err: any) {
