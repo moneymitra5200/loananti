@@ -296,6 +296,38 @@ export async function POST(request: NextRequest) {
   }
 }
 
+function salvageJson(str: string | null): any {
+  if (!str) return null;
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    console.warn('[ActionLog Salvage] Failed to parse JSON, attempting salvage. Raw:', str);
+    const obj: any = {};
+    const stringRegex = /"([^"]+)"\s*:\s*"([^"]*)"/g;
+    let match;
+    while ((match = stringRegex.exec(str)) !== null) {
+      obj[match[1]] = match[2];
+    }
+    const numRegex = /"([^"]+)"\s*:\s*(-?\d+(?:\.\d+)?)/g;
+    while ((match = numRegex.exec(str)) !== null) {
+      obj[match[1]] = Number(match[2]);
+    }
+    const boolRegex = /"([^"]+)"\s*:\s*(true|false)/g;
+    while ((match = boolRegex.exec(str)) !== null) {
+      obj[match[1]] = match[2] === 'true';
+    }
+    const nullRegex = /"([^"]+)"\s*:\s*(null)/g;
+    while ((match = nullRegex.exec(str)) !== null) {
+      obj[match[1]] = null;
+    }
+    const truncatedMatch = str.match(/"([^"]+)"\s*:\s*"([^"]*)$/);
+    if (truncatedMatch) {
+      obj[truncatedMatch[1]] = truncatedMatch[2];
+    }
+    return Object.keys(obj).length > 0 ? obj : null;
+  }
+}
+
 // PUT - Undo or Redo an action
 export async function PUT(request: NextRequest) {
   try {
@@ -324,19 +356,8 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'This action cannot be undone' }, { status: 400 });
       }
 
-      let previousData: any = null;
-      try {
-        previousData = actionLog.previousData ? JSON.parse(actionLog.previousData) : null;
-      } catch (parseErr) {
-        console.error('[ActionLog Undo] Failed to parse previousData:', parseErr, 'Raw:', actionLog.previousData);
-      }
-
-      let newData: any = null;
-      try {
-        newData = actionLog.newData ? JSON.parse(actionLog.newData) : null;
-      } catch (parseErr) {
-        console.error('[ActionLog Undo] Failed to parse newData:', parseErr, 'Raw:', actionLog.newData);
-      }
+      const previousData = salvageJson(actionLog.previousData);
+      const newData = salvageJson(actionLog.newData);
       const undoResult = await db.$transaction(async (tx) => {
         let localUndoResult: { type: string; recordId: string; detail?: string } | null = null;
         // ── OFFLINE LOAN ─────────────────────────────────────────────────────────
@@ -648,7 +669,7 @@ export async function PUT(request: NextRequest) {
         else if (actionLog.module === 'ONLINE_LOAN' || actionLog.module === 'PAYMENT') {
           if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && previousData) {
             // Revert EMI schedule status
-            const emiId = newData?.emiId || actionLog.recordId;
+            const emiId = newData?.emiId || previousData?.emiId || actionLog.recordId;
             if (emiId) {
               await tx.eMISchedule.update({
                 where: { id: emiId },
@@ -925,12 +946,7 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'This action cannot be redone' }, { status: 400 });
       }
 
-      let newData: any = null;
-      try {
-        newData = actionLog.newData ? JSON.parse(actionLog.newData) : null;
-      } catch (parseErr) {
-        console.error('[ActionLog Redo] Failed to parse newData:', parseErr, 'Raw:', actionLog.newData);
-      }
+      const newData = salvageJson(actionLog.newData);
       let redoResult: { type: string; recordId: string } | null = null;
 
       if (actionLog.module === 'OFFLINE_LOAN') {
