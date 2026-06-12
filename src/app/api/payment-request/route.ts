@@ -1344,6 +1344,10 @@ export async function PUT(request: NextRequest) {
             // FULL_EMI
             // ==================================================================
             if (pType === 'FULL_EMI' && mirrorEmi) {
+              // Guard: if mirror EMI is already paid by another sync path, skip to avoid double-recording.
+              if (mirrorEmi.paymentStatus === 'PAID' || mirrorEmi.paymentStatus === 'INTEREST_ONLY_PAID') {
+                console.log(`[PR Accounting CASE B] Mirror EMI #${emi.installmentNumber} already ${mirrorEmi.paymentStatus} — skipping duplicate accounting entry.`);
+              } else {
               // For regular EMIs: Bank gets what customer paid (original amount).
               // For IO Phase 1 mirror EMIs: Bank gets MIRROR's own interestOnlyAmount (not original rate).
               const settleMirrorAmt = mirrorEmi.isInterestOnly
@@ -1364,18 +1368,19 @@ export async function PUT(request: NextRequest) {
               });
               console.log(`[PR Accounting] ✓ Bank CREDIT ₹${settleMirrorAmt} (P:₹${settleMirrorPrincipal} I:₹${settleMirrorInterest}) in mirror company`);
 
-              // 2. Mark mirror EMI as fully PAID
+              // 2. Mark mirror EMI as fully PAID (or INTEREST_ONLY_PAID for IO Phase 1)
               await db.eMISchedule.update({
                 where: { id: mirrorEmi.id },
                 data: {
-                  paymentStatus: 'PAID',
-                  paidAmount:    mirrorTotal,
-                  paidPrincipal: mirrorPrincipal,
-                  paidInterest:  mirrorInterest,
-                  paidDate:      new Date(),
-                  paymentMode:   payMode,
-                  isInterestOnly: mirrorEmi.isInterestOnly || undefined,
-                  notes:         `[MIRROR SYNC via PR] ${paymentRequest.requestNumber}`
+                  paymentStatus:   mirrorEmi.isInterestOnly ? 'INTEREST_ONLY_PAID' : 'PAID',
+                  paidAmount:      mirrorEmi.isInterestOnly ? settleMirrorAmt : mirrorTotal,
+                  paidPrincipal:   mirrorPrincipal,
+                  paidInterest:    mirrorEmi.isInterestOnly ? settleMirrorAmt : mirrorInterest,
+                  paidDate:        new Date(),
+                  paymentMode:     payMode,
+                  isInterestOnly:  mirrorEmi.isInterestOnly || undefined,
+                  principalDeferred: mirrorEmi.isInterestOnly ? true : undefined,
+                  notes:           `[MIRROR SYNC via PR] ${paymentRequest.requestNumber}`
                 }
               });
 
@@ -1505,6 +1510,7 @@ export async function PUT(request: NextRequest) {
                   console.error('[PR Accounting] Processing fee error (non-blocking):', pfErr);
                 }
               }
+              } // end else (mirror EMI not yet paid)
             }
 
             // ==================================================================

@@ -93,6 +93,7 @@ export function ParallelLoanView({
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVE': return 'bg-green-50 text-green-700 border-green-200';
+      case 'ACTIVE_INTEREST_ONLY':
       case 'INTEREST_ONLY': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'CLOSED': return 'bg-gray-50 text-gray-700 border-gray-200';
       case 'DEFAULTED': return 'bg-red-50 text-red-700 border-red-200';
@@ -239,11 +240,26 @@ export function ParallelLoanView({
                 EMI: {formatCurrency(loan.emiAmount)}/mo
               </p>
             )}
-            {loan.isInterestOnlyLoan && (loan.interestOnlyMonthlyAmount || (!isOriginal && originalLoan.interestOnlyMonthlyAmount)) && (
-              <p className="text-xs text-purple-600 font-medium">
-                Monthly Interest: {formatCurrency(!isOriginal ? (originalLoan.interestOnlyMonthlyAmount || loan.interestOnlyMonthlyAmount) : loan.interestOnlyMonthlyAmount)}
-              </p>
-            )}
+            {/* Monthly Interest — for mirror side use mirror rate, not original rate */}
+            {loan.isInterestOnlyLoan && (() => {
+              let monthlyInterest: number | null = null;
+              if (isOriginal) {
+                monthlyInterest = loan.interestOnlyMonthlyAmount ?? null;
+              } else if (mirrorMapping?.mirrorInterestRate) {
+                // Compute from mirror rate: principal × mirrorRate% / 12
+                const principal = getLoanAmount(loan);
+                monthlyInterest = principal > 0
+                  ? Math.round((principal * mirrorMapping.mirrorInterestRate / 100 / 12) * 100) / 100
+                  : null;
+              } else {
+                monthlyInterest = loan.interestOnlyMonthlyAmount ?? null;
+              }
+              return monthlyInterest ? (
+                <p className="text-xs text-purple-600 font-medium">
+                  Monthly Interest: {formatCurrency(monthlyInterest)}
+                </p>
+              ) : null;
+            })()}
           </div>
           
           {/* Action Buttons */}
