@@ -266,7 +266,9 @@ export async function POST(request: NextRequest) {
       utrNumber,
       proofUrl,
       proofFileName,
-      originalLoanId  // Set when customer is viewing a mirror loan but paying original EMI amounts
+      originalLoanId,  // Set when customer is viewing a mirror loan but paying original EMI amounts
+      secondaryPaymentPageId,
+      secondaryPaymentPageName
     } = body;
 
     // Validate required fields
@@ -406,8 +408,10 @@ export async function POST(request: NextRequest) {
         proofFileName,
         upiId: companySettings?.companyUpiId,
         qrCodeUrl: companySettings?.companyQrCodeUrl,
-        bankAccountDetails: companySettings?.collectionBankAccountId ? 
-          JSON.stringify({ bankAccountId: companySettings.collectionBankAccountId }) : null,
+        bankAccountDetails: secondaryPaymentPageId ? 
+          JSON.stringify({ secondaryPaymentPageId, secondaryPaymentPageName }) :
+          (companySettings?.collectionBankAccountId ? 
+            JSON.stringify({ bankAccountId: companySettings.collectionBankAccountId }) : null),
         status: 'PENDING'
       },
       include: {
@@ -421,10 +425,14 @@ export async function POST(request: NextRequest) {
     });
 
     // Notify SUPER_ADMIN + CASHIER that customer submitted a payment request
+    const notifyBody = secondaryPaymentPageName 
+      ? `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')} (Secondary Page: ${secondaryPaymentPageName})`
+      : `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')}`;
+
     notifyEvent({
       event: 'PAYMENT_REQUEST',
       title: '💰 Customer Payment Submitted',
-      body: `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')}`,
+      body: notifyBody,
       data: { paymentRequestId: paymentRequest.id, requestNumber, type: 'PAYMENT_REQUEST', actionUrl: '/cashier/payments' },
       actionUrl: '/cashier/payments',
     });
@@ -980,23 +988,41 @@ export async function PUT(request: NextRequest) {
         }
       } catch (_) { /* non-critical */ }
 
-      // ── Credit increment for cashier who approved ────────────────────
-      // Customer pays via UPI/bank directly → reviewer gets PERSONAL credit
+      // ── Credit increment for cashier who approved or page owner ────────────────────
+      // Customer pays via UPI/bank directly → reviewer (or page owner) gets PERSONAL credit
       try {
+        let creditUserId = reviewedById;
+        let pageNameForDesc = '';
+
+        if (paymentRequest.bankAccountDetails) {
+          try {
+            const bd = JSON.parse(paymentRequest.bankAccountDetails);
+            if (bd.secondaryPaymentPageId) {
+              const spPage = await db.secondaryPaymentPage.findUnique({
+                where: { id: bd.secondaryPaymentPageId }
+              });
+              if (spPage?.roleId) {
+                creditUserId = spPage.roleId;
+                pageNameForDesc = ` (via ${spPage.name})`;
+              }
+            }
+          } catch(e) {}
+        }
+
         const reviewerUser = await db.user.findUnique({
-          where: { id: reviewedById },
+          where: { id: creditUserId },
           select: { personalCredit: true, companyCredit: true, credit: true }
         });
         if (reviewerUser) {
           const newPersonal = (reviewerUser.personalCredit || 0) + paidAmtForNotif;
           const newTotal    = (reviewerUser.credit         || 0) + paidAmtForNotif;
           await db.user.update({
-            where: { id: reviewedById },
+            where: { id: creditUserId },
             data: { personalCredit: newPersonal, credit: newTotal }
           });
           await db.creditTransaction.create({ data: {
             // @ts-ignore
-            userId:               reviewedById,
+            userId:               creditUserId,
             transactionType:      'PERSONAL_COLLECTION',
             amount:               paidAmtForNotif,
             paymentMode:          'UPI',
@@ -1008,10 +1034,10 @@ export async function PUT(request: NextRequest) {
             loanApplicationId:    paymentRequest.loanApplicationId,
             emiScheduleId:        emi?.id,
             installmentNumber:    emi?.installmentNumber,
-            description:          `PR#${paymentRequest.requestNumber} approved — ${isExtraEmi ? '⭐ Extra EMI' : typeLabel} ₹${paidAmtForNotif.toFixed(2)} for ${appNo}`,
+            description:          `PR#${paymentRequest.requestNumber} approved — ${isExtraEmi ? '⭐ Extra EMI' : typeLabel} ₹${paidAmtForNotif.toFixed(2)} for ${appNo}${pageNameForDesc}`,
             transactionDate:      new Date()
           }});
-          console.log(`[PR Credit] +₹${paidAmtForNotif} personal credit → reviewer ${reviewedById}`);
+          console.log(`[PR Credit] +₹${paidAmtForNotif} personal credit → user ${creditUserId}`);
         }
       } catch (creditErr) {
         console.error('[PR Credit] Credit increment failed (non-critical):', creditErr);

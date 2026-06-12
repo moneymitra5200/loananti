@@ -44,6 +44,7 @@ interface PaymentRequest {
   proofUrl: string;
   proofFileName: string;
   status: string;
+  bankAccountDetails?: string | null;
   reviewedById: string | null;
   reviewedAt: string | null;
   reviewRemarks: string | null;
@@ -621,6 +622,26 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                         </p>
                       </div>
                     )}
+
+                    {(() => {
+                      try {
+                        const bd = selectedRequest.bankAccountDetails ? JSON.parse(selectedRequest.bankAccountDetails) : null;
+                        if (bd?.secondaryPaymentPageName) {
+                          return (
+                            <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                              <h4 className="font-medium text-yellow-800 mb-2 flex items-center gap-2">
+                                <AlertCircle className="h-4 w-4" /> Paid via Secondary Page
+                              </h4>
+                              <p className="text-sm text-yellow-700">
+                                The customer paid using secondary page: <strong>{bd.secondaryPaymentPageName}</strong>. 
+                                Upon approval, credit will be added to the personal ledger associated with this page.
+                              </p>
+                            </div>
+                          );
+                        }
+                      } catch(e) {}
+                      return null;
+                    })()}
                   </CardContent>
                 </Card>
 

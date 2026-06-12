@@ -588,6 +588,7 @@ export default function CustomerLoanDetailPage() {
       } else if (selectedPaymentType === 'INTEREST_ONLY') {
         requestedAmount = selectedEmi.interestAmount;
       }
+      const isSecondaryPageUsed = selectedPaymentType === 'INTEREST_ONLY' || (mirrorTenure > 0 && (selectedEmi?.installmentNumber ?? 0) > mirrorTenure);
 
       const requestBody = {
         loanApplicationId: loanId,         // Always the loan the customer sees (mirror or original)
@@ -602,7 +603,9 @@ export default function CustomerLoanDetailPage() {
         paymentMethod: 'UPI',
         utrNumber,
         proofUrl,
-        proofFileName: proofFile?.name
+        proofFileName: proofFile?.name,
+        secondaryPaymentPageId: (isSecondaryPageUsed && extraEmiPaymentPage) ? extraEmiPaymentPage?.id : null,
+        secondaryPaymentPageName: (isSecondaryPageUsed && extraEmiPaymentPage) ? extraEmiPaymentPage?.name : null
       };
       
       console.log('Sending API request with body:', JSON.stringify(requestBody, null, 2));
