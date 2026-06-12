@@ -393,9 +393,12 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
             if (effectiveInterestAmt > 0) {
               runningBalance -= effectiveInterestAmt;
+              // If it's a PRINCIPAL_ONLY payment, the interest was WRITTEN OFF, not collected via cash
+              const isInterestWriteOff = entry.referenceType === 'PRINCIPAL_ONLY_PAYMENT' || entry.referenceType === 'LOSS_WRITE_OFF' || entry.narration?.toLowerCase().includes('waived') || entry.narration?.toLowerCase().includes('written off');
+              const interestMethod = isInterestWriteOff ? 'By-WAIVER / WRITE-OFF' : paymentMethod;
               rows.push({
                 date: entry.date,
-                description: `${paymentMethod} — ${cleanText(desc)} (Interest)`,
+                description: `${interestMethod} — ${cleanText(desc)} (Interest)`,
                 totalPayment: effectiveInterestAmt,
                 interestPaid: effectiveInterestAmt,
                 principalPaid: 0,
@@ -409,9 +412,12 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
             if (principalCredit > 0) {
               runningBalance -= principalCredit;
+              // If it's LOSS_WRITE_OFF, principal is written off
+              const isPrincipalWriteOff = entry.referenceType === 'LOSS_WRITE_OFF' || (entry.referenceType === 'LOAN_FORECLOSURE' && entry.narration?.toLowerCase().includes('write-off'));
+              const principalMethod = isPrincipalWriteOff ? 'By-WRITE-OFF' : paymentMethod;
               rows.push({
                 date: entry.date,
-                description: `${paymentMethod} — ${cleanText(desc)} (Principal)`,
+                description: `${principalMethod} — ${cleanText(desc)} (Principal)`,
                 totalPayment: principalCredit,
                 interestPaid: 0,
                 principalPaid: principalCredit,

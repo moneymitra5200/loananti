@@ -2819,11 +2819,16 @@ export async function PUT(request: NextRequest) {
       // SPLIT payment: ONLY the CASH portion increases credit (online portion goes to bank directly)
       const isOnlinePayment = paymentMode === 'ONLINE' || paymentMode === 'UPI' || paymentMode === 'BANK_TRANSFER';
       // For split: cashable amount = splitCashAmt; for pure online = 0; for cash = full amount
-      const creditIncreaseAmount = isSplitPayment
-        ? splitCashAmt   // Only cash portion increases credit
-        : isOnlinePayment
-          ? 0            // Pure online: no credit
-          : actualPaymentAmount;  // Pure cash: full amount
+      let creditIncreaseAmount = 0;
+      if (isSplitPayment) {
+        creditIncreaseAmount = splitCashAmt; // Only cash portion increases credit
+      } else if (!isOnlinePayment) {
+        creditIncreaseAmount = actualPaymentAmount; // Pure cash: full amount
+      }
+      // Add penalty collected in cash
+      if (netPenalty > 0 && penaltyPaymentMode === 'CASH') {
+        creditIncreaseAmount += netPenalty;
+      }
 
       // Build a rich description for history showing split breakdown
       const creditDescription = isSplitPayment

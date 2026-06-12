@@ -877,20 +877,28 @@ export async function POST(request: NextRequest) {
         creditReason = `Extra EMI #${emi.installmentNumber} â€” direct collection by payer`;
       }
     }
+    // ── Cash Collected: EMI + Penalty ───────────────────────────────────────
+    let cashCollectedByCashier = 0;
+    
+    // 1. Cash from EMI (Principal + Interest)
+    if (isSplitPayment) {
+      cashCollectedByCashier += parseFloat(String(splitCashAmount)) || 0;
+    } else if (paymentMode !== 'ONLINE' && paymentMode !== 'UPI' && paymentMode !== 'BANK_TRANSFER') {
+      cashCollectedByCashier += paidAmount;
+    }
+    
+    // 2. Cash from Penalty
+    if (netPenalty > 0 && penaltyPaymentMode === 'CASH') {
+      cashCollectedByCashier += netPenalty;
+    }
 
-    // â”€â”€ Split Payment: only CASH portion increases credit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // For split: the online portion goes directly to bank (no credit for that part)
-    // For pure CASH: full paidAmount increases credit
-    // For pure ONLINE: paidAmount still increases credit (no change â€” this is personal page revenue)
-    const splitCreditAmount = isSplitPayment && splitCashAmount
-      ? (parseFloat(String(splitCashAmount)) || 0)
-      : paidAmount;
+    const splitCreditAmount = cashCollectedByCashier;
 
     const splitDescription = isSplitPayment && splitCashAmount && splitOnlineAmount
-      ? ` [SPLIT: Cash â‚¹${parseFloat(String(splitCashAmount)).toFixed(2)} (credit) + Online â‚¹${parseFloat(String(splitOnlineAmount)).toFixed(2)} (bank)]`
-      : '';
+      ? ` [SPLIT: Cash ₹${parseFloat(String(splitCashAmount)).toFixed(2)} (credit) + Online ₹${parseFloat(String(splitOnlineAmount)).toFixed(2)} (bank)]`
+      : (netPenalty > 0 && penaltyPaymentMode === 'CASH' ? ` [Includes Penalty: ₹${netPenalty}]` : '');
 
-    if (effectiveCreditType === 'PERSONAL') {
+    if (splitCreditAmount > 0 && effectiveCreditType === 'PERSONAL') {
       const user = await db.user.findUnique({
         where: { id: creditUserId },
         select: { personalCredit: true, companyCredit: true, credit: true, name: true }
@@ -931,7 +939,7 @@ export async function POST(request: NextRequest) {
       });
       
       console.log(`[Credit] â‚¹${splitCreditAmount} credited to personal credit of user ${creditUserId} ${creditReason}${splitDescription}`);
-    } else if (effectiveCreditType === 'COMPANY') {
+    } else if (splitCreditAmount > 0 && effectiveCreditType === 'COMPANY') {
       // â”€â”€ COMPANY credit: update the USER's companyCredit field (same as offline route) â”€â”€
       // The credit bar reads from user.personalCredit / user.companyCredit, NOT company.companyCredit.
       // Previously this was updating company.companyCredit which is never shown in the UI.
