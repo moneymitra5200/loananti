@@ -780,6 +780,8 @@ export async function PUT(request: NextRequest) {
                 principalAmount: deferredPrincipal, interestAmount: Math.round(deferredInterest * 100) / 100, totalAmount: Math.round((deferredPrincipal + deferredInterest) * 100) / 100,
                 outstandingPrincipal: deferredPrincipal, outstandingInterest: Math.round(deferredInterest * 100) / 100,
                 paymentStatus: 'PENDING', principalDeferred: true, originalEMIId: emi.id, duplicatedEMINumber: emi.installmentNumber,
+                isInterestOnly: true,
+                interestOnlyAmount: Math.round(deferredInterest * 100) / 100,
                 notes: `Deferred from Interest-Only on EMI #${emi.installmentNumber}. P:₹${deferredPrincipal}+I:₹${Math.round(deferredInterest*100)/100}. Due:${newEmiDueDate.toISOString().split('T')[0]}`
               }
             });
@@ -833,6 +835,7 @@ export async function PUT(request: NextRequest) {
                     paidPrincipal: mirrorEMI.paidPrincipal || 0, 
                     paidInterest: (mirrorEMI.paidInterest || 0) + mRemainingInterest, 
                     paidDate: new Date(), isInterestOnly: true, principalDeferred: true,
+                    interestOnlyAmount: mRemainingInterest,
                     notes: `Interest only synced from PR ${paymentRequest.requestNumber}`
                   }
                 });
@@ -869,6 +872,8 @@ export async function PUT(request: NextRequest) {
                     outstandingPrincipal: mRemainingPrincipal, outstandingInterest: Math.round(mInterest * 100) / 100,
                     paymentStatus: 'PENDING', principalDeferred: true,
                     originalEMIId: mirrorEMI.id, duplicatedEMINumber: mirrorEMI.installmentNumber,
+                    isInterestOnly: true,
+                    interestOnlyAmount: Math.round(mInterest * 100) / 100,
                     notes: `Mirror deferred EMI from Interest-Only PR ${paymentRequest.requestNumber}`
                   }
                 });
@@ -1318,7 +1323,7 @@ export async function PUT(request: NextRequest) {
             // On-demand interest accrual for mirror loan EMI
             // Skip for IO Phase 1 EMIs — no separate accrual JE; the payment itself is the recognition.
             let isMirrorEmiAccrued = mirrorEmi?.interestAccrued || false;
-            if (mirrorEmi && !mirrorEmi.isInterestOnly && !isMirrorEmiAccrued && mirrorInterest > 0) {
+            if (mirrorEmi && !isMirrorEmiAccrued && mirrorInterest > 0) {
               try {
                 await accSvc.recordInterestAccrual({
                   loanId: mirrorMapping.mirrorLoanId || loan.id,
