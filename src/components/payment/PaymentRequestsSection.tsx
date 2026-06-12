@@ -62,6 +62,8 @@ interface PaymentRequest {
     totalAmount: number;
     principalAmount: number;
     interestAmount: number;
+    interestOnlyAmount: number | null;
+    isInterestOnly: boolean;
     partialPaymentCount: number;
   };
   customer: { id: string; name: string; email: string; phone: string };
@@ -277,6 +279,10 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
     );
   };
 
+  // Detect IO Phase 1: FULL_EMI on an isInterestOnly EMI (online IO interest collection)
+  const isIOPhase1 = (req: PaymentRequest) =>
+    req.emiSchedule?.isInterestOnly === true;
+
   const filteredRequests = requests.filter(req => 
     req.requestNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
     req.loanApplication.applicationNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -407,10 +413,15 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="font-semibold text-gray-900">{req.requestNumber}</h4>
                               {getStatusBadge(req.status)}
                               {getPaymentTypeBadge(req.paymentType)}
+                              {isIOPhase1(req) && (
+                                <Badge className="bg-violet-100 text-violet-700 border border-violet-300">
+                                  <Percent className="h-3 w-3 mr-1" /> IO Phase 1
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-sm text-gray-500">
                               {req.loanApplication.applicationNo} • {req.customer.name} • EMI #{req.emiSchedule?.installmentNumber}
@@ -752,16 +763,84 @@ export default function PaymentRequestsSection({ cashierId }: PaymentRequestsSec
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {actionType === 'approve' && (
-              <Alert className="bg-emerald-50 border-emerald-200">
-                <CheckCircle className="h-4 w-4 text-emerald-600" />
-                <AlertDescription className="text-emerald-700">
-                  This will mark the EMI as paid and update the loan schedule.
-                  {selectedRequest?.paymentType === 'INTEREST_ONLY' && (
-                    <span className="block mt-1 font-medium">A new EMI will be created with principal + new interest.</span>
-                  )}
-                </AlertDescription>
-              </Alert>
+            {actionType === 'approve' && selectedRequest && isIOPhase1(selectedRequest) ? (
+              /* ── IO Phase 1 rich confirmation panel ── */
+              <div className="space-y-4">
+                {/* Header banner */}
+                <div className="p-4 bg-gradient-to-r from-purple-50 to-violet-50 rounded-lg border border-purple-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Percent className="h-5 w-5 text-purple-600" />
+                    <span className="font-semibold text-purple-800">IO Phase 1 — Monthly Interest Collection</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="text-gray-500">Loan No.</p>
+                      <p className="font-semibold">{selectedRequest.loanApplication.applicationNo}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Customer</p>
+                      <p className="font-semibold">{selectedRequest.customer.name}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Interest Amount</p>
+                      <p className="font-bold text-purple-700 text-lg">
+                        ₹{formatCurrency(
+                          selectedRequest.emiSchedule?.interestOnlyAmount ||
+                          selectedRequest.requestedAmount
+                        )}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">Payment Method</p>
+                      <p className="font-semibold">{selectedRequest.paymentMethod}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">EMI #</p>
+                      <p className="font-semibold">{selectedRequest.emiSchedule?.installmentNumber}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-500">UTR / Ref</p>
+                      <p className="font-mono text-xs">{selectedRequest.utrNumber}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Proof preview */}
+                {selectedRequest.proofUrl && (
+                  <div className="p-3 bg-gray-50 rounded-lg border">
+                    <p className="text-xs text-gray-500 mb-2 font-medium">Payment Screenshot</p>
+                    <img
+                      src={selectedRequest.proofUrl}
+                      alt="Payment proof"
+                      className="max-h-40 w-full object-contain rounded border cursor-pointer hover:opacity-90"
+                      onClick={() => setFullscreenPhoto(selectedRequest.proofUrl)}
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Click image to enlarge</p>
+                  </div>
+                )}
+
+                {/* Confirmation note */}
+                <Alert className="bg-purple-50 border-purple-200">
+                  <Percent className="h-4 w-4 text-purple-600" />
+                  <AlertDescription className="text-purple-700">
+                    Approving will record this month&apos;s interest as collected and advance the IO EMI schedule.
+                    <span className="block mt-1 font-medium">Principal remains deferred — no principal component in this payment.</span>
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ) : (
+              /* ── Standard approval alert for regular EMIs ── */
+              actionType === 'approve' && (
+                <Alert className="bg-emerald-50 border-emerald-200">
+                  <CheckCircle className="h-4 w-4 text-emerald-600" />
+                  <AlertDescription className="text-emerald-700">
+                    This will mark the EMI as paid and update the loan schedule.
+                    {selectedRequest?.paymentType === 'INTEREST_ONLY' && (
+                      <span className="block mt-1 font-medium">A new EMI will be created with principal + new interest.</span>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )
             )}
 
             {actionType === 'reject' && (
