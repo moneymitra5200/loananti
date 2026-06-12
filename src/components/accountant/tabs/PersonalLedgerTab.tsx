@@ -210,8 +210,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const LEDGER_ORDER: Record<string, number> = {
         LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
         PROCESSING_FEE_ACCRUAL: 1,
-        INTEREST_ACCRUAL: 2, INTEREST_RECLASSIFICATION: 2,
-        PROCESSING_FEE_COLLECTION: 3, PROCESSING_FEE: 3,
+        PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+        INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
         EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4,
         INTEREST_ONLY_PAYMENT: 4, PARTIAL_EMI_PAYMENT: 4,
         PRINCIPAL_ONLY_PAYMENT: 5, OFFLINE_LOAN_FORECLOSURE: 5, LOAN_FORECLOSURE: 5,
@@ -221,8 +221,8 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         .sort((a, b) => {
           const tA = new Date(a.date).getTime();
           const tB = new Date(b.date).getTime();
-          if (tA !== tB) return tA - tB;
-          // Same timestamp → use logical accounting order
+          if (Math.abs(tA - tB) > 5000) return tA - tB;
+          // Same/near timestamp → use logical accounting order
           const oA = LEDGER_ORDER[a.referenceType] ?? 9;
           const oB = LEDGER_ORDER[b.referenceType] ?? 9;
           return oA - oB;

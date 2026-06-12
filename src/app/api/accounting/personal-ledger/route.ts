@@ -959,13 +959,11 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         seenJEIds.add(pfe.id);
       }
     }
-    // Sort chronologically; when dates are equal, put accruals BEFORE payments so the
-    // ledger reads: [Disbursement] → [PF Accrual] → [Interest Accrual] → [EMI Payment]
     const ENTRY_ORDER: Record<string, number> = {
       LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
-      INTEREST_ACCRUAL: 2, INTEREST_RECLASSIFICATION: 2,
-      PROCESSING_FEE_COLLECTION: 3, PROCESSING_FEE: 3,
+      PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+      INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
       EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4,
       INTEREST_ONLY_PAYMENT: 4,
       PARTIAL_EMI_PAYMENT: 4,
@@ -975,8 +973,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     journalEntries.sort((a: any, b: any) => {
       const tA = new Date(a.entryDate).getTime();
       const tB = new Date(b.entryDate).getTime();
-      if (tA !== tB) return tA - tB;
-      // Same timestamp — use logical accounting order
+      if (Math.abs(tA - tB) > 5000) return tA - tB;
+      // Same/near timestamp — use logical accounting order
       const oA = ENTRY_ORDER[a.referenceType] ?? 9;
       const oB = ENTRY_ORDER[b.referenceType] ?? 9;
       return oA - oB;
@@ -1540,6 +1538,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   }
 
   allEntries.sort((a, b) => {
+    const ORDER: Record<string, number> = {
+      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
+      PROCESSING_FEE_ACCRUAL: 1,
+      PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+      INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
+      EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4, INTEREST_ONLY_PAYMENT: 4, PARTIAL_EMI_PAYMENT: 4,
+      PRINCIPAL_ONLY_PAYMENT: 5, OFFLINE_LOAN_FORECLOSURE: 5, LOAN_FORECLOSURE: 5, LOSS_WRITE_OFF: 5
+    };
+
     // 1. We only apply special logical grouping if they belong to the same loan
     if (a.loanId === b.loanId) {
       // 1a. Disbursement is ALWAYS first
@@ -1553,27 +1560,23 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         return a.emiNumber - b.emiNumber;
       }
 
-      // 1c. Within the same EMI (or same date), Accrual is ALWAYS before Payment
+      // 1c. Within the same EMI (or same date), use logical accounting order
       if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
-        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
-        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
-        if (isAccrualA && !isAccrualB) return -1;
-        if (!isAccrualA && isAccrualB) return 1;
+        const oA = ORDER[a.referenceType] ?? 9;
+        const oB = ORDER[b.referenceType] ?? 9;
+        if (oA !== oB) return oA - oB;
       }
     }
 
-    // 2. Fallback: Date
+    // 2. Fallback: Date (with 5-second tolerance)
     const timeA = new Date(a.date).getTime();
     const timeB = new Date(b.date).getTime();
-    if (timeA !== timeB) return timeA - timeB;
+    if (Math.abs(timeA - timeB) > 5000) return timeA - timeB;
 
-    // 3. Ultimate fallback for same date (if no EMI number)
-    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
-    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
-    if (isAccrualA && !isAccrualB) return -1;
-    if (!isAccrualA && isAccrualB) return 1;
-
-    return 0;
+    // 3. Ultimate fallback for same/near date
+    const oA = ORDER[a.referenceType] ?? 9;
+    const oB = ORDER[b.referenceType] ?? 9;
+    return oA - oB;
   });
 
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary]
