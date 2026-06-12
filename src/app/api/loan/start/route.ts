@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
           loanId,
           customerId: loan.customerId || loanId,
           amount: parsedProcessingFee,
-          accrualDate: new Date(),
+          accrualDate: new Date(Date.now() - 5000),
           createdById: startedBy || 'system',
         });
 
@@ -420,7 +420,7 @@ export async function POST(request: NextRequest) {
             loanId: mirrorMapping.mirrorLoanId!,
             customerId: loan.customerId || mirrorMapping.mirrorLoanId!,
             amount: autoProcessingFee,
-            accrualDate: new Date(),
+            accrualDate: new Date(Date.now() - 5000),
             createdById: startedBy || 'system',
           });
           console.log(`[Mirror Start Online] Recorded mirror processing fee accrual: ₹${autoProcessingFee} in company ${mirrorMapping.mirrorCompanyId}`);

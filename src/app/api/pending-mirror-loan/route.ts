@@ -991,7 +991,7 @@ export async function PUT(request: NextRequest) {
             loanId: mirrorLoan.id,
             customerId: originalLoan.customerId || mirrorLoan.id,
             amount: mirrorProcessingFee,
-            accrualDate: new Date(),
+            accrualDate: new Date(Date.now() - 5000),
             createdById: userId || 'SYSTEM',
           });
           console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${pendingLoan.mirrorCompanyId}`);

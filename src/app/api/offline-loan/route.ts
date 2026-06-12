@@ -1531,7 +1531,7 @@ export async function POST(request: NextRequest) {
               loanId: mirrorLoan.id,
               customerId: customerId || mirrorLoan.id,
               amount: mirrorProcessingFee,
-              accrualDate: new Date(disbursementDate),
+              accrualDate: new Date(new Date(disbursementDate).getTime() - 5000),
               createdById: createdById || 'system',
             });
             console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${mirrorCompanyId}`);
@@ -1990,7 +1990,7 @@ export async function POST(request: NextRequest) {
               loanId: loan.id,
               customerId: effectiveCustomerId,
               amount: effectiveProcessingFee,
-              accrualDate: new Date(disbursementDate),
+              accrualDate: new Date(new Date(disbursementDate).getTime() - 5000),
               createdById,
             });
 
@@ -2469,8 +2469,8 @@ export async function PUT(request: NextRequest) {
 
           const emiDueDate    = new Date(currentEMI.dueDate);
           const dueDatePassed = emiDueDate <= now;
-          // Accrual date: on/after due date → use due date; advance payment → use today
-          const accrualDate   = dueDatePassed ? emiDueDate : now;
+          // Accrual date: on/after due date → use due date; advance payment → use today (offset by 5s for sorting)
+          const accrualDate   = dueDatePassed ? emiDueDate : new Date(now.getTime() - 5000);
           let interestWasAccrued = !!existingAccrual;
 
           if (!existingAccrual) {

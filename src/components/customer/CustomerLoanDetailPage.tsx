@@ -1529,8 +1529,8 @@ export default function CustomerLoanDetailPage() {
                   <Wallet className="h-5 w-5" /> Payment Methods
                 </h3>
 
-                {mirrorTenure > 0 && (selectedEmi?.installmentNumber ?? 0) > mirrorTenure ? (
-                  /* Secondary payment page — Extra EMI goes to original company */
+                {selectedPaymentType === 'INTEREST_ONLY' || (mirrorTenure > 0 && (selectedEmi?.installmentNumber ?? 0) > mirrorTenure) ? (
+                  /* Secondary payment page — Extra EMI or Interest Only goes to original company */
                   <Card className="border-2 border-purple-200 bg-gradient-to-br from-purple-50 to-violet-50">
                     <CardContent className="p-4 space-y-3">
                       <div className="flex items-center gap-2 mb-1">
@@ -1538,10 +1538,14 @@ export default function CustomerLoanDetailPage() {
                         <span className="font-semibold text-purple-800">
                           {extraEmiPaymentPage ? extraEmiPaymentPage.name : 'Pay to Original Lender'}
                         </span>
-                        <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Extra EMI</span>
+                        <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                          {selectedPaymentType === 'INTEREST_ONLY' ? 'Interest Only' : 'Extra EMI'}
+                        </span>
                       </div>
                       <p className="text-xs text-purple-500 mb-2">
-                        This EMI is beyond the mirror tenure (month {mirrorTenure}).
+                        {selectedPaymentType === 'INTEREST_ONLY'
+                          ? 'This is an Interest Only payment. Please pay using the details below.'
+                          : `This EMI is beyond the mirror tenure (month ${mirrorTenure}).`}
                         {extraEmiPaymentPage
                           ? ` Pay using the details below.`
                           : ` Payment goes directly to ${loan?.company?.name || 'your lender'}.`}

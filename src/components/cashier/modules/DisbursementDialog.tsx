@@ -1295,18 +1295,24 @@ export default function DisbursementDialog({
                   </div>
                 </div>
 
-                {/* Extra EMI Payment Page Selection - only when extra EMIs exist (and not interest-only) */}
-                {mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && (
+                {/* Extra EMI / Interest Only Payment Page Selection - required for all mirror loans */}
+                {mirrorLoanInfo?.isMirrorLoan && (
                   <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 rounded-lg">
                     <div className="flex items-start gap-3 mb-4">
                       <div className="p-2 bg-purple-100 rounded-lg">
                         <CreditCard className="h-5 w-5 text-purple-600" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="font-bold text-purple-800">Extra EMI Payment Page Selection</h4>
+                        <h4 className="font-bold text-purple-800">
+                          {selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                            ? 'Secondary Payment Page Selection for Interest Only Mode'
+                            : 'Extra EMI Payment Page Selection'}
+                        </h4>
                         <p className="text-sm text-purple-600 mt-1">
-                          <strong>REQUIRED:</strong> This is a Mirror Loan with <strong>{mirrorLoanInfo.extraEMICount || 'N/A'} Extra EMI(s)</strong>.
-                          Select a Secondary Payment Page to receive these Extra EMI payments.
+                          <strong>REQUIRED:</strong> This is a Mirror Loan.
+                          {selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                            ? ' Select a Secondary Payment Page to show the customer for Interest Only payments.'
+                            : ` Select a Secondary Payment Page to receive these ${mirrorLoanInfo.extraEMICount || 0} Extra EMI payments.`}
                         </p>
                       </div>
                     </div>
@@ -1342,7 +1348,9 @@ export default function DisbursementDialog({
                     {/* Payment Page Selection */}
                     <div className="space-y-2">
                       <Label className="text-purple-700 font-medium">
-                        Select Payment Page for Extra EMIs *
+                        {selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                          ? 'Select Payment Page for Interest Only Mode *'
+                          : 'Select Payment Page for Extra EMIs *'}
                       </Label>
                       {loadingPaymentPages ? (
                         <div className="flex items-center gap-2 p-3 bg-white rounded-lg">
@@ -1366,7 +1374,11 @@ export default function DisbursementDialog({
                           onValueChange={(v) => setDisbursementForm({...disbursementForm, extraEMIPaymentPageId: v})}
                         >
                           <SelectTrigger className="border-purple-300 bg-white">
-                            <SelectValue placeholder="Select a payment page for Extra EMIs" />
+                            <SelectValue placeholder={
+                              selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                                ? "Select a payment page for Interest Only payments"
+                                : "Select a payment page for Extra EMIs"
+                            } />
                           </SelectTrigger>
                           <SelectContent>
                             {secondaryPaymentPages.map((page) => (
@@ -1421,7 +1433,9 @@ export default function DisbursementDialog({
                           })()}
                           <p className="text-xs text-green-600 mt-2">
                             <PlusCircle className="h-3 w-3 inline mr-1" />
-                            Extra EMI payments will credit to the selected role&apos;s personal credit
+                            {selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                              ? "Interest Only payments will credit to the selected role's personal credit"
+                              : "Extra EMI payments will credit to the selected role's personal credit"}
                           </p>
                         </div>
                       )}
@@ -1431,7 +1445,11 @@ export default function DisbursementDialog({
                         <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
                           <AlertCircle className="h-4 w-4 text-red-500 mt-0.5" />
                           <p className="text-sm text-red-600">
-                            <strong>Required:</strong> Please select a payment page for Extra EMIs to proceed with disbursement.
+                            <strong>Required:</strong> Please select a payment page for {
+                              selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                                ? 'Interest Only payments'
+                                : 'Extra EMIs'
+                            } to proceed with disbursement.
                           </p>
                         </div>
                       )}
@@ -1453,13 +1471,17 @@ export default function DisbursementDialog({
 
         <SheetFooter className="p-5 border-t flex-shrink-0 flex-col gap-2">
           {/* Show missing requirements warning */}
-          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)) && (
+          {(!disbursementForm.selectedBankAccountId || !disbursementForm.agreementSigned || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)) && (
             <div className="w-full p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-red-600" />
               <span className="text-sm text-red-700">
                 {!disbursementForm.selectedBankAccountId ? "⚠️ Please select a Payment Source. " : ""}
                 {!disbursementForm.agreementSigned ? "⚠️ Please confirm the Agreement is signed. " : ""}
-                {mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId ? "⚠️ Please select Extra EMI Payment Page." : ""}
+                {mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId ? (
+                  selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+                    ? "⚠️ Please select Secondary Payment Page for Interest Only payments."
+                    : "⚠️ Please select Extra EMI Payment Page."
+                ) : ""}
               </span>
             </div>
           )}
@@ -1478,7 +1500,7 @@ export default function DisbursementDialog({
             <Button 
               className="bg-green-500 hover:bg-green-600" 
               onClick={onDisburse}
-              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId)}
+              disabled={saving || !disbursementForm.agreementSigned || !disbursementForm.selectedBankAccountId || (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId)}
             >
               {saving ? (
                 <>

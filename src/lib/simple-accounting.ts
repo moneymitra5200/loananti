@@ -389,7 +389,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               customerName: customerLabel || 'Customer',
               emiId: emiId,
               interestAmount: interestComponent,
-              accrualDate: emiDueDate, // ← EMI due date, not now()
+              accrualDate: isEmiDue ? emiDueDate : new Date(Date.now() - 5000),
               createdById: userId || 'SYSTEM'
             });
 
@@ -501,15 +501,18 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             try {
               const { AccountingService } = await import('@/lib/accounting-service');
               const accSvc = new AccountingService(mirrorCompanyId!);
+              const mirrorEmiDueDate = mirrorEmiType === 'ONLINE'
+                ? (await db.eMISchedule.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date()
+                : (await db.offlineLoanEMI.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date();
+              const mirrorAccrualDate = isMirrorEmiDue ? mirrorEmiDueDate : new Date(Date.now() - 5000);
+
               await accSvc.recordInterestAccrual({
                 loanId: mirrorLoanId,
                 customerId: customerId || '',
                 customerName: customerLabel || 'Customer',
                 emiId: mirrorEmiId,
                 interestAmount: mirrorInterest,
-                accrualDate: mirrorEmiType === 'ONLINE'
-                  ? (await db.eMISchedule.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date()
-                  : (await db.offlineLoanEMI.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date(),
+                accrualDate: mirrorAccrualDate,
                 createdById: userId || 'SYSTEM'
               });
 

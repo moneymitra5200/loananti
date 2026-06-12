@@ -1105,7 +1105,7 @@ export class AccountingService {
         loanId: params.loanId,
         customerId: params.customerId,
         amount: params.amount,
-        accrualDate: params.collectionDate,
+        accrualDate: new Date(params.collectionDate.getTime() - 5000),
         createdById: params.createdById
       }, executor);
     }

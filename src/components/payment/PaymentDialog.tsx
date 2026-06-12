@@ -83,6 +83,31 @@ export default function PaymentDialog({
   const [proofPreview, setProofPreview] = useState<string>('');
   const [step, setStep] = useState(1); // 1: Select Option, 2: Payment Details
 
+  // Select display payment details - Interest Only mode routing to secondary payment page
+  const displayUpiId = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage?.upiId)
+    ? (settings as any).secondaryPaymentPage.upiId
+    : ((settings as any)?.companyUpiId || companyUpiId);
+
+  const displayQrCodeUrl = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage?.qrCodeUrl)
+    ? (settings as any).secondaryPaymentPage.qrCodeUrl
+    : ((settings as any)?.companyQrCodeUrl || companyQrCodeUrl);
+
+  const displayBankDetails = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage)
+    ? {
+        accountHolderName: (settings as any).secondaryPaymentPage.accountName,
+        accountNumber: (settings as any).secondaryPaymentPage.accountNumber,
+        ifscCode: (settings as any).secondaryPaymentPage.ifscCode,
+        bankName: (settings as any).secondaryPaymentPage.bankName
+      }
+    : ((settings as any)?.bankAccountNumber
+        ? {
+            accountHolderName: (settings as any).bankAccountName || bankDetails?.accountHolderName,
+            accountNumber: (settings as any).bankAccountNumber || bankDetails?.accountNumber,
+            ifscCode: (settings as any).bankIfscCode || bankDetails?.ifscCode,
+            bankName: (settings as any).bankName || bankDetails?.bankName
+          }
+        : bankDetails);
+
   useEffect(() => {
     if (open && emi) {
       fetchSettings();
@@ -555,8 +580,8 @@ export default function PaymentDialog({
                               </p>
                             </div>
                             {/* Large QR code */}
-                            {companyQrCodeUrl ? (
-                              <img src={companyQrCodeUrl} alt="QR Code" className="w-72 h-72 mx-auto border-2 border-emerald-200 rounded-2xl shadow-md" />
+                            {displayQrCodeUrl ? (
+                              <img src={displayQrCodeUrl} alt="QR Code" className="w-72 h-72 mx-auto border-2 border-emerald-200 rounded-2xl shadow-md" />
                             ) : (
                               <div className="w-72 h-72 mx-auto border-2 border-dashed rounded-2xl flex items-center justify-center bg-gray-50">
                                 <QrCode className="h-32 w-32 text-gray-300" />
@@ -565,9 +590,9 @@ export default function PaymentDialog({
                             <p className="mt-4 text-sm text-gray-600">Scan QR code to pay</p>
                             <div className="mt-4 flex items-center justify-center gap-2">
                               <div className="bg-gray-100 px-4 py-2 rounded-lg font-mono font-medium">
-                                {companyUpiId}
+                                {displayUpiId}
                               </div>
-                              <Button variant="outline" size="sm" onClick={() => copyToClipboard(companyUpiId)}>
+                              <Button variant="outline" size="sm" onClick={() => copyToClipboard(displayUpiId)}>
                                 <Copy className="h-4 w-4" />
                               </Button>
                             </div>
@@ -579,39 +604,39 @@ export default function PaymentDialog({
                         <Card>
                           <CardContent className="p-6">
                             <h4 className="font-medium mb-4">Bank Account Details</h4>
-                            {bankDetails ? (
+                            {displayBankDetails ? (
                               <div className="space-y-3">
-                                {bankDetails.accountHolderName && (
+                                {displayBankDetails.accountHolderName && (
                                   <div className="flex justify-between items-center py-2 border-b">
                                     <span className="text-gray-600">Account Name</span>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-medium">{bankDetails.accountHolderName}</span>
-                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.accountHolderName)}><Copy className="h-3 w-3" /></Button>
+                                      <span className="font-medium">{displayBankDetails.accountHolderName}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(displayBankDetails.accountHolderName)}><Copy className="h-3 w-3" /></Button>
                                     </div>
                                   </div>
                                 )}
-                                {bankDetails.accountNumber && (
+                                {displayBankDetails.accountNumber && (
                                   <div className="flex justify-between items-center py-2 border-b">
                                     <span className="text-gray-600">Account Number</span>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-medium font-mono">{bankDetails.accountNumber}</span>
-                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.accountNumber)}><Copy className="h-3 w-3" /></Button>
+                                      <span className="font-medium font-mono">{displayBankDetails.accountNumber}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(displayBankDetails.accountNumber)}><Copy className="h-3 w-3" /></Button>
                                     </div>
                                   </div>
                                 )}
-                                {bankDetails.ifscCode && (
+                                {displayBankDetails.ifscCode && (
                                   <div className="flex justify-between items-center py-2 border-b">
                                     <span className="text-gray-600">IFSC Code</span>
                                     <div className="flex items-center gap-2">
-                                      <span className="font-medium font-mono">{bankDetails.ifscCode}</span>
-                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(bankDetails.ifscCode)}><Copy className="h-3 w-3" /></Button>
+                                      <span className="font-medium font-mono">{displayBankDetails.ifscCode}</span>
+                                      <Button variant="ghost" size="sm" onClick={() => copyToClipboard(displayBankDetails.ifscCode)}><Copy className="h-3 w-3" /></Button>
                                     </div>
                                   </div>
                                 )}
-                                {bankDetails.bankName && (
+                                {displayBankDetails.bankName && (
                                   <div className="flex justify-between items-center py-2">
                                     <span className="text-gray-600">Bank Name</span>
-                                    <span className="font-medium">{bankDetails.bankName}</span>
+                                    <span className="font-medium">{displayBankDetails.bankName}</span>
                                   </div>
                                 )}
                               </div>

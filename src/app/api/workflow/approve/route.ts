@@ -794,7 +794,7 @@ async function processSingleApproval({
             loanId,
             customerId: loan.customerId,
             amount: processingFee,
-            accrualDate: new Date(),
+            accrualDate: new Date(Date.now() - 5000),
             createdById: userId || 'SYSTEM',
           }, tx);
 

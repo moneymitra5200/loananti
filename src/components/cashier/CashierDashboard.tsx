@@ -526,10 +526,16 @@ export default function CashierDashboard() {
       return;
     }
     
-    // Check for Extra EMI Payment Page selection (only required when extra EMIs exist, except for Interest-Only loans)
-    if (mirrorLoanInfo?.isMirrorLoan && !selectedLoan?.isInterestOnlyLoan && selectedLoan?.loanType !== 'INTEREST_ONLY' && (mirrorLoanInfo.extraEMICount ?? 0) > 0 && !disbursementForm.extraEMIPaymentPageId) {
-      console.error('[handleDisburse] No extra EMI payment page selected for extra EMIs');
-      toast({ title: 'Error', description: 'Please select a Secondary Payment Page for Extra EMIs', variant: 'destructive' });
+    // Check for Secondary Payment Page selection (required for all mirror loans)
+    if (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId) {
+      console.error('[handleDisburse] No secondary payment page selected');
+      toast({ 
+        title: 'Error', 
+        description: selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
+          ? 'Please select a Secondary Payment Page for Interest Only payments'
+          : 'Please select a Secondary Payment Page for Extra EMIs', 
+        variant: 'destructive' 
+      });
       return;
     }
     

@@ -123,11 +123,41 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      let secondaryPaymentPage: any = null;
+      if (loanApplicationId) {
+        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+          where: {
+            OR: [
+              { originalLoanId: loanApplicationId },
+              { mirrorLoanId: loanApplicationId }
+            ]
+          }
+        });
+        if (mirrorMapping?.extraEMIPaymentPageId) {
+          const spPage = await db.secondaryPaymentPage.findUnique({
+            where: { id: mirrorMapping.extraEMIPaymentPageId }
+          });
+          if (spPage) {
+            secondaryPaymentPage = {
+              id: spPage.id,
+              name: spPage.name,
+              upiId: spPage.upiId,
+              qrCodeUrl: spPage.qrCodeUrl,
+              bankName: spPage.bankName,
+              accountNumber: spPage.accountNumber,
+              accountName: spPage.accountName,
+              ifscCode: spPage.ifscCode
+            };
+          }
+        }
+      }
+      
       return NextResponse.json({ 
         success: true, 
         settings: {
           ...settings,
-          ...bankAccountDetails
+          ...bankAccountDetails,
+          secondaryPaymentPage
         }
       });
     }
