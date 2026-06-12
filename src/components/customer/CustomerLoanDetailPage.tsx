@@ -405,7 +405,8 @@ export default function CustomerLoanDetailPage() {
             setExtraEmiPaymentPage(spPage);
           } else {
             // Fallback: fetch original company bank WITHOUT loanId so mirror redirect is skipped
-            const origRes = await fetch(`/api/bank-account?companyId=${loan.company!.id}&action=default`);
+            const origCompanyId = data.mirrorLoans?.[0]?.originalCompany?.id || data.mappings?.[0]?.originalCompany?.id || data.mappings?.[0]?.originalCompanyId || loan.company!.id;
+            const origRes = await fetch(`/api/bank-account?companyId=${origCompanyId}&action=default`);
             if (origRes.ok) {
               const origData = await origRes.json();
               if (origData.success && origData.account) {

@@ -63,7 +63,12 @@ export async function GET(request: NextRequest) {
     // Handle direct loanId query (fetch mirror mappings for a loan)
     if (loanId && !action) {
       const mappings = await db.mirrorLoanMapping.findMany({
-        where: { originalLoanId: loanId },
+        where: {
+          OR: [
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ]
+        },
         include: {
           mirrorCompany: { select: { id: true, name: true, code: true } },
           originalCompany: { select: { id: true, name: true, code: true } }
@@ -146,7 +151,9 @@ export async function GET(request: NextRequest) {
           originalTenure: m.originalTenure,
           originalEMIAmount: m.originalEMIAmount,
           extraEMIPaymentPageId: m.extraEMIPaymentPageId,
-          extraEMIPaymentPage: m.extraEMIPaymentPageId ? spPageMap.get(m.extraEMIPaymentPageId) ?? null : null
+          extraEMIPaymentPage: m.extraEMIPaymentPageId ? spPageMap.get(m.extraEMIPaymentPageId) ?? null : null,
+          originalCompanyId: m.originalCompanyId,
+          originalCompany: m.originalCompany
         }))
       });
     }
