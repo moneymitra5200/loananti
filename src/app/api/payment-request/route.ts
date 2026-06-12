@@ -1185,7 +1185,7 @@ export async function PUT(request: NextRequest) {
                   await db.mirrorLoanMapping.update({ where: { id: selfAsMirror.id }, data: { mirrorEMIsPaid: { increment: 1 } } });
                 }
                 // Processing fee on EMI #1
-                if (emi.installmentNumber === 1 && !selfAsMirror.processingFeeRecorded) {
+                if (emi.installmentNumber === 1 && !emi.isInterestOnly && !selfAsMirror.processingFeeRecorded) {
                   try {
                     const { ACCOUNT_CODES: AC } = await import('@/lib/accounting-service');
                     const regularEMI = loan.sessionForm?.emiAmount ?? emi.totalAmount ?? 0;
@@ -1256,7 +1256,7 @@ export async function PUT(request: NextRequest) {
                 });
                 console.log(`[PR Accounting] ✓ CASE C: original company ₹${totalComp} (P:₹${principalComp} I:₹${interestComp})`);
                 const pfAmount = loan.sessionForm?.processingFee || 0;
-                if (emi.installmentNumber === 1 && pfAmount > 0) {
+                if (emi.installmentNumber === 1 && !emi.isInterestOnly && pfAmount > 0) {
                   const existingPf = await db.journalEntry.findFirst({
                     where: { companyId: loan.companyId, referenceId: loan.id, referenceType: 'PROCESSING_FEE_COLLECTION', isReversed: false }
                   });
@@ -1316,8 +1316,9 @@ export async function PUT(request: NextRequest) {
             const mirrorRemainingTotal     = Math.round((mirrorRemainingInterest + mirrorRemainingPrincipal) * 100) / 100;
 
             // On-demand interest accrual for mirror loan EMI
+            // Skip for IO Phase 1 EMIs — no separate accrual JE; the payment itself is the recognition.
             let isMirrorEmiAccrued = mirrorEmi?.interestAccrued || false;
-            if (mirrorEmi && !isMirrorEmiAccrued && mirrorInterest > 0) {
+            if (mirrorEmi && !mirrorEmi.isInterestOnly && !isMirrorEmiAccrued && mirrorInterest > 0) {
               try {
                 await accSvc.recordInterestAccrual({
                   loanId: mirrorMapping.mirrorLoanId || loan.id,
@@ -1343,9 +1344,11 @@ export async function PUT(request: NextRequest) {
             // FULL_EMI
             // ==================================================================
             if (pType === 'FULL_EMI' && mirrorEmi) {
-              // For FULL_EMI we settle whatever is REMAINING on the mirror EMI
-              // (may be less than mirrorTotal if mirror had a previous partial payment)
-              const settleMirrorAmt       = savedTotalComp; // Bank gets what customer paid
+              // For regular EMIs: Bank gets what customer paid (original amount).
+              // For IO Phase 1 mirror EMIs: Bank gets MIRROR's own interestOnlyAmount (not original rate).
+              const settleMirrorAmt = mirrorEmi.isInterestOnly
+                ? (mirrorEmi.interestOnlyAmount || mirrorRemainingTotal)
+                : savedTotalComp;
               const settleMirrorInterest  = mirrorRemainingInterest;
               const settleMirrorPrincipal = mirrorRemainingPrincipal;
 
@@ -1437,7 +1440,7 @@ export async function PUT(request: NextRequest) {
               // DYNAMIC CALC: processingFee = regularEMI - lastMirrorEMI (installment #1)
               // The mirror schedule is shifted so position #1 = the smallest (last) EMI.
               // =================================================================
-              if (emi.installmentNumber === 1 && !mirrorMapping.processingFeeRecorded) {
+              if (emi.installmentNumber === 1 && !emi.isInterestOnly && !mirrorMapping.processingFeeRecorded) {
                 try {
                   // regularEMI = the standard EMI amount of the original loan
                   const regularEMI = loan.sessionForm?.emiAmount ?? (emi?.totalAmount ?? 0);
