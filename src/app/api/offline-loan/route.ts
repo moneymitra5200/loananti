@@ -2507,8 +2507,8 @@ export async function PUT(request: NextRequest) {
             entryDate: now, referenceType: 'INTEREST_ONLY_PAYMENT', referenceId: currentEMI.id,
             narration: `IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`,
             lines: [
-              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: targetLoanId },
-              { accountCode: interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: targetLoanId },
+              { accountCode: isOnlineMode ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: targetAmount, creditAmount: 0, narration: `Interest received (${paymentMode || 'CASH'})`, loanId: targetLoanId, customerId: targetCustomerId },
+              { accountCode: interestWasAccrued ? CODES.INTEREST_RECEIVABLE : CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: targetAmount, narration: `Interest payment received - ${loan.loanNumber} - ${loan.customerName || 'Customer'}`, loanId: targetLoanId, customerId: targetCustomerId },
             ],
             createdById: userId, paymentMode: paymentMode || 'CASH', isAutoEntry: true,
           });
@@ -2535,8 +2535,8 @@ export async function PUT(request: NextRequest) {
                 entryDate: now, referenceType: 'LATE_FEE_COLLECTION', referenceId: currentEMI.id,
                 narration: `Late Fee Collected - IO EMI #${currentEMI.installmentNumber} - ${loan.loanNumber}`,
                 lines: [
-                  { accountCode: penaltyPaymentMode === 'BANK' ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty received (${penaltyPaymentMode})`, loanId: loan.id },
-                  { accountCode: CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income - ${loan.loanNumber}`, loanId: loan.id },
+                  { accountCode: penaltyPaymentMode === 'BANK' ? CODES.BANK_ACCOUNT : CODES.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty received (${penaltyPaymentMode})`, loanId: targetLoanId, customerId: targetCustomerId },
+                  { accountCode: CODES.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income - ${loan.loanNumber}`, loanId: targetLoanId, customerId: targetCustomerId },
                 ],
                 createdById: userId, paymentMode: penaltyPaymentMode, isAutoEntry: true,
               });
@@ -3629,6 +3629,7 @@ export async function PUT(request: NextRequest) {
                   installmentNumber:  emi.installmentNumber,
                   isInterestAccrued:  isMirrorAccrued,
                   isInterestReclassified: isMirrorReclass,
+                  customerId:         emi.offlineLoan.customerId || undefined,
                 });
                 if (!mirrorJournalResult.success) {
                   accountingWarnings.push(`MIRROR PRINCIPAL_ONLY/ADVANCE journal: ${mirrorJournalResult.error}`);
@@ -3695,6 +3696,7 @@ export async function PUT(request: NextRequest) {
                   installmentNumber:  emi.installmentNumber,
                   isInterestAccrued:  isAccrued,
                   isInterestReclassified: isReclass,
+                  customerId:         emi.offlineLoan.customerId || undefined,
                 });
                 if (!journalResult.success) {
                   accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);

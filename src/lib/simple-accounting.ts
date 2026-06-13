@@ -1167,11 +1167,12 @@ export async function recordPrincipalOnlyJournal(params: {
   installmentNumber: number | string;
   isInterestAccrued?: boolean;
   isInterestReclassified?: boolean;
+  customerId?: string;
 }): Promise<{ success: boolean; journalEntryId?: string; error?: string }> {
   let {
     companyId, company3Id, creditType, loanId, paymentId, principalAmount, interestWrittenOff,
     paymentDate, createdById, paymentMode, loanNumber, installmentNumber,
-    isInterestAccrued, isInterestReclassified,
+    isInterestAccrued, isInterestReclassified, customerId,
   } = params;
 
   if (creditType === 'PERSONAL' && company3Id) {
@@ -1243,17 +1244,17 @@ export async function recordPrincipalOnlyJournal(params: {
     // ── 4. Build lines ─────────────────────────────────────────────────────────
     const writeOff = interestWrittenOff > 0 ? interestWrittenOff : 0;
     const lineData: Array<{
-      accountId: string; debitAmount: number; creditAmount: number; narration: string; loanId: string;
+      accountId: string; debitAmount: number; creditAmount: number; narration: string; loanId: string; customerId?: string;
     }> = [
       { accountId: accountIdMap[cashBankCode], debitAmount: principalAmount, creditAmount: 0,
-        narration: `Principal received via ${paymentMode}`, loanId },
+        narration: `Principal received via ${paymentMode}`, loanId, customerId },
       { accountId: accountIdMap['1200'],       debitAmount: 0, creditAmount: principalAmount,
-        narration: 'Principal repayment — loan balance reduced', loanId },
+        narration: 'Principal repayment — loan balance reduced', loanId, customerId },
       ...(writeOff > 0 ? [
         { accountId: accountIdMap['5500'], debitAmount: writeOff, creditAmount: 0,
-          narration: 'Interest written off as irrecoverable debt', loanId },
+          narration: 'Interest written off as irrecoverable debt', loanId, customerId },
         { accountId: accountIdMap[interestCreditCode], debitAmount: 0, creditAmount: writeOff,
-          narration: isInterestReclassified ? 'Overdue interest cleared — principal-only payment' : isInterestAccrued ? 'Accrued interest cleared — principal-only payment' : 'Interest income — waived and written off', loanId },
+          narration: isInterestReclassified ? 'Overdue interest cleared — principal-only payment' : isInterestAccrued ? 'Accrued interest cleared — principal-only payment' : 'Interest income — waived and written off', loanId, customerId },
       ] : []),
     ];
 

@@ -187,7 +187,12 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId }
+      where: {
+        OR: [
+          { originalLoanId: loanId },
+          { mirrorLoanId: loanId }
+        ]
+      }
     });
 
     const effectiveCompanyId = companyId || loan.companyId || '';
@@ -196,62 +201,68 @@ export async function POST(request: NextRequest) {
     const unpaidEMIIds       = unpaidEMIs.map((e: any) => e.id);
     const accountingWarnings: string[] = [];
 
-    // Resolve mirror loan details if mapping exists
-    let mirrorLoan: any = null;
-    let mirrorUnpaidEMIs: any[] = [];
-    let mirrorTotalPrincipal = 0;
-    let mirrorTotalInterest = 0;
-    let mirrorTotalForeclosureAmount = 0;
+    // Resolve partner loan details if mapping exists
+    let partnerLoan: any = null;
+    let partnerUnpaidEMIs: any[] = [];
+    let partnerTotalPrincipal = 0;
+    let partnerTotalInterest = 0;
+    let partnerTotalForeclosureAmount = 0;
+    const partnerLoanId = mirrorMapping
+      ? (loanId === mirrorMapping.originalLoanId ? mirrorMapping.mirrorLoanId : mirrorMapping.originalLoanId)
+      : null;
+    const partnerCompanyId = mirrorMapping
+      ? (loanId === mirrorMapping.originalLoanId ? mirrorMapping.mirrorCompanyId : mirrorMapping.originalCompanyId)
+      : null;
 
-    if (mirrorMapping?.mirrorLoanId) {
-      mirrorLoan = await db.loanApplication.findUnique({
-        where: { id: mirrorMapping.mirrorLoanId },
+    if (partnerLoanId) {
+      partnerLoan = await db.loanApplication.findUnique({
+        where: { id: partnerLoanId },
         include: { emiSchedules: { orderBy: { installmentNumber: 'asc' } } }
       });
-      if (mirrorLoan) {
-        mirrorUnpaidEMIs = mirrorLoan.emiSchedules.filter(isCloseable);
-        for (const emi of mirrorUnpaidEMIs) {
+      if (partnerLoan) {
+        partnerUnpaidEMIs = partnerLoan.emiSchedules.filter(isCloseable);
+        for (const emi of partnerUnpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
-          mirrorTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          partnerTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
           if (monthHasStarted) {
-            mirrorTotalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+            partnerTotalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
           }
         }
-        mirrorTotalForeclosureAmount = mirrorTotalPrincipal + mirrorTotalInterest;
+        partnerTotalForeclosureAmount = partnerTotalPrincipal + partnerTotalInterest;
       }
     }
 
-    // ─── Helper: close online mirror loan (BATCH — avoids sequential round-trips) ─
-    const closeMirrorLoan = async () => {
-      if (!mirrorMapping?.mirrorLoanId) return;
+    // ─── Helper: close online partner loan (BATCH — avoids sequential round-trips) ─
+    const closePartnerLoan = async () => {
+      if (!partnerLoanId) return;
       try {
-        const mirrorLoan = await db.loanApplication.findUnique({
-          where:  { id: mirrorMapping.mirrorLoanId },
+        const partner = await db.loanApplication.findUnique({
+          where:  { id: partnerLoanId },
           select: { id: true, applicationNo: true, status: true }
         });
-        if (!mirrorLoan || mirrorLoan.status === 'CLOSED') return;
+        if (!partner || partner.status === 'CLOSED') return;
 
         // BATCH: one updateMany instead of N sequential updates
         await db.eMISchedule.updateMany({
           where: {
-            loanApplicationId: mirrorMapping.mirrorLoanId,
+            loanApplicationId: partnerLoanId,
             paymentStatus:     { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
           },
           data: {
             paymentStatus: 'PAID',
             paidDate:      now,
             paymentMode:   paymentMode || 'CASH',
-            notes:         `Written off as loss (Mirror) - Loan closed`,
+            notes:         `Written off as loss (Partner) - Loan closed`,
           }
         });
         await db.loanApplication.update({
-          where: { id: mirrorMapping.mirrorLoanId! },
+          where: { id: partnerLoanId },
           data:  { status: 'CLOSED', closedAt: now }
         });
-        console.log(`[Close] ✅ Mirror loan ${mirrorLoan.applicationNo} also closed`);
+        console.log(`[Close] ✅ Partner loan ${partner.applicationNo} also closed`);
       } catch (e: any) {
-        console.error('[Close] ❌ Mirror loan close failed:', e?.message);
-        accountingWarnings.push(`Mirror loan close failed: ${e?.message}`);
+        console.error('[Close] ❌ Partner loan close failed:', e?.message);
+        accountingWarnings.push(`Partner loan close failed: ${e?.message}`);
       }
     };
 
@@ -310,8 +321,8 @@ export async function POST(request: NextRequest) {
         }
       }).catch(e => console.error('[Close/Loss] ActionLog failed:', e));
 
-      // Close mirror too
-      await closeMirrorLoan();
+      // Close partner too
+      await closePartnerLoan();
 
       // ── Accounting: Irrecoverable Debt write-off journal — ORIGINAL COMPANY
       if (effectiveCompanyId) {
@@ -363,15 +374,15 @@ export async function POST(request: NextRequest) {
 
           if (actualWriteOff > 0) {
             const lines = [
-              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, narration: `Write-off to Irrecoverable Debt (${writeOffInterestOnly ? 'P-only' : 'P+I'})` },
-              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, narration: `Loan ${loan.applicationNo} principal removed from Loans Receivable` }
+              { accountCode: '5500', debitAmount: actualWriteOff, creditAmount: 0, narration: `Write-off to Irrecoverable Debt (${writeOffInterestOnly ? 'P-only' : 'P+I'})`, loanId, customerId: loan.customerId },
+              { accountCode: '1200', debitAmount: 0, creditAmount: totalRemainingPrincipal, narration: `Loan ${loan.applicationNo} principal removed from Loans Receivable`, loanId, customerId: loan.customerId }
             ];
 
             if (totalAccruedInterest > 0) {
-              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Waived accrued interest removed from Interest Receivable` });
+              lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Waived accrued interest removed from Interest Receivable`, loanId, customerId: loan.customerId });
             }
             if (totalReclassifiedInterest > 0) {
-              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Waived overdue interest removed from Irrecoverable Interest` });
+              lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Waived overdue interest removed from Irrecoverable Interest`, loanId, customerId: loan.customerId });
             }
 
             await accSvc.createJournalEntry({
@@ -392,22 +403,22 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // ── Accounting: Irrecoverable Debt write-off journal — MIRROR COMPANY ──
-      if (mirrorMapping?.mirrorLoanId && mirrorMapping?.mirrorCompanyId && mirrorLoan) {
+      // ── Accounting: Irrecoverable Debt write-off journal — PARTNER COMPANY ──
+      if (partnerLoanId && partnerCompanyId && partnerLoan) {
         try {
-          const mirrorUnpaid = mirrorUnpaidEMIs;
-          const mirrorUnpaidIds = mirrorUnpaid.map(e => e.id);
-            let mirrorP = 0;
-            let mirrorAccruedI = 0;
-            let mirrorReclassifiedI = 0;
+          const partnerUnpaid = partnerUnpaidEMIs;
+          const partnerUnpaidIds = partnerUnpaid.map(e => e.id);
+            let partnerP = 0;
+            let partnerAccruedI = 0;
+            let partnerReclassifiedI = 0;
 
-            let existingMirrorEntries: any[] = [];
-            if (!writeOffInterestOnly && mirrorUnpaidIds.length > 0) {
-              existingMirrorEntries = await db.journalEntry.findMany({
+            let existingPartnerEntries: any[] = [];
+            if (!writeOffInterestOnly && partnerUnpaidIds.length > 0) {
+              existingPartnerEntries = await db.journalEntry.findMany({
                 where: {
-                  companyId: mirrorMapping.mirrorCompanyId,
+                  companyId: partnerCompanyId,
                   referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION'] },
-                  referenceId: { in: mirrorUnpaidIds },
+                  referenceId: { in: partnerUnpaidIds },
                   isReversed: false
                 },
                 select: {
@@ -417,62 +428,62 @@ export async function POST(request: NextRequest) {
               });
             }
 
-            const mirrorAccrualMap = new Map<string, string>();
-            for (const ent of existingMirrorEntries) {
+            const partnerAccrualMap = new Map<string, string>();
+            for (const ent of existingPartnerEntries) {
               const refId = ent.referenceId;
               const refType = ent.referenceType;
-              if (refId && refType && (refType === 'INTEREST_RECLASSIFICATION' || !mirrorAccrualMap.has(refId))) {
-                mirrorAccrualMap.set(refId, refType);
+              if (refId && refType && (refType === 'INTEREST_RECLASSIFICATION' || !partnerAccrualMap.has(refId))) {
+                partnerAccrualMap.set(refId, refType);
               }
             }
 
-            for (const e of mirrorUnpaid) {
-              mirrorP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
+            for (const e of partnerUnpaid) {
+              partnerP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
               const remI = Math.max(0, Number(e.interestAmount ?? 0) - Number(e.paidInterest ?? 0));
               if (remI > 0) {
-                const type = mirrorAccrualMap.get(e.id);
+                const type = partnerAccrualMap.get(e.id);
                 if (type === 'INTEREST_RECLASSIFICATION') {
-                  mirrorReclassifiedI += remI;
+                  partnerReclassifiedI += remI;
                 } else if (type === 'INTEREST_ACCRUAL') {
-                  mirrorAccruedI += remI;
+                  partnerAccruedI += remI;
                 }
               }
             }
 
-            const mirrorWriteOff = mirrorP + mirrorAccruedI + mirrorReclassifiedI;
+            const partnerWriteOff = partnerP + partnerAccruedI + partnerReclassifiedI;
 
-            if (mirrorWriteOff > 0) {
+            if (partnerWriteOff > 0) {
               const { AccountingService } = await import('@/lib/accounting-service');
-              const mirrorAccSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
-              await mirrorAccSvc.initializeChartOfAccounts();
+              const partnerAccSvc = new AccountingService(partnerCompanyId);
+              await partnerAccSvc.initializeChartOfAccounts();
 
               const lines = [
-                { accountCode: '5500', debitAmount: mirrorWriteOff, creditAmount: 0, narration: `[MIRROR] Write-off to Irrecoverable Debt` },
-                { accountCode: '1200', debitAmount: 0, creditAmount: mirrorP, narration: `[MIRROR] Loan ${mirrorLoan.applicationNo} principal removed from Loans Receivable` }
+                { accountCode: '5500', debitAmount: partnerWriteOff, creditAmount: 0, narration: `[PARTNER] Write-off to Irrecoverable Debt`, loanId: partnerLoanId, customerId: loan.customerId },
+                { accountCode: '1200', debitAmount: 0, creditAmount: partnerP, narration: `[PARTNER] Loan ${partnerLoan.applicationNo} principal removed from Loans Receivable`, loanId: partnerLoanId, customerId: loan.customerId }
               ];
 
-              if (mirrorAccruedI > 0) {
-                lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: mirrorAccruedI, narration: `[MIRROR] Waived accrued interest removed from Interest Receivable` });
+              if (partnerAccruedI > 0) {
+                lines.push({ accountCode: '1301', debitAmount: 0, creditAmount: partnerAccruedI, narration: `[PARTNER] Waived accrued interest removed from Interest Receivable`, loanId: partnerLoanId, customerId: loan.customerId });
               }
-              if (mirrorReclassifiedI > 0) {
-                lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: mirrorReclassifiedI, narration: `[MIRROR] Waived overdue interest removed from Irrecoverable Interest` });
+              if (partnerReclassifiedI > 0) {
+                lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: partnerReclassifiedI, narration: `[PARTNER] Waived overdue interest removed from Irrecoverable Interest`, loanId: partnerLoanId, customerId: loan.customerId });
               }
 
-              await mirrorAccSvc.createJournalEntry({
+              await partnerAccSvc.createJournalEntry({
                 entryDate:     now,
                 referenceType: 'PRINCIPAL_ONLY_PAYMENT',
-                referenceId:   `${mirrorMapping.mirrorLoanId}-LOSS-WRITEOFF`,
-                narration:     `[MIRROR] Loan ${mirrorLoan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}) P:₹${mirrorP.toFixed(2)} I:₹${(mirrorAccruedI + mirrorReclassifiedI).toFixed(2)}`,
+                referenceId:   `${partnerLoanId}-LOSS-WRITEOFF`,
+                narration:     `[PARTNER] Loan ${partnerLoan.applicationNo} written off (${writeOffInterestOnly ? 'P-only' : 'P+I'}) P:₹${partnerP.toFixed(2)} I:₹${(partnerAccruedI + partnerReclassifiedI).toFixed(2)}`,
                 lines,
                 createdById: userId,
                 isAutoEntry: true,
               });
-              console.log(`[Close/Loss] ✅ Mirror write-off journal: ₹${mirrorWriteOff} in co. ${mirrorMapping.mirrorCompanyId}`);
+              console.log(`[Close/Loss] ✅ Partner write-off journal: ₹${partnerWriteOff} in co. ${partnerCompanyId}`);
             }
         } catch (e: any) {
-          const msg = `Mirror write-off journal failed: ${e?.message}`;
+          const msg = `Partner write-off journal failed: ${e?.message}`;
           accountingWarnings.push(msg);
-          console.error('[Close/Loss Mirror] ❌', msg);
+          console.error('[Close/Loss Partner] ❌', msg);
         }
       }
 
@@ -547,42 +558,42 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Update mirror loan and create payment record if mirror mapping exists
-      if (mirrorMapping?.mirrorLoanId && mirrorLoan) {
-        const mirrorUnpaidIds = mirrorUnpaidEMIs.map(e => e.id);
-        if (mirrorUnpaidIds.length > 0) {
+      // Update partner loan and create payment record if mirror mapping exists
+      if (partnerLoanId && partnerLoan) {
+        const partnerUnpaidIds = partnerUnpaidEMIs.map(e => e.id);
+        if (partnerUnpaidIds.length > 0) {
           await tx.eMISchedule.updateMany({
-            where: { id: { in: mirrorUnpaidIds } },
+            where: { id: { in: partnerUnpaidIds } },
             data: {
               paymentStatus: 'PAID',
               paidDate:      now,
               paymentMode:   paymentMode || 'CASH',
-              notes:         `Foreclosure payment (Mirror) — Loan closed`,
+              notes:         `Foreclosure payment (Partner) — Loan closed`,
             }
           });
         }
         await tx.loanApplication.update({
-          where: { id: mirrorMapping.mirrorLoanId },
+          where: { id: partnerLoanId },
           data: {
             status:   'CLOSED',
             closedAt: now,
-            rejectionReason: `Loan closed via foreclosure (Mirror). Amount: ₹${mirrorTotalForeclosureAmount.toFixed(2)} via ${paymentMode || 'CASH'}.`
+            rejectionReason: `Loan closed via foreclosure (Partner). Amount: ₹${partnerTotalForeclosureAmount.toFixed(2)} via ${paymentMode || 'CASH'}.`
           }
         });
         
-        // Create payment record for mirror loan
+        // Create payment record for partner loan
         await tx.payment.create({
           data: {
-            loanApplicationId: mirrorMapping.mirrorLoanId,
+            loanApplicationId: partnerLoanId,
             customerId:        loan.customerId,
-            amount:            mirrorTotalForeclosureAmount,
-            principalComponent: mirrorTotalPrincipal,
-            interestComponent:  mirrorTotalInterest,
+            amount:            partnerTotalForeclosureAmount,
+            principalComponent: partnerTotalPrincipal,
+            interestComponent:  partnerTotalInterest,
             paymentType:       'FORECLOSURE' as any,
             paymentMode:       paymentMode || 'CASH',
             status:            'COMPLETED',
             paidById:          userId,
-            remarks:           remarks ? `${remarks} (Mirror)` : `Foreclosure (Mirror) — Loan ${mirrorLoan.applicationNo}`,
+            remarks:           remarks ? `${remarks} (Partner)` : `Foreclosure (Partner) — Loan ${partnerLoan.applicationNo}`,
             receiptGenerated:  false,
           }
         });
@@ -640,8 +651,8 @@ export async function POST(request: NextRequest) {
           }).catch(() => {});
         }
 
-        if (mirrorMapping?.mirrorLoanId && mirrorUnpaidEMIs.length > 0) {
-          for (const emi of mirrorUnpaidEMIs) {
+        if (partnerLoanId && partnerUnpaidEMIs.length > 0) {
+          for (const emi of partnerUnpaidEMIs) {
             const monthHasStarted = new Date(emi.dueDate) <= now;
             const collectP = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
             const collectI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0)) : 0;
@@ -682,6 +693,8 @@ export async function POST(request: NextRequest) {
           referenceType: 'EMI_PAYMENT' as const,
           referenceId:   `${loanId}-FORECLOSURE`,
           createdById:   userId,
+          loanId:        loanId,
+          customerId:    loan.customerId,
         };
         if (isOnlineMode) {
           await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
@@ -745,18 +758,18 @@ export async function POST(request: NextRequest) {
         }
 
         const lines: any[] = [
-          { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})` },
-          { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered` }
+          { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})`, loanId: loanId, customerId: loan.customerId },
+          { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: totalPrincipal, narration: `Loan principal recovered`, loanId: loanId, customerId: loan.customerId }
         ];
 
         if (totalAccruedInterest > 0) {
-          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Accrued interest cleared` });
+          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `Accrued interest cleared`, loanId: loanId, customerId: loan.customerId });
         }
         if (totalReclassifiedInterest > 0) {
-          lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Overdue interest cleared` });
+          lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `Overdue interest cleared`, loanId: loanId, customerId: loan.customerId });
         }
         if (totalDirectInterest > 0) {
-          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `Interest income on foreclosure` });
+          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `Interest income on foreclosure`, loanId: loanId, customerId: loan.customerId });
         }
 
         await accSvc.createJournalEntry({
@@ -776,41 +789,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Accounting: Foreclosure entries for mirror loan ──
-    if (mirrorMapping?.mirrorCompanyId && mirrorTotalForeclosureAmount > 0) {
+    // ── Accounting: Foreclosure entries for partner loan ──
+    if (partnerCompanyId && partnerTotalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
         const entryArgs = {
-          companyId:     mirrorMapping.mirrorCompanyId,
-          amount:        mirrorTotalForeclosureAmount,
-          description:   `[MIRROR] Foreclosure - ${mirrorLoan.applicationNo} (P:₹${mirrorTotalPrincipal.toFixed(2)} + I:₹${mirrorTotalInterest.toFixed(2)})`,
+          companyId:     partnerCompanyId,
+          amount:        partnerTotalForeclosureAmount,
+          description:   `[PARTNER] Foreclosure - ${partnerLoan.applicationNo} (P:₹${partnerTotalPrincipal.toFixed(2)} + I:₹${partnerTotalInterest.toFixed(2)})`,
           referenceType: 'EMI_PAYMENT' as const,
-          referenceId:   `${mirrorMapping.mirrorLoanId}-FORECLOSURE`,
+          referenceId:   `${partnerLoanId}-FORECLOSURE`,
           createdById:   userId,
+          loanId:        partnerLoanId,
+          customerId:    loan.customerId,
         };
         if (isOnlineMode) {
           await recordBankTransaction({ ...entryArgs, transactionType: 'CREDIT' });
-          console.log(`[Close/Payment] ✅ Mirror Bank entry: ₹${mirrorTotalForeclosureAmount} → co. ${mirrorMapping.mirrorCompanyId}`);
+          console.log(`[Close/Payment] ✅ Partner Bank entry: ₹${partnerTotalForeclosureAmount} → co. ${partnerCompanyId}`);
         } else {
           await recordCashBookEntry({ ...entryArgs, entryType: 'CREDIT' });
-          console.log(`[Close/Payment] ✅ Mirror Cashbook entry: ₹${mirrorTotalForeclosureAmount} → co. ${mirrorMapping.mirrorCompanyId}`);
+          console.log(`[Close/Payment] ✅ Partner Cashbook entry: ₹${partnerTotalForeclosureAmount} → co. ${partnerCompanyId}`);
         }
       } catch (e: any) {
-        const msg = `Mirror cashbook/bank entry failed: ${e?.message}`;
+        const msg = `Partner cashbook/bank entry failed: ${e?.message}`;
         accountingWarnings.push(msg);
-        console.error('[Close/Payment] ❌ Mirror Cash/Bank', msg);
+        console.error('[Close/Payment] ❌ Partner Cash/Bank', msg);
       }
 
       try {
         const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
-        const accSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
+        const accSvc = new AccountingService(partnerCompanyId);
         await accSvc.initializeChartOfAccounts();
 
-        const mirrorUnpaidEMIIds = mirrorUnpaidEMIs.map(e => e.id);
+        const partnerUnpaidEMIIds = partnerUnpaidEMIs.map(e => e.id);
         const existingEntries = await db.journalEntry.findMany({
           where: {
-            companyId: mirrorMapping.mirrorCompanyId,
-            referenceId: { in: mirrorUnpaidEMIIds },
+            companyId: partnerCompanyId,
+            referenceId: { in: partnerUnpaidEMIIds },
             isReversed: false
           },
           select: {
@@ -832,7 +847,7 @@ export async function POST(request: NextRequest) {
         let totalReclassifiedInterest = 0;
         let totalDirectInterest = 0;
 
-        for (const emi of mirrorUnpaidEMIs) {
+        for (const emi of partnerUnpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
           if (monthHasStarted) {
             const remI = Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
@@ -850,34 +865,34 @@ export async function POST(request: NextRequest) {
         }
 
         const lines: any[] = [
-          { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: mirrorTotalForeclosureAmount, creditAmount: 0, narration: `[MIRROR] Foreclosure collected (${paymentMode})` },
-          { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: mirrorTotalPrincipal, narration: `[MIRROR] Loan principal recovered` }
+          { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: partnerTotalForeclosureAmount, creditAmount: 0, narration: `[PARTNER] Foreclosure collected (${paymentMode})`, loanId: partnerLoanId, customerId: loan.customerId },
+          { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: partnerTotalPrincipal, narration: `[PARTNER] Loan principal recovered`, loanId: partnerLoanId, customerId: loan.customerId }
         ];
 
         if (totalAccruedInterest > 0) {
-          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `[MIRROR] Accrued interest cleared` });
+          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_RECEIVABLE, debitAmount: 0, creditAmount: totalAccruedInterest, narration: `[PARTNER] Accrued interest cleared`, loanId: partnerLoanId, customerId: loan.customerId });
         }
         if (totalReclassifiedInterest > 0) {
-          lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `[MIRROR] Overdue interest cleared` });
+          lines.push({ accountCode: '1305', debitAmount: 0, creditAmount: totalReclassifiedInterest, narration: `[PARTNER] Overdue interest cleared`, loanId: partnerLoanId, customerId: loan.customerId });
         }
         if (totalDirectInterest > 0) {
-          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `[MIRROR] Interest income on foreclosure` });
+          lines.push({ accountCode: ACCOUNT_CODES.INTEREST_INCOME, debitAmount: 0, creditAmount: totalDirectInterest, narration: `[PARTNER] Interest income on foreclosure`, loanId: partnerLoanId, customerId: loan.customerId });
         }
 
         await accSvc.createJournalEntry({
           entryDate:     now,
           referenceType: 'EMI_PAYMENT',
-          referenceId:   `${mirrorMapping.mirrorLoanId}-FORECLOSURE-JE`,
-          narration:     `[MIRROR] Foreclosure - ${mirrorLoan.applicationNo} — P:₹${mirrorTotalPrincipal.toFixed(2)} I:₹${mirrorTotalInterest.toFixed(2)} via ${paymentMode}`,
+          referenceId:   `${partnerLoanId}-FORECLOSURE-JE`,
+          narration:     `[PARTNER] Foreclosure - ${partnerLoan.applicationNo} — P:₹${partnerTotalPrincipal.toFixed(2)} I:₹${partnerTotalInterest.toFixed(2)} via ${paymentMode}`,
           lines,
           createdById: userId,
           isAutoEntry: true,
         });
-        console.log(`[Close/Payment] ✅ Mirror foreclosure journal created: ₹${mirrorTotalForeclosureAmount}`);
+        console.log(`[Close/Payment] ✅ Partner foreclosure journal created: ₹${partnerTotalForeclosureAmount}`);
       } catch (e: any) {
-        const msg = `Mirror foreclosure journal failed: ${e?.message}`;
+        const msg = `Partner foreclosure journal failed: ${e?.message}`;
         accountingWarnings.push(msg);
-        console.error('[Close/Payment] ❌ Mirror Journal', msg);
+        console.error('[Close/Payment] ❌ Partner Journal', msg);
       }
     }
 

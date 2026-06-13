@@ -77,18 +77,25 @@ export async function POST(request: NextRequest) {
     
     // ── MIRROR ROUTING: check before transaction ─────────────────────────────────
     // Rule: Mirror exists → entry in MIRROR company using MIRROR rate
-    //       No mirror    → entry in ORIGINAL company using original amount
     const mirrorMapForAcct = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: false },
-      select: { id: true, mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
+      where: {
+        OR: [
+          { originalLoanId: loanId },
+          { mirrorLoanId: loanId }
+        ],
+        isOfflineLoan: false
+      },
+      select: { id: true, originalLoanId: true, mirrorLoanId: true, mirrorCompanyId: true, mirrorInterestRate: true }
     });
+    const isMirrorChild = mirrorMapForAcct ? loanId === mirrorMapForAcct.mirrorLoanId : false;
     const acctCompanyId   = mirrorMapForAcct?.mirrorCompanyId || loan.companyId || '';
     const acctAmount      = mirrorMapForAcct
-      ? Math.round((principalAmount * (mirrorMapForAcct.mirrorInterestRate || 0) / 100 / 12) * 100) / 100
+      ? (isMirrorChild
+          ? amount
+          : Math.round((principalAmount * (mirrorMapForAcct.mirrorInterestRate || 0) / 100 / 12) * 100) / 100)
       : amount;
     console.log(`[Interest Payment] Accounting target: ${mirrorMapForAcct ? 'MIRROR company ' + acctCompanyId : 'ORIGINAL company ' + loan.companyId} | amount: ₹${acctAmount}`);
 
-    // Handle proof upload (now sent as a compressed base64 string directly from client)
     let proofUrl = '';
     if (proofBase64) {
       proofUrl = proofBase64;
@@ -351,12 +358,14 @@ export async function POST(request: NextRequest) {
               debitAmount: acctAmount, creditAmount: 0,
               narration: `Interest received (${paymentMode})`,
               loanId: loan.id,
+              customerId: loan.customerId,
             },
             {
               accountCode: ACCOUNT_CODES.INTEREST_INCOME,
               debitAmount: 0, creditAmount: acctAmount,
               narration: `Interest income — ${loan.applicationNo}`,
               loanId: loan.id,
+              customerId: loan.customerId,
             },
           ],
           createdById: collectedBy,
@@ -365,59 +374,63 @@ export async function POST(request: NextRequest) {
         });
         console.log(`[Interest Payment] ✅ Journal entry in ${mirrorMapForAcct ? 'MIRROR' : 'ORIGINAL'} company ${acctCompanyId} ₹${acctAmount}`);
 
-        // ── Mirror EMI rolling sync (if mirror mapping exists) ──────────────────
-        if (mirrorMapForAcct?.mirrorLoanId) {
+        // ── Partner EMI rolling sync (if mirror mapping exists) ──────────────────
+        const partnerLoanIdForSync = mirrorMapForAcct
+          ? (loanId === mirrorMapForAcct.originalLoanId ? mirrorMapForAcct.mirrorLoanId : mirrorMapForAcct.originalLoanId)
+          : null;
+        if (partnerLoanIdForSync && mirrorMapForAcct) {
           try {
-            const mirrorLoanId = mirrorMapForAcct.mirrorLoanId;
             if (paidInstNum) {
-              const mirrorEMI = await db.eMISchedule.findFirst({
-                where: { loanApplicationId: mirrorLoanId, installmentNumber: paidInstNum },
+              const partnerEMI = await db.eMISchedule.findFirst({
+                where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: paidInstNum },
               });
-              if (mirrorEMI && mirrorEMI.paymentStatus !== 'PAID') {
+              if (partnerEMI && partnerEMI.paymentStatus !== 'PAID') {
+                const partnerSyncAmount = loanId === mirrorMapForAcct.originalLoanId ? acctAmount : expectedMonthlyInterest;
                 await db.eMISchedule.update({
-                  where: { id: mirrorEMI.id },
+                  where: { id: partnerEMI.id },
                   data: {
                     paymentStatus: 'INTEREST_ONLY_PAID',
                     isInterestOnly: true,
                     interestOnlyPaidAt: new Date(),
-                    interestOnlyAmount: acctAmount,
-                    paidInterest: acctAmount,
-                    paidAmount: acctAmount,
+                    interestOnlyAmount: partnerSyncAmount,
+                    paidInterest: partnerSyncAmount,
+                    paidAmount: partnerSyncAmount,
                     paidDate: new Date(),
                     principalDeferred: true,
-                    notes: `[IO SYNC] Auto-paid ₹${acctAmount} (synced from original loan)`,
+                    notes: `[IO SYNC] Auto-paid ₹${partnerSyncAmount} (synced from partner loan)`,
                   }
                 });
-                // Create next mirror EMI if it doesn't exist
-                const nextInstNum = mirrorEMI.installmentNumber + 1;
+                // Create next partner EMI if it doesn't exist
+                const nextInstNum = partnerEMI.installmentNumber + 1;
                 const alreadyExists = await db.eMISchedule.findFirst({
-                  where: { loanApplicationId: mirrorLoanId, installmentNumber: nextInstNum },
+                  where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: nextInstNum },
                 });
                 if (!alreadyExists) {
-                  const nextDue = new Date(mirrorEMI.dueDate);
+                  const nextDue = new Date(partnerEMI.dueDate);
                   nextDue.setMonth(nextDue.getMonth() + 1);
+                  const partnerExpectedMonthlyInterest = loanId === mirrorMapForAcct.originalLoanId ? acctAmount : expectedMonthlyInterest;
                   await db.eMISchedule.create({
                     data: {
-                      loanApplicationId: mirrorLoanId,
+                      loanApplicationId: partnerLoanIdForSync,
                       installmentNumber: nextInstNum,
                       dueDate: nextDue,
                       originalDueDate: nextDue,
                       principalAmount: 0,
-                      interestAmount: acctAmount,
-                      totalAmount: acctAmount,
+                      interestAmount: partnerExpectedMonthlyInterest,
+                      totalAmount: partnerExpectedMonthlyInterest,
                       outstandingPrincipal: principalAmount,
-                      outstandingInterest: acctAmount,
+                      outstandingInterest: partnerExpectedMonthlyInterest,
                       paymentStatus: 'PENDING',
                       isInterestOnly: true,
-                      interestOnlyAmount: acctAmount,
+                      interestOnlyAmount: partnerExpectedMonthlyInterest,
                     }
                   });
-                  console.log(`[Interest Payment] ✅ Mirror EMI #${nextInstNum} created for mirror loan ${mirrorLoanId}`);
+                  console.log(`[Interest Payment] ✅ Partner EMI #${nextInstNum} created for partner loan ${partnerLoanIdForSync}`);
                 }
               }
             }
           } catch (mirrorSyncErr) {
-            console.error('[Interest Payment] Mirror EMI sync error (non-critical):', mirrorSyncErr);
+            console.error('[Interest Payment] Partner EMI sync error (non-critical):', mirrorSyncErr);
           }
         }
       }
