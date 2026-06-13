@@ -877,11 +877,32 @@ export async function PUT(request: NextRequest) {
         }
         
         if (loansReceivableAccount && (cashInHandAccount || bankCOAAccount)) {
-          // Generate entry number
-          const existingCount = await db.journalEntry.count({
-            where: { companyId: pendingLoan.mirrorCompanyId }
+          // Generate entry number dynamically by scanning highest suffix
+          const lastEntry = await db.journalEntry.findFirst({
+            where: { companyId: pendingLoan.mirrorCompanyId },
+            orderBy: { entryNumber: 'desc' },
+            select: { entryNumber: true },
           });
-          const entryNumber = `JE${String(existingCount + 1).padStart(6, '0')}`;
+          let nextNum = 1;
+          if (lastEntry && lastEntry.entryNumber) {
+            const match = lastEntry.entryNumber.match(/^JE(\d+)$/);
+            if (match) {
+              nextNum = parseInt(match[1], 10) + 1;
+            }
+          }
+          let entryNumber = '';
+          while (true) {
+            const candidate = `JE${String(nextNum).padStart(6, '0')}`;
+            const existing = await db.journalEntry.findFirst({
+              where: { companyId: pendingLoan.mirrorCompanyId, entryNumber: candidate },
+              select: { id: true },
+            });
+            if (!existing) {
+              entryNumber = candidate;
+              break;
+            }
+            nextNum++;
+          }
           
           const effectiveBankAmount = isSplitPayment ? (bankAmount || 0) : (disbursementBankAccountId ? principalAmount : 0);
           const effectiveCashAmount = isSplitPayment ? (cashAmount || 0) : (disbursementBankAccountId ? 0 : principalAmount);

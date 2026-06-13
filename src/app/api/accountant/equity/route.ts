@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { AccountingService } from '@/lib/accounting-service';
 
 /**
  * GNUCASH-STYLE EQUITY API
@@ -245,8 +246,8 @@ export async function POST(request: NextRequest) {
       });
 
       // Generate entry number
-      const count = await tx.journalEntry.count({ where: { companyId } });
-      const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
+      const accountingService = new AccountingService(companyId);
+      const entryNumber = await accountingService.generateEntryNumber(tx);
 
       // Create journal entry with lines
       const journalEntry = await tx.journalEntry.create({

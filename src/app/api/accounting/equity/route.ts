@@ -219,8 +219,7 @@ export async function POST(request: NextRequest) {
       });
 
       // ─── 4. Create journal entry ───────────────────────────────────
-      const count = await tx.journalEntry.count({ where: { companyId } });
-      const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
+      const entryNumber = await accountingService.generateEntryNumber(tx);
 
       const journalEntry = await tx.journalEntry.create({
         data: {

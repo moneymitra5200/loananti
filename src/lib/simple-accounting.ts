@@ -692,9 +692,32 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           throw new Error(`Missing chart of accounts for mirror company ${mirrorCompanyId}: interest account ${mirrorInterestCreditCode} not found`);
         }
 
-        // Count existing entries for entry number
-        const jeCount = await db.journalEntry.count({ where: { companyId: mirrorCompanyId } });
-        const entryNumber = `JE${String(jeCount + 1).padStart(6, '0')}`;
+        // Dynamically find a unique entry number by scanning highest suffix
+        const lastEntry = await db.journalEntry.findFirst({
+          where: { companyId: mirrorCompanyId },
+          orderBy: { entryNumber: 'desc' },
+          select: { entryNumber: true },
+        });
+        let nextNum = 1;
+        if (lastEntry && lastEntry.entryNumber) {
+          const match = lastEntry.entryNumber.match(/^JE(\d+)$/);
+          if (match) {
+            nextNum = parseInt(match[1], 10) + 1;
+          }
+        }
+        let entryNumber = '';
+        while (true) {
+          const candidate = `JE${String(nextNum).padStart(6, '0')}`;
+          const existing = await db.journalEntry.findFirst({
+            where: { companyId: mirrorCompanyId, entryNumber: candidate },
+            select: { id: true },
+          });
+          if (!existing) {
+            entryNumber = candidate;
+            break;
+          }
+          nextNum++;
+        }
 
         // Get or create financial year
         const now = new Date();
@@ -1238,8 +1261,31 @@ export async function recordPrincipalOnlyJournal(params: {
     }
 
     // ── 3. Unique entry number ─────────────────────────────────────────────────
-    const entryCount = await db.journalEntry.count({ where: { companyId } });
-    const entryNumber = `JE${String(entryCount + 1).padStart(6, '0')}`;
+    const lastEntry = await db.journalEntry.findFirst({
+      where: { companyId },
+      orderBy: { entryNumber: 'desc' },
+      select: { entryNumber: true },
+    });
+    let nextNum = 1;
+    if (lastEntry && lastEntry.entryNumber) {
+      const match = lastEntry.entryNumber.match(/^JE(\d+)$/);
+      if (match) {
+        nextNum = parseInt(match[1], 10) + 1;
+      }
+    }
+    let entryNumber = '';
+    while (true) {
+      const candidate = `JE${String(nextNum).padStart(6, '0')}`;
+      const existing = await db.journalEntry.findFirst({
+        where: { companyId, entryNumber: candidate },
+        select: { id: true },
+      });
+      if (!existing) {
+        entryNumber = candidate;
+        break;
+      }
+      nextNum++;
+    }
 
     // ── 4. Build lines ─────────────────────────────────────────────────────────
     const writeOff = interestWrittenOff > 0 ? interestWrittenOff : 0;

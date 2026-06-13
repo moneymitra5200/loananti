@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { AccountType } from '@prisma/client';
+import { AccountingService } from '@/lib/accounting-service';
 import { withRetry } from '@/lib/db-utils';
 
 /**
@@ -191,8 +192,8 @@ export async function POST(request: NextRequest) {
 
     // ACID: Wrap all financial writes in one atomic transaction
     // If any write fails (journalEntry, CoA update, bankTx, cashBook) everything rolls back.
-    const jeCount = await db.journalEntry.count({ where: { companyId } });
-    const entryNumber = `JE${String(jeCount + 1).padStart(6, '0')}`;
+    const accountingService = new AccountingService(companyId);
+    const entryNumber = await accountingService.generateEntryNumber();
     const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
     const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
     const je = await withRetry(() => db.$transaction(async (tx) => {

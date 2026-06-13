@@ -198,18 +198,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'At least 2 lines required for double-entry' }, { status: 400 });
     }
 
-    // Generate entry number
-    const count = await db.journalEntry.count({
-      where: { companyId: companyId || 'default' },
-    });
-    const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
-
-    // Get financial year
+    // Get financial year and service
     const accService = new AccountingService(companyId || 'default');
     const financialYearId = await accService.getCurrentFinancialYear();
 
     // Create journal entry with lines in transaction
     const journalEntry = await db.$transaction(async (tx) => {
+      const entryNumber = await accService.generateEntryNumber(tx);
       const entry = await tx.journalEntry.create({
         data: {
           companyId: companyId || 'default',
@@ -326,11 +321,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Entry already reversed' }, { status: 400 });
     }
 
-    // Create reversal entry
     const companyId = originalEntry.companyId;
-    const count = await db.journalEntry.count({ where: { companyId } });
-    const entryNumber = `JE${String(count + 1).padStart(6, '0')}`;
-
     const accService = new AccountingService(companyId);
     const financialYearId = await accService.getCurrentFinancialYear();
 
@@ -346,6 +337,7 @@ export async function PUT(request: NextRequest) {
       });
 
       // Create reversal entry
+      const entryNumber = await accService.generateEntryNumber(tx);
       const reversal = await tx.journalEntry.create({
         data: {
           companyId,

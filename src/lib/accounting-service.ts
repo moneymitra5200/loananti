@@ -354,10 +354,31 @@ export class AccountingService {
    */
   async generateEntryNumber(tx?: any): Promise<string> {
     const transaction = tx || db;
-    const count = await transaction.journalEntry.count({
+    const lastEntry = await transaction.journalEntry.findFirst({
       where: { companyId: this.companyId },
+      orderBy: { entryNumber: 'desc' },
+      select: { entryNumber: true },
     });
-    return `JE${String(count + 1).padStart(6, '0')}`;
+
+    let nextNum = 1;
+    if (lastEntry && lastEntry.entryNumber) {
+      const match = lastEntry.entryNumber.match(/^JE(\d+)$/);
+      if (match) {
+        nextNum = parseInt(match[1], 10) + 1;
+      }
+    }
+
+    while (true) {
+      const candidate = `JE${String(nextNum).padStart(6, '0')}`;
+      const existing = await transaction.journalEntry.findFirst({
+        where: { companyId: this.companyId, entryNumber: candidate },
+        select: { id: true },
+      });
+      if (!existing) {
+        return candidate;
+      }
+      nextNum++;
+    }
   }
 
   /**
@@ -429,26 +450,67 @@ export class AccountingService {
       // SAFETY: Never store a future-dated journal entry — cap to today in UTC
       const safeEntryDate = params.entryDate > new Date() ? new Date() : params.entryDate;
 
-      // 1. Create journal entry header (1 query)
-      const entry = await transaction.journalEntry.create({
-        data: {
-          companyId: this.companyId,
-          entryNumber,
-          entryDate: safeEntryDate,
-          referenceType: params.referenceType,
-          referenceId: params.referenceId,
-          narration: params.narration,
-          totalDebit,
-          totalCredit,
-          isAutoEntry: params.isAutoEntry ?? true,
-          createdById: params.createdById,
-          paymentMode: params.paymentMode,
-          bankAccountId: params.bankAccountId,
-          chequeNumber: params.chequeNumber,
-          bankRefNumber: params.bankRefNumber,
-          isApproved: true,
-        },
-      });
+      // 1. Create journal entry header (1 query) with unique entryNumber collision retry logic
+      let entry;
+      let retries = 3;
+      let currentEntryNumber = entryNumber;
+      while (retries > 0) {
+        try {
+          entry = await transaction.journalEntry.create({
+            data: {
+              companyId: this.companyId,
+              entryNumber: currentEntryNumber,
+              entryDate: safeEntryDate,
+              referenceType: params.referenceType,
+              referenceId: params.referenceId,
+              narration: params.narration,
+              totalDebit,
+              totalCredit,
+              isAutoEntry: params.isAutoEntry ?? true,
+              createdById: params.createdById,
+              paymentMode: params.paymentMode,
+              bankAccountId: params.bankAccountId,
+              chequeNumber: params.chequeNumber,
+              bankRefNumber: params.bankRefNumber,
+              isApproved: true,
+            },
+          });
+          break;
+        } catch (err: any) {
+          if (err?.code === 'P2002' && (err?.meta?.target?.includes('entryNumber') || err?.message?.includes('entryNumber') || err?.message?.includes('JournalEntry_companyId_entryNumber_key'))) {
+            retries--;
+            if (retries === 0) throw err;
+            console.warn(`[Journal Retry] entryNumber ${currentEntryNumber} collision, retrying with new number...`);
+            
+            const lastEntry = await transaction.journalEntry.findFirst({
+              where: { companyId: this.companyId },
+              orderBy: { entryNumber: 'desc' },
+              select: { entryNumber: true },
+            });
+            let nextNum = 1;
+            if (lastEntry && lastEntry.entryNumber) {
+              const match = lastEntry.entryNumber.match(/^JE(\d+)$/);
+              if (match) {
+                nextNum = parseInt(match[1], 10) + 1;
+              }
+            }
+            while (true) {
+              const candidate = `JE${String(nextNum).padStart(6, '0')}`;
+              const existing = await transaction.journalEntry.findFirst({
+                where: { companyId: this.companyId, entryNumber: candidate },
+                select: { id: true },
+              });
+              if (!existing) {
+                currentEntryNumber = candidate;
+                break;
+              }
+              nextNum++;
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
 
       // 2. PERFORMANCE: Create ALL journal lines in ONE batch (1 query instead of N)
       await transaction.journalEntryLine.createMany({
