@@ -115,17 +115,22 @@ export async function POST(request: NextRequest) {
         err.code = 'LOAN_ALREADY_STARTED';
         throw err;
       }
-      // Delete only PENDING EMI schedules (from interest-only phase) to avoid FK constraint violations
-      await tx.eMISchedule.deleteMany({
-        where: { loanApplicationId: loanId, paymentStatus: 'PENDING' }
+      // Clear emiScheduleId on payments and payment requests to allow deleting the EMIs
+      await tx.payment.updateMany({
+        where: { emiSchedule: { loanApplicationId: loanId } },
+        data: { emiScheduleId: null }
+      });
+      await tx.paymentRequest.updateMany({
+        where: { emiSchedule: { loanApplicationId: loanId } },
+        data: { emiScheduleId: null }
       });
 
-      // Find the highest installment number to start the new amortizing EMIs after
-      const lastEmi = await tx.eMISchedule.findFirst({
-        where: { loanApplicationId: loanId },
-        orderBy: { installmentNumber: 'desc' }
+      // Delete all EMI schedules (both PENDING and PAID/INTEREST_ONLY_PAID) for this loan
+      await tx.eMISchedule.deleteMany({
+        where: { loanApplicationId: loanId }
       });
-      const startingInstallmentOffset = lastEmi ? lastEmi.installmentNumber : 0;
+
+      const startingInstallmentOffset = 0;
 
       // Create new EMI schedules
       const emiSchedules = emiCalculation.schedule.map((item, index) => {
@@ -397,15 +402,22 @@ export async function POST(request: NextRequest) {
         const autoProcessingFee = mirrorCalc.processingFee; // originalEMI - lastMirrorEMI
         const actualMirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
 
-        // Delete mirror's pending IO placeholder EMIs to avoid FK constraints on paid EMIs
-        await db.eMISchedule.deleteMany({ where: { loanApplicationId: mirrorMapping.mirrorLoanId, paymentStatus: 'PENDING' } });
-
-        // Find the highest installment number to start the new amortizing EMIs after
-        const lastMirrorEmi = await db.eMISchedule.findFirst({
-          where: { loanApplicationId: mirrorMapping.mirrorLoanId },
-          orderBy: { installmentNumber: 'desc' }
+        // Clear emiScheduleId on mirror payments and payment requests to allow deleting the EMIs
+        await db.payment.updateMany({
+          where: { emiSchedule: { loanApplicationId: mirrorMapping.mirrorLoanId! } },
+          data: { emiScheduleId: null }
         });
-        const startingMirrorOffset = lastMirrorEmi ? lastMirrorEmi.installmentNumber : 0;
+        await db.paymentRequest.updateMany({
+          where: { emiSchedule: { loanApplicationId: mirrorMapping.mirrorLoanId! } },
+          data: { emiScheduleId: null }
+        });
+
+        // Delete all mirror EMI schedules (both PENDING and PAID/INTEREST_ONLY_PAID)
+        await db.eMISchedule.deleteMany({
+          where: { loanApplicationId: mirrorMapping.mirrorLoanId! }
+        });
+
+        const startingMirrorOffset = 0;
 
         // Build mirror's SHIFTED amortizing schedule (last EMI → first position)
         const mirrorSchedule = shiftedSchedule.map((item, index) => {

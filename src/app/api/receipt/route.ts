@@ -172,6 +172,40 @@ export async function GET(request: NextRequest) {
                 }
               }
             }
+          },
+          loanApplication: {
+            include: {
+              company: true,
+              customer: {
+                select: {
+                  id: true,
+                  name: true,
+                  phone: true,
+                  address: true,
+                  city: true,
+                  state: true,
+                  pincode: true
+                }
+              },
+              sessionForm: {
+                include: {
+                  agent: {
+                    select: { id: true, name: true, email: true }
+                  }
+                }
+              }
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              address: true,
+              city: true,
+              state: true,
+              pincode: true
+            }
           }
         }
       });
@@ -197,6 +231,26 @@ export async function GET(request: NextRequest) {
                   }
                 }
               }
+            }
+          },
+          loanApplication: {
+            include: {
+              company: true,
+              customer: {
+                select: {
+                  id: true, name: true, phone: true,
+                  address: true, city: true, state: true, pincode: true
+                }
+              },
+              sessionForm: {
+                include: { agent: { select: { id: true, name: true, email: true } } }
+              }
+            }
+          },
+          customer: {
+            select: {
+              id: true, name: true, phone: true,
+              address: true, city: true, state: true, pincode: true
             }
           }
         },
@@ -350,10 +404,10 @@ export async function GET(request: NextRequest) {
     }
 
     const emi = payment.emiSchedule;
-    const loan = emi?.loanApplication;
-    const customer = loan?.customer;
-    const company = loan?.company;
-    const sessionForm = loan?.sessionForm;
+    const loan = emi?.loanApplication || (payment as any).loanApplication;
+    const customer = loan?.customer || (payment as any).customer;
+    const company = loan?.company || (payment as any).loanApplication?.company;
+    const sessionForm = loan?.sessionForm || (payment as any).loanApplication?.sessionForm;
 
     // Check for mirror loan and get mirror interest rate
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
