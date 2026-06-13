@@ -343,6 +343,8 @@ export default function OfflineLoanDetailPanel({
   const [startSecondaryPageId, setStartSecondaryPageId] = useState<string>('');
   const [startBankAccounts, setStartBankAccounts] = useState<any[]>([]);
   const [startSecondaryPages, setStartSecondaryPages] = useState<any[]>([]);
+  const [startIsMirrorLoan, setStartIsMirrorLoan] = useState(false);
+  const [startExtraEMICount, setStartExtraEMICount] = useState(0);
   const [emiPreview, setEmiPreview] = useState<any>(null);
   const [startingLoan, setStartingLoan] = useState(false);
 
@@ -1010,6 +1012,8 @@ export default function OfflineLoanDetailPanel({
         const data = await res.json();
         if (data.success) {
           setEmiPreview(data.preview);
+          setStartIsMirrorLoan(data.preview.isMirrorLoan || false);
+          setStartExtraEMICount(data.preview.extraEMICount || 0);
           // Auto-populate processing fee from mirror calculation
           if (data.preview.processingFee > 0) {
             setStartProcessingFee(String(data.preview.processingFee));
@@ -3732,17 +3736,25 @@ export default function OfflineLoanDetailPanel({
             {/* Secondary Payment Page */}
             {startSecondaryPages.length > 0 && (
               <div className="space-y-2">
-                <Label>Secondary Payment Page</Label>
+                <Label className="flex items-center gap-1">
+                  {!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)
+                    ? "Secondary Payment Page for Interest-Only Payment Method Mode"
+                    : "Secondary Payment Page for Extra EMI Payments (Optional)"}
+                  {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && <span className="text-red-500">*</span>}
+                </Label>
                 <select
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
                   value={startSecondaryPageId}
                   onChange={(e) => setStartSecondaryPageId(e.target.value)}
                 >
-                  <option value="">— None —</option>
+                  <option value="">— Select Payment Page —</option>
                   {startSecondaryPages.map((p: any) => (
                     <option key={p.id} value={p.id}>{p.name || p.title}</option>
                   ))}
                 </select>
+                {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startSecondaryPageId && (
+                  <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
+                )}
               </div>
             )}
 
@@ -3779,7 +3791,11 @@ export default function OfflineLoanDetailPanel({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setStartLoanDialogOpen(false)}>Cancel</Button>
-            <Button className="bg-purple-500 hover:bg-purple-600" onClick={handleStartLoan} disabled={startingLoan}>
+            <Button
+              className="bg-purple-500 hover:bg-purple-600"
+              onClick={handleStartLoan}
+              disabled={startingLoan || ((!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startSecondaryPageId)}
+            >
               {startingLoan ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

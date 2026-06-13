@@ -201,6 +201,10 @@ export default function ActiveLoansTab({
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
+  const [secondaryPages, setSecondaryPages] = useState<any[]>([]);
+  const [isMirrorLoan, setIsMirrorLoan] = useState(false);
+  const [extraEMICount, setExtraEMICount] = useState(0);
+  const [selectedPageId, setSelectedPageId] = useState('');
 
   // Fetch mirror mappings \u2014 re-run when loans list changes (catches new mirror loans)
   const fetchMirrorMappings = useCallback(async () => {
@@ -258,6 +262,20 @@ export default function ActiveLoansTab({
     setSelectedLoanToStart(loan);
     setLoadingPreview(true);
     setShowStartLoanDialog(true);
+    setSelectedPageId('');
+
+    // Fetch secondary pages
+    try {
+      const pagesRes = await fetch('/api/secondary-payment-pages?activeOnly=true');
+      if (pagesRes.ok) {
+        const pagesData = await pagesRes.json();
+        if (pagesData.success) {
+          setSecondaryPages(pagesData.pages || []);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch secondary pages:', err);
+    }
 
     try {
       const response = await fetch(`/api/loan/start?loanId=${loan.id}`);
@@ -273,6 +291,8 @@ export default function ActiveLoansTab({
           totalInterest: data.preview.totalInterest,
           totalAmount: data.preview.totalAmount
         });
+        setIsMirrorLoan(data.preview.isMirrorLoan || false);
+        setExtraEMICount(data.preview.extraEMICount || 0);
       }
     } catch (error) {
       console.error('Error fetching loan preview:', error);
@@ -303,6 +323,8 @@ export default function ActiveLoansTab({
           totalInterest: data.preview.totalInterest,
           totalAmount: data.preview.totalAmount
         });
+        setIsMirrorLoan(data.preview.isMirrorLoan || false);
+        setExtraEMICount(data.preview.extraEMICount || 0);
       }
     } catch (error) {
       console.error('Error calculating EMI preview:', error);
@@ -324,7 +346,8 @@ export default function ActiveLoansTab({
           loanId: selectedLoanToStart.id,
           tenure: startLoanForm.tenure,
           interestRate: startLoanForm.interestRate,
-          startedBy: 'admin'
+          startedBy: 'admin',
+          secondaryPaymentPageId: selectedPageId || undefined,
         })
       });
 
@@ -792,6 +815,34 @@ export default function ActiveLoansTab({
                 </div>
               )}
 
+              {/* Secondary Payment Page Selection */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  {!isMirrorLoan || (isMirrorLoan && extraEMICount <= 0)
+                    ? "Secondary Payment Page for Interest-Only Payment Method Mode"
+                    : "Secondary Payment Page for Extra EMI Payments (Optional)"}
+                  {(!isMirrorLoan || (isMirrorLoan && extraEMICount <= 0)) && <span className="text-red-500">*</span>}
+                </Label>
+                <Select
+                  value={selectedPageId}
+                  onValueChange={setSelectedPageId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select Payment Page" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {secondaryPages.map((page) => (
+                      <SelectItem key={page.id} value={page.id}>
+                        {page.name} ({page.upiId || 'No UPI'})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(!isMirrorLoan || (isMirrorLoan && extraEMICount <= 0)) && !selectedPageId && (
+                  <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
+                )}
+              </div>
+
               {/* Warning */}
               <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
@@ -814,7 +865,7 @@ export default function ActiveLoansTab({
             <Button
               className="bg-amber-600 hover:bg-amber-700"
               onClick={handleStartLoan}
-              disabled={startingLoan || loadingPreview}
+              disabled={startingLoan || loadingPreview || ((!isMirrorLoan || (isMirrorLoan && extraEMICount <= 0)) && !selectedPageId)}
             >
               {startingLoan ? (
                 <>

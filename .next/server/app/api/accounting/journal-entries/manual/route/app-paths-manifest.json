@@ -1,0 +1,3 @@
+{
+  "/api/accounting/journal-entries/manual/route": "app/api/accounting/journal-entries/manual/route.js"
+}

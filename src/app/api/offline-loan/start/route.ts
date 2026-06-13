@@ -268,6 +268,7 @@ export async function POST(request: NextRequest) {
             originalTenure: tenure,
             mirrorProcessingFee: autoProcessingFee,
             processingFeeRecorded: false,
+            extraEMIPaymentPageId: secondaryPaymentPageId || null,
           }
         });
 
@@ -355,11 +356,14 @@ export async function GET(request: NextRequest) {
     // Calculate processing fee from mirror mapping if it exists
     let processingFeePreview = 0;
     let mirrorRateUsed = 0;
+    let isMirrorLoan = false;
+    let extraEMICount = 0;
     try {
       const mirrorMapping = await db.mirrorLoanMapping.findFirst({
         where: { originalLoanId: loanId, isOfflineLoan: true }
       });
       if (mirrorMapping) {
+        isMirrorLoan = true;
         const mirrorRate = mirrorMapping.mirrorInterestRate || defaultRate;
         const mirrorType = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
         mirrorRateUsed = mirrorRate;
@@ -367,6 +371,7 @@ export async function GET(request: NextRequest) {
           principalAmount, defaultRate, defaultTenure, actualInterestType, mirrorRate, mirrorType
         );
         processingFeePreview = mirrorCalc.processingFee;
+        extraEMICount = mirrorCalc.extraEMICount;
       }
     } catch { /* non-fatal — no mirror mapping */ }
 
@@ -394,6 +399,8 @@ export async function GET(request: NextRequest) {
         principalAmount,
         processingFee: processingFeePreview,
         mirrorRate: mirrorRateUsed,
+        isMirrorLoan,
+        extraEMICount,
         schedulePreview: emiCalc.schedule.slice(0, 3)
       }
     });

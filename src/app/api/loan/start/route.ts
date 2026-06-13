@@ -203,6 +203,65 @@ export async function POST(request: NextRequest) {
         }
       });
 
+      // Delete old EMI payment settings
+      await tx.eMIPaymentSetting.deleteMany({
+        where: { loanApplicationId: loanId }
+      });
+
+      // Fetch newly created schedules to get their IDs
+      const createdSchedules = await tx.eMISchedule.findMany({
+        where: { loanApplicationId: loanId },
+        orderBy: { installmentNumber: 'asc' }
+      });
+
+      // Check mirror mapping
+      const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId, isOfflineLoan: false }
+      });
+
+      // Create new EMI payment settings
+      for (const emi of createdSchedules) {
+        let useDefaultCompanyPage = true;
+        let selectedSecondaryPageId = null;
+        let isExtraEMI = false;
+
+        if (mirrorMapping) {
+          const mirrorTenure = mirrorMapping.mirrorTenure;
+          const extraEMICount = mirrorMapping.extraEMICount || 0;
+          if (extraEMICount > 0) {
+            isExtraEMI = emi.installmentNumber > mirrorTenure;
+            if (isExtraEMI && secondaryPaymentPageId) {
+              useDefaultCompanyPage = false;
+              selectedSecondaryPageId = secondaryPaymentPageId;
+            }
+          } else {
+            // extraEMICount <= 0
+            if (secondaryPaymentPageId) {
+              useDefaultCompanyPage = false;
+              selectedSecondaryPageId = secondaryPaymentPageId;
+            }
+          }
+        } else {
+          // Non-mirror loan
+          if (secondaryPaymentPageId) {
+            useDefaultCompanyPage = false;
+            selectedSecondaryPageId = secondaryPaymentPageId;
+          }
+        }
+
+        await tx.eMIPaymentSetting.create({
+          data: {
+            emiScheduleId: emi.id,
+            loanApplicationId: loanId,
+            enableFullPayment: true,
+            enablePartialPayment: !isExtraEMI,
+            enableInterestOnly: !isExtraEMI,
+            useDefaultCompanyPage,
+            secondaryPaymentPageId: selectedSecondaryPageId,
+          }
+        });
+      }
+
       return { updatedLoan, emiSchedules };
     })); // end withRetry + $transaction
 
@@ -409,6 +468,7 @@ export async function POST(request: NextRequest) {
             originalTenure: tenure,
             mirrorProcessingFee: autoProcessingFee,
             processingFeeRecorded: false,
+            extraEMIPaymentPageId: secondaryPaymentPageId || null,
           }
         });
 
@@ -532,11 +592,14 @@ export async function GET(request: NextRequest) {
     // Calculate processing fee from mirror mapping if it exists
     let processingFeePreview = 0;
     let mirrorRateUsed = 0;
+    let isMirrorLoan = false;
+    let extraEMICount = 0;
     try {
       const mirrorMapping = await db.mirrorLoanMapping.findFirst({
         where: { originalLoanId: loanId, isOfflineLoan: false }
       });
       if (mirrorMapping) {
+        isMirrorLoan = true;
         const mirrorRate = mirrorMapping.mirrorInterestRate || defaultRate;
         const mirrorType = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
         mirrorRateUsed = mirrorRate;
@@ -544,6 +607,7 @@ export async function GET(request: NextRequest) {
           principalAmount, defaultRate, defaultTenure, interestType, mirrorRate, mirrorType
         );
         processingFeePreview = mirrorCalc.processingFee;
+        extraEMICount = mirrorCalc.extraEMICount;
       }
     } catch { /* non-fatal — no mirror mapping */ }
 
@@ -572,6 +636,8 @@ export async function GET(request: NextRequest) {
         principalAmount,
         processingFee: processingFeePreview,
         mirrorRate: mirrorRateUsed,
+        isMirrorLoan,
+        extraEMICount,
         schedulePreview: emiCalculation.schedule.slice(0, 3) // First 3 EMIs
       },
       productDefaults

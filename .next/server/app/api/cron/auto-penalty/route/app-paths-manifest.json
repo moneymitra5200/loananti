@@ -1,0 +1,3 @@
+{
+  "/api/cron/auto-penalty/route": "app/api/cron/auto-penalty/route.js"
+}
