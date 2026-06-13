@@ -670,16 +670,220 @@ export async function PUT(request: NextRequest) {
           if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && previousData) {
             // Revert EMI schedule status
             const emiId = newData?.emiId || previousData?.emiId || actionLog.recordId;
+            let emi: any = null;
             if (emiId) {
-              await tx.eMISchedule.update({
-                where: { id: emiId },
+              emi = await tx.eMISchedule.findUnique({ where: { id: emiId } });
+              if (emi) {
+                await tx.eMISchedule.update({
+                  where: { id: emiId },
+                  data: {
+                    paymentStatus: previousData.emiStatus    || 'PENDING',
+                    paidAmount:    previousData.paidAmount    ?? 0,
+                    paidPrincipal: previousData.paidPrincipal ?? 0,
+                    paidInterest:  previousData.paidInterest  ?? 0,
+                    paidDate:      previousData.paidDate ? new Date(previousData.paidDate) : null,
+                    paymentMode:   previousData.paymentMode || null
+                  }
+                });
+                console.log(`[Undo] Reverted EMI #${emi.installmentNumber} (${emiId}) status to ${previousData.emiStatus || 'PENDING'}`);
+              }
+            }
+
+            // Revert PaymentRequest if applicable
+            const prId = newData?.paymentRequestId || newData?.paymentRequest?.id;
+            if (prId) {
+              await tx.paymentRequest.update({
+                where: { id: prId },
                 data: {
-                  paymentStatus: previousData.emiStatus   || 'PENDING',
-                  paidAmount:    previousData.paidAmount   ?? 0,
-                  paidDate:      previousData.paidDate ? new Date(previousData.paidDate) : null,
-                  paymentMode:   previousData.paymentMode || null
+                  status: 'PENDING',
+                  reviewedById: null,
+                  reviewedAt: null,
+                  paymentConfirmedAt: null
                 }
               });
+              console.log(`[Undo] Reverted PaymentRequest ${prId} status back to PENDING`);
+            }
+
+            const loanId = newData?.loanId || emi?.loanApplicationId;
+            if (loanId) {
+              // Revert sessionForm totals if a deferred EMI was created
+              const deferredEMI = await tx.eMISchedule.findFirst({
+                where: { originalEMIId: emiId }
+              });
+              if (deferredEMI) {
+                // Shift subsequent EMIs on original loan back by -1 month/installment
+                const subsequentEmis = await tx.eMISchedule.findMany({
+                  where: {
+                    loanApplicationId: loanId,
+                    installmentNumber: { gt: deferredEMI.installmentNumber }
+                  },
+                  orderBy: { installmentNumber: 'asc' }
+                });
+
+                // Delete the deferred EMI first
+                await tx.eMISchedule.delete({ where: { id: deferredEMI.id } });
+                console.log(`[Undo] Deleted deferred EMI #${deferredEMI.installmentNumber} on original loan`);
+
+                for (const sub of subsequentEmis) {
+                  const prevInstNum = sub.installmentNumber - 1;
+                  const prevDue = new Date(sub.dueDate);
+                  prevDue.setMonth(prevDue.getMonth() - 1);
+                  await tx.eMISchedule.update({
+                    where: { id: sub.id },
+                    data: {
+                      installmentNumber: prevInstNum,
+                      dueDate: prevDue
+                    }
+                  });
+                }
+                console.log(`[Undo] Shifted back ${subsequentEmis.length} original EMIs`);
+
+                // Revert sessionForm tenure & interest
+                const loan = await tx.loanApplication.findUnique({
+                  where: { id: loanId },
+                  include: { sessionForm: true }
+                });
+                if (loan?.sessionForm) {
+                  const sf = loan.sessionForm;
+                  const deferredInterest = deferredEMI.interestAmount || 0;
+                  await tx.sessionForm.update({
+                    where: { loanApplicationId: loanId },
+                    data: {
+                      tenure: Math.max(0, (sf.tenure || 0) - 1),
+                      totalInterest: Math.max(0, (sf.totalInterest || 0) - deferredInterest),
+                      totalAmount: Math.max(0, (sf.totalAmount || 0) - deferredInterest)
+                    }
+                  });
+                  console.log(`[Undo] Reverted sessionForm tenure and interest`);
+                }
+              }
+
+              // Handle mirror loan sync reversals
+              const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+                where: { originalLoanId: loanId }
+              });
+              if (mirrorMapping) {
+                const mirrorLoanId = mirrorMapping.mirrorLoanId;
+                if (mirrorLoanId && emi) {
+                  // Find mirror EMI corresponding to this installment number
+                  const mirrorEMI = await tx.eMISchedule.findFirst({
+                    where: { loanApplicationId: mirrorLoanId, installmentNumber: emi.installmentNumber }
+                  });
+                  if (mirrorEMI) {
+                    // Revert mirror EMI status
+                    await tx.eMISchedule.update({
+                      where: { id: mirrorEMI.id },
+                      data: {
+                        paymentStatus: 'PENDING',
+                        paidAmount: 0,
+                        paidPrincipal: 0,
+                        paidInterest: 0,
+                        paidDate: null,
+                        paymentMode: null
+                      }
+                    });
+                    console.log(`[Undo] Reverted mirror EMI #${emi.installmentNumber} status to PENDING`);
+
+                    // Find mirror deferred EMI
+                    const mirrorDeferredEMI = await tx.eMISchedule.findFirst({
+                      where: { originalEMIId: mirrorEMI.id }
+                    });
+                    if (mirrorDeferredEMI) {
+                      // Shift subsequent mirror EMIs back
+                      const subsequentMirrorEmis = await tx.eMISchedule.findMany({
+                        where: {
+                          loanApplicationId: mirrorLoanId,
+                          installmentNumber: { gt: mirrorDeferredEMI.installmentNumber }
+                        },
+                        orderBy: { installmentNumber: 'asc' }
+                      });
+
+                      // Delete mirror deferred EMI
+                      await tx.eMISchedule.delete({ where: { id: mirrorDeferredEMI.id } });
+                      console.log(`[Undo] Deleted deferred mirror EMI #${mirrorDeferredEMI.installmentNumber}`);
+
+                      for (const sub of subsequentMirrorEmis) {
+                        const prevInstNum = sub.installmentNumber - 1;
+                        const prevDue = new Date(sub.dueDate);
+                        prevDue.setMonth(prevDue.getMonth() - 1);
+                        await tx.eMISchedule.update({
+                          where: { id: sub.id },
+                          data: {
+                            installmentNumber: prevInstNum,
+                            dueDate: prevDue
+                          }
+                        });
+                      }
+                      console.log(`[Undo] Shifted back ${subsequentMirrorEmis.length} mirror EMIs`);
+
+                      // Decrement mirrorTenure
+                      await tx.mirrorLoanMapping.update({
+                        where: { id: mirrorMapping.id },
+                        data: {
+                          mirrorTenure: Math.max(0, (mirrorMapping.mirrorTenure || 0) - 1),
+                          mirrorEMIsPaid: Math.max(0, (mirrorMapping.mirrorEMIsPaid || 0) - 1)
+                        }
+                      });
+                      console.log(`[Undo] Decremented mirrorTenure and mirrorEMIsPaid`);
+                    } else {
+                      // Just decrement mirrorEMIsPaid
+                      await tx.mirrorLoanMapping.update({
+                        where: { id: mirrorMapping.id },
+                        data: {
+                          mirrorEMIsPaid: Math.max(0, (mirrorMapping.mirrorEMIsPaid || 0) - 1)
+                        }
+                      });
+                    }
+                  }
+                }
+              }
+
+              // Reopen original loan if it was CLOSED
+              const loanObj = await tx.loanApplication.findUnique({ where: { id: loanId } });
+              if (loanObj && loanObj.status === 'CLOSED') {
+                const isIO = emi?.isInterestOnly || loanObj.interestRate === 0;
+                await tx.loanApplication.update({
+                  where: { id: loanId },
+                  data: { status: isIO ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE', closedAt: null }
+                });
+                console.log(`[Undo] Restored loan status to ${isIO ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE'}`);
+              }
+
+              // Reopen mirror loan if it was CLOSED
+              if (mirrorMapping?.mirrorLoanId) {
+                const mirrorLoanObj = await tx.loanApplication.findUnique({ where: { id: mirrorMapping.mirrorLoanId } });
+                if (mirrorLoanObj && mirrorLoanObj.status === 'CLOSED') {
+                  await tx.loanApplication.update({
+                    where: { id: mirrorMapping.mirrorLoanId },
+                    data: { status: 'ACTIVE', closedAt: null }
+                  });
+                  console.log(`[Undo] Restored mirror loan status to ACTIVE`);
+                }
+              }
+
+              // Revert processing fee if installment 1 is undone
+              if (emi && emi.installmentNumber === 1) {
+                await tx.mirrorLoanMapping.updateMany({
+                  where: {
+                    OR: [
+                      { originalLoanId: loanId },
+                      { mirrorLoanId: loanId }
+                    ]
+                  },
+                  data: {
+                    processingFeeRecorded: false,
+                    mirrorProcessingFee: 0
+                  }
+                });
+
+                // Delete processing fee cash/bank entries
+                await deleteBankOrCashEntriesForRef(`${loanId}-PF`, tx);
+
+                // Delete processing fee journal entries
+                await reverseJournalEntriesForRef(`${loanId}-PF-JE`, userId, tx);
+                await reverseJournalEntriesForRef(`${loanId}-PF-PR`, userId, tx);
+                await reverseJournalEntriesForRef(loanId, userId, tx);
+              }
             }
 
             // Delete bank/cash transactions & revert balances
@@ -709,11 +913,45 @@ export async function PUT(request: NextRequest) {
                     personalCredit: personalCreditAfter
                   }
                 });
+                console.log(`[Undo] Reverted collector credit by ${paymentAmount}`);
               }
             }
 
             // Delete journal entries
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
+
+            // Clean up payments, credit transactions, and audit logs
+            const paymentsToDelete = [actionLog.recordId];
+            if (loanId && emi) {
+              const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+                where: { originalLoanId: loanId }
+              });
+              if (mirrorMapping?.mirrorLoanId) {
+                const mirrorEMI = await tx.eMISchedule.findFirst({
+                  where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+                });
+                if (mirrorEMI) {
+                  const mirrorPayments = await tx.payment.findMany({
+                    where: { emiScheduleId: mirrorEMI.id },
+                    select: { id: true }
+                  });
+                  paymentsToDelete.push(...mirrorPayments.map((p: any) => p.id));
+                }
+              }
+            }
+
+            await tx.auditLog.deleteMany({
+              where: { paymentId: { in: paymentsToDelete } }
+            });
+
+            await tx.creditTransaction.deleteMany({
+              where: { sourceId: { in: paymentsToDelete } }
+            });
+
+            await tx.payment.deleteMany({
+              where: { id: { in: paymentsToDelete } }
+            });
+            console.log(`[Undo] Successfully deleted Payments and related records:`, paymentsToDelete);
 
             localUndoResult = { type: 'online_payment_deleted', recordId: actionLog.recordId };
           }

@@ -1738,6 +1738,46 @@ export async function PUT(request: NextRequest) {
               }
             }
           }
+
+          // Create ActionLog entry for cashier approval so it can be audited and undone
+          try {
+            await db.actionLog.create({
+              data: {
+                userId: reviewedById,
+                userRole: 'CASHIER',
+                actionType: 'PAYMENT',
+                module: 'PAYMENT',
+                recordId: paymentId,
+                recordType: 'Payment',
+                canUndo: true,
+                previousData: JSON.stringify({
+                  emiId: emi.id,
+                  emiStatus:     emi.paymentStatus,
+                  paidAmount:    emi.paidAmount    ?? 0,
+                  paidPrincipal: emi.paidPrincipal ?? 0,
+                  paidInterest:  emi.paidInterest  ?? 0,
+                  paidDate:      emi.paidDate || null,
+                  paymentMode:   emi.paymentMode || null
+                }),
+                newData: JSON.stringify({
+                  emiId: emi.id,
+                  loanId: loan.id,
+                  paymentId: paymentId,
+                  amount: paymentRequest.requestedAmount,
+                  paymentAmount: paymentRequest.requestedAmount,
+                  paymentMode: paymentRequest.paymentMethod || 'UPI',
+                  paymentType: paymentRequest.paymentType,
+                  paymentRequestId: paymentRequest.id,
+                  companyId: loan.companyId,
+                  collectorId: reviewedById,
+                }),
+                description: `Approved payment request PR#${paymentRequest.requestNumber} (${paymentRequest.paymentType}) of ₹${paymentRequest.requestedAmount.toLocaleString('en-IN')} for EMI #${emi.installmentNumber} - ${loan.applicationNo}`
+              }
+            });
+            console.log(`[PR ActionLog] Created action log entry for payment request approval: ${paymentRequest.requestNumber}`);
+          } catch (logErr) {
+            console.error('[PR ActionLog] Failed to create action log entry:', logErr);
+          }
         }
       } catch (accErr) {
         // ══════════════════════════════════════════════════════════════════
