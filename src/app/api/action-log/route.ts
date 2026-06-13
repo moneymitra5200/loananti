@@ -399,13 +399,175 @@ export async function PUT(request: NextRequest) {
             localUndoResult = { type: 'loan_creation_deleted', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} and all its accounting entries were completely deleted` };
           }
 
-          // DELETE → restore loan to ACTIVE
+          // DELETE → restore loan to ACTIVE (and recreate structural data if hard-deleted)
           else if (actionLog.actionType === 'DELETE' && previousData) {
-            await tx.offlineLoan.update({
-              where: { id: actionLog.recordId },
-              data: { status: previousData.status || 'ACTIVE' }
-            });
-            localUndoResult = { type: 'loan_restored', recordId: actionLog.recordId };
+            if (previousData.loan) {
+              const loanData = previousData.loan;
+              const { 
+                emis, 
+                goldLoanDetail, 
+                vehicleLoanDetail, 
+                company, 
+                customer, 
+                creator, 
+                ...loanFields 
+              } = loanData;
+
+              // Recreate original loan
+              await tx.offlineLoan.create({
+                data: {
+                  ...loanFields,
+                  disbursementDate: loanFields.disbursementDate ? new Date(loanFields.disbursementDate) : null,
+                  startDate: loanFields.startDate ? new Date(loanFields.startDate) : null,
+                  interestOnlyStartDate: loanFields.interestOnlyStartDate ? new Date(loanFields.interestOnlyStartDate) : null,
+                  loanStartedAt: loanFields.loanStartedAt ? new Date(loanFields.loanStartedAt) : null,
+                  closedAt: loanFields.closedAt ? new Date(loanFields.closedAt) : null,
+                  createdAt: loanFields.createdAt ? new Date(loanFields.createdAt) : undefined,
+                  updatedAt: loanFields.updatedAt ? new Date(loanFields.updatedAt) : undefined,
+                }
+              });
+
+              // Recreate EMIs
+              if (emis && Array.isArray(emis)) {
+                for (const emi of emis) {
+                  const { offlineLoan: _ol, collector: _col, ...emiFields } = emi;
+                  await tx.offlineLoanEMI.create({
+                    data: {
+                      ...emiFields,
+                      dueDate: emiFields.dueDate ? new Date(emiFields.dueDate) : null,
+                      paidDate: emiFields.paidDate ? new Date(emiFields.paidDate) : null,
+                      collectedAt: emiFields.collectedAt ? new Date(emiFields.collectedAt) : null,
+                      reminderSentAt: emiFields.reminderSentAt ? new Date(emiFields.reminderSentAt) : null,
+                      originalDueDate: emiFields.originalDueDate ? new Date(emiFields.originalDueDate) : null,
+                      interestOnlyPaidAt: emiFields.interestOnlyPaidAt ? new Date(emiFields.interestOnlyPaidAt) : null,
+                      nextPaymentDate: emiFields.nextPaymentDate ? new Date(emiFields.nextPaymentDate) : null,
+                      createdAt: emiFields.createdAt ? new Date(emiFields.createdAt) : undefined,
+                      updatedAt: emiFields.updatedAt ? new Date(emiFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+              }
+
+              // Recreate gold details
+              if (goldLoanDetail) {
+                const { loanApplication, offlineLoan: _ol, ...goldFields } = goldLoanDetail;
+                await tx.goldLoanDetail.create({
+                  data: {
+                    ...goldFields,
+                    verificationDate: goldFields.verificationDate ? new Date(goldFields.verificationDate) : null,
+                    createdAt: goldFields.createdAt ? new Date(goldFields.createdAt) : undefined,
+                    updatedAt: goldFields.updatedAt ? new Date(goldFields.updatedAt) : undefined,
+                  }
+                });
+              }
+
+              // Recreate vehicle details
+              if (vehicleLoanDetail) {
+                const { loanApplication, offlineLoan: _ol, ...vehicleFields } = vehicleLoanDetail;
+                await tx.vehicleLoanDetail.create({
+                  data: {
+                    ...vehicleFields,
+                    verificationDate: vehicleFields.verificationDate ? new Date(vehicleFields.verificationDate) : null,
+                    createdAt: vehicleFields.createdAt ? new Date(vehicleFields.createdAt) : undefined,
+                    updatedAt: vehicleFields.updatedAt ? new Date(vehicleFields.updatedAt) : undefined,
+                  }
+                });
+              }
+
+              // Recreate mirror mapping
+              const mirrorMapping = previousData.mirrorMapping;
+              if (mirrorMapping) {
+                const { mirrorCompany, originalCompany, ...mappingFields } = mirrorMapping;
+                await tx.mirrorLoanMapping.create({
+                  data: {
+                    ...mappingFields,
+                    mirrorCompletedAt: mappingFields.mirrorCompletedAt ? new Date(mappingFields.mirrorCompletedAt) : null,
+                    createdAt: mappingFields.createdAt ? new Date(mappingFields.createdAt) : undefined,
+                    updatedAt: mappingFields.updatedAt ? new Date(mappingFields.updatedAt) : undefined,
+                  }
+                });
+              }
+
+              // Recreate mirror loan and its EMIs/details
+              const mirrorLoan = previousData.mirrorLoan;
+              if (mirrorLoan) {
+                const {
+                  emis: mirrorEmis,
+                  goldLoanDetail: mirrorGold,
+                  vehicleLoanDetail: mirrorVehicle,
+                  company: _c,
+                  customer: _cu,
+                  creator: _cr,
+                  ...mirrorFields
+                } = mirrorLoan;
+
+                await tx.offlineLoan.create({
+                  data: {
+                    ...mirrorFields,
+                    disbursementDate: mirrorFields.disbursementDate ? new Date(mirrorFields.disbursementDate) : null,
+                    startDate: mirrorFields.startDate ? new Date(mirrorFields.startDate) : null,
+                    interestOnlyStartDate: mirrorFields.interestOnlyStartDate ? new Date(mirrorFields.interestOnlyStartDate) : null,
+                    loanStartedAt: mirrorFields.loanStartedAt ? new Date(mirrorFields.loanStartedAt) : null,
+                    closedAt: mirrorFields.closedAt ? new Date(mirrorFields.closedAt) : null,
+                    createdAt: mirrorFields.createdAt ? new Date(mirrorFields.createdAt) : undefined,
+                    updatedAt: mirrorFields.updatedAt ? new Date(mirrorFields.updatedAt) : undefined,
+                  }
+                });
+
+                if (mirrorEmis && Array.isArray(mirrorEmis)) {
+                  for (const emi of mirrorEmis) {
+                    const { offlineLoan: _ol, collector: _col, ...emiFields } = emi;
+                    await tx.offlineLoanEMI.create({
+                      data: {
+                        ...emiFields,
+                        dueDate: emiFields.dueDate ? new Date(emiFields.dueDate) : null,
+                        paidDate: emiFields.paidDate ? new Date(emiFields.paidDate) : null,
+                        collectedAt: emiFields.collectedAt ? new Date(emiFields.collectedAt) : null,
+                        reminderSentAt: emiFields.reminderSentAt ? new Date(emiFields.reminderSentAt) : null,
+                        originalDueDate: emiFields.originalDueDate ? new Date(emiFields.originalDueDate) : null,
+                        interestOnlyPaidAt: emiFields.interestOnlyPaidAt ? new Date(emiFields.interestOnlyPaidAt) : null,
+                        nextPaymentDate: emiFields.nextPaymentDate ? new Date(emiFields.nextPaymentDate) : null,
+                        createdAt: emiFields.createdAt ? new Date(emiFields.createdAt) : undefined,
+                        updatedAt: emiFields.updatedAt ? new Date(emiFields.updatedAt) : undefined,
+                      }
+                    });
+                  }
+                }
+
+                if (mirrorGold) {
+                  const { loanApplication, offlineLoan: _ol, ...goldFields } = mirrorGold;
+                  await tx.goldLoanDetail.create({
+                    data: {
+                      ...goldFields,
+                      verificationDate: goldFields.verificationDate ? new Date(goldFields.verificationDate) : null,
+                      createdAt: goldFields.createdAt ? new Date(goldFields.createdAt) : undefined,
+                      updatedAt: goldFields.updatedAt ? new Date(goldFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+
+                if (mirrorVehicle) {
+                  const { loanApplication, offlineLoan: _ol, ...vehicleFields } = mirrorVehicle;
+                  await tx.vehicleLoanDetail.create({
+                    data: {
+                      ...vehicleFields,
+                      verificationDate: vehicleFields.verificationDate ? new Date(vehicleFields.verificationDate) : null,
+                      createdAt: vehicleFields.createdAt ? new Date(vehicleFields.createdAt) : undefined,
+                      updatedAt: vehicleFields.updatedAt ? new Date(vehicleFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+              }
+
+              localUndoResult = { type: 'loan_recreated', recordId: actionLog.recordId, detail: 'Loan and all its structural relations restored successfully' };
+            } else {
+              // Fallback for old format
+              await tx.offlineLoan.update({
+                where: { id: actionLog.recordId },
+                data: { status: previousData.status || 'ACTIVE' }
+              });
+              localUndoResult = { type: 'loan_restored', recordId: actionLog.recordId };
+            }
           }
 
           // UPDATE → revert fields to previous state

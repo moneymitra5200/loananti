@@ -4037,7 +4037,9 @@ export async function DELETE(request: NextRequest) {
     const loan = await db.offlineLoan.findUnique({
       where: { id: loanId },
       include: {
-        emis: true
+        emis: true,
+        goldLoanDetail: true,
+        vehicleLoanDetail: true
       }
     });
 
@@ -4054,6 +4056,25 @@ export async function DELETE(request: NextRequest) {
         hasPaidEMIs: true,
         paidEMICount: paidEmis
       }, { status: 400 });
+    }
+
+    // Check mirror mappings and mirror loan details before deletion
+    const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
+      where: { originalLoanId: loanId, isOfflineLoan: true }
+    });
+
+    const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
+      where: { mirrorLoanId: loanId }
+    });
+
+    const mirrorMapping = mirrorMappingAsOriginal || mirrorMappingAsMirror || null;
+
+    let mirrorLoan: any = null;
+    if (mirrorMappingAsOriginal?.mirrorLoanId) {
+      mirrorLoan = await db.offlineLoan.findUnique({
+        where: { id: mirrorMappingAsOriginal.mirrorLoanId },
+        include: { emis: true, goldLoanDetail: true, vehicleLoanDetail: true }
+      });
     }
 
     // ==========================================
@@ -4136,35 +4157,21 @@ export async function DELETE(request: NextRequest) {
     // ==========================================
     // DELETE MIRROR LOAN AND MAPPING IF EXISTS
     // ==========================================
-    // Check if this loan is an original loan with a mirror
-    const mirrorMappingAsOriginal = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: true }
-    });
-
-    // Check if this loan is a mirror loan
-    const mirrorMappingAsMirror = await db.mirrorLoanMapping.findFirst({
-      where: { mirrorLoanId: loanId }
-    });
-
     let mirrorLoanDeleted = false;
     let mappingDeleted = false;
 
     // If this is the ORIGINAL loan, delete the mirror loan too
     if (mirrorMappingAsOriginal?.mirrorLoanId) {
       try {
-        const mirrorLoan = await db.offlineLoan.findUnique({
-          where: { id: mirrorMappingAsOriginal.mirrorLoanId },
-          include: { emis: true }
-        });
-
-        if (mirrorLoan) {
+        const targetMirrorLoan = mirrorLoan as any;
+        if (targetMirrorLoan) {
           // Delete mirror loan's EMIs
           await db.offlineLoanEMI.deleteMany({
-            where: { offlineLoanId: mirrorLoan.id }
+            where: { offlineLoanId: targetMirrorLoan.id }
           });
 
           // Delete mirror loan's accounting entries
-          const mirrorEmiIds = mirrorLoan.emis.map(e => e.id);
+          const mirrorEmiIds = targetMirrorLoan.emis.map((e: any) => e.id);
           if (mirrorEmiIds.length > 0) {
             await db.cashBookEntry.deleteMany({
               where: {
@@ -4183,7 +4190,7 @@ export async function DELETE(request: NextRequest) {
           // Delete mirror loan's cashbook entries
           await db.cashBookEntry.deleteMany({
             where: {
-              referenceId: mirrorLoan.id,
+              referenceId: targetMirrorLoan.id,
               referenceType: { in: accountingReferenceTypes }
             }
           });
@@ -4191,17 +4198,25 @@ export async function DELETE(request: NextRequest) {
           // Delete mirror loan's bank transactions
           await db.bankTransaction.deleteMany({
             where: {
-              referenceId: mirrorLoan.id,
+              referenceId: targetMirrorLoan.id,
               referenceType: { in: accountingReferenceTypes }
             }
           });
 
+          // Delete mirror gold/vehicle details if they exist
+          if (targetMirrorLoan.goldLoanDetail) {
+            await db.goldLoanDetail.delete({ where: { id: targetMirrorLoan.goldLoanDetail.id } }).catch(() => {});
+          }
+          if (targetMirrorLoan.vehicleLoanDetail) {
+            await db.vehicleLoanDetail.delete({ where: { id: targetMirrorLoan.vehicleLoanDetail.id } }).catch(() => {});
+          }
+
           // Delete the mirror loan
           await db.offlineLoan.delete({
-            where: { id: mirrorLoan.id }
+            where: { id: targetMirrorLoan.id }
           });
           mirrorLoanDeleted = true;
-          console.log(`[DELETE OFFLINE LOAN] Deleted mirror loan ${mirrorLoan.loanNumber}`);
+          console.log(`[DELETE OFFLINE LOAN] Deleted mirror loan ${targetMirrorLoan.loanNumber}`);
         }
       } catch (e) {
         console.error('[DELETE OFFLINE LOAN] Error deleting mirror loan:', e);
@@ -4229,6 +4244,14 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
+    // Delete gold/vehicle details if they exist
+    if (loan.goldLoanDetail) {
+      await db.goldLoanDetail.delete({ where: { id: loan.goldLoanDetail.id } }).catch(() => {});
+    }
+    if (loan.vehicleLoanDetail) {
+      await db.vehicleLoanDetail.delete({ where: { id: loan.vehicleLoanDetail.id } }).catch(() => {});
+    }
+
     // Delete EMIs
     await db.offlineLoanEMI.deleteMany({
       where: { offlineLoanId: loanId }
@@ -4239,6 +4262,22 @@ export async function DELETE(request: NextRequest) {
       where: { id: loanId }
     });
 
+    const deletePayload = {
+      loan: {
+        ...loan,
+        emis: loan.emis,
+        goldLoanDetail: loan.goldLoanDetail || null,
+        vehicleLoanDetail: loan.vehicleLoanDetail || null
+      },
+      mirrorMapping: mirrorMapping,
+      mirrorLoan: mirrorLoan ? {
+        ...mirrorLoan,
+        emis: mirrorLoan.emis,
+        goldLoanDetail: mirrorLoan.goldLoanDetail || null,
+        vehicleLoanDetail: mirrorLoan.vehicleLoanDetail || null
+      } : null
+    };
+
     // Log action for undo (soft delete approach - can restore)
     await db.actionLog.create({
       data: {
@@ -4248,7 +4287,7 @@ export async function DELETE(request: NextRequest) {
         module: 'OFFLINE_LOAN',
         recordId: loanId,
         recordType: 'OfflineLoan',
-        previousData: JSON.stringify(loan),
+        previousData: JSON.stringify(deletePayload),
         description: `Deleted offline loan ${loan?.loanNumber}${paidEmis > 0 ? ` (with ${paidEmis} paid EMIs)` : ''}`,
         canUndo: true
       }
