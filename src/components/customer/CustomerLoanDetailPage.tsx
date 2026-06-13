@@ -343,10 +343,11 @@ export default function CustomerLoanDetailPage() {
 
   // Fetch Interest EMI data for Interest Only loans
   const fetchInterestEmiData = useCallback(async () => {
-    if (!loanId) return;
+    const targetLoanId = originalLoanId || loanId;
+    if (!targetLoanId) return;
     setInterestEmiLoading(true);
     try {
-      const response = await fetch(`/api/interest-emi?loanId=${loanId}&action=history`);
+      const response = await fetch(`/api/interest-emi?loanId=${targetLoanId}&action=history`);
       const data = await response.json();
       if (data.success) {
         setInterestEmiData({
@@ -361,7 +362,7 @@ export default function CustomerLoanDetailPage() {
     } finally {
       setInterestEmiLoading(false);
     }
-  }, [loanId]);
+  }, [loanId, originalLoanId]);
 
   // Fetch pending payment requests for this loan to detect In Processing EMIs
   const fetchPendingEmiRequests = useCallback(async () => {

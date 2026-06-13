@@ -503,7 +503,8 @@ export async function PUT(request: NextRequest) {
       let preTxMirrorPrincipal: number = 0;
       let preTxMirrorTotal: number = 0;
       if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
-          (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly)) {
+          (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly) ||
+          loan.status === 'ACTIVE_INTEREST_ONLY') {
         // Fetch mapping without isOfflineLoan filter to handle all mapping types
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: emi.loanApplicationId }
@@ -582,21 +583,29 @@ export async function PUT(request: NextRequest) {
           });
 
           // ============ PHASE 1 ROLLING EMI LOGIC ============
+          // For ACTIVE_INTEREST_ONLY loans, if the EMI being paid is an interest-only EMI,
+          // we need to create the next month's EMI. (Rolling schedule — same as offline loan)
+          // We must create it on BOTH the original loan and the mirror loan (if mirrored).
           const isPhase1IO = loan.status === 'ACTIVE_INTEREST_ONLY' && emi.isInterestOnly;
           if (isPhase1IO && newEmiStatus === 'PAID') {
-            console.log(`[PR Pay] Phase 1 IO Payment - Creating next rolling EMI`);
             const nextInstNum = emi.installmentNumber + 1;
             const nextDue = new Date(emi.dueDate);
             nextDue.setMonth(nextDue.getMonth() + 1);
-            
-            const existingNextEMI = await tx.eMISchedule.findFirst({
-              where: { loanApplicationId: loan.id, installmentNumber: nextInstNum }
+
+            const origLoanId = emi.loanApplicationId;
+            const mirrLoanId = ioMirrorMapping?.mirrorLoanId;
+
+            console.log(`[PR Pay] Phase 1 IO Payment - Creating next rolling EMI #${nextInstNum} for original loan: ${origLoanId}`);
+
+            // 1. Create next EMI on original loan
+            const existingNextOriginalEMI = await tx.eMISchedule.findFirst({
+              where: { loanApplicationId: origLoanId, installmentNumber: nextInstNum }
             });
-            
-            if (!existingNextEMI) {
+
+            if (!existingNextOriginalEMI) {
               await tx.eMISchedule.create({
                 data: {
-                  loanApplicationId: loan.id,
+                  loanApplicationId: origLoanId,
                   installmentNumber: nextInstNum,
                   dueDate: nextDue,
                   originalDueDate: nextDue,
@@ -610,20 +619,23 @@ export async function PUT(request: NextRequest) {
                   interestOnlyAmount: emi.interestAmount,
                 }
               });
+              console.log(`[PR Pay] Phase 1 IO: Created next original EMI #${nextInstNum}`);
             }
-            
-            if (ioMirrorMapping?.mirrorLoanId) {
+
+            // 2. Create next EMI on mirror loan (if exists)
+            if (mirrLoanId) {
+              console.log(`[PR Pay] Phase 1 IO Payment - Creating next rolling EMI #${nextInstNum} for mirror loan: ${mirrLoanId}`);
               const existingMirrorNextEMI = await tx.eMISchedule.findFirst({
-                where: { loanApplicationId: ioMirrorMapping.mirrorLoanId, installmentNumber: nextInstNum }
+                where: { loanApplicationId: mirrLoanId, installmentNumber: nextInstNum }
               });
               if (!existingMirrorNextEMI) {
                 const curMirrorEMI = await tx.eMISchedule.findFirst({
-                  where: { loanApplicationId: ioMirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+                  where: { loanApplicationId: mirrLoanId, installmentNumber: emi.installmentNumber }
                 });
                 if (curMirrorEMI) {
                   await tx.eMISchedule.create({
                     data: {
-                      loanApplicationId: ioMirrorMapping.mirrorLoanId,
+                      loanApplicationId: mirrLoanId,
                       installmentNumber: nextInstNum,
                       dueDate: nextDue,
                       originalDueDate: nextDue,
@@ -637,6 +649,7 @@ export async function PUT(request: NextRequest) {
                       interestOnlyAmount: curMirrorEMI.interestAmount,
                     }
                   });
+                  console.log(`[PR Pay] Phase 1 IO: Created next mirror EMI #${nextInstNum}`);
                 }
               }
             }
