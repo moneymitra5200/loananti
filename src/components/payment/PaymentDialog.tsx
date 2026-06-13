@@ -84,15 +84,17 @@ export default function PaymentDialog({
   const [step, setStep] = useState(1); // 1: Select Option, 2: Payment Details
 
   // Select display payment details - Interest Only mode routing to secondary payment page
-  const displayUpiId = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage?.upiId)
+  const isInterestOnlyPaymentFlow = selectedOption === 'INTEREST_ONLY' || emi?.isInterestOnly;
+
+  const displayUpiId = (isInterestOnlyPaymentFlow && (settings as any)?.secondaryPaymentPage?.upiId)
     ? (settings as any).secondaryPaymentPage.upiId
     : ((settings as any)?.companyUpiId || companyUpiId);
 
-  const displayQrCodeUrl = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage?.qrCodeUrl)
+  const displayQrCodeUrl = (isInterestOnlyPaymentFlow && (settings as any)?.secondaryPaymentPage?.qrCodeUrl)
     ? (settings as any).secondaryPaymentPage.qrCodeUrl
     : ((settings as any)?.companyQrCodeUrl || companyQrCodeUrl);
 
-  const displayBankDetails = (selectedOption === 'INTEREST_ONLY' && (settings as any)?.secondaryPaymentPage)
+  const displayBankDetails = (isInterestOnlyPaymentFlow && (settings as any)?.secondaryPaymentPage)
     ? {
         accountHolderName: (settings as any).secondaryPaymentPage.accountName,
         accountNumber: (settings as any).secondaryPaymentPage.accountNumber,
@@ -125,7 +127,7 @@ export default function PaymentDialog({
   const fetchSettings = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/payment-request?action=settings&loanApplicationId=${loanId}`);
+      const response = await fetch(`/api/payment-request?action=settings&loanApplicationId=${loanId}&emiScheduleId=${emi?.id}`);
       const data = await response.json();
       if (data.success) {
         setSettings(data.settings);
@@ -275,6 +277,13 @@ export default function PaymentDialog({
         proofUrl,
         proofFileName: proofFile.name
       };
+
+      if (selectedOption === 'INTEREST_ONLY' || emi.isInterestOnly) {
+        if ((settings as any)?.secondaryPaymentPage?.id) {
+          requestBody.secondaryPaymentPageId = (settings as any).secondaryPaymentPage.id;
+          requestBody.secondaryPaymentPageName = (settings as any).secondaryPaymentPage.name;
+        }
+      }
 
       if (selectedOption === 'PARTIAL') {
         requestBody.partialAmount = partialAmount;

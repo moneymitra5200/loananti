@@ -123,8 +123,35 @@ export async function GET(request: NextRequest) {
         }
       }
       
+      const emiScheduleId = searchParams.get('emiScheduleId');
       let secondaryPaymentPage: any = null;
-      if (loanApplicationId) {
+      
+      // Try loading from specific EMI payment setting first
+      if (emiScheduleId) {
+        const emiSetting = await db.eMIPaymentSetting.findUnique({
+          where: { emiScheduleId }
+        });
+        if (emiSetting?.secondaryPaymentPageId) {
+          const spPage = await db.secondaryPaymentPage.findUnique({
+            where: { id: emiSetting.secondaryPaymentPageId }
+          });
+          if (spPage) {
+            secondaryPaymentPage = {
+              id: spPage.id,
+              name: spPage.name,
+              upiId: spPage.upiId,
+              qrCodeUrl: spPage.qrCodeUrl,
+              bankName: spPage.bankName,
+              accountNumber: spPage.accountNumber,
+              accountName: spPage.accountName,
+              ifscCode: spPage.ifscCode
+            };
+          }
+        }
+      }
+      
+      // Fallback to mirror mapping extraEMIPaymentPageId
+      if (!secondaryPaymentPage && loanApplicationId) {
         const mirrorMapping = await db.mirrorLoanMapping.findFirst({
           where: {
             OR: [

@@ -785,6 +785,18 @@ export default function ActiveLoansTab({
 
               <Separator />
 
+              {extraEMICount > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
+                  <AlertCircle className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <h5 className="text-sm font-semibold text-blue-800">Extra EMIs Applicable</h5>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      This loan has <strong>{extraEMICount}</strong> extra EMI(s) at the end of the tenure to cover differences.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* EMI Preview */}
               {emiPreview && (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">

@@ -360,10 +360,16 @@ export async function GET(request: NextRequest) {
     let extraEMICount = 0;
     try {
       const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: true }
+        where: {
+          OR: [
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ],
+          isOfflineLoan: true
+        }
       });
       if (mirrorMapping) {
-        isMirrorLoan = true;
+        isMirrorLoan = (loanId === mirrorMapping.mirrorLoanId);
         const mirrorRate = mirrorMapping.mirrorInterestRate || defaultRate;
         const mirrorType = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
         mirrorRateUsed = mirrorRate;

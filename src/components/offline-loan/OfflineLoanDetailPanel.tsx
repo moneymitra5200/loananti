@@ -986,7 +986,7 @@ export default function OfflineLoanDetailPanel({
     try {
       const [baRes, spRes] = await Promise.all([
         fetch(`/api/accounting/bank-accounts?companyId=${companyId}`),
-        fetch(`/api/secondary-payment-page?companyId=${companyId}`),
+        fetch('/api/secondary-payment-pages?activeOnly=true'),
       ]);
       if (baRes.ok) {
         const baData = await baRes.json();
@@ -3755,6 +3755,18 @@ export default function OfflineLoanDetailPanel({
                 {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startSecondaryPageId && (
                   <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
                 )}
+              </div>
+            )}
+
+            {startExtraEMICount > 0 && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h5 className="text-sm font-semibold text-purple-800">Extra EMIs Applicable</h5>
+                  <p className="text-xs text-purple-700 mt-0.5">
+                    This loan has <strong>{startExtraEMICount}</strong> extra EMI(s) at the end of the tenure to cover differences.
+                  </p>
+                </div>
               </div>
             )}
 
