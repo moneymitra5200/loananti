@@ -898,21 +898,37 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       orderBy: { entryDate: 'asc' }
     });
 
+    const pfQueryReferenceIds = queryLoanIds.flatMap(lid => [
+      lid,
+      `${lid}-PF`,
+      `${lid}-PF-JE`,
+      `${lid}-MIR-PF`,
+      `${lid}-MIR-PF-JE`
+    ]);
+
     // ── ALWAYS fetch INTEREST_ACCRUAL and INTEREST_RECLASSIFICATION entries by loanId ──
     // These entries must be permanently visible even after EMI is paid.
     // IMPORTANT: Do NOT filter by companyId here. For mirror loans, accruals are recorded
     // in the ORIGINAL company (e.g. C3/PD RANGANI) but the personal ledger is viewed from
     // the MIRROR company context (e.g. C2/MM). The loanId filter alone is sufficient and
     // correct — it uniquely identifies entries for the right loans across all companies.
+    // We also include processing fee entries matching by their specific referenceId formats.
     const accrualEntries = await db.journalEntry.findMany({
       where: {
         isReversed: false,
         referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION', 'PROCESSING_FEE_ACCRUAL', 'PROCESSING_FEE_COLLECTION', 'PROCESSING_FEE'] },
-        lines: {
-          some: {
-            loanId: { in: queryLoanIds },
+        OR: [
+          {
+            lines: {
+              some: {
+                loanId: { in: queryLoanIds },
+              }
+            }
+          },
+          {
+            referenceId: { in: pfQueryReferenceIds }
           }
-        }
+        ]
       },
       include: {
         lines: {
@@ -941,7 +957,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       where: {
         isReversed: false,
         referenceType: { in: ['PROCESSING_FEE_COLLECTION', 'PROCESSING_FEE_ACCRUAL'] },
-        referenceId:   { in: queryLoanIds },
+        referenceId:   { in: pfQueryReferenceIds },
         id: { notIn: [...seenJEIds] },
       },
       include: {
@@ -1122,9 +1138,16 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     let loanIdsInEntry: string[] = Array.from(new Set<string>(rawLoanIds));
 
     // Fallback for Processing Fee JEs where NO line has a loanId (old DB entries before loanId-tagging fix):
-    // Use the JE's referenceId as the loan identifier if it matches one of the loan IDs we're looking for.
-    if (loanIdsInEntry.length === 0 && isAccrualOrPF && je.referenceId && queryLoanIds.includes(je.referenceId)) {
-      loanIdsInEntry = [je.referenceId];
+    // Use the JE's referenceId (with suffixes removed) as the loan identifier.
+    if (loanIdsInEntry.length === 0 && isAccrualOrPF && je.referenceId) {
+      const cleanRefId = je.referenceId
+        .replace(/-MIR-PF-JE$/i, '')
+        .replace(/-PF-JE$/i, '')
+        .replace(/-MIR-PF$/i, '')
+        .replace(/-PF$/i, '');
+      if (queryLoanIds.includes(cleanRefId)) {
+        loanIdsInEntry = [cleanRefId];
+      }
     }
 
     for (let lid of loanIdsInEntry) {
@@ -1275,8 +1298,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       // The JE was grouped here via referenceId, so use ALL lines for amount extraction.
       const isPFAccrualOrCollection = je.referenceType === 'PROCESSING_FEE_ACCRUAL' ||
         je.referenceType === 'PROCESSING_FEE_COLLECTION' || je.referenceType === 'PROCESSING_FEE';
-      if (loanLines.length === 0 && isPFAccrualOrCollection && je.referenceId === loanId) {
-        loanLines = je.lines;
+      if (loanLines.length === 0 && isPFAccrualOrCollection && je.referenceId) {
+        const cleanRefId = je.referenceId
+          .replace(/-MIR-PF-JE$/i, '')
+          .replace(/-PF-JE$/i, '')
+          .replace(/-MIR-PF$/i, '')
+          .replace(/-PF$/i, '');
+        if (cleanRefId === loanId) {
+          loanLines = je.lines;
+        }
       }
 
       if (loanLines.length === 0) continue;
