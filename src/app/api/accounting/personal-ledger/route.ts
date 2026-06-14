@@ -989,32 +989,37 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     journalEntries.sort((a: any, b: any) => {
       const dateA = new Date(a.entryDate);
       const dateB = new Date(b.entryDate);
-      
-      const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
-                        dateA.getMonth() === dateB.getMonth() &&
-                        dateA.getDate() === dateB.getDate();
-                        
-      if (isSameDay) {
-        const oA = ENTRY_ORDER[a.referenceType] ?? 9;
-        const oB = ENTRY_ORDER[b.referenceType] ?? 9;
-        if (oA !== oB) return oA - oB;
+      const timeA = dateA.getTime();
+      const timeB = dateB.getTime();
+
+      if (timeA !== timeB) {
+        return timeA - timeB;
       }
-      
-      const tA = dateA.getTime();
-      const tB = dateB.getTime();
-      if (tA !== tB) return tA - tB;
-      
+
+      if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
+        const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+
+      const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (createA !== createB) {
+        return createA - createB;
+      }
+
+      const emiA = a.emiNumber;
+      const emiB = b.emiNumber;
+      if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
+        return emiA - emiB;
+      }
+
       const oA = ENTRY_ORDER[a.referenceType] ?? 9;
       const oB = ENTRY_ORDER[b.referenceType] ?? 9;
       if (oA !== oB) return oA - oB;
 
-      if (a.entryNumber && b.entryNumber) {
-        const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
-        if (cmp !== 0) return cmp;
-      }
-      const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-      const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-      return createA - createB;
+      const idA = a.id || '';
+      const idB = b.id || '';
+      return idA.localeCompare(idB);
     });
   }
 
@@ -1606,40 +1611,39 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7
     };
 
-    if (a.loanId === b.loanId) {
-      if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
-        return a.emiNumber - b.emiNumber;
-      }
-    }
-
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
-    
-    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
-                      dateA.getMonth() === dateB.getMonth() &&
-                      dateA.getDate() === dateB.getDate();
-
-    if (isSameDay) {
-      const oA = ORDER[a.referenceType] ?? 9;
-      const oB = ORDER[b.referenceType] ?? 9;
-      if (oA !== oB) return oA - oB;
-    }
-
     const timeA = dateA.getTime();
     const timeB = dateB.getTime();
-    if (timeA !== timeB) return timeA - timeB;
+
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+
+    if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (createA !== createB) {
+      return createA - createB;
+    }
+
+    const emiA = a.emiNumber;
+    const emiB = b.emiNumber;
+    if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
+      return emiA - emiB;
+    }
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
     if (oA !== oB) return oA - oB;
 
-    if (a.entryNumber && b.entryNumber) {
-      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
-      if (cmp !== 0) return cmp;
-    }
-    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return createA - createB;
+    const idA = a.id || '';
+    const idB = b.id || '';
+    return idA.localeCompare(idB);
   });
 
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary]
@@ -1872,40 +1876,39 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7
     };
 
-    if (a.loanId === b.loanId) {
-      if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
-        return a.emiNumber - b.emiNumber;
-      }
-    }
-
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
-    
-    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
-                      dateA.getMonth() === dateB.getMonth() &&
-                      dateA.getDate() === dateB.getDate();
-
-    if (isSameDay) {
-      const oA = ORDER[a.referenceType] ?? 9;
-      const oB = ORDER[b.referenceType] ?? 9;
-      if (oA !== oB) return oA - oB;
-    }
-
     const timeA = dateA.getTime();
     const timeB = dateB.getTime();
-    if (timeA !== timeB) return timeA - timeB;
+
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+
+    if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (createA !== createB) {
+      return createA - createB;
+    }
+
+    const emiA = a.emiNumber;
+    const emiB = b.emiNumber;
+    if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
+      return emiA - emiB;
+    }
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
     if (oA !== oB) return oA - oB;
 
-    if (a.entryNumber && b.entryNumber) {
-      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
-      if (cmp !== 0) return cmp;
-    }
-    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return createA - createB;
+    const idA = a.id || '';
+    const idB = b.id || '';
+    return idA.localeCompare(idB);
   });
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary].reduce((s, l) => s + l.outstanding, 0);
 
@@ -2110,43 +2113,41 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
       PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7
     };
 
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    const timeA = dateA.getTime();
+    const timeB = dateB.getTime();
+
+    if (timeA !== timeB) {
+      return timeA - timeB;
+    }
+
+    if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (createA !== createB) {
+      return createA - createB;
+    }
+
     const matchA = a.narration?.match(/#(\d+)/);
     const matchB = b.narration?.match(/#(\d+)/);
     const emiA = matchA ? parseInt(matchA[1]) : (a.emiNumber ?? undefined);
     const emiB = matchB ? parseInt(matchB[1]) : (b.emiNumber ?? undefined);
-
     if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
       return emiA - emiB;
     }
-
-    const dateA = new Date(a.date);
-    const dateB = new Date(b.date);
-    
-    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
-                      dateA.getMonth() === dateB.getMonth() &&
-                      dateA.getDate() === dateB.getDate();
-
-    if (isSameDay) {
-      const oA = ORDER[a.referenceType] ?? 9;
-      const oB = ORDER[b.referenceType] ?? 9;
-      if (oA !== oB) return oA - oB;
-    }
-
-    const timeA = dateA.getTime();
-    const timeB = dateB.getTime();
-    if (timeA !== timeB) return timeA - timeB;
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
     if (oA !== oB) return oA - oB;
 
-    if (a.entryNumber && b.entryNumber) {
-      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
-      if (cmp !== 0) return cmp;
-    }
-    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return createA - createB;
+    const idA = a.id || '';
+    const idB = b.id || '';
+    return idA.localeCompare(idB);
   });
 
   return NextResponse.json({

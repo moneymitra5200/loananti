@@ -223,38 +223,35 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const loanEntries = entries
         .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
         .sort((a, b) => {
+          const dateA = new Date(a.date);
+          const dateB = new Date(b.date);
+          const timeA = dateA.getTime();
+          const timeB = dateB.getTime();
+
+          if (timeA !== timeB) {
+            return timeA - timeB;
+          }
+
+          if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
+            const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+            if (cmp !== 0) return cmp;
+          }
+
+          const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          if (createA !== createB) {
+            return createA - createB;
+          }
+
           if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
             return a.emiNumber - b.emiNumber;
           }
-
-          const dateA = new Date(a.date);
-          const dateB = new Date(b.date);
-          
-          const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
-                            dateA.getMonth() === dateB.getMonth() &&
-                            dateA.getDate() === dateB.getDate();
-
-          if (isSameDay) {
-            const oA = LEDGER_ORDER[a.referenceType] ?? 9;
-            const oB = LEDGER_ORDER[b.referenceType] ?? 9;
-            if (oA !== oB) return oA - oB;
-          }
-
-          const timeA = dateA.getTime();
-          const timeB = dateB.getTime();
-          if (timeA !== timeB) return timeA - timeB;
 
           const oA = LEDGER_ORDER[a.referenceType] ?? 9;
           const oB = LEDGER_ORDER[b.referenceType] ?? 9;
           if (oA !== oB) return oA - oB;
 
-          if (a.entryNumber && b.entryNumber) {
-            const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
-            if (cmp !== 0) return cmp;
-          }
-          const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return createA - createB;
+          return (a.id || '').localeCompare(b.id || '');
         });
 
       const cleanText = (txt?: string) => {
