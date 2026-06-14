@@ -210,11 +210,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const LEDGER_ORDER: Record<string, number> = {
         PROCESSING_FEE_ACCRUAL: 1,
         PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-        INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
-        LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+        LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
+        INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
         EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5,
         INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
-        PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6,
+        PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7,
       };
       const loanEntries = entries
         .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
