@@ -225,6 +225,20 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         .sort((a, b) => {
           const dateA = new Date(a.date);
           const dateB = new Date(b.date);
+
+          const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                            dateA.getMonth() === dateB.getMonth() &&
+                            dateA.getDate() === dateB.getDate();
+
+          if (isSameDay) {
+            const entryA = a.entryNumber;
+            const entryB = b.entryNumber;
+            if (entryA && entryB && entryA.startsWith('JE') && entryB.startsWith('JE') && entryA !== entryB) {
+              const cmp = entryA.localeCompare(entryB, undefined, { numeric: true });
+              if (cmp !== 0) return cmp;
+            }
+          }
+
           const timeA = dateA.getTime();
           const timeB = dateB.getTime();
 

@@ -989,9 +989,22 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     journalEntries.sort((a: any, b: any) => {
       const dateA = new Date(a.entryDate);
       const dateB = new Date(b.entryDate);
+
+      const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                        dateA.getMonth() === dateB.getMonth() &&
+                        dateA.getDate() === dateB.getDate();
+
+      if (isSameDay) {
+        const entryA = a.entryNumber;
+        const entryB = b.entryNumber;
+        if (entryA && entryB && entryA.startsWith('JE') && entryB.startsWith('JE') && entryA !== entryB) {
+          const cmp = entryA.localeCompare(entryB, undefined, { numeric: true });
+          if (cmp !== 0) return cmp;
+        }
+      }
+
       const timeA = dateA.getTime();
       const timeB = dateB.getTime();
-
       if (timeA !== timeB) {
         return timeA - timeB;
       }
@@ -1613,6 +1626,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
+
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
+
+    if (isSameDay) {
+      const entryA = a.entryNumber;
+      const entryB = b.entryNumber;
+      if (entryA && entryB && entryA.startsWith('JE') && entryB.startsWith('JE') && entryA !== entryB) {
+        const cmp = entryA.localeCompare(entryB, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+    }
+
     const timeA = dateA.getTime();
     const timeB = dateB.getTime();
 
@@ -1878,6 +1905,20 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
 
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
+
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
+
+    if (isSameDay) {
+      const entryA = a.entryNumber;
+      const entryB = b.entryNumber;
+      if (entryA && entryB && entryA.startsWith('JE') && entryB.startsWith('JE') && entryA !== entryB) {
+        const cmp = entryA.localeCompare(entryB, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+    }
+
     const timeA = dateA.getTime();
     const timeB = dateB.getTime();
 
@@ -2115,6 +2156,20 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
 
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
+
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
+
+    if (isSameDay) {
+      const entryA = a.entryNumber;
+      const entryB = b.entryNumber;
+      if (entryA && entryB && entryA.startsWith('JE') && entryB.startsWith('JE') && entryA !== entryB) {
+        const cmp = entryA.localeCompare(entryB, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+    }
+
     const timeA = dateA.getTime();
     const timeB = dateB.getTime();
 
