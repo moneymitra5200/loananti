@@ -112,19 +112,12 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      return { updatedLoan, emis };
-    });
+      // ── Record processing fee (inside transaction) ──────────────────
+      const mirrorMappingForPF = await tx.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId, isOfflineLoan: true }
+      });
 
-    console.log(`[Start Offline Loan] ✅ ${loan.loanNumber} → ${result.emis.length} EMIs created`);
-
-    // ── Record processing fee (same as normal loan creation) ──────────────────
-    // ONLY record if NOT a mirror loan. Mirror loans handle PF dynamically on EMI #1.
-    const mirrorMappingForPF = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: true }
-    });
-
-    if (parsedProcessingFee > 0 && !mirrorMappingForPF) {
-      try {
+      if (parsedProcessingFee > 0 && !mirrorMappingForPF) {
         const pfPaymentMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
         const pfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;
 
@@ -139,6 +132,7 @@ export async function POST(request: NextRequest) {
             referenceType: 'PROCESSING_FEE',
             referenceId: loanId,
             createdById: startedBy || 'system',
+            tx,
           });
         } else {
           // Cash credit
@@ -150,6 +144,7 @@ export async function POST(request: NextRequest) {
             referenceType: 'PROCESSING_FEE',
             referenceId: loanId,
             createdById: startedBy || 'system',
+            tx,
           });
         }
 
@@ -157,16 +152,16 @@ export async function POST(request: NextRequest) {
         const accountingService = new AccountingService(companyId);
         await accountingService.initializeChartOfAccounts();
         
-        // 1. Record Accrual: Debit 1302, Credit 4121
+        // 1. Record Accrual
         await accountingService.recordProcessingFeeAccrual({
           loanId,
           customerId: loan.customerId || loanId,
           amount: parsedProcessingFee,
           accrualDate: new Date(Date.now() - 5000),
           createdById: startedBy || 'system',
-        });
+        }, tx);
 
-        // 2. Record Collection: Debit Bank/Cash, Credit 1302
+        // 2. Record Collection
         await accountingService.recordProcessingFee({
           loanId,
           customerId: loan.customerId || loanId,
@@ -175,125 +170,110 @@ export async function POST(request: NextRequest) {
           createdById: startedBy || 'system',
           paymentMode: pfPaymentMode,
           bankAccountId: pfBankId,
-        });
+        }, tx);
 
-        await db.offlineLoan.update({
+        await tx.offlineLoan.update({
           where: { id: loanId },
           data: { processingFeeRecorded: true }
         });
-        console.log(`[Start Offline Loan] ✅ Processing fee ₹${parsedProcessingFee} recorded for ${loan.loanNumber}`);
-      } catch (pfErr) {
-        console.error('[Start Offline Loan] Processing fee recording failed (non-fatal):', pfErr);
+        console.log(`[Start Offline Loan] ✅ Processing fee ₹${parsedProcessingFee} recorded for ${loan.loanNumber} inside transaction`);
       }
-    }
 
-    // ── CASCADE: Also start the mirror offline loan with shifted schedule ─────
-    setImmediate(async () => {
-      try {
-        const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-          where: { originalLoanId: loanId, isOfflineLoan: true },
-          include: { mirrorCompany: { select: { id: true, name: true } } }
-        });
+      // ── CASCADE: Also start the mirror offline loan with shifted schedule ─────
+      const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId, isOfflineLoan: true },
+        include: { mirrorCompany: { select: { id: true, name: true } } }
+      });
 
-        if (!mirrorMapping?.mirrorLoanId) {
-          console.log(`[Mirror Start] No mirror for offline loan ${loan.loanNumber}`);
-          return;
-        }
+      if (mirrorMapping?.mirrorLoanId) {
+        const mirrorLoan = await tx.offlineLoan.findUnique({ where: { id: mirrorMapping.mirrorLoanId } });
+        if (mirrorLoan) {
+          const mirrorRate  = mirrorMapping.mirrorInterestRate || interestRate;
+          const mirrorType  = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
 
-        const mirrorLoan = await db.offlineLoan.findUnique({ where: { id: mirrorMapping.mirrorLoanId } });
-        if (!mirrorLoan) return;
+          const mirrorCalc = calculateMirrorLoan(
+            principalAmount,
+            interestRate,
+            tenure,
+            actualInterestType,
+            mirrorRate,
+            mirrorType
+          );
 
-        // Mirror uses its OWN rate from mapping
-        const mirrorRate  = mirrorMapping.mirrorInterestRate || interestRate;
-        const mirrorType  = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
+          const shiftedSchedule = mirrorCalc.shiftedSchedule;
+          const autoProcessingFee = mirrorCalc.processingFee;
+          const mirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
 
-        // ── Calculate full mirror + shifted schedule (same as normal loan) ────
-        const mirrorCalc = calculateMirrorLoan(
-          principalAmount,
-          interestRate,
-          tenure,
-          actualInterestType,
-          mirrorRate,
-          mirrorType
-        );
+          // Clear IO placeholder EMIs from mirror
+          await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: mirrorLoan.id } });
 
-        // shiftedSchedule: last (smallest) EMI moved to position 1
-        const shiftedSchedule = mirrorCalc.shiftedSchedule;
-        const autoProcessingFee = mirrorCalc.processingFee; // originalEMI - lastMirrorEMI
-        const mirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
-
-        // Clear IO placeholder EMIs from mirror
-        await db.offlineLoanEMI.deleteMany({ where: { offlineLoanId: mirrorLoan.id } });
-
-        // Generate mirror's SHIFTED amortizing schedule (last EMI → first position)
-        const mirrorEMIs = shiftedSchedule.map((item, index) => {
-          const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
-          const dueDate = new Date();
-          dueDate.setMonth(dueDate.getMonth() + index + 1);
-          dueDate.setDate(emiDayOfMonth);
-          dueDate.setHours(0, 0, 0, 0);
-          return {
-            offlineLoanId: mirrorLoan.id,
-            installmentNumber: item.installmentNumber,
-            dueDate,
-            principalAmount: item.principal,
-            interestAmount: item.interest,
-            totalAmount: item.emi,
-            outstandingPrincipal: item.outstandingPrincipal,
-            paymentStatus: 'PENDING' as const,
-          };
-        });
-
-        await db.offlineLoanEMI.createMany({ data: mirrorEMIs as any });
-
-        await db.offlineLoan.update({
-          where: { id: mirrorLoan.id },
-          data: {
-            status: 'ACTIVE',
-            tenure: mirrorTenure,
-            interestRate: mirrorRate,
-            interestType: mirrorType,
-            emiAmount: mirrorCalc.mirrorLoan.emiAmount,
-            isInterestOnlyLoan: false,
-            partialPaymentEnabled: true,
-            processingFee: autoProcessingFee,
-          }
-        });
-
-        // Update mirror mapping with processing fee and tenure info
-        await db.mirrorLoanMapping.update({
-          where: { id: mirrorMapping.id },
-          data: {
-            mirrorTenure,
-            originalTenure: tenure,
-            mirrorProcessingFee: autoProcessingFee,
-            processingFeeRecorded: false,
-            extraEMIPaymentPageId: secondaryPaymentPageId || null,
-          }
-        });
-
-        // Record mirror processing fee accrual in the mirror company
-        const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
-        if (mirrorCompanyId && autoProcessingFee > 0) {
-          const mirrorAccSvc = new AccountingService(mirrorCompanyId);
-          await mirrorAccSvc.initializeChartOfAccounts();
-          await mirrorAccSvc.recordProcessingFeeAccrual({
-            loanId: mirrorLoan.id,
-            customerId: mirrorLoan.customerId || mirrorLoan.id,
-            amount: autoProcessingFee,
-            accrualDate: new Date(Date.now() - 5000),
-            createdById: startedBy || 'system',
+          // Generate mirror's SHIFTED amortizing schedule (last EMI → first position)
+          const mirrorEMIs = shiftedSchedule.map((item, index) => {
+            const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
+            const dueDate = new Date();
+            dueDate.setMonth(dueDate.getMonth() + index + 1);
+            dueDate.setDate(emiDayOfMonth);
+            dueDate.setHours(0, 0, 0, 0);
+            return {
+              offlineLoanId: mirrorLoan.id,
+              installmentNumber: item.installmentNumber,
+              dueDate,
+              principalAmount: item.principal,
+              interestAmount: item.interest,
+              totalAmount: item.emi,
+              outstandingPrincipal: item.outstandingPrincipal,
+              paymentStatus: 'PENDING' as const,
+            };
           });
-          console.log(`[Mirror Start] Recorded mirror processing fee accrual: ₹${autoProcessingFee} in company ${mirrorCompanyId}`);
+
+          await tx.offlineLoanEMI.createMany({ data: mirrorEMIs as any });
+
+          await tx.offlineLoan.update({
+            where: { id: mirrorLoan.id },
+            data: {
+              status: 'ACTIVE',
+              tenure: mirrorTenure,
+              interestRate: mirrorRate,
+              interestType: mirrorType,
+              emiAmount: mirrorCalc.mirrorLoan.emiAmount,
+              isInterestOnlyLoan: false,
+              partialPaymentEnabled: true,
+              processingFee: autoProcessingFee,
+            }
+          });
+
+          // Update mirror mapping with processing fee and tenure info
+          await tx.mirrorLoanMapping.update({
+            where: { id: mirrorMapping.id },
+            data: {
+              mirrorTenure,
+              originalTenure: tenure,
+              mirrorProcessingFee: autoProcessingFee,
+              processingFeeRecorded: false,
+              extraEMIPaymentPageId: secondaryPaymentPageId || null,
+            }
+          });
+
+          // Record mirror processing fee accrual in the mirror company
+          const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
+          if (mirrorCompanyId && autoProcessingFee > 0) {
+            const mirrorAccSvc = new AccountingService(mirrorCompanyId);
+            await mirrorAccSvc.initializeChartOfAccounts();
+            await mirrorAccSvc.recordProcessingFeeAccrual({
+              loanId: mirrorLoan.id,
+              customerId: mirrorLoan.customerId || mirrorLoan.id,
+              amount: autoProcessingFee,
+              accrualDate: new Date(Date.now() - 5000),
+              createdById: startedBy || 'system',
+            }, tx);
+            console.log(`[Mirror Start] Recorded mirror processing fee accrual: ₹${autoProcessingFee} in company ${mirrorCompanyId} inside transaction`);
+          }
+
+          console.log(`[Mirror Start] ✅ ${mirrorLoan.loanNumber} activated | Shifted schedule | PF ₹${autoProcessingFee} inside transaction`);
         }
-
-        // Note: No journal entry for disbursement is needed here because the loan 
-        // was already disbursed when it was created in Phase 1 (INTEREST_ONLY).
-
-        console.log(`[Mirror Start] ✅ ${mirrorLoan.loanNumber} activated | ${mirrorRate}% ${mirrorType} | EMI ₹${mirrorCalc.mirrorLoan.emiAmount} × ${mirrorTenure}mo | shifted schedule | PF ₹${autoProcessingFee}`);
-      } catch (e) {
-        console.error('[Mirror Start] Non-fatal error:', e);
       }
+
+      return { updatedLoan, emis };
     });
     // ── END MIRROR CASCADE ────────────────────────────────────────────────────
 

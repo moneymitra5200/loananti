@@ -186,9 +186,9 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     }
   };
 
-  const fetchLoans = async () => {
+  const fetchLoans = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       let url = `/api/offline-loan?page=${page}&limit=10`;
       // Pass status to backend; 'all' means show active+other but NOT closed (API excludes CLOSED by default)
       if (statusFilter === 'CLOSED') {
@@ -604,13 +604,19 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
         userId={userId}
         userRole={userRole}
         onPaymentSuccess={() => {
-          fetchLoans();
+          fetchLoans(true);
+          fetchMirrorMappings();
+          fetchActionableItems();
         }}
         onLoanStarted={() => {
-          fetchLoans();
+          fetchLoans(true);
+          fetchMirrorMappings();
+          fetchActionableItems();
         }}
         onLoanDeleted={() => {
-          fetchLoans();
+          fetchLoans(true);
+          fetchMirrorMappings();
+          fetchActionableItems();
         }}
       />
 

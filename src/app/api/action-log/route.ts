@@ -562,11 +562,40 @@ export async function PUT(request: NextRequest) {
               localUndoResult = { type: 'loan_recreated', recordId: actionLog.recordId, detail: 'Loan and all its structural relations restored successfully' };
             } else {
               // Fallback for old format
-              await tx.offlineLoan.update({
-                where: { id: actionLog.recordId },
-                data: { status: previousData.status || 'ACTIVE' }
+              const existingLoan = await tx.offlineLoan.findUnique({
+                where: { id: actionLog.recordId }
               });
-              localUndoResult = { type: 'loan_restored', recordId: actionLog.recordId };
+              if (existingLoan) {
+                await tx.offlineLoan.update({
+                  where: { id: actionLog.recordId },
+                  data: { status: previousData.status || 'ACTIVE' }
+                });
+                localUndoResult = { type: 'loan_restored', recordId: actionLog.recordId };
+              } else {
+                const {
+                  emis,
+                  goldLoanDetail,
+                  vehicleLoanDetail,
+                  company,
+                  customer,
+                  creator,
+                  ...loanFields
+                } = previousData;
+                await tx.offlineLoan.create({
+                  data: {
+                    ...loanFields,
+                    id: actionLog.recordId,
+                    disbursementDate: loanFields.disbursementDate ? new Date(loanFields.disbursementDate) : null,
+                    startDate: loanFields.startDate ? new Date(loanFields.startDate) : null,
+                    interestOnlyStartDate: loanFields.interestOnlyStartDate ? new Date(loanFields.interestOnlyStartDate) : null,
+                    loanStartedAt: loanFields.loanStartedAt ? new Date(loanFields.loanStartedAt) : null,
+                    closedAt: loanFields.closedAt ? new Date(loanFields.closedAt) : null,
+                    createdAt: loanFields.createdAt ? new Date(loanFields.createdAt) : undefined,
+                    updatedAt: loanFields.updatedAt ? new Date(loanFields.updatedAt) : undefined,
+                  }
+                });
+                localUndoResult = { type: 'loan_recreated_fallback', recordId: actionLog.recordId };
+              }
             }
           }
 
