@@ -429,10 +429,10 @@ export default function CustomerLoanDetailPage() {
   // Fetch Interest EMI data when loan is an Interest Only loan
   // This handles both ACTIVE_INTEREST_ONLY status and loans that might have incorrect status
   useEffect(() => {
-    if (loan && (loan.status === 'ACTIVE_INTEREST_ONLY' || loan.isInterestOnlyLoan || loan.loanType === 'INTEREST_ONLY')) {
+    if (loan && loan.status === 'ACTIVE_INTEREST_ONLY') {
       fetchInterestEmiData();
     }
-  }, [loan?.status, loan?.isInterestOnlyLoan, loan?.loanType, fetchInterestEmiData]);
+  }, [loan?.status, fetchInterestEmiData]);
 
   // Handle proof file upload
   const handleProofUpload = async (file: File): Promise<string | null> => {
@@ -913,8 +913,8 @@ export default function CustomerLoanDetailPage() {
           </Card>
         )}
         {/* Interest EMI Section for Interest Only Loans */}
-        {/* Show for ACTIVE_INTEREST_ONLY status OR any loan marked as Interest Only */}
-        {(loan?.status === 'ACTIVE_INTEREST_ONLY' || loan?.isInterestOnlyLoan || loan?.loanType === 'INTEREST_ONLY') && (
+        {/* Show only when in ACTIVE_INTEREST_ONLY status */}
+        {loan?.status === 'ACTIVE_INTEREST_ONLY' && (
           <Card className="border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-sm">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
@@ -1219,17 +1219,7 @@ export default function CustomerLoanDetailPage() {
                               <p className="text-xs text-red-500 mt-1">{reason}</p>
                             )}
                           </div>
-                          {/* Extra EMI secondary payment page notice */}
-                          {mirrorTenure > 0 && emi.installmentNumber > mirrorTenure && !isPaid && (
-                            <div className="mt-2 p-2 bg-yellow-50 rounded-md border border-yellow-300">
-                              <p className="text-xs font-semibold text-yellow-800">⭐ Extra EMI — Pay via separate link</p>
-                              {extraEmiPaymentPage ? (
-                                <p className="text-xs text-yellow-700 mt-0.5">UPI: {extraEmiPaymentPage.upiId || 'See payment page'}</p>
-                              ) : (
-                                <p className="text-xs text-yellow-700 mt-0.5">Contact cashier for extra EMI payment details.</p>
-                              )}
-                            </div>
-                          )}
+                          {/* Extra EMI secondary payment page notice removed as per customer requirement */}
                           {/* Deferred principal notice */}
                           {emi.principalDeferred && !emi.isInterestOnly && !isPaid && (
                             <div className="mt-2 p-2 bg-violet-50 rounded-md border border-violet-200">
