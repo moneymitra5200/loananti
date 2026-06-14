@@ -976,21 +976,34 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       }
     }
     const ENTRY_ORDER: Record<string, number> = {
-      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
       PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
       INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
-      EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4,
-      INTEREST_ONLY_PAYMENT: 4,
-      PARTIAL_EMI_PAYMENT: 4,
-      PRINCIPAL_ONLY_PAYMENT: 5,
-      OFFLINE_LOAN_FORECLOSURE: 5, LOAN_FORECLOSURE: 5, LOSS_WRITE_OFF: 5,
+      LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+      EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5,
+      INTEREST_ONLY_PAYMENT: 5,
+      PARTIAL_EMI_PAYMENT: 5,
+      PRINCIPAL_ONLY_PAYMENT: 6,
+      OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6, LOSS_WRITE_OFF: 6,
     };
     journalEntries.sort((a: any, b: any) => {
-      const tA = new Date(a.entryDate).getTime();
-      const tB = new Date(b.entryDate).getTime();
-      if (Math.abs(tA - tB) > 5000) return tA - tB;
-      // Same/near timestamp — use logical accounting order
+      const dateA = new Date(a.entryDate);
+      const dateB = new Date(b.entryDate);
+      
+      const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                        dateA.getMonth() === dateB.getMonth() &&
+                        dateA.getDate() === dateB.getDate();
+                        
+      if (isSameDay) {
+        const oA = ENTRY_ORDER[a.referenceType] ?? 9;
+        const oB = ENTRY_ORDER[b.referenceType] ?? 9;
+        if (oA !== oB) return oA - oB;
+      }
+      
+      const tA = dateA.getTime();
+      const tB = dateB.getTime();
+      if (tA !== tB) return tA - tB;
+      
       const oA = ENTRY_ORDER[a.referenceType] ?? 9;
       const oB = ENTRY_ORDER[b.referenceType] ?? 9;
       return oA - oB;
@@ -1569,41 +1582,37 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   allEntries.sort((a, b) => {
     const ORDER: Record<string, number> = {
-      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
       PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
       INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
-      EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4, INTEREST_ONLY_PAYMENT: 4, PARTIAL_EMI_PAYMENT: 4,
-      PRINCIPAL_ONLY_PAYMENT: 5, OFFLINE_LOAN_FORECLOSURE: 5, LOAN_FORECLOSURE: 5, LOSS_WRITE_OFF: 5
+      LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+      EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
+      PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6, LOSS_WRITE_OFF: 6
     };
 
-    // 1. We only apply special logical grouping if they belong to the same loan
     if (a.loanId === b.loanId) {
-      // 1a. Disbursement is ALWAYS first
-      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-      if (isDisbA && !isDisbB) return -1;
-      if (!isDisbA && isDisbB) return 1;
-
-      // 1b. Sort by EMI Number if both have it
       if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
         return a.emiNumber - b.emiNumber;
       }
-
-      // 1c. Within the same EMI (or same date), use logical accounting order
-      if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
-        const oA = ORDER[a.referenceType] ?? 9;
-        const oB = ORDER[b.referenceType] ?? 9;
-        if (oA !== oB) return oA - oB;
-      }
     }
 
-    // 2. Fallback: Date (with 5-second tolerance)
-    const timeA = new Date(a.date).getTime();
-    const timeB = new Date(b.date).getTime();
-    if (Math.abs(timeA - timeB) > 5000) return timeA - timeB;
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
 
-    // 3. Ultimate fallback for same/near date
+    if (isSameDay) {
+      const oA = ORDER[a.referenceType] ?? 9;
+      const oB = ORDER[b.referenceType] ?? 9;
+      if (oA !== oB) return oA - oB;
+    }
+
+    const timeA = dateA.getTime();
+    const timeB = dateB.getTime();
+    if (timeA !== timeB) return timeA - timeB;
+
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
     return oA - oB;
@@ -1818,34 +1827,41 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
   }
 
   allEntries.sort((a, b) => {
-    if (a.loanId === b.loanId) {
-      const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-      const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-      if (isDisbA && !isDisbB) return -1;
-      if (!isDisbA && isDisbB) return 1;
+    const ORDER: Record<string, number> = {
+      PROCESSING_FEE_ACCRUAL: 1,
+      PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+      INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
+      LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+      EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
+      PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6, LOSS_WRITE_OFF: 6
+    };
 
+    if (a.loanId === b.loanId) {
       if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
         return a.emiNumber - b.emiNumber;
       }
-
-      if (a.emiNumber === b.emiNumber && a.emiNumber !== undefined) {
-        const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
-        const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
-        if (isAccrualA && !isAccrualB) return -1;
-        if (!isAccrualA && isAccrualB) return 1;
-      }
     }
 
-    const timeA = new Date(a.date).getTime();
-    const timeB = new Date(b.date).getTime();
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
+
+    if (isSameDay) {
+      const oA = ORDER[a.referenceType] ?? 9;
+      const oB = ORDER[b.referenceType] ?? 9;
+      if (oA !== oB) return oA - oB;
+    }
+
+    const timeA = dateA.getTime();
+    const timeB = dateB.getTime();
     if (timeA !== timeB) return timeA - timeB;
 
-    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL';
-    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL';
-    if (isAccrualA && !isAccrualB) return -1;
-    if (!isAccrualA && isAccrualB) return 1;
-
-    return 0;
+    const oA = ORDER[a.referenceType] ?? 9;
+    const oB = ORDER[b.referenceType] ?? 9;
+    return oA - oB;
   });
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary].reduce((s, l) => s + l.outstanding, 0);
 
@@ -2033,37 +2049,44 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
   }
 
   mappedEntries.sort((a: any, b: any) => {
-    const isDisbA = a.referenceType === 'LOAN_DISBURSEMENT' || a.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-    const isDisbB = b.referenceType === 'LOAN_DISBURSEMENT' || b.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-    if (isDisbA && !isDisbB) return -1;
-    if (!isDisbA && isDisbB) return 1;
+    const ORDER: Record<string, number> = {
+      PROCESSING_FEE_ACCRUAL: 1,
+      PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+      INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
+      LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+      EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
+      PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6, LOSS_WRITE_OFF: 6
+    };
 
     const matchA = a.narration?.match(/#(\d+)/);
     const matchB = b.narration?.match(/#(\d+)/);
-    const emiA = matchA ? parseInt(matchA[1]) : undefined;
-    const emiB = matchB ? parseInt(matchB[1]) : undefined;
+    const emiA = matchA ? parseInt(matchA[1]) : (a.emiNumber ?? undefined);
+    const emiB = matchB ? parseInt(matchB[1]) : (b.emiNumber ?? undefined);
 
     if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
       return emiA - emiB;
     }
 
-    if (emiA === emiB && emiA !== undefined) {
-      const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
-      const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
-      if (isAccrualA && !isAccrualB) return -1;
-      if (!isAccrualA && isAccrualB) return 1;
+    const dateA = new Date(a.date);
+    const dateB = new Date(b.date);
+    
+    const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                      dateA.getMonth() === dateB.getMonth() &&
+                      dateA.getDate() === dateB.getDate();
+
+    if (isSameDay) {
+      const oA = ORDER[a.referenceType] ?? 9;
+      const oB = ORDER[b.referenceType] ?? 9;
+      if (oA !== oB) return oA - oB;
     }
 
-    const timeA = new Date(a.date).getTime();
-    const timeB = new Date(b.date).getTime();
+    const timeA = dateA.getTime();
+    const timeB = dateB.getTime();
     if (timeA !== timeB) return timeA - timeB;
 
-    const isAccrualA = a.referenceType === 'INTEREST_ACCRUAL' || a.referenceType === 'PROCESSING_FEE_ACCRUAL';
-    const isAccrualB = b.referenceType === 'INTEREST_ACCRUAL' || b.referenceType === 'PROCESSING_FEE_ACCRUAL';
-    if (isAccrualA && !isAccrualB) return -1;
-    if (!isAccrualA && isAccrualB) return 1;
-
-    return 0;
+    const oA = ORDER[a.referenceType] ?? 9;
+    const oB = ORDER[b.referenceType] ?? 9;
+    return oA - oB;
   });
 
   return NextResponse.json({

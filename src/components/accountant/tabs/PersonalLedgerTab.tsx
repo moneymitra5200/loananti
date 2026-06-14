@@ -208,21 +208,38 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     return allLoans.map(loan => {
       // Filter entries for this loan — entries already come from journal entries
       const LEDGER_ORDER: Record<string, number> = {
-        LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
         PROCESSING_FEE_ACCRUAL: 1,
         PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
         INTEREST_ACCRUAL: 3, INTEREST_RECLASSIFICATION: 3,
-        EMI_PAYMENT: 4, MIRROR_EMI_PAYMENT: 4,
-        INTEREST_ONLY_PAYMENT: 4, PARTIAL_EMI_PAYMENT: 4,
-        PRINCIPAL_ONLY_PAYMENT: 5, OFFLINE_LOAN_FORECLOSURE: 5, LOAN_FORECLOSURE: 5,
+        LOAN_DISBURSEMENT: 4, MIRROR_LOAN_DISBURSEMENT: 4,
+        EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5,
+        INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
+        PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 6, LOAN_FORECLOSURE: 6,
       };
       const loanEntries = entries
         .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
         .sort((a, b) => {
-          const tA = new Date(a.date).getTime();
-          const tB = new Date(b.date).getTime();
-          if (Math.abs(tA - tB) > 5000) return tA - tB;
-          // Same/near timestamp → use logical accounting order
+          if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
+            return a.emiNumber - b.emiNumber;
+          }
+
+          const dateA = new Date(a.date);
+          const dateB = new Date(b.date);
+          
+          const isSameDay = dateA.getFullYear() === dateB.getFullYear() &&
+                            dateA.getMonth() === dateB.getMonth() &&
+                            dateA.getDate() === dateB.getDate();
+
+          if (isSameDay) {
+            const oA = LEDGER_ORDER[a.referenceType] ?? 9;
+            const oB = LEDGER_ORDER[b.referenceType] ?? 9;
+            if (oA !== oB) return oA - oB;
+          }
+
+          const timeA = dateA.getTime();
+          const timeB = dateB.getTime();
+          if (timeA !== timeB) return timeA - timeB;
+
           const oA = LEDGER_ORDER[a.referenceType] ?? 9;
           const oB = LEDGER_ORDER[b.referenceType] ?? 9;
           return oA - oB;
