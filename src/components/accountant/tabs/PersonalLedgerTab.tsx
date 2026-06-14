@@ -48,6 +48,8 @@ interface LedgerEntry {
   loanId: string;
   loanNumber: string;
   emiNumber?: number;
+  entryNumber?: string;
+  createdAt?: string;
   // Pre-computed values from journal-entry-based API
   description?: string;
   principalPaid?: number;
@@ -91,6 +93,8 @@ interface StatementRow {
   remainingBalance: number;
   referenceType: string;
   emiNumber?: number;
+  entryNumber?: string;
+  createdAt?: string;
 }
 
 function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, formatDate, refreshKey = 0 }: PersonalLedgerTabProps) {
@@ -242,7 +246,15 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
           const oA = LEDGER_ORDER[a.referenceType] ?? 9;
           const oB = LEDGER_ORDER[b.referenceType] ?? 9;
-          return oA - oB;
+          if (oA !== oB) return oA - oB;
+
+          if (a.entryNumber && b.entryNumber) {
+            const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+            if (cmp !== 0) return cmp;
+          }
+          const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return createA - createB;
         });
 
       const cleanText = (txt?: string) => {
@@ -273,7 +285,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
             debit: amount,
             credit: 0,
             remainingBalance: runningBalance,
-            referenceType: 'LOAN_DISBURSEMENT'
+            referenceType: 'LOAN_DISBURSEMENT',
+            entryNumber: entry.entryNumber,
+            createdAt: entry.createdAt
           });
           continue;
         }
@@ -292,7 +306,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               credit: 0,
               remainingBalance: runningBalance,
               referenceType: 'PROCESSING_FEE_ACCRUAL',
-              emiNumber: entry.emiNumber
+              emiNumber: entry.emiNumber,
+              entryNumber: entry.entryNumber,
+              createdAt: entry.createdAt
             });
           }
           continue;
@@ -313,7 +329,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               credit: pfCredit,
               remainingBalance: runningBalance,
               referenceType: 'PROCESSING_FEE_COLLECTION',
-              emiNumber: entry.emiNumber
+              emiNumber: entry.emiNumber,
+              entryNumber: entry.entryNumber,
+              createdAt: entry.createdAt
             });
           }
           continue;
@@ -352,7 +370,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               credit: 0,
               remainingBalance: runningBalance,
               referenceType: 'INTEREST_CHARGE',
-              emiNumber: entry.emiNumber
+              emiNumber: entry.emiNumber,
+              entryNumber: entry.entryNumber,
+              createdAt: entry.createdAt
             });
           }
         } else {
@@ -397,7 +417,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               credit: 0,
               remainingBalance: runningBalance,
               referenceType: 'INTEREST_CHARGE',
-              emiNumber: entry.emiNumber
+              emiNumber: entry.emiNumber,
+              entryNumber: entry.entryNumber,
+              createdAt: entry.createdAt
             });
           }
 
@@ -423,7 +445,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 credit: effectiveInterestAmt,
                 remainingBalance: runningBalance,
                 referenceType: entry.referenceType,
-                emiNumber: entry.emiNumber
+                emiNumber: entry.emiNumber,
+                entryNumber: entry.entryNumber,
+                createdAt: entry.createdAt
               });
             }
 
@@ -442,7 +466,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 credit: principalCredit,
                 remainingBalance: runningBalance,
                 referenceType: entry.referenceType,
-                emiNumber: entry.emiNumber
+                emiNumber: entry.emiNumber,
+                entryNumber: entry.entryNumber,
+                createdAt: entry.createdAt
               });
             }
           }
@@ -580,8 +606,11 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 }
                 exportPersonalLedgerCSV(
                   filteredRows.map(r => ({
-                    date: r.date ? format(new Date(r.date), 'dd/MM/yyyy HH:mm:ss') : '', narration: r.description, referenceNo: r.referenceType,
-                    debit: r.totalPayment || 0, credit: 0
+                    date: r.date ? format(new Date(r.date), 'dd/MM/yyyy HH:mm:ss') : '',
+                    narration: r.description,
+                    referenceNo: r.entryNumber || 'Auto',
+                    debit: r.debit || 0,
+                    credit: r.credit || 0
                   })),
                   `${selectedCustomer.name}_${selectedLoan.loanNumber}`,
                   selectedCompanyIds[0] || ''
@@ -650,6 +679,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
               <TableHeader>
                 <TableRow className="bg-slate-50 border-b-2">
                   <TableHead className="font-bold text-slate-700 text-xs uppercase">Date</TableHead>
+                  <TableHead className="font-bold text-slate-700 text-xs uppercase">Entry No.</TableHead>
                   <TableHead className="font-bold text-slate-700 text-xs uppercase">Particulars</TableHead>
                   <TableHead className="font-bold text-slate-700 text-xs uppercase">Chq No.</TableHead>
                   <TableHead className="font-bold text-slate-700 text-xs uppercase">Value Date</TableHead>
@@ -687,6 +717,9 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                           <span>{new Date(row.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</span>
                           <span className="text-xs text-slate-500">{new Date(row.date).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-sm font-mono text-slate-700 py-2">
+                        {row.entryNumber || '—'}
                       </TableCell>
                       <TableCell className="py-2">
                         <div className="flex items-center gap-2 flex-wrap">

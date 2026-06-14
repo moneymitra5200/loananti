@@ -1006,7 +1006,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       
       const oA = ENTRY_ORDER[a.referenceType] ?? 9;
       const oB = ENTRY_ORDER[b.referenceType] ?? 9;
-      return oA - oB;
+      if (oA !== oB) return oA - oB;
+
+      if (a.entryNumber && b.entryNumber) {
+        const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+        if (cmp !== 0) return cmp;
+      }
+      const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return createA - createB;
     });
   }
 
@@ -1199,6 +1207,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         loanId,
         loanNumber: meta.loanNumber,
         emiNumber: undefined,
+        entryNumber: 'Auto',
+        createdAt: meta.disbursementDate || new Date(),
         narration: `Loan Disbursed — ${meta.loanNumber}`,
         description: `Loan Disbursed — ${meta.loanNumber}`,
         principalDisbursed: meta.loanAmount,
@@ -1275,6 +1285,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
           loanId,
           loanNumber: meta.loanNumber,
           emiNumber: emi.installmentNumber,
+          entryNumber: 'Auto',
+          createdAt: synthDisplayDate,
           narration: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
           description: `To-INTEREST Normal Dr. Int. (Accrued)`,
           principalDisbursed: effectiveInterestAmount,
@@ -1433,6 +1445,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
       allEntries.push({
         id: je.id,
+        entryNumber: je.entryNumber,
+        createdAt: je.createdAt,
         date: je.entryDate,
         referenceType: je.referenceType,
         referenceId: je.referenceId,
@@ -1491,6 +1505,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
             loanId,
             loanNumber: meta.loanNumber,
             emiNumber: undefined,
+            entryNumber: 'Auto',
+            createdAt: closeDate,
             narration: `Loan Closed — ${meta.loanNumber}`,
             description: `Loan Closed (Foreclosure / Full Settlement) — ${meta.loanNumber}`,
             principalDisbursed: 0,
@@ -1615,7 +1631,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
-    return oA - oB;
+    if (oA !== oB) return oA - oB;
+
+    if (a.entryNumber && b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return createA - createB;
   });
 
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary]
@@ -1671,6 +1695,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       allEntries.push({
         id: `disb-${loan.id}`, date: fullLoan.disbursedAt, referenceType: 'LOAN_DISBURSEMENT',
         loanId: loan.id, loanNumber: loan.applicationNo,
+        entryNumber: 'Auto',
+        createdAt: fullLoan.disbursedAt,
         description: `Loan Given - ${customer?.name || 'Customer'}`,
         principalDisbursed: loanAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
         lines: [
@@ -1704,6 +1730,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
           id: `accrual-${emi.id}`, date: accrualDisplayDate,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.applicationNo,
           emiNumber: emi.installmentNumber,
+          entryNumber: 'Auto',
+          createdAt: accrualDisplayDate,
           description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
           principalDisbursed: emi.interestAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
           lines: [
@@ -1724,6 +1752,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
         referenceType: emi.isInterestOnly ? 'INTEREST_ONLY_PAYMENT' : 'EMI_PAYMENT',
         loanId: loan.id, loanNumber: loan.applicationNo,
         emiNumber: emi.installmentNumber,
+        entryNumber: 'Auto',
+        createdAt: emi.paidDate,
         description: emi.isInterestOnly ? `IO EMI #${emi.installmentNumber} - ${customer?.name || 'Customer'}` : `Loan EMI - ${customer?.name || 'Customer'} (P+I)`,
         principalDisbursed: 0, principalPaid: pp, interestPaid: ip, totalPayment: pp + ip,
         lines: [
@@ -1757,6 +1787,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
       allEntries.push({
         id: `offline-disb-${loan.id}`, date: fullLoan.disbursementDate,
         referenceType: 'LOAN_DISBURSEMENT', loanId: loan.id, loanNumber: loan.loanNumber,
+        entryNumber: 'Auto',
+        createdAt: fullLoan.disbursementDate,
         description: `Loan Disbursed — ${loan.loanNumber}`,
         principalDisbursed: fullLoan.loanAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
         lines: [
@@ -1787,6 +1819,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
           id: `offline-accrual-${emi.id}`, date: accrualDisplayDate2,
           referenceType: 'INTEREST_ACCRUAL', loanId: loan.id, loanNumber: loan.loanNumber,
           emiNumber: emi.installmentNumber,
+          entryNumber: 'Auto',
+          createdAt: accrualDisplayDate2,
           description: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
           principalDisbursed: emi.interestAmount, principalPaid: 0, interestPaid: 0, totalPayment: null,
           lines: [
@@ -1805,6 +1839,8 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
         id: `offline-emi-${emi.id}`, date: emi.paidDate,
         referenceType: 'EMI_PAYMENT', loanId: loan.id, loanNumber: loan.loanNumber,
         emiNumber: emi.installmentNumber,
+        entryNumber: 'Auto',
+        createdAt: emi.paidDate,
         description: `Monthly EMI #${emi.installmentNumber}`,
         principalDisbursed: 0, principalPaid: pp, interestPaid: ip, totalPayment: pp + ip,
         lines: [
@@ -1861,7 +1897,15 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
-    return oA - oB;
+    if (oA !== oB) return oA - oB;
+
+    if (a.entryNumber && b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return createA - createB;
   });
   const totalOutstanding = [...onlineLoansSummary, ...offlineLoansSummary].reduce((s, l) => s + l.outstanding, 0);
 
@@ -2002,8 +2046,14 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
     }
 
     return {
-      id: je.id, date: je.entryDate, referenceType: je.referenceType,
-      narration: je.narration, loanId, loanNumber: applicationNo,
+      id: je.id,
+      entryNumber: je.entryNumber,
+      createdAt: je.createdAt,
+      date: je.entryDate,
+      referenceType: je.referenceType,
+      narration: je.narration,
+      loanId,
+      loanNumber: applicationNo,
       emiNumber,
       lines: je.lines.map(l => ({
         accountCode: l.account?.accountCode,
@@ -2027,6 +2077,8 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
       id: `synth-disb-${loanId}`,
       date: disbursedAt || new Date(),
       referenceType: 'LOAN_DISBURSEMENT',
+      entryNumber: 'Auto',
+      createdAt: disbursedAt || new Date(),
       narration: `Loan Disbursed — ${applicationNo}`,
       loanId,
       loanNumber: applicationNo,
@@ -2086,7 +2138,15 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
 
     const oA = ORDER[a.referenceType] ?? 9;
     const oB = ORDER[b.referenceType] ?? 9;
-    return oA - oB;
+    if (oA !== oB) return oA - oB;
+
+    if (a.entryNumber && b.entryNumber) {
+      const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
+      if (cmp !== 0) return cmp;
+    }
+    const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return createA - createB;
   });
 
   return NextResponse.json({
