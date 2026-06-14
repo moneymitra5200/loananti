@@ -129,4 +129,4 @@ const nextConfig = {
   serverExternalPackages: ['socket.io', 'socket.io-client'],
 };
 
-module.exports = withPWA(nextConfig);
+module.exports = withPWA(/** @type {any} */ (nextConfig));

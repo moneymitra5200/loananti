@@ -91,6 +91,76 @@ async function getLRAccountIds(companyId: string | null): Promise<string[]> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPER: Normalizes name and phone to group/merge duplicate offline/online contacts
+// ─────────────────────────────────────────────────────────────────────────────
+async function getContactUserMap() {
+  const allRegisteredUsers = await db.user.findMany({
+    select: { id: true, name: true, phone: true, email: true }
+  });
+  
+  const userMapByContact = new Map<string, { id: string; name: string; phone: string; email: string }>();
+  for (const u of allRegisteredUsers) {
+    if (u.name && u.phone) {
+      const key = `${u.name.trim().toLowerCase()}_${u.phone.trim().replace(/\D/g, '')}`;
+      userMapByContact.set(key, {
+        id: u.id,
+        name: u.name,
+        phone: u.phone,
+        email: u.email || '',
+      });
+    }
+  }
+  return userMapByContact;
+}
+
+function getCustomerForContact(
+  userMapByContact: Map<string, { id: string; name: string; phone: string; email: string }>,
+  name: string | null,
+  phone: string | null,
+  linkedCustomer?: { id: string; name: string | null; phone: string | null; email: string | null },
+  fallbackId?: string
+) {
+  const cleanName = (name || linkedCustomer?.name || '').trim();
+  const cleanPhone = (phone || linkedCustomer?.phone || '').trim();
+  
+  if (cleanName && cleanPhone) {
+    const key = `${cleanName.toLowerCase()}_${cleanPhone.replace(/\D/g, '')}`;
+    const registered = userMapByContact.get(key);
+    if (registered) {
+      return registered;
+    }
+    
+    // Fallback to a consistent synthetic group ID based on name and phone
+    return {
+      id: `offline_name_${cleanName.toLowerCase()}_${cleanPhone.replace(/\D/g, '')}`,
+      name: cleanName,
+      phone: cleanPhone,
+      email: linkedCustomer?.email || '',
+    };
+  }
+  
+  if (linkedCustomer) {
+    return {
+      id: linkedCustomer.id,
+      name: linkedCustomer.name || 'Unknown',
+      phone: linkedCustomer.phone || '',
+      email: linkedCustomer.email || '',
+    };
+  }
+  
+  if (cleanName && fallbackId) {
+    return {
+      id: fallbackId,
+      name: cleanName,
+      phone: cleanPhone,
+      email: '',
+    };
+  }
+  
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // LIST: Customers with their Loans Receivable outstanding balance
 // Source: Journal Entry Lines touching Loans Receivable account
 // ─────────────────────────────────────────────────────────────────────────────
@@ -202,17 +272,25 @@ async function listCustomersForCompany(companyId: string | null) {
       })
     : [];
 
+  const userMapByContact = await getContactUserMap();
+
   const loanToCustomer = new Map<string, { id: string; name: string; phone: string; email: string }>();
   for (const l of onlineLoans) {
-    if (l.customer) loanToCustomer.set(l.id, { id: l.customer.id, name: l.customer.name || 'Unknown', phone: l.customer.phone || '', email: l.customer.email || '' });
+    if (l.customer) {
+      const cust = getCustomerForContact(userMapByContact, l.customer.name, l.customer.phone, l.customer);
+      if (cust) loanToCustomer.set(l.id, cust);
+    }
   }
   for (const l of offlineLoans) {
-    if (l.customer) {
-      loanToCustomer.set(l.id, { id: l.customer.id, name: l.customer.name || (l as any).customerName || 'Unknown', phone: l.customer.phone || (l as any).customerPhone || '', email: l.customer.email || '' });
-    } else if ((l as any).customerName) {
-      // Offline loan without a linked User account — use customerName as synthetic customer
-      const syntheticId = `offline_${l.id}`;
-      loanToCustomer.set(l.id, { id: syntheticId, name: (l as any).customerName, phone: (l as any).customerPhone || '', email: (l as any).customerEmail || '' });
+    const cust = getCustomerForContact(
+      userMapByContact,
+      l.customerName,
+      l.customerPhone,
+      l.customer || undefined,
+      `offline_${l.id}`
+    );
+    if (cust) {
+      loanToCustomer.set(l.id, cust);
     }
   }
 
@@ -266,7 +344,10 @@ async function listCustomersForCompany(companyId: string | null) {
       if (!customer && line.loanId) customer = loanToCustomer.get(line.loanId);
     } else if (line.customerId) {
       const c = customerMap.get(line.customerId);
-      if (c) customer = { id: c.id, name: c.name || 'Unknown', phone: c.phone || '', email: c.email || '' };
+      if (c) {
+        const cust = getCustomerForContact(userMapByContact, c.name, c.phone, c);
+        if (cust) customer = cust;
+      }
     }
     if (!customer) continue;
 
@@ -318,6 +399,7 @@ async function listCustomersForCompany(companyId: string | null) {
 // Reads from EMI schedules directly but still excludes processing fee
 // ─────────────────────────────────────────────────────────────────────────────
 async function listCustomersFallback(companyId: string | null) {
+  const userMapByContact = await getContactUserMap();
   const result: any[] = [];
   const seenCustomers = new Map<string, any>();
 
@@ -386,25 +468,31 @@ async function listCustomersFallback(companyId: string | null) {
             }
           });
           if (!orig?.customer) continue;
-          addOrMerge(orig.customer.id, {
-            id: orig.customer.id, name: orig.customer.name || 'Unknown',
-            phone: orig.customer.phone || 'N/A', email: orig.customer.email,
-            totalLoans: 1,
-            totalOutstanding: calcOutstandingOnline(orig.emiSchedules),
-            totalPaid: calcPaid(orig.emiSchedules),
-            isMirror: true,
-          });
+          const cust = getCustomerForContact(userMapByContact, orig.customer.name, orig.customer.phone, orig.customer);
+          if (cust) {
+            addOrMerge(cust.id, {
+              id: cust.id, name: cust.name,
+              phone: cust.phone, email: cust.email,
+              totalLoans: 1,
+              totalOutstanding: calcOutstandingOnline(orig.emiSchedules),
+              totalPaid: calcPaid(orig.emiSchedules),
+              isMirror: true,
+            });
+          }
         }
         continue;
       }
-      addOrMerge(loan.customer.id, {
-        id: loan.customer.id, name: loan.customer.name || 'Unknown',
-        phone: loan.customer.phone || 'N/A', email: loan.customer.email,
-        totalLoans: 1,
-        totalOutstanding: calcOutstandingOnline(loan.emiSchedules),
-        totalPaid: calcPaid(loan.emiSchedules),
-        isMirror: true,
-      });
+      const cust = getCustomerForContact(userMapByContact, loan.customer.name, loan.customer.phone, loan.customer);
+      if (cust) {
+        addOrMerge(cust.id, {
+          id: cust.id, name: cust.name,
+          phone: cust.phone, email: cust.email,
+          totalLoans: 1,
+          totalOutstanding: calcOutstandingOnline(loan.emiSchedules),
+          totalPaid: calcPaid(loan.emiSchedules),
+          isMirror: true,
+        });
+      }
     }
 
     // --- Offline mirror loans ---
@@ -425,21 +513,19 @@ async function listCustomersFallback(companyId: string | null) {
       if (!loan) continue;
       const outstanding = calcOutstandingOffline(loan.emis);
       const totalPaid   = calcPaid(loan.emis);
-      if (loan.customer) {
-        addOrMerge(loan.customer.id, {
-          id: loan.customer.id,
-          name: loan.customer.name || loan.customerName || 'Unknown',
-          phone: loan.customer.phone || loan.customerPhone || 'N/A',
-          email: loan.customer.email,
-          totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: true,
-        });
-      } else {
-        const syntheticId = `offline_${loan.id}`;
-        addOrMerge(syntheticId, {
-          id: syntheticId,
-          name: loan.customerName || 'Unknown',
-          phone: loan.customerPhone || 'N/A',
-          email: loan.customerEmail || '',
+      const cust = getCustomerForContact(
+        userMapByContact,
+        loan.customerName,
+        loan.customerPhone,
+        loan.customer || undefined,
+        `offline_${loan.id}`
+      );
+      if (cust) {
+        addOrMerge(cust.id, {
+          id: cust.id,
+          name: cust.name,
+          phone: cust.phone,
+          email: cust.email || loan.customerEmail || '',
           totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: true,
         });
       }
@@ -475,16 +561,19 @@ async function listCustomersFallback(companyId: string | null) {
 
   for (const loan of onlineLoans) {
     if (!loan.customer) continue;
-    addOrMerge(loan.customer.id, {
-      id: loan.customer.id,
-      name: loan.customer.name || 'Unknown',
-      phone: loan.customer.phone || 'N/A',
-      email: loan.customer.email,
-      totalLoans: 1,
-      totalOutstanding: calcOutstandingOnline(loan.emiSchedules),
-      totalPaid: calcPaid(loan.emiSchedules),
-      isMirror: false,
-    });
+    const cust = getCustomerForContact(userMapByContact, loan.customer.name, loan.customer.phone, loan.customer);
+    if (cust) {
+      addOrMerge(cust.id, {
+        id: cust.id,
+        name: cust.name,
+        phone: cust.phone,
+        email: cust.email,
+        totalLoans: 1,
+        totalOutstanding: calcOutstandingOnline(loan.emiSchedules),
+        totalPaid: calcPaid(loan.emiSchedules),
+        isMirror: false,
+      });
+    }
   }
 
   // All offline mirror-original IDs globally
@@ -516,25 +605,19 @@ async function listCustomersFallback(companyId: string | null) {
         ? s : s + (e.totalAmount - (e.paidAmount || 0)), 0);
     const totalPaid = loan.emis.reduce((s, e) => s + (e.paidAmount || 0), 0);
 
-    if (loan.customer) {
-      // Linked customer account
-      addOrMerge(loan.customer.id, {
-        id: loan.customer.id,
-        name: loan.customer.name || (loan as any).customerName || 'Unknown',
-        phone: loan.customer.phone || (loan as any).customerPhone || 'N/A',
-        email: loan.customer.email,
-        totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
-      });
-    } else {
-      // No linked user account — group by name+phone so all loans for same person share one row
-      const rawName  = (loan as any).customerName  || 'Unknown';
-      const rawPhone = (loan as any).customerPhone || 'N/A';
-      const groupKey = `offline_name_${rawName.trim().toLowerCase()}_${rawPhone.trim()}`;
-      addOrMerge(groupKey, {
-        id: groupKey,
-        name: rawName,
-        phone: rawPhone,
-        email: (loan as any).customerEmail || '',
+    const cust = getCustomerForContact(
+      userMapByContact,
+      loan.customerName,
+      loan.customerPhone,
+      loan.customer || undefined,
+      `offline_${loan.id}`
+    );
+    if (cust) {
+      addOrMerge(cust.id, {
+        id: cust.id,
+        name: cust.name,
+        phone: cust.phone,
+        email: cust.email || loan.customerEmail || '',
         totalLoans: 1, totalOutstanding: outstanding, totalPaid, isMirror: false,
       });
     }
