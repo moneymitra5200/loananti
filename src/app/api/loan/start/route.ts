@@ -115,6 +115,11 @@ export async function POST(request: NextRequest) {
         err.code = 'LOAN_ALREADY_STARTED';
         throw err;
       }
+      // Delete old EMI payment settings first to avoid foreign key constraint violations
+      await tx.eMIPaymentSetting.deleteMany({
+        where: { loanApplicationId: loanId }
+      });
+
       // Clear emiScheduleId on payments and payment requests to allow deleting the EMIs
       await tx.payment.updateMany({
         where: { emiSchedule: { loanApplicationId: loanId } },
@@ -208,10 +213,7 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Delete old EMI payment settings
-      await tx.eMIPaymentSetting.deleteMany({
-        where: { loanApplicationId: loanId }
-      });
+      // Old EMI payment settings were deleted earlier in this transaction to prevent FK violation
 
       // Fetch newly created schedules to get their IDs
       const createdSchedules = await tx.eMISchedule.findMany({
@@ -294,6 +296,11 @@ export async function POST(request: NextRequest) {
           const shiftedSchedule = mirrorCalc.shiftedSchedule;
           const autoProcessingFee = mirrorCalc.processingFee; // originalEMI - lastMirrorEMI
           const actualMirrorTenure = mirrorCalc.mirrorLoan.schedule.length;
+
+          // Delete mirror EMI payment settings first to avoid foreign key constraint violations
+          await tx.eMIPaymentSetting.deleteMany({
+            where: { loanApplicationId: mirrorMapping.mirrorLoanId! }
+          });
 
           // Clear emiScheduleId on mirror payments and payment requests to allow deleting the EMIs
           await tx.payment.updateMany({
