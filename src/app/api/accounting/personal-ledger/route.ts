@@ -662,7 +662,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   if (isNameGroupId && groupName) {
     // Fetch customer info from any offline loan with matching name (case-insensitive)
     const sampleLoan = await db.offlineLoan.findFirst({
-      where: { customerName: groupName },
+      where: { customerName: { contains: groupName } },
       select: { customerName: true, customerPhone: true, customerEmail: true }
     });
     if (sampleLoan) {
@@ -686,10 +686,47 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     });
   }
 
-  // Get all loans for this customer
-  const allOnlineLoans = isSyntheticId ? [] : await db.loanApplication.findMany({
+  // Resolve normalized name and phone for de-duplication/grouping
+  let targetName = '';
+  let targetPhone = '';
+  if (customer) {
+    targetName = (customer.name || '').trim().toLowerCase();
+    targetPhone = (customer.phone || '').trim().replace(/\D/g, '');
+  } else if (groupName) {
+    targetName = groupName.trim().toLowerCase();
+    targetPhone = (groupPhone || '').trim().replace(/\D/g, '');
+  }
+
+  // Find all matching registered user IDs with the same name and phone
+  const matchingUserIds = new Set<string>();
+  if (!isSyntheticId && customerId) {
+    matchingUserIds.add(customerId);
+  }
+
+  if (targetName && targetPhone) {
+    const usersWithNameOrPhone = await db.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: targetName } },
+          { phone: { contains: targetPhone } }
+        ]
+      },
+      select: { id: true, name: true, phone: true }
+    });
+
+    for (const u of usersWithNameOrPhone) {
+      const uName = (u.name || '').trim().toLowerCase();
+      const uPhone = (u.phone || '').trim().replace(/\D/g, '');
+      if (uName === targetName && uPhone === targetPhone) {
+        matchingUserIds.add(u.id);
+      }
+    }
+  }
+
+  // Get all online loans for any of the matching users
+  const allOnlineLoans = matchingUserIds.size === 0 ? [] : await db.loanApplication.findMany({
     where: {
-      customerId,
+      customerId: { in: Array.from(matchingUserIds) },
       status: {
         notIn: ['REJECTED_BY_SA', 'REJECTED_BY_COMPANY', 'REJECTED_FINAL', 'SESSION_REJECTED']
       }
@@ -703,52 +740,55 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
   });
 
-  // For name-grouped IDs: fetch ALL offline loans with matching name
-  // For old single-loan syntheticId: fetch just that one loan
-  // For real user ID: fetch by customerId field
-  let allOfflineLoans: any[];
-  if (isNameGroupId && groupName) {
-    const nameWhere: any = {
-      customerName: groupName,
-      status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] },
-    };
-    if (companyId) nameWhere.companyId = companyId;
-    allOfflineLoans = await db.offlineLoan.findMany({
-      where: nameWhere,
-      select: {
-        id: true, loanNumber: true, status: true, companyId: true,
-        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-        customerName: true, customerPhone: true, customerEmail: true,
-        closedAt: true,
-        company: { select: { id: true, name: true } },
-        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
-      }
-    });
-  } else if (isSyntheticId && syntheticLoanId) {
-    allOfflineLoans = await db.offlineLoan.findMany({
-      where: { id: syntheticLoanId },
-      select: {
-        id: true, loanNumber: true, status: true, companyId: true,
-        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-        customerName: true, customerPhone: true, customerEmail: true,
-        closedAt: true,
-        company: { select: { id: true, name: true } },
-        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
-      }
-    });
-  } else {
-    allOfflineLoans = await db.offlineLoan.findMany({
-      where: { customerId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } },
-      select: {
-        id: true, loanNumber: true, status: true, companyId: true,
-        loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
-        customerName: true, customerPhone: true, customerEmail: true,
-        closedAt: true,
-        company: { select: { id: true, name: true } },
-        emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
-      }
+  // Get all offline loans matching by customerId OR name+phone
+  const offlineWhereConditions: any[] = [
+    { status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] } }
+  ];
+
+  const orConditions: any[] = [];
+  if (matchingUserIds.size > 0) {
+    orConditions.push({ customerId: { in: Array.from(matchingUserIds) } });
+  }
+  if (targetName && targetPhone) {
+    orConditions.push({
+      AND: [
+        { customerName: { contains: targetName } },
+        { customerPhone: { contains: targetPhone } }
+      ]
     });
   }
+
+  if (orConditions.length > 0) {
+    offlineWhereConditions.push({ OR: orConditions });
+  } else {
+    offlineWhereConditions.push({ id: 'none' });
+  }
+
+  const candidateOfflineLoans = await db.offlineLoan.findMany({
+    where: {
+      AND: offlineWhereConditions
+    },
+    select: {
+      id: true, loanNumber: true, status: true, companyId: true,
+      loanAmount: true, disbursementDate: true, interestRate: true, tenure: true,
+      customerName: true, customerPhone: true, customerEmail: true,
+      customerId: true,
+      closedAt: true,
+      company: { select: { id: true, name: true } },
+      emis: { select: { id: true, installmentNumber: true, dueDate: true, paidDate: true, paidAmount: true, interestAmount: true, outstandingPrincipal: true, paidPrincipal: true, paidInterest: true } }
+    }
+  });
+
+  // Strict in-memory clean & match check for phone numbers and names
+  const allOfflineLoans = candidateOfflineLoans.filter(l => {
+    if (l.customerId && matchingUserIds.has(l.customerId)) {
+      return true;
+    }
+    const lName = (l.customerName || '').trim().toLowerCase();
+    const lPhone = (l.customerPhone || '').trim().replace(/\D/g, '');
+    return lName === targetName && lPhone === targetPhone;
+  });
+
 
 
   // Mirror rule: which online loans are mirrored ORIGINALS?
