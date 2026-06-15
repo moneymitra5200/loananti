@@ -674,21 +674,25 @@ export async function PUT(request: NextRequest) {
               if (paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                const companyCreditBefore = user?.companyCredit || 0;
-                const personalCreditBefore = user?.personalCredit || 0;
-                
-                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
-                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
-                const creditAfter = companyCreditAfter + personalCreditAfter;
-                
-                await tx.user.update({
-                  where: { id: newData.collectorId },
-                  data: {
-                    credit: creditAfter,
-                    companyCredit: companyCreditAfter,
-                    personalCredit: personalCreditAfter
-                  }
-                });
+                if (user) {
+                  const companyCreditBefore = user.companyCredit || 0;
+                  const personalCreditBefore = user.personalCredit || 0;
+                  
+                  const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                  const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                  const creditAfter = companyCreditAfter + personalCreditAfter;
+                  
+                  await tx.user.update({
+                    where: { id: newData.collectorId },
+                    data: {
+                      credit: creditAfter,
+                      companyCredit: companyCreditAfter,
+                      personalCredit: personalCreditAfter
+                    }
+                  });
+                } else {
+                  console.warn(`[Undo] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                }
               }
             }
 
@@ -812,20 +816,24 @@ export async function PUT(request: NextRequest) {
                   where: { id: newData.collectorId },
                   select: { credit: true, personalCredit: true, companyCredit: true }
                 });
-                const companyCreditAfter  = creditType === 'COMPANY'
-                  ? Math.max(0, (user?.companyCredit  || 0) - paymentAmount)
-                  : (user?.companyCredit  || 0);
-                const personalCreditAfter = creditType === 'PERSONAL'
-                  ? Math.max(0, (user?.personalCredit || 0) - paymentAmount)
-                  : (user?.personalCredit || 0);
-                await tx.user.update({
-                  where: { id: newData.collectorId },
-                  data: {
-                    credit: companyCreditAfter + personalCreditAfter,
-                    companyCredit: companyCreditAfter,
-                    personalCredit: personalCreditAfter
-                  }
-                });
+                if (user) {
+                  const companyCreditAfter  = creditType === 'COMPANY'
+                    ? Math.max(0, (user.companyCredit  || 0) - paymentAmount)
+                    : (user.companyCredit  || 0);
+                  const personalCreditAfter = creditType === 'PERSONAL'
+                    ? Math.max(0, (user.personalCredit || 0) - paymentAmount)
+                    : (user.personalCredit || 0);
+                  await tx.user.update({
+                    where: { id: newData.collectorId },
+                    data: {
+                      credit: companyCreditAfter + personalCreditAfter,
+                      companyCredit: companyCreditAfter,
+                      personalCredit: personalCreditAfter
+                    }
+                  });
+                } else {
+                  console.warn(`[Undo EMI] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                }
               }
             }
 
@@ -1088,23 +1096,26 @@ export async function PUT(request: NextRequest) {
               if (newData.collectorId && paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                
-                const companyCreditBefore = user?.companyCredit || 0;
-                const personalCreditBefore = user?.personalCredit || 0;
-                
-                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
-                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
-                const creditAfter = companyCreditAfter + personalCreditAfter;
+                if (user) {
+                  const companyCreditBefore = user.companyCredit || 0;
+                  const personalCreditBefore = user.personalCredit || 0;
+                  
+                  const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                  const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                  const creditAfter = companyCreditAfter + personalCreditAfter;
 
-                await tx.user.update({
-                  where: { id: newData.collectorId },
-                  data: {
-                    credit: creditAfter,
-                    companyCredit: companyCreditAfter,
-                    personalCredit: personalCreditAfter
-                  }
-                });
-                console.log(`[Undo] Reverted collector credit by ${paymentAmount}`);
+                  await tx.user.update({
+                    where: { id: newData.collectorId },
+                    data: {
+                      credit: creditAfter,
+                      companyCredit: companyCreditAfter,
+                      personalCredit: personalCreditAfter
+                    }
+                  });
+                  console.log(`[Undo] Reverted collector credit by ${paymentAmount}`);
+                } else {
+                  console.warn(`[Undo] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                }
               }
             }
 
@@ -1155,10 +1166,14 @@ export async function PUT(request: NextRequest) {
             if (settlement) {
               // Revert cashier credit
               const user = await tx.user.findUnique({ where: { id: settlement.userId }, select: { credit: true } });
-              await tx.user.update({
-                where: { id: settlement.userId },
-                data: { credit: (user?.credit || 0) + settlement.amount }
-              });
+              if (user) {
+                await tx.user.update({
+                  where: { id: settlement.userId },
+                  data: { credit: (user.credit || 0) + settlement.amount }
+                });
+              } else {
+                console.warn(`[Undo Settlement] User ${settlement.userId} not found; skipping credit reversion`);
+              }
 
               // Delete settlement bank/cash transactions & revert balances
               await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
@@ -1229,22 +1244,25 @@ export async function PUT(request: NextRequest) {
               if (paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
-                
-                const companyCreditBefore = user?.companyCredit || 0;
-                const personalCreditBefore = user?.personalCredit || 0;
-                
-                const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
-                const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
-                const creditAfter = companyCreditAfter + personalCreditAfter;
+                if (user) {
+                  const companyCreditBefore = user.companyCredit || 0;
+                  const personalCreditBefore = user.personalCredit || 0;
+                  
+                  const companyCreditAfter = creditType === 'COMPANY' ? Math.max(0, companyCreditBefore - paymentAmount) : companyCreditBefore;
+                  const personalCreditAfter = creditType === 'PERSONAL' ? Math.max(0, personalCreditBefore - paymentAmount) : personalCreditBefore;
+                  const creditAfter = companyCreditAfter + personalCreditAfter;
 
-                await tx.user.update({
-                  where: { id: newData.collectorId },
-                  data: {
-                    credit: creditAfter,
-                    companyCredit: companyCreditAfter,
-                    personalCredit: personalCreditAfter
-                  }
-                });
+                  await tx.user.update({
+                    where: { id: newData.collectorId },
+                    data: {
+                      credit: creditAfter,
+                      companyCredit: companyCreditAfter,
+                      personalCredit: personalCreditAfter
+                    }
+                  });
+                } else {
+                  console.warn(`[Undo] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                }
               }
             }
 
@@ -1407,7 +1425,11 @@ export async function PUT(request: NextRequest) {
           });
           if (newData.collectorId && newData.paymentAmount) {
             const user = await db.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true } });
-            await db.user.update({ where: { id: newData.collectorId }, data: { credit: (user?.credit || 0) + newData.paymentAmount } });
+            if (user) {
+              await db.user.update({ where: { id: newData.collectorId }, data: { credit: (user.credit || 0) + newData.paymentAmount } });
+            } else {
+              console.warn(`[Redo EMI] Collector user ${newData.collectorId} not found; skipping credit re-application`);
+            }
           }
           redoResult = { type: 'payment_re_applied', recordId: actionLog.recordId };
         }
