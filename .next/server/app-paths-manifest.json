@@ -188,5 +188,7 @@
   "/api/workflow/approve/route": "app/api/workflow/approve/route.js",
   "/contact/page": "app/contact/page.js",
   "/customer/loan/[id]/page": "app/customer/loan/[id]/page.js",
-  "/page": "app/page.js"
+  "/page": "app/page.js",
+  "/robots.txt/route": "app/robots.txt/route.js",
+  "/sitemap.xml/route": "app/sitemap.xml/route.js"
 }

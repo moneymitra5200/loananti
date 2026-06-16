@@ -447,7 +447,11 @@ export async function PUT(request: NextRequest) {
         }
       }
 
-      const effectiveExpense = { ...expense, companyId: effectiveCompanyId };
+      const effectiveExpense = {
+        ...expense,
+        companyId: effectiveCompanyId,
+        paymentMode: paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH',
+      };
 
       const result = await withRetry(() => db.$transaction(async (tx) => {
         await tx.expense.update({
@@ -460,6 +464,7 @@ export async function PUT(request: NextRequest) {
             companyId: effectiveCompanyId,  // persist admin's company choice
             payeeName: paymentSource,        // persist admin's payment source choice
             paymentReference: bankAccount?.id || null,
+            paymentMode: paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH',
           },
         });
 

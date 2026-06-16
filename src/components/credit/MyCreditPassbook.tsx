@@ -673,9 +673,9 @@ export default function MyCreditPassbook() {
             <TrendingUp className="h-4 w-4" />
             Overview
           </TabsTrigger>
-          <TabsTrigger value="passbook" className="flex items-center gap-2">
+          <TabsTrigger value="passbook" className="gap-1.5 flex items-center justify-center">
             <BookOpen className="h-4 w-4" />
-            Passbook
+            Passbook <span className="bg-purple-100 text-purple-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{filteredTransactions.length}</span>
           </TabsTrigger>
           <TabsTrigger value="settlement" className="flex items-center gap-2">
             <Send className="h-4 w-4" />

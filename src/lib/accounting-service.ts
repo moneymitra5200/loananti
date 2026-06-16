@@ -1359,7 +1359,9 @@ export class AccountingService {
           narration: 'Commission expense',
         },
         {
-          accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+          accountCode: ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes((params.paymentMode || '').toUpperCase())
+            ? ACCOUNT_CODES.BANK_ACCOUNT
+            : ACCOUNT_CODES.CASH_IN_HAND,
           debitAmount: 0,
           creditAmount: params.amount,
           narration: 'Commission payment',
@@ -1415,11 +1417,15 @@ export class AccountingService {
         narration: 'Expense payable',
       });
     } else {
+      const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes(
+        (params.paymentMode || '').toUpperCase()
+      );
+      const creditAccountCode = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
       lines.push({
-        accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+        accountCode: creditAccountCode,
         debitAmount: 0,
         creditAmount: params.amount,
-        narration: 'Expense paid',
+        narration: isOnline ? 'Expense paid via Bank/Online' : 'Expense paid',
       });
     }
 
@@ -1467,12 +1473,16 @@ export class AccountingService {
       narration?: string;
     }> = [];
 
-    // Debit Bank (total received)
+    // Debit Bank or Cash (total received)
+    const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'CHEQUE', 'NEFT', 'RTGS', 'IMPS'].includes(
+      (params.paymentMode || '').toUpperCase()
+    );
+    const debitAccountCode = isOnline ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
     lines.push({
-      accountCode: ACCOUNT_CODES.CASH_IN_HAND,
+      accountCode: debitAccountCode,
       debitAmount: params.totalSettlement,
       creditAmount: 0,
-      narration: 'Foreclosure settlement received',
+      narration: isOnline ? 'Foreclosure settlement received via Bank/Online' : 'Foreclosure settlement received',
     });
 
     // Credit Loans Receivable (reduces outstanding)

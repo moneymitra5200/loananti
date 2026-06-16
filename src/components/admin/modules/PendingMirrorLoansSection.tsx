@@ -210,10 +210,18 @@ function PendingMirrorLoansSection({ userId }: Props) {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid grid-cols-4 w-full max-w-md">
-          <TabsTrigger value="PENDING">Pending</TabsTrigger>
-          <TabsTrigger value="APPROVED">Approved</TabsTrigger>
-          <TabsTrigger value="DISBURSED">Disbursed</TabsTrigger>
-          <TabsTrigger value="REJECTED">Rejected</TabsTrigger>
+          <TabsTrigger value="PENDING" className="gap-1.5 flex items-center justify-center">
+            Pending <span className="bg-amber-100 text-amber-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{counts.PENDING}</span>
+          </TabsTrigger>
+          <TabsTrigger value="APPROVED" className="gap-1.5 flex items-center justify-center">
+            Approved <span className="bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{counts.APPROVED}</span>
+          </TabsTrigger>
+          <TabsTrigger value="DISBURSED" className="gap-1.5 flex items-center justify-center">
+            Disbursed <span className="bg-green-100 text-green-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{counts.DISBURSED}</span>
+          </TabsTrigger>
+          <TabsTrigger value="REJECTED" className="gap-1.5 flex items-center justify-center">
+            Rejected <span className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{counts.REJECTED}</span>
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="mt-4">

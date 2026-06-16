@@ -539,7 +539,7 @@ export async function GET(request: NextRequest) {
       db.offlineLoan.count({ where })
     ]);
 
-    // Calculate summary for each loan
+    // Calculate summary and outstandingAmount for each loan
     const loansWithSummary = await Promise.all(
       loans.map(async (loan) => {
         const emis = await db.offlineLoanEMI.findMany({
@@ -550,8 +550,19 @@ export async function GET(request: NextRequest) {
         const pendingCount = emis.filter(e => e.paymentStatus === 'PENDING').length;
         const overdueCount = emis.filter(e => e.paymentStatus === 'OVERDUE').length;
 
+        // Calculate outstanding amount: sum of (totalAmount - paidAmount) for all non-paid EMIs.
+        let outstandingAmount = emis
+          .filter(e => e.paymentStatus !== 'PAID')
+          .reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0);
+
+        const isInterestOnlyLoan = loan.isInterestOnlyLoan || loan.status === 'INTEREST_ONLY';
+        if (isInterestOnlyLoan) {
+          outstandingAmount = loan.loanAmount || 0;
+        }
+
         return {
           ...loan,
+          outstandingAmount,
           summary: {
             totalEMIs: emis.length,
             paidEMIs: paidCount,
@@ -563,6 +574,21 @@ export async function GET(request: NextRequest) {
         };
       })
     );
+
+    // Sort loans numerically by sequence number (descending)
+    function getNumericPart(str: string): number {
+      const match = str?.match(/\d+/g);
+      if (match && match.length > 0) {
+        return parseInt(match[match.length - 1], 10);
+      }
+      return 999999;
+    }
+
+    loansWithSummary.sort((a, b) => {
+      const numA = getNumericPart(a.loanNumber || '');
+      const numB = getNumericPart(b.loanNumber || '');
+      return numB - numA;
+    });
 
     return NextResponse.json({
       success: true,

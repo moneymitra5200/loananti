@@ -48,6 +48,7 @@ interface LoanData {
   nextEmi?: { dueDate: string; amount: number; status: string };
   emiSchedules?: any[];
   _count?: any;
+  outstandingAmount?: number;
 }
 
 interface ParallelLoanViewProps {
@@ -228,7 +229,12 @@ export function ParallelLoanView({
         <div className="flex items-end justify-between">
           <div>
             <p className="text-lg font-bold text-gray-900">{formatCurrency(getLoanAmount(loan))}</p>
-            <p className="text-xs text-gray-500">
+            {loan.outstandingAmount !== undefined && (
+              <p className="text-xs text-orange-600 font-semibold mt-0.5">
+                Outstanding: {formatCurrency(loan.outstandingAmount)}
+              </p>
+            )}
+            <p className="text-xs text-gray-500 mt-0.5">
               {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
                 `@${loan.interestRate}% (Interest Only Phase)`
               ) : (

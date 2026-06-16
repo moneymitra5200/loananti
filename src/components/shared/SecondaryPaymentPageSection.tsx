@@ -368,16 +368,15 @@ const SecondaryPaymentPageSection = memo(function SecondaryPaymentPageSection({
       <div className="space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="pages">
-              <CreditCard className="h-4 w-4 mr-2" />
-              Payment Pages
+            <TabsTrigger value="pages" className="gap-1.5 flex items-center justify-center">
+              <CreditCard className="h-4 w-4 mr-1" />
+              Payment Pages <span className="bg-purple-100 text-purple-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{pages.length}</span>
             </TabsTrigger>
-            <TabsTrigger value="assignments">
-              <Link2 className="h-4 w-4 mr-2" />
-              Page Assignments
+            <TabsTrigger value="assignments" className="gap-1.5 flex items-center justify-center">
+              <Link2 className="h-4 w-4 mr-1" />
+              Page Assignments <span className="bg-emerald-100 text-emerald-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{assignments.length}</span>
             </TabsTrigger>
           </TabsList>
-          
           <TabsContent value="pages" className="mt-4">
             <Card className="bg-white shadow-sm border-0">
               <CardHeader>

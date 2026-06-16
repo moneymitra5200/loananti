@@ -146,7 +146,8 @@ function ActiveLoansTabComponent({
     } : undefined,
     nextEmi: loan.nextEmi,
     emiSchedules: loan.emiSchedules,
-    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 }
+    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 },
+    outstandingAmount: (loan as any).outstandingAmount
   });
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
@@ -175,7 +176,8 @@ function ActiveLoansTabComponent({
           code: offlineMirror.company?.code || mapping.mirrorCompany?.code || ''
         } : undefined,
         nextEmi: undefined,
-        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: (offlineMirror as any).outstandingAmount
       };
     }
 
@@ -206,7 +208,8 @@ function ActiveLoansTabComponent({
           code: mapping.mirrorCompany.code
         } : undefined,
         nextEmi: undefined,
-        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: (mirrorLoan as any).outstandingAmount
       };
     }
     
@@ -233,7 +236,8 @@ function ActiveLoansTabComponent({
           code: mapping.mirrorCompany.code
         } : undefined,
         nextEmi: undefined,
-        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: originalLoan.approvedAmount || originalLoan.sessionForm?.approvedAmount || 0
       };
     }
     

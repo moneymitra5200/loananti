@@ -215,9 +215,7 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
       setError(null);
 
       // userId and userRole are REQUIRED by the API
-      let url = `/api/tickets?userId=${userId}&userRole=${userRole}&limit=50`;
-      if (activeTab === 'assigned') url += `&assignedToId=${userId}`;
-      if (activeTab === 'open') url += '&status=OPEN';
+      const url = `/api/tickets?userId=${userId}&userRole=${userRole}&limit=100`;
 
       const response = await fetch(url);
       const data = await response.json();
@@ -233,7 +231,7 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, userId, userRole]);
+  }, [userId, userRole]);
 
   // Fetch ticket detail
   const fetchTicketDetail = async (ticketId: string) => {
@@ -362,13 +360,25 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
     fetchTickets();
   }, [fetchTickets]);
 
-  // Filter tickets by search
-  const filteredTickets = tickets.filter(ticket =>
-    ticket.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ticket.ticketNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ticket.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    ticket.customer?.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter tickets by search and tab
+  const filteredTickets = tickets.filter(ticket => {
+    const matchesSearch =
+      ticket.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ticket.ticketNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ticket.customer?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      ticket.customer?.email.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (activeTab === 'open') {
+      return ticket.status === 'OPEN';
+    }
+    if (activeTab === 'assigned') {
+      return ticket.assignedToId === userId;
+    }
+
+    return true;
+  });
 
   // Stats
   const stats = {
@@ -692,10 +702,16 @@ const TicketManagement: React.FC<TicketManagementProps> = ({ userId, userRole })
       {/* Tabs */}
       {!selectedTicket && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">
-          <TabsList>
-            <TabsTrigger value="all">All Tickets</TabsTrigger>
-            <TabsTrigger value="open">Open</TabsTrigger>
-            <TabsTrigger value="assigned">Assigned to Me</TabsTrigger>
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
+            <TabsTrigger value="all" className="gap-1.5 flex items-center justify-center">
+              All Tickets <span className="bg-gray-100 text-gray-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{tickets.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="open" className="gap-1.5 flex items-center justify-center">
+              Open <span className="bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{tickets.filter(t => t.status === 'OPEN').length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="assigned" className="gap-1.5 flex items-center justify-center">
+              Assigned to Me <span className="bg-emerald-100 text-emerald-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{tickets.filter(t => t.assignedToId === userId).length}</span>
+            </TabsTrigger>
           </TabsList>
         </Tabs>
       )}

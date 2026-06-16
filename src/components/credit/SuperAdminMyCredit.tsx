@@ -418,14 +418,18 @@ export default function SuperAdminMyCredit() {
       {/* Main Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="settlements">
+          <TabsTrigger value="overview" className="flex items-center justify-center gap-1.5">Overview</TabsTrigger>
+          <TabsTrigger value="settlements" className="flex items-center justify-center gap-1.5">
             Credit Requests
-            {pendingSettlements.length > 0 && (
-              <Badge className="ml-2 bg-red-500 text-white">{pendingSettlements.length}</Badge>
-            )}
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+              pendingSettlements.length > 0 
+                ? 'bg-red-100 text-red-800' 
+                : 'bg-gray-100 text-gray-800'
+            }`}>
+              {pendingSettlements.length}
+            </span>
           </TabsTrigger>
-          <TabsTrigger value="history">Transaction History</TabsTrigger>
+          <TabsTrigger value="history" className="flex items-center justify-center gap-1.5">Transaction History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4 mt-4">

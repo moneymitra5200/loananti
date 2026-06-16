@@ -1362,9 +1362,15 @@ export default function CustomerDashboard() {
             ) : (
               <Tabs defaultValue="active">
                 <TabsList className="grid grid-cols-3 mb-4">
-                  <TabsTrigger value="active">Active</TabsTrigger>
-                  <TabsTrigger value="progress">In Progress</TabsTrigger>
-                  <TabsTrigger value="rejected">Rejected</TabsTrigger>
+                  <TabsTrigger value="active" className="gap-1.5 flex items-center justify-center">
+                    Active <span className="bg-emerald-100 text-emerald-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{activeLoans.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="progress" className="gap-1.5 flex items-center justify-center">
+                    In Progress <span className="bg-blue-100 text-blue-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{inProgressLoans.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="rejected" className="gap-1.5 flex items-center justify-center">
+                    Rejected <span className="bg-red-100 text-red-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{rejectedLoans.length}</span>
+                  </TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="active" className="space-y-3">

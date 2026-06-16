@@ -393,10 +393,12 @@ export default function SecondaryPaymentPagesSection({
       {isSuperAdmin ? (
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="pages">Payment Pages</TabsTrigger>
-            <TabsTrigger value="assignments">
-              <Link2 className="h-4 w-4 mr-2" />
-              Page Assignments
+            <TabsTrigger value="pages" className="gap-1.5 flex items-center justify-center">
+              Payment Pages <span className="bg-purple-100 text-purple-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{filteredPages.length}</span>
+            </TabsTrigger>
+            <TabsTrigger value="assignments" className="gap-1.5 flex items-center justify-center">
+              <Link2 className="h-4 w-4 mr-1" />
+              Page Assignments <span className="bg-emerald-100 text-emerald-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{assignments.length}</span>
             </TabsTrigger>
           </TabsList>
           

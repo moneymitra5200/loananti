@@ -326,8 +326,12 @@ export default function PersonalCreditManager({ currentUser }: PersonalCreditMan
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-white border">
-          <TabsTrigger value="users">Users with Personal Credit</TabsTrigger>
-          <TabsTrigger value="transactions">Transaction History</TabsTrigger>
+          <TabsTrigger value="users" className="gap-1.5 flex items-center justify-center">
+            Users with Personal Credit <span className="bg-amber-100 text-amber-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{filteredUsers.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="transactions" className="gap-1.5 flex items-center justify-center">
+            Transaction History <span className="bg-purple-100 text-purple-800 text-xs px-1.5 py-0.5 rounded-full font-semibold">{filteredTransactions.length}</span>
+          </TabsTrigger>
         </TabsList>
 
         {/* Users Tab */}
