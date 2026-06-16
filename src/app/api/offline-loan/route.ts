@@ -891,7 +891,7 @@ export async function POST(request: NextRequest) {
           previousData: null,
           newData: JSON.stringify({ loanNumber, loanAmount, interestRate, tenure, companyId, customerName }),
           description: `Offline loan ${loanNumber} created for ${customerName}`,
-          canUndo: false,
+          canUndo: true,
         },
       });
 

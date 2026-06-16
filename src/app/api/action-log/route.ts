@@ -601,9 +601,139 @@ export async function PUT(request: NextRequest) {
 
           // UPDATE → revert fields to previous state
           else if (actionLog.actionType === 'UPDATE' && previousData) {
-            const { id: _id, createdAt: _c, updatedAt: _u, ...safeFields } = previousData;
-            await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: safeFields });
-            localUndoResult = { type: 'loan_reverted', recordId: actionLog.recordId };
+            if (previousData.action === 'LOAN_STARTED') {
+              // 1. Revert original loan
+              await tx.offlineLoan.update({
+                where: { id: actionLog.recordId },
+                data: {
+                  status: previousData.status || 'INTEREST_ONLY',
+                  tenure: previousData.tenure ?? 0,
+                  interestRate: previousData.interestRate,
+                  interestType: previousData.interestType,
+                  emiAmount: previousData.emiAmount,
+                  isInterestOnlyLoan: previousData.isInterestOnlyLoan ?? true,
+                  partialPaymentEnabled: previousData.partialPaymentEnabled ?? false,
+                  processingFee: previousData.processingFee ?? 0,
+                  processingFeeRecorded: previousData.processingFeeRecorded ?? false,
+                  bankAccountId: previousData.bankAccountId,
+                  secondaryPaymentPageId: previousData.secondaryPaymentPageId,
+                }
+              });
+
+              // 2. Re-create Interest Only placeholder EMI for original loan
+              await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: actionLog.recordId } });
+              
+              const originalLoan = await tx.offlineLoan.findUnique({
+                where: { id: actionLog.recordId },
+                select: { disbursementDate: true, loanAmount: true, loanNumber: true, interestOnlyMonthlyAmount: true }
+              });
+              if (originalLoan) {
+                const monthlyInterestAmount = originalLoan.interestOnlyMonthlyAmount || previousData.emiAmount || 0;
+                const _d = originalLoan.disbursementDate ? new Date(originalLoan.disbursementDate) : new Date();
+                const _year  = _d.getMonth() === 11 ? _d.getFullYear() + 1 : _d.getFullYear();
+                const _month = (_d.getMonth() + 1) % 12;
+                const _lastDay = new Date(_year, _month + 1, 0).getDate();
+                const _day   = Math.min(_d.getDate(), _lastDay);
+                const dueDate = new Date(_year, _month, _day, 0, 0, 0, 0);
+                await tx.offlineLoanEMI.create({
+                  data: {
+                    offlineLoanId: actionLog.recordId,
+                    installmentNumber: 1,
+                    dueDate,
+                    originalDueDate: dueDate,
+                    principalAmount: 0,
+                    interestAmount: monthlyInterestAmount,
+                    totalAmount: monthlyInterestAmount,
+                    outstandingPrincipal: originalLoan.loanAmount,
+                    paymentStatus: 'PENDING',
+                    isInterestOnly: true,
+                    interestOnlyAmount: monthlyInterestAmount
+                  }
+                });
+              }
+
+              // 3. Delete processing fee bank/cash transactions for original loan
+              //    (referenceId is loanId, referenceType is PROCESSING_FEE)
+              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+
+              // 4. Delete processing fee journal entries for original loan
+              //    (referencing loanId with PROCESSING_FEE)
+              await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
+
+              // 5. Revert mirror mapping
+              if (previousData.mirrorMappingId) {
+                await tx.mirrorLoanMapping.update({
+                  where: { id: previousData.mirrorMappingId },
+                  data: {
+                    mirrorTenure: previousData.mirrorTenure,
+                    originalTenure: previousData.tenure,
+                    mirrorProcessingFee: previousData.mirrorProcessingFee,
+                    processingFeeRecorded: previousData.mirrorProcessingFeeRecorded ?? false,
+                    extraEMIPaymentPageId: previousData.secondaryPaymentPageId,
+                  }
+                });
+              }
+
+              // 6. Revert mirror loan + recreate its interest only placeholder EMI
+              if (previousData.mirrorLoanId) {
+                await tx.offlineLoan.update({
+                  where: { id: previousData.mirrorLoanId },
+                  data: {
+                    status: previousData.mirrorStatus || 'ACTIVE',
+                    tenure: previousData.mirrorLoanTenure ?? 0,
+                    interestRate: previousData.mirrorInterestRate,
+                    interestType: previousData.mirrorInterestType,
+                    emiAmount: previousData.mirrorEmiAmount,
+                    isInterestOnlyLoan: previousData.mirrorIsInterestOnlyLoan ?? true,
+                    partialPaymentEnabled: previousData.mirrorPartialPaymentEnabled ?? false,
+                    processingFee: previousData.mirrorProcessingFeeValue ?? 0,
+                  }
+                });
+
+                await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: previousData.mirrorLoanId } });
+
+                const mirrorLoan = await tx.offlineLoan.findUnique({
+                  where: { id: previousData.mirrorLoanId },
+                  select: { disbursementDate: true, loanAmount: true, interestRate: true, interestOnlyMonthlyAmount: true }
+                });
+                if (mirrorLoan) {
+                  const monthlyMirrorInterest = mirrorLoan.interestOnlyMonthlyAmount || Math.round((mirrorLoan.loanAmount * (mirrorLoan.interestRate || 0) / 100 / 12) * 100) / 100;
+                  const firstDueDate = mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate) : new Date();
+                  firstDueDate.setMonth(firstDueDate.getMonth() + 1);
+                  firstDueDate.setDate(mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate).getDate() : new Date().getDate());
+                  firstDueDate.setHours(0, 0, 0, 0);
+                  await tx.offlineLoanEMI.create({
+                    data: {
+                      offlineLoanId: previousData.mirrorLoanId,
+                      installmentNumber: 1,
+                      dueDate: firstDueDate,
+                      originalDueDate: firstDueDate,
+                      principalAmount: 0,
+                      interestAmount: monthlyMirrorInterest,
+                      totalAmount: monthlyMirrorInterest,
+                      outstandingPrincipal: mirrorLoan.loanAmount,
+                      paymentStatus: 'PENDING',
+                      isInterestOnly: true,
+                      interestOnlyAmount: monthlyMirrorInterest,
+                    }
+                  });
+                }
+
+                // 7. Delete mirror processing fee journal entries in mirror company
+                //    (referencing mirrorLoanId with PROCESSING_FEE)
+                await reverseJournalEntriesForRef(previousData.mirrorLoanId, userId, tx);
+              }
+
+              localUndoResult = {
+                type: 'loan_started_reverted',
+                recordId: actionLog.recordId,
+                detail: `Loan start reversed: reverted to Interest Only phase and removed processing fee entries.`
+              };
+            } else {
+              const { id: _id, createdAt: _c, updatedAt: _u, ...safeFields } = previousData;
+              await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: safeFields });
+              localUndoResult = { type: 'loan_reverted', recordId: actionLog.recordId };
+            }
           }
 
           // CLOSE → re-activate the loan

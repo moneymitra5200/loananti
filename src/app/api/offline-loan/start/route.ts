@@ -60,6 +60,18 @@ export async function POST(request: NextRequest) {
     console.log(`[Start Offline Loan] ${loan.loanNumber} | ₹${principalAmount} @ ${interestRate}% ${actualInterestType} × ${tenure}mo = EMI ₹${emiAmount} | PF ₹${parsedProcessingFee}`);
 
     const result = await db.$transaction(async (tx) => {
+      // Find mirror mapping and mirror loan BEFORE updating
+      const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+        where: { originalLoanId: loanId, isOfflineLoan: true },
+        include: { mirrorCompany: { select: { id: true, name: true } } }
+      });
+      let mirrorLoan: any = null;
+      if (mirrorMapping?.mirrorLoanId) {
+        mirrorLoan = await tx.offlineLoan.findUnique({
+          where: { id: mirrorMapping.mirrorLoanId }
+        });
+      }
+
       await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: loanId } });
 
       const emis = emiCalc.schedule.map((item, index) => {
@@ -106,9 +118,41 @@ export async function POST(request: NextRequest) {
           module: 'OFFLINE_LOAN',
           recordId: loanId,
           recordType: 'OfflineLoan',
+          previousData: JSON.stringify({
+            action: 'LOAN_STARTED',
+            // Original loan previous details
+            status: loan.status,
+            tenure: loan.tenure,
+            interestRate: loan.interestRate,
+            interestType: loan.interestType,
+            emiAmount: loan.emiAmount,
+            isInterestOnlyLoan: loan.isInterestOnlyLoan,
+            partialPaymentEnabled: loan.partialPaymentEnabled,
+            processingFee: loan.processingFee,
+            processingFeeRecorded: loan.processingFeeRecorded,
+            bankAccountId: loan.bankAccountId,
+            secondaryPaymentPageId: loan.secondaryPaymentPageId,
+            
+            // Mirror mapping previous details
+            mirrorMappingId: mirrorMapping?.id || null,
+            mirrorLoanId: mirrorMapping?.mirrorLoanId || null,
+            mirrorTenure: mirrorMapping?.mirrorTenure || null,
+            mirrorProcessingFee: mirrorMapping?.mirrorProcessingFee || null,
+            mirrorProcessingFeeRecorded: mirrorMapping?.processingFeeRecorded || null,
+            
+            // Mirror loan previous details
+            mirrorStatus: mirrorLoan?.status || null,
+            mirrorLoanTenure: mirrorLoan?.tenure || null,
+            mirrorInterestRate: mirrorLoan?.interestRate || null,
+            mirrorInterestType: mirrorLoan?.interestType || null,
+            mirrorEmiAmount: mirrorLoan?.emiAmount || null,
+            mirrorIsInterestOnlyLoan: mirrorLoan?.isInterestOnlyLoan || null,
+            mirrorPartialPaymentEnabled: mirrorLoan?.partialPaymentEnabled || null,
+            mirrorProcessingFeeValue: mirrorLoan?.processingFee || null,
+          }),
           newData: JSON.stringify({ action: 'LOAN_STARTED', tenure, interestRate, interestType: actualInterestType, emiAmount, processingFee: parsedProcessingFee }),
           description: `Offline loan ${loan.loanNumber} started (Phase 2): ${tenure}mo @ ${interestRate}% ${actualInterestType}`,
-          canUndo: false
+          canUndo: true
         }
       });
 
@@ -180,13 +224,7 @@ export async function POST(request: NextRequest) {
       }
 
       // ── CASCADE: Also start the mirror offline loan with shifted schedule ─────
-      const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: true },
-        include: { mirrorCompany: { select: { id: true, name: true } } }
-      });
-
       if (mirrorMapping?.mirrorLoanId) {
-        const mirrorLoan = await tx.offlineLoan.findUnique({ where: { id: mirrorMapping.mirrorLoanId } });
         if (mirrorLoan) {
           const mirrorRate  = mirrorMapping.mirrorInterestRate || interestRate;
           const mirrorType  = (mirrorMapping.mirrorInterestType || 'REDUCING') as 'FLAT' | 'REDUCING';
