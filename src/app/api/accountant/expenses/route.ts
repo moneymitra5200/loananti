@@ -62,9 +62,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Generate expense number
-    const expenseCount = await db.expense.count({ where: { companyId } });
-    const expenseNumber = `EXP-${String(expenseCount + 1).padStart(5, '0')}`;
+    // Generate expense number safely by looking up the latest expense number
+    const latestExpense = await db.expense.findFirst({
+      where: { companyId },
+      orderBy: { expenseNumber: 'desc' },
+      select: { expenseNumber: true }
+    });
+
+    let nextNum = 1;
+    if (latestExpense && latestExpense.expenseNumber) {
+      const match = latestExpense.expenseNumber.match(/\d+/);
+      if (match) {
+        nextNum = parseInt(match[0], 10) + 1;
+      }
+    }
+    const expenseNumber = `EXP-${String(nextNum).padStart(5, '0')}`;
 
     // Create expense
     const expense = await db.expense.create({

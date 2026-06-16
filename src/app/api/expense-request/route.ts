@@ -187,30 +187,43 @@ export async function POST(request: NextRequest) {
     const isCashier = role === 'CASHIER';
     const isDirect = role === 'SUPER_ADMIN' || role === 'ACCOUNTANT';
 
-    // Generate expense number
-    const count = await db.expense.count({ where: { companyId: effectiveCompanyId } });
-    const expenseNumber = `EXP${String(count + 1).padStart(6, '0')}`;
-
     if (isCashier) {
       // Cashier: create pending request — no accounting, no balance deduction yet
-      const expense = await db.expense.create({
-        data: {
-          companyId: effectiveCompanyId,
-          expenseNumber,
-          expenseType: expenseType || 'MISCELLANEOUS',
-          description,
-          amount,
-          paymentDate: new Date(),
-          paymentMode: paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH',
-          paymentReference: bankAccountId || null, // store selected bank account id
-          payeeName: paymentSource || 'CASH',      // store payment source preference
-          payeeId: userId,                          // requesting cashier
-          categoryId: 'PENDING',                   // request status
-          isApproved: false,
-          createdById: userId,
-          remarks: remarks || null,
-        },
-      });
+      const expense = await withRetry(() => db.$transaction(async (tx) => {
+        const latestExpense = await tx.expense.findFirst({
+          where: { companyId: effectiveCompanyId },
+          orderBy: { expenseNumber: 'desc' },
+          select: { expenseNumber: true }
+        });
+
+        let nextNum = 1;
+        if (latestExpense && latestExpense.expenseNumber) {
+          const match = latestExpense.expenseNumber.match(/\d+/);
+          if (match) {
+            nextNum = parseInt(match[0], 10) + 1;
+          }
+        }
+        const generatedExpenseNumber = `EXP${String(nextNum).padStart(6, '0')}`;
+
+        return tx.expense.create({
+          data: {
+            companyId: effectiveCompanyId,
+            expenseNumber: generatedExpenseNumber,
+            expenseType: expenseType || 'MISCELLANEOUS',
+            description,
+            amount,
+            paymentDate: new Date(),
+            paymentMode: paymentSource === 'BANK' ? 'BANK_TRANSFER' : 'CASH',
+            paymentReference: bankAccountId || null, // store selected bank account id
+            payeeName: paymentSource || 'CASH',      // store payment source preference
+            payeeId: userId,                          // requesting cashier
+            categoryId: 'PENDING',                   // request status
+            isApproved: false,
+            createdById: userId,
+            remarks: remarks || null,
+          },
+        });
+      }));
       
       // ActionLog (fire-and-forget — non-critical, cashier pending request)
       db.actionLog.create({
@@ -222,8 +235,8 @@ export async function POST(request: NextRequest) {
           recordId: expense.id,
           recordType: 'Expense',
           previousData: null,
-          newData: JSON.stringify({ expenseNumber, amount, expenseType, description, paymentSource }),
-          description: `Expense request ₹${amount} submitted for approval (${expenseNumber})`,
+          newData: JSON.stringify({ expenseNumber: expense.expenseNumber, amount, expenseType, description, paymentSource }),
+          description: `Expense request ₹${amount} submitted for approval (${expense.expenseNumber})`,
           canUndo: true,
         },
       }).catch(() => {/* non-critical */});
@@ -233,7 +246,7 @@ export async function POST(request: NextRequest) {
         event: 'EXPENSE_REQUEST',
         title: '💳 New Expense Request Pending',
         body: `Cashier submitted expense of ₹${amount.toLocaleString('en-IN')} — ${description}`,
-        data: { expenseId: expense.id, expenseNumber, type: 'EXPENSE_REQUEST', actionUrl: '/?section=expense' },
+        data: { expenseId: expense.id, expenseNumber: expense.expenseNumber, type: 'EXPENSE_REQUEST', actionUrl: '/?section=expense' },
         actionUrl: '/?section=expense',
       });
 
@@ -264,10 +277,25 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await withRetry(() => db.$transaction(async (tx) => {
+        const latestExpense = await tx.expense.findFirst({
+          where: { companyId: effectiveCompanyId },
+          orderBy: { expenseNumber: 'desc' },
+          select: { expenseNumber: true }
+        });
+
+        let nextNum = 1;
+        if (latestExpense && latestExpense.expenseNumber) {
+          const match = latestExpense.expenseNumber.match(/\d+/);
+          if (match) {
+            nextNum = parseInt(match[0], 10) + 1;
+          }
+        }
+        const generatedExpenseNumber = `EXP${String(nextNum).padStart(6, '0')}`;
+
         const expense = await tx.expense.create({
           data: {
             companyId: effectiveCompanyId,
-            expenseNumber,
+            expenseNumber: generatedExpenseNumber,
             expenseType: expenseType || 'MISCELLANEOUS',
             description,
             amount,

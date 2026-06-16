@@ -128,12 +128,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate expense number
-    const count = await db.expense.count({
-      where: { companyId: effectiveCompanyId },
-    });
-    const expenseNumber = `EXP${String(count + 1).padStart(6, '0')}`;
-
     // Get account code for expense type
     const accountCode = EXPENSE_ACCOUNT_CODES[expenseType] || '4800';
 
@@ -150,11 +144,27 @@ export async function POST(request: NextRequest) {
 
     // Create expense record + bank update atomically (fast operations only)
     const result = await db.$transaction(async (tx) => {
+      // Generate expense number safely inside transaction
+      const latestExpense = await tx.expense.findFirst({
+        where: { companyId: effectiveCompanyId },
+        orderBy: { expenseNumber: 'desc' },
+        select: { expenseNumber: true }
+      });
+
+      let nextNum = 1;
+      if (latestExpense && latestExpense.expenseNumber) {
+        const match = latestExpense.expenseNumber.match(/\d+/);
+        if (match) {
+          nextNum = parseInt(match[0], 10) + 1;
+        }
+      }
+      const generatedExpenseNumber = `EXP${String(nextNum).padStart(6, '0')}`;
+
       // 1. Create expense record
       const expense = await tx.expense.create({
         data: {
           companyId: effectiveCompanyId,
-          expenseNumber,
+          expenseNumber: generatedExpenseNumber,
           expenseType: expenseType || 'MISCELLANEOUS',
           description,
           amount,
