@@ -1717,11 +1717,23 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       // Description: derive from referenceType and narration
       const desc = buildDescription(je.referenceType, je.narration, emiNumber, meta.loanNumber, customer?.name || '');
 
+      // For disbursement and processing fee accrual entries on backdated/past loans,
+      // the JE entryDate may be today (when the loan was created in system) even though
+      // the actual loan disbursement date is in the past.
+      // Use meta.disbursementDate so these entries sort BEFORE all historical interest accruals.
+      let entryDisplayDate: any = je.entryDate;
+      if (isDisbursement && meta.disbursementDate) {
+        entryDisplayDate = meta.disbursementDate;
+      } else if (isPFAccrual && meta.disbursementDate) {
+        // PF accrual should sit on the same day as disbursement
+        entryDisplayDate = meta.disbursementDate;
+      }
+
       allEntries.push({
         id: je.id,
         entryNumber: je.entryNumber,
         createdAt: je.createdAt,
-        date: je.entryDate,
+        date: entryDisplayDate,
         referenceType: je.referenceType,
         referenceId: je.referenceId,
         loanId,
@@ -1870,15 +1882,31 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     else offlineLoansSummary.push(summary);
   }
 
+  // ── Priority ORDER for entries within the same loan ──────────────────────
+  // LOAN_DISBURSEMENT always first, PROCESSING_FEE_ACCRUAL always second,
+  // then chronological by date, then by type order.
+  const ENTRY_TYPE_ORDER: Record<string, number> = {
+    LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
+    PROCESSING_FEE_ACCRUAL: 1,
+    PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
+    INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
+    EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
+    PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7,
+    LOAN_CLOSURE: 8,
+  };
+
   allEntries.sort((a, b) => {
-    const ORDER: Record<string, number> = {
-      PROCESSING_FEE_ACCRUAL: 1,
-      PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-      LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
-      INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
-      EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
-      PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7
-    };
+    // ── 1. Same loan: force disbursement and PF accrual to always lead ─────
+    // This handles backdated/past loans where the JE was created today but
+    // interest accruals have historical dates (Jul 2025, Aug 2025 …).
+    if (a.loanId === b.loanId) {
+      const oA = ENTRY_TYPE_ORDER[a.referenceType] ?? 9;
+      const oB = ENTRY_TYPE_ORDER[b.referenceType] ?? 9;
+      // Disbursement (0) must always be first; PF accrual (1) always second.
+      if (oA <= 1 || oB <= 1) {
+        if (oA !== oB) return oA - oB;
+      }
+    }
 
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
@@ -1920,9 +1948,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       return emiA - emiB;
     }
 
-    const oA = ORDER[a.referenceType] ?? 9;
-    const oB = ORDER[b.referenceType] ?? 9;
-    if (oA !== oB) return oA - oB;
+    const oA2 = ENTRY_TYPE_ORDER[a.referenceType] ?? 9;
+    const oB2 = ENTRY_TYPE_ORDER[b.referenceType] ?? 9;
+    if (oA2 !== oB2) return oA2 - oB2;
 
     const idA = a.id || '';
     const idB = b.id || '';
