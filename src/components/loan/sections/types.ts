@@ -286,6 +286,7 @@ export interface EMISchedule {
   isInterestOnly?: boolean;
   principalDeferred?: boolean;
   notes?: string;
+  paymentSetting?: any;
 }
 
 export interface EMIPaymentForm {
@@ -311,5 +312,7 @@ export interface EMIPaymentForm {
   editedPrincipal?: number;
   /** Staff-overridden interest component (optional — used only when staff edits the split) */
   editedInterest?: number;
+  /** Secondary payment page ID for INTEREST_ONLY payments */
+  secondaryPaymentPageId?: string;
 }
 

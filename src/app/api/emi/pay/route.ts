@@ -44,6 +44,7 @@ export async function POST(request: NextRequest) {
     const partialAmount = formData.get('partialAmount') ? parseFloat(formData.get('partialAmount') as string) : null;
     const nextPaymentDate = formData.get('nextPaymentDate') as string | null;
     const penaltyWaiver = formData.get('penaltyWaiver') ? parseFloat(formData.get('penaltyWaiver') as string) : 0;
+    const secondaryPaymentPageId = formData.get('secondaryPaymentPageId') as string | null;
 
     // â”€â”€ PENALTY FIELDS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // penaltyAmount: total penalty charged BEFORE waiver
@@ -432,7 +433,7 @@ export async function POST(request: NextRequest) {
         });
         
         if (!existingNextEMI) {
-          await tx.eMISchedule.create({
+          const createdNextEMI = await tx.eMISchedule.create({
             data: {
               loanApplicationId: loanId,
               installmentNumber: nextInstNum,
@@ -449,6 +450,20 @@ export async function POST(request: NextRequest) {
             }
           });
           console.log(`[EMI Pay] Phase 1 IO: Created next EMI #${nextInstNum} due on ${nextDue.toISOString().split('T')[0]}`);
+
+          // Propagate the secondary payment page configuration to the next rolling EMI
+          await tx.eMIPaymentSetting.create({
+            data: {
+              emiScheduleId: createdNextEMI.id,
+              loanApplicationId: loanId,
+              enableFullPayment: true,
+              enablePartialPayment: false,
+              enableInterestOnly: true,
+              useDefaultCompanyPage: !secondaryPaymentPageId,
+              secondaryPaymentPageId: secondaryPaymentPageId || null,
+            }
+          });
+          console.log(`[EMI Pay] Phase 1 IO: Created eMIPaymentSetting for next EMI #${nextInstNum} with secondaryPaymentPageId: ${secondaryPaymentPageId}`);
         } else {
           console.log(`[EMI Pay] Phase 1 IO: Next EMI #${nextInstNum} already exists â€” skipping creation`);
         }
@@ -859,11 +874,22 @@ export async function POST(request: NextRequest) {
     let effectiveCreditType = creditType;
     let creditReason = '';
 
-    if (secondaryPaymentPage?.role && !emiSettings?.useDefaultCompanyPage) {
-      // EMI-level secondary payment page assignment
-      creditUserId = secondaryPaymentPage.role.id;
-      effectiveCreditType = 'PERSONAL';
-      creditReason = `via EMI Secondary Payment Page (${secondaryPaymentPage.name})`;
+    // Prioritize passed secondaryPaymentPageId for INTEREST_ONLY payments (or generally)
+    let finalSecondaryPageId = secondaryPaymentPageId;
+    if (!finalSecondaryPageId && secondaryPaymentPage?.role && !emiSettings?.useDefaultCompanyPage) {
+      finalSecondaryPageId = secondaryPaymentPage.id;
+    }
+
+    if (finalSecondaryPageId) {
+      const secPage = await db.secondaryPaymentPage.findUnique({
+        where: { id: finalSecondaryPageId },
+        include: { role: true }
+      });
+      if (secPage?.role) {
+        creditUserId = secPage.role.id;
+        effectiveCreditType = 'PERSONAL';
+        creditReason = `via Secondary Payment Page (${secPage.name})`;
+      }
     } else if (isExtraEMILocal) {
       // â”€â”€ EXTRA EMI: ALWAYS PersonalCredit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       // Secondary payment page owner gets credit if configured;

@@ -53,7 +53,20 @@ export async function GET(request: NextRequest) {
             penaltyAmount: true,
             isInterestOnly: true,
             principalDeferred: true,
-            notes: true
+            notes: true,
+            paymentSetting: {
+              select: {
+                id: true,
+                secondaryPaymentPageId: true,
+                secondaryPaymentPage: {
+                  select: {
+                    id: true,
+                    name: true,
+                    upiId: true
+                  }
+                }
+              }
+            }
           }
         })
       ]);
@@ -250,7 +263,8 @@ export async function GET(request: NextRequest) {
           }
         },
         emiSchedules: {
-          orderBy: { installmentNumber: 'asc' }
+          orderBy: { installmentNumber: 'asc' },
+          include: { paymentSetting: { include: { secondaryPaymentPage: true } } }
         },
         payments: {
           orderBy: { createdAt: 'desc' },

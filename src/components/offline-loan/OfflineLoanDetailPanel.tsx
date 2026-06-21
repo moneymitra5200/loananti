@@ -3733,31 +3733,6 @@ export default function OfflineLoanDetailPanel({
               </div>
             )}
 
-            {/* Secondary Payment Page */}
-            {startSecondaryPages.length > 0 && (
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1">
-                  {!startIsMirrorLoan
-                    ? "Secondary Payment Page for EMI Payments"
-                    : "Secondary Payment Page for Extra EMI Payments (Optional)"}
-                  {!startIsMirrorLoan && <span className="text-red-500">*</span>}
-                </Label>
-                <select
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  value={startSecondaryPageId}
-                  onChange={(e) => setStartSecondaryPageId(e.target.value)}
-                >
-                  <option value="">— Select Payment Page —</option>
-                  {startSecondaryPages.map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name || p.title}</option>
-                  ))}
-                </select>
-                {!startIsMirrorLoan && !startSecondaryPageId && (
-                  <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
-                )}
-              </div>
-            )}
-
             {startExtraEMICount > 0 && (
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-purple-600 mt-0.5 flex-shrink-0" />
@@ -3806,7 +3781,7 @@ export default function OfflineLoanDetailPanel({
             <Button
               className="bg-purple-500 hover:bg-purple-600"
               onClick={handleStartLoan}
-              disabled={startingLoan || (!startIsMirrorLoan && startSecondaryPages.length > 0 && !startSecondaryPageId)}
+              disabled={startingLoan}
             >
               {startingLoan ? (
                 <>

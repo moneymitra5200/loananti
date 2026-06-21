@@ -410,6 +410,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   const handleStartLoan = async () => {
     if (!loanId) return;
 
+    const startSecondaryPageRequired = !startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount > 0);
+    if (startSecondaryPageRequired && !startLoanForm.secondaryPaymentPageId) {
+      toast({
+        title: 'Secondary Payment Page Required',
+        description: 'Please select a secondary payment page to proceed.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
     setStartingLoan(true);
     try {
       const response = await fetch('/api/loan/start', {
@@ -718,6 +728,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         // Proof file
         if (emiPaymentForm.proofFile) {
           formData.append('proof', emiPaymentForm.proofFile);
+        }
+
+        if (emiPaymentForm.secondaryPaymentPageId) {
+          formData.append('secondaryPaymentPageId', emiPaymentForm.secondaryPaymentPageId);
         }
 
         const response = await fetch('/api/emi/pay', {
@@ -1093,6 +1107,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       originalCompanyName={loanDetails?.company?.name || 'Your Company'}
       loanAmount={loanDetails?.sessionForm?.approvedAmount || loanDetails?.requestedAmount || 0}
       isInterestOnlyPayment={isInterestOnlyPayment}
+      emiSchedules={loanDetails?.emiSchedules || []}
     />
 
     {/* EMI Date Change Dialog */}
@@ -1270,31 +1285,42 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
             )}
 
             {/* Secondary Payment Page Selection */}
-            {startSecondaryPages.length > 0 && (
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1">
-                  {!startIsMirrorLoan
-                    ? "Secondary Payment Page for EMI Payments"
-                    : "Secondary Payment Page for Extra EMI Payments (Optional)"}
-                  {!startIsMirrorLoan && <span className="text-red-500">*</span>}
-                </Label>
-                <select
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                  value={startLoanForm.secondaryPaymentPageId}
-                  onChange={(e) => handleStartFormChange('secondaryPaymentPageId', e.target.value)}
-                >
-                  <option value="">Select Payment Page</option>
-                  {startSecondaryPages.map((page: any) => (
-                    <option key={page.id} value={page.id}>
-                      {page.name} ({page.upiId || 'No UPI'})
-                    </option>
-                  ))}
-                </select>
-                {!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId && (
-                  <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
-                )}
-              </div>
-            )}
+            {(() => {
+              const startSecondaryPageRequired = !startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount > 0);
+              return (startSecondaryPageRequired || startSecondaryPages.length > 0) && (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1 text-sm font-medium">
+                    {startSecondaryPageRequired
+                      ? (!startIsMirrorLoan
+                          ? "Secondary Payment Page for EMI Payments"
+                          : "Secondary Payment Page for Extra EMI Payments")
+                      : "Secondary Payment Page (Optional)"}
+                    {startSecondaryPageRequired && <span className="text-red-500">*</span>}
+                  </Label>
+                  {startSecondaryPages.length > 0 ? (
+                    <select
+                      className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      value={startLoanForm.secondaryPaymentPageId}
+                      onChange={(e) => handleStartFormChange('secondaryPaymentPageId', e.target.value)}
+                    >
+                      <option value="">Select Payment Page</option>
+                      {startSecondaryPages.map((page: any) => (
+                        <option key={page.id} value={page.id}>
+                          {page.name} ({page.upiId || 'No UPI'})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-xs">
+                      ⚠️ No secondary payment pages available. Please create a secondary payment page in the admin settings first.
+                    </div>
+                  )}
+                  {startSecondaryPageRequired && !startLoanForm.secondaryPaymentPageId && (
+                    <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Warning */}
             <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1318,7 +1344,11 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           <Button
             className="bg-amber-600 hover:bg-amber-700"
             onClick={handleStartLoan}
-            disabled={startingLoan || loadingPreview || (!startIsMirrorLoan && startSecondaryPages.length > 0 && !startLoanForm.secondaryPaymentPageId)}
+            disabled={
+              startingLoan ||
+              loadingPreview ||
+              ((!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount > 0)) && !startLoanForm.secondaryPaymentPageId)
+            }
           >
             {startingLoan ? (
               <>

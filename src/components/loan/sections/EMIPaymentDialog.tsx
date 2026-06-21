@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +58,7 @@ interface EMIPaymentDialogProps {
   /** Loan amount for auto penalty calculation (N lakh = N×₹100/day) */
   loanAmount?: number;
   isInterestOnlyPayment?: boolean;
+  emiSchedules?: any[];
 }
 
 const EMIPaymentDialog = memo(function EMIPaymentDialog({
@@ -78,10 +79,38 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
   originalCompanyName = 'Your Company',
   loanAmount = 0,
   isInterestOnlyPayment = false,
+  emiSchedules = [],
 }: EMIPaymentDialogProps) {
   // ── Auto-calculated penalty (editable) ─────────────────────────────────────
   // Key to reset penalty when EMI changes (parent passes key={selectedEMI?.id})
   const [editedPenalty, setEditedPenalty] = useState<string>('');
+  const [secondaryPages, setSecondaryPages] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      fetch('/api/secondary-payment-pages?activeOnly=true')
+        .then(res => res.json())
+        .then(data => {
+          setSecondaryPages(data.pages || data || []);
+          
+          let defaultSecPageId = selectedEMI?.paymentSetting?.secondaryPaymentPageId;
+          
+          if (!defaultSecPageId && emiSchedules && emiSchedules.length > 0) {
+            const found = emiSchedules.find(e => e.paymentSetting?.secondaryPaymentPageId);
+            if (found) {
+              defaultSecPageId = found.paymentSetting.secondaryPaymentPageId;
+            }
+          }
+          
+          setEmiPaymentForm(prev => ({
+            ...prev,
+            secondaryPaymentPageId: defaultSecPageId || ''
+          }));
+        })
+        .catch(err => console.error('Error fetching secondary pages:', err));
+    }
+  }, [open, selectedEMI, emiSchedules, setEmiPaymentForm]);
+
   const isOverdue = isEMIOverdue(selectedEMI);
   const penaltyCalc = selectedEMI ? calcPenalty(selectedEMI.dueDate, loanAmount) : { daysOverdue: 0, ratePerDay: 0, auto: 0 };
   // Use lateFee from DB if no loanAmount, else auto-calculated
@@ -759,6 +788,36 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
               rows={2}
             />
           </div>
+
+          {/* Secondary Payment Page Selection for INTEREST_ONLY payments */}
+          {((emiPaymentForm.paymentType === 'INTEREST_ONLY' || isInterestOnlyPayment)) && (
+            <div className="space-y-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <Label className="flex items-center gap-1 text-sm font-semibold text-blue-800">
+                Secondary Payment Page *
+              </Label>
+              {secondaryPages.length > 0 ? (
+                <select
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  value={emiPaymentForm.secondaryPaymentPageId || ''}
+                  onChange={(e) => setEmiPaymentForm({ ...emiPaymentForm, secondaryPaymentPageId: e.target.value })}
+                >
+                  <option value="">Select Payment Page</option>
+                  {secondaryPages.map((page: any) => (
+                    <option key={page.id} value={page.id}>
+                      {page.name} ({page.upiId || 'No UPI'})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 text-xs">
+                  ⚠️ No secondary payment pages available. Please create a secondary payment page in the admin settings first.
+                </div>
+              )}
+              {!emiPaymentForm.secondaryPaymentPageId && (
+                <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -766,7 +825,10 @@ const EMIPaymentDialog = memo(function EMIPaymentDialog({
           <Button 
             className="bg-emerald-500 hover:bg-emerald-600"
             onClick={onPay}
-            disabled={payingEMI}
+            disabled={
+              payingEMI ||
+              (((emiPaymentForm.paymentType === 'INTEREST_ONLY' || isInterestOnlyPayment)) && !emiPaymentForm.secondaryPaymentPageId)
+            }
           >
             {payingEMI ? (
               <>
