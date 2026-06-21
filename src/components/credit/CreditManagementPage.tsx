@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import TodayCreditPanel from './TodayCreditPanel';
 
 interface UserWithCredit {
   id: string;
@@ -85,6 +86,8 @@ interface LoanWithEMI {
   status: string;
   loanType: string;
   requestedAmount: number;
+  emiAmount?: number;
+  interestRate?: number;
   customer: {
     id: string;
     name: string;
@@ -186,27 +189,7 @@ export default function CreditManagementPage() {
     } catch { toast({ title: 'Error', description: 'Network error', variant: 'destructive' }); }
     finally { setProcessingRequest(null); }
   };
-  
-  // Today Credit
-  const [todayCreditDate, setTodayCreditDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [todayCreditData, setTodayCreditData] = useState<any>(null);
-  const [todayCreditLoading, setTodayCreditLoading] = useState(false);
-  const [expandedUser, setExpandedUser] = useState<string | null>(null);
-  const [dateRangeMode, setDateRangeMode] = useState(false);
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
-
-  const fetchTodayCredit = async (date?: string, start?: string, end?: string) => {
-    setTodayCreditLoading(true);
-    try {
-      const url = (start && end)
-        ? `/api/credit/today-credit?startDate=${start}&endDate=${end}`
-        : `/api/credit/today-credit?date=${date || todayCreditDate}`;
-      const res = await fetch(url);
-      const d = await res.json();
-      if (d.success) setTodayCreditData(d);
-    } catch { } finally { setTodayCreditLoading(false); }
-  };
+  // Today Credit state is managed internally by TodayCreditPanel
 
   // Auto-refresh state - disabled by default to prevent DB connection limit issues
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -288,7 +271,7 @@ export default function CreditManagementPage() {
       }
 
       // Fetch loans with EMI details for passbook
-      const loansResponse = await fetch('/api/loan/all-active');
+      const loansResponse = await fetch('/api/loan/all-active?passbook=true');
       const loansData = await loansResponse.json();
       if (loansData.loans) {
         setLoansWithEMI(loansData.loans);
@@ -511,8 +494,11 @@ export default function CreditManagementPage() {
   };
 
   // Get EMI transactions for a loan
-  const getLoanEMITransactions = (loanId: string) => {
-    return transactions.filter(tx => tx.loanApplicationId === loanId && tx.sourceType === 'EMI_PAYMENT');
+  const getLoanEMITransactions = (loanId: string, applicationNo?: string) => {
+    return transactions.filter(tx => 
+      (tx.loanApplicationId === loanId || (applicationNo && tx.loanApplicationNo === applicationNo)) && 
+      (tx.sourceType === 'EMI_PAYMENT' || tx.sourceType === 'INTEREST_ONLY_PAYMENT')
+    );
   };
 
   return (
@@ -669,7 +655,7 @@ export default function CreditManagementPage() {
       </Card>
 
       {/* Main Content */}
-      <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'today') fetchTodayCredit(todayCreditDate); }}>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-white border flex flex-wrap gap-0.5">
           <TabsTrigger value="today" className="flex items-center gap-2">
             <Sun className="h-4 w-4 text-amber-500" />
@@ -691,249 +677,7 @@ export default function CreditManagementPage() {
 
         {/* Today Credit Tab */}
         <TabsContent value="today" className="mt-4">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sun className="h-5 w-5 text-amber-500" />
-                    {dateRangeMode ? 'Credit by Date Range' : 'Today Credit'} — Who Collected What
-                  </CardTitle>
-                  <CardDescription>
-                    Credit increases per user with per-company breakdown (Super Admin excluded)
-                  </CardDescription>
-                </div>
-                {/* Date controls */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setDateRangeMode(!dateRangeMode)}
-                      className={`text-xs px-2 py-1 rounded-full border transition-all ${dateRangeMode ? 'bg-blue-100 border-blue-400 text-blue-700' : 'border-gray-300 text-gray-600'}`}
-                    >
-                      {dateRangeMode ? '📅 Range Mode' : '📅 Single Date'}
-                    </button>
-                    <Button variant="outline" size="icon" className="h-8 w-8"
-                      onClick={() => dateRangeMode ? fetchTodayCredit(undefined, startDate, endDate) : fetchTodayCredit(todayCreditDate)}
-                      disabled={todayCreditLoading}>
-                      <RefreshCw className={`h-4 w-4 ${todayCreditLoading ? 'animate-spin' : ''}`} />
-                    </Button>
-                  </div>
-                  {dateRangeMode ? (
-                    <div className="flex items-center gap-2">
-                      <Input type="date" value={startDate}
-                        onChange={e => { setStartDate(e.target.value); fetchTodayCredit(undefined, e.target.value, endDate); }}
-                        className="w-36 h-8 text-sm" />
-                      <span className="text-gray-400 text-sm">to</span>
-                      <Input type="date" value={endDate}
-                        onChange={e => { setEndDate(e.target.value); fetchTodayCredit(undefined, startDate, e.target.value); }}
-                        className="w-36 h-8 text-sm" />
-                    </div>
-                  ) : (
-                    <Input type="date" value={todayCreditDate}
-                      onChange={e => { setTodayCreditDate(e.target.value); fetchTodayCredit(e.target.value); }}
-                      className="w-40 h-8 text-sm" />
-                  )}
-                </div>
-              </div>
-
-              {/* Summary chips */}
-              {todayCreditData && (
-                <div className="flex flex-col gap-3 mt-3">
-                  {/* Grand summary row */}
-                  <div className="flex flex-wrap gap-3">
-                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-emerald-600">Total Credit Increase</p>
-                      <p className="font-bold text-emerald-700">{formatCurrency(todayCreditData.summary.total)}</p>
-                    </div>
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-amber-600">Personal Credit</p>
-                      <p className="font-bold text-amber-700">{formatCurrency(todayCreditData.summary.personal)}</p>
-                    </div>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-blue-600">Company Credit</p>
-                      <p className="font-bold text-blue-700">{formatCurrency(todayCreditData.summary.company)}</p>
-                    </div>
-                    <div className="bg-purple-50 border border-purple-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-purple-600">Users Active</p>
-                      <p className="font-bold text-purple-700">{todayCreditData.summary.userCount}</p>
-                    </div>
-                    {/* Cash vs Online */}
-                    {(todayCreditData.summary.cash > 0 || todayCreditData.summary.online > 0) && (
-                      <>
-                        <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                          <p className="text-xs text-gray-500">💵 Cash</p>
-                          <p className="font-bold text-gray-700">{formatCurrency(todayCreditData.summary.cash || 0)}</p>
-                        </div>
-                        <div className="bg-cyan-50 border border-cyan-200 rounded-lg px-3 py-2">
-                          <p className="text-xs text-cyan-600">🌐 Online / UPI</p>
-                          <p className="font-bold text-cyan-700">{formatCurrency(todayCreditData.summary.online || 0)}</p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Per-company grand breakdown */}
-                  {(() => {
-                    // Aggregate all company breakdowns across all users
-                    const companyTotals = new Map<string, { name: string; amount: number }>();
-                    for (const u of todayCreditData.users) {
-                      for (const cb of (u.companyBreakdown || [])) {
-                        if (!companyTotals.has(cb.companyId)) {
-                          companyTotals.set(cb.companyId, { name: cb.companyName, amount: 0 });
-                        }
-                        companyTotals.get(cb.companyId)!.amount += cb.amount;
-                      }
-                    }
-                    const entries = [...companyTotals.entries()].sort((a, b) => b[1].amount - a[1].amount);
-                    if (entries.length === 0) return null;
-                    return (
-                      <div className="border border-blue-100 bg-blue-50/60 rounded-xl p-3">
-                        <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1">
-                          <Building2 className="h-3.5 w-3.5" /> Collection by Company
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {entries.map(([id, co]) => (
-                            <div key={id} className="flex items-center gap-1.5 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5">
-                              <div className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
-                              <span className="text-xs font-medium text-blue-800">{co.name}</span>
-                              <span className="text-xs font-bold text-emerald-700 ml-1">{formatCurrency(co.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-            </CardHeader>
-            <CardContent>
-              {todayCreditLoading ? (
-                <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-amber-500" /></div>
-              ) : !todayCreditData ? (
-                <div className="text-center py-10 text-gray-400">
-                  <Sun className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>Click the refresh button to load credit data</p>
-                  <Button className="mt-3" onClick={() => fetchTodayCredit(todayCreditDate)}>Load Data</Button>
-                </div>
-              ) : todayCreditData.users.length === 0 ? (
-                <div className="text-center py-10 text-gray-400">
-                  <IndianRupee className="h-12 w-12 mx-auto mb-2 opacity-30" />
-                  <p>No credit increases recorded for the selected period</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {todayCreditData.users.map((u: any) => (
-                    <div key={u.userId} className="border rounded-xl overflow-hidden">
-                      {/* User header row */}
-                      <button
-                        className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
-                        onClick={() => setExpandedUser(expandedUser === u.userId ? null : u.userId)}
-                      >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold flex-shrink-0">
-                            {u.userName.charAt(0)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-gray-900">{u.userName}</p>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                              {getRoleBadge(u.userRole)}
-                              {u.userCompanyName && <span className="text-xs text-gray-500">{u.userCompanyName}</span>}
-                              {/* Inline per-company chips */}
-                              {u.companyBreakdown && u.companyBreakdown.length > 0 && (
-                                u.companyBreakdown.map((cb: any) => (
-                                  <span key={cb.companyId} className="inline-flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-full px-2 py-0.5 text-[10px] font-medium text-blue-700">
-                                    <Building2 className="h-2.5 w-2.5" />
-                                    {cb.companyName}: <span className="text-emerald-700 font-bold ml-0.5">{formatCurrency(cb.amount)}</span>
-                                  </span>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4 text-right flex-shrink-0 ml-3">
-                          <div>
-                            <p className="font-bold text-emerald-700 text-lg">{formatCurrency(u.totalIncrease)}</p>
-                            <p className="text-xs text-gray-500">{u.transactionCount} transaction{u.transactionCount !== 1 ? 's' : ''}</p>
-                          </div>
-                          <ArrowDownRight className={`h-4 w-4 text-gray-400 transition-transform ${expandedUser === u.userId ? 'rotate-180' : ''}`} />
-                        </div>
-                      </button>
-
-                      {/* Expanded: sub-breakdown */}
-                      {expandedUser === u.userId && (
-                        <div className="p-4 bg-white border-t space-y-4">
-                          {/* Personal vs Company */}
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="bg-amber-50 rounded-lg p-3">
-                              <p className="text-xs text-amber-600 font-medium">Personal Credit</p>
-                              <p className="text-lg font-bold text-amber-700">{formatCurrency(u.personalIncrease)}</p>
-                              <p className="text-xs text-amber-500">Non-cash payments</p>
-                            </div>
-                            <div className="bg-emerald-50 rounded-lg p-3">
-                              <p className="text-xs text-emerald-600 font-medium">Company Credit</p>
-                              <p className="text-lg font-bold text-emerald-700">{formatCurrency(u.companyIncrease)}</p>
-                              <p className="text-xs text-emerald-500">Cash payments</p>
-                            </div>
-                          </div>
-
-                          {/* Company breakdown */}
-                          {u.companyBreakdown.length > 0 && (
-                            <div>
-                              <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1">
-                                <Building2 className="h-3 w-3" /> By Company
-                              </p>
-                              <div className="space-y-1">
-                                {u.companyBreakdown.map((cb: any) => (
-                                  <div key={cb.companyId} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
-                                    <span className="text-sm text-gray-700">{cb.companyName}</span>
-                                    <span className="font-semibold text-gray-800">{formatCurrency(cb.amount)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Recent transactions */}
-                          <div>
-                            <p className="text-xs font-semibold text-gray-500 mb-2 flex items-center gap-1">
-                              <History className="h-3 w-3" /> Transactions
-                            </p>
-                            <div className="space-y-1 max-h-40 overflow-y-auto">
-                              {u.transactions.map((tx: any) => (
-                                <div key={tx.id} className="flex items-center justify-between text-xs py-1 border-b border-gray-50">
-                                  <div className="text-gray-600 flex-1 min-w-0 truncate">
-                                    {tx.customerName && <span className="font-medium">{tx.customerName}</span>}
-                                    {tx.loanApplicationNo && <span className="text-gray-400 ml-1">({tx.loanApplicationNo})</span>}
-                                    {tx.installmentNumber && <span className="text-gray-400 ml-1">EMI #{tx.installmentNumber}</span>}
-                                    {tx.description && <span className="text-gray-400 ml-1">{tx.description.substring(0, 40)}</span>}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
-                                    <Badge className={(
-                                      tx.paymentMode === 'CASH' ? 'bg-gray-100 text-gray-700' :
-                                      tx.paymentMode === 'ONLINE' || tx.paymentMode === 'UPI' ? 'bg-cyan-100 text-cyan-700' :
-                                      tx.paymentMode === 'BANK_TRANSFER' || tx.paymentMode === 'NEFT' || tx.paymentMode === 'RTGS' ? 'bg-blue-100 text-blue-700' :
-                                      'bg-gray-100 text-gray-600'
-                                    ) + ' text-[10px] px-1.5 py-0'}>
-                                      {tx.paymentMode === 'BANK_TRANSFER' ? 'BANK' : tx.paymentMode || 'CASH'}
-                                    </Badge>
-                                    <Badge className={tx.creditType === 'PERSONAL' ? 'bg-amber-100 text-amber-700 text-xs' : 'bg-emerald-100 text-emerald-700 text-xs'}>
-                                      {tx.creditType}
-                                    </Badge>
-                                    <span className="font-semibold text-emerald-600">+{formatCurrency(tx.amount)}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <TodayCreditPanel />
         </TabsContent>
 
         {/* Users Tab */}
@@ -1254,7 +998,7 @@ export default function CreditManagementPage() {
                 <div className="w-full">
                   <div className="space-y-4">
                     {loansWithEMI.map((loan) => {
-                      const emiTransactions = getLoanEMITransactions(loan.id);
+                      const emiTransactions = getLoanEMITransactions(loan.id, loan.applicationNo);
                       const totalPaid = emiTransactions.reduce((sum, tx) => sum + tx.amount, 0);
                       const pendingEMIs = loan.emiSchedules?.filter(e => e.paymentStatus === 'PENDING' || e.paymentStatus === 'OVERDUE').length || 0;
                       
@@ -1291,7 +1035,7 @@ export default function CreditManagementPage() {
                               </div>
                               <div className="text-center">
                                 <p className="text-xs text-gray-500">EMI Amount</p>
-                                <p className="font-bold text-lg text-blue-600">{formatCurrency(loan.sessionForm?.emiAmount || 0)}</p>
+                                <p className="font-bold text-lg text-blue-600">{formatCurrency(loan.sessionForm?.emiAmount || loan.emiAmount || 0)}</p>
                               </div>
                               <div className="text-center">
                                 <p className="text-xs text-gray-500">Total Collected</p>
@@ -1814,11 +1558,11 @@ export default function CreditManagementPage() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">EMI Amount</p>
-                    <p className="font-bold text-lg text-blue-600">{formatCurrency(selectedLoan.sessionForm?.emiAmount || 0)}</p>
+                    <p className="font-bold text-lg text-blue-600">{formatCurrency(selectedLoan.sessionForm?.emiAmount || selectedLoan.emiAmount || 0)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Interest Rate</p>
-                    <p className="font-bold text-lg">{selectedLoan.sessionForm?.interestRate || 0}%</p>
+                    <p className="font-bold text-lg">{selectedLoan.sessionForm?.interestRate || selectedLoan.interestRate || 0}%</p>
                   </div>
                 </div>
 
@@ -1870,7 +1614,7 @@ export default function CreditManagementPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {getLoanEMITransactions(selectedLoan.id).map((tx) => (
+                      {getLoanEMITransactions(selectedLoan.id, selectedLoan.applicationNo).map((tx) => (
                         <TableRow key={tx.id}>
                           <TableCell className="text-sm">{formatDateShort(tx.transactionDate)}</TableCell>
                           <TableCell>
@@ -1900,7 +1644,7 @@ export default function CreditManagementPage() {
                       ))}
                     </TableBody>
                   </Table>
-                  {getLoanEMITransactions(selectedLoan.id).length === 0 && (
+                  {getLoanEMITransactions(selectedLoan.id, selectedLoan.applicationNo).length === 0 && (
                     <p className="text-center text-gray-500 py-4">No credit transactions for this loan</p>
                   )}
                 </div>

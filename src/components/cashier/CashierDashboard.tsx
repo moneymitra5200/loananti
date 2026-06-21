@@ -37,6 +37,7 @@ import DirectMessaging from '@/components/messaging/DirectMessaging';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import CashierExpenseSection from '@/components/expense/CashierExpenseSection';
+import TodayCreditPanel from '@/components/credit/TodayCreditPanel';
 import CustomersSection from '@/components/admin/modules/CustomersSection';
 import UserDetailsSheet from '@/components/admin/UserDetailsSheet';
 
@@ -1175,6 +1176,9 @@ export default function CashierDashboard() {
                 onOpenLoanDetail={handleOpenLoanFromEMI}
               />
             )}
+
+            {/* Today Credit Panel */}
+            <TodayCreditPanel userRole={user?.role} userId={user?.id} />
 
             {/* Bank Balance Summary */}
             {bankAccounts.length > 0 && (

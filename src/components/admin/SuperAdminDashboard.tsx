@@ -32,6 +32,7 @@ import { useUsersStore } from '@/stores/usersStore';
 import { useCompaniesStore } from '@/stores/companiesStore';
 import { useStats } from '@/hooks/useStats';
 import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
+import TodayCreditPanel from '@/components/credit/TodayCreditPanel';
 
 // Lazy load heavy components
 const AuditLogViewer = lazy(() => import('@/components/audit/AuditLogViewer'));
@@ -1718,6 +1719,9 @@ export default function SuperAdminDashboard() {
       default:
         return (
           <div className="space-y-6">
+            {/* Today Credit Panel */}
+            <TodayCreditPanel userRole={user?.role} userId={user?.id} />
+
             {/* Charts Row */}
             <div className="grid lg:grid-cols-2 gap-6">
               <Card className="border-0 shadow-sm">
