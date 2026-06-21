@@ -225,10 +225,13 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
     return allLoans.map(loan => {
       // Filter entries for this loan — entries already come from journal entries
+      // Priority order — LOAN_DISBURSEMENT always first, PF_ACCRUAL always second.
+      // This fixes past/backdated loans where the disbursement JE was created today
+      // but interest accruals carry historical dates (Jul 2025, Aug 2025 …).
       const LEDGER_ORDER: Record<string, number> = {
+        LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
         PROCESSING_FEE_ACCRUAL: 1,
         PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-        LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
         INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
         EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5,
         INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
@@ -237,6 +240,15 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
       const loanEntries = entries
         .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
         .sort((a, b) => {
+          // Step 1: Disbursement (0) always first, PF accrual (1) always second
+          // regardless of what date the JE carries.
+          const oA = LEDGER_ORDER[a.referenceType] ?? 9;
+          const oB = LEDGER_ORDER[b.referenceType] ?? 9;
+          if (oA <= 1 || oB <= 1) {
+            if (oA !== oB) return oA - oB;
+          }
+
+          // Step 2: chronological by date
           const dateA = new Date(a.date);
           const dateB = new Date(b.date);
 
@@ -255,10 +267,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
           const timeA = dateA.getTime();
           const timeB = dateB.getTime();
-
-          if (timeA !== timeB) {
-            return timeA - timeB;
-          }
+          if (timeA !== timeB) return timeA - timeB;
 
           if (a.entryNumber && b.entryNumber && a.entryNumber.startsWith('JE') && b.entryNumber.startsWith('JE') && a.entryNumber !== b.entryNumber) {
             const cmp = a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
@@ -267,18 +276,13 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
 
           const createA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const createB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          if (createA !== createB) {
-            return createA - createB;
-          }
+          if (createA !== createB) return createA - createB;
 
           if (a.emiNumber !== undefined && b.emiNumber !== undefined && a.emiNumber !== b.emiNumber) {
             return a.emiNumber - b.emiNumber;
           }
 
-          const oA = LEDGER_ORDER[a.referenceType] ?? 9;
-          const oB = LEDGER_ORDER[b.referenceType] ?? 9;
           if (oA !== oB) return oA - oB;
-
           return (a.id || '').localeCompare(b.id || '');
         });
 

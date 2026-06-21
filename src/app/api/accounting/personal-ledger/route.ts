@@ -1232,9 +1232,9 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       }
     }
     const ENTRY_ORDER: Record<string, number> = {
+      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
       PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-      LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
       INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
       EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5,
       INTEREST_ONLY_PAYMENT: 5,
@@ -1243,6 +1243,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7,
     };
     journalEntries.sort((a: any, b: any) => {
+      // LOAN_DISBURSEMENT always first, PF_ACCRUAL always second, regardless of date.
+      // This fixes past/backdated loans where disbursement JE is created today but
+      // interest accruals have historical dates (Jul 2025, Aug 2025 …).
+      const oA = ENTRY_ORDER[a.referenceType] ?? 9;
+      const oB = ENTRY_ORDER[b.referenceType] ?? 9;
+      if (oA <= 1 || oB <= 1) {
+        if (oA !== oB) return oA - oB;
+      }
+
       const dateA = new Date(a.entryDate);
       const dateB = new Date(b.entryDate);
 
@@ -1276,14 +1285,6 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
         return createA - createB;
       }
 
-      const emiA = a.emiNumber;
-      const emiB = b.emiNumber;
-      if (emiA !== undefined && emiB !== undefined && emiA !== emiB) {
-        return emiA - emiB;
-      }
-
-      const oA = ENTRY_ORDER[a.referenceType] ?? 9;
-      const oB = ENTRY_ORDER[b.referenceType] ?? 9;
       if (oA !== oB) return oA - oB;
 
       const idA = a.id || '';
