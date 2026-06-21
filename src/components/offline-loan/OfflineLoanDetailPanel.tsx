@@ -418,6 +418,18 @@ export default function OfflineLoanDetailPanel({
     }
   };
 
+  // Lock body scroll when mobile detail drawer is open to prevent page scroll leak
+  useEffect(() => {
+    if (open && loanId) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [open, loanId]);
+
   useEffect(() => {
     if (loanId && open) {
       fetchLoanDetails();

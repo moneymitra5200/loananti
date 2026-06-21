@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -134,8 +134,18 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
 
   // Fetch loans + mirror mappings when filters/page/refreshKey change
   // Mirror mappings must re-fetch with refreshKey so new loans with mirrors appear instantly
+  const prevFilters = useRef({ page, statusFilter, companyFilter });
+
   useEffect(() => {
-    fetchLoans();
+    const filtersChanged =
+      prevFilters.current.page !== page ||
+      prevFilters.current.statusFilter !== statusFilter ||
+      prevFilters.current.companyFilter !== companyFilter;
+
+    prevFilters.current = { page, statusFilter, companyFilter };
+
+    const silent = !loading && !filtersChanged;
+    fetchLoans(silent);
     fetchMirrorMappings(); // re-fetch mirrors whenever loans refresh
     fetchActionableItems();
   }, [userId, userRole, page, statusFilter, companyFilter, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -278,7 +288,8 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
         toast({ title: 'Loan Deleted', description: data.message || `Loan ${loanToDelete.loanNumber} has been deleted` });
         setDeleteConfirmOpen(false);
         setLoanToDelete(null);
-        fetchLoans();
+        fetchLoans(true);
+        fetchMirrorMappings();
         fetchActionableItems();
       } else if (data.hasPaidEMIs) {
         const confirmForce = window.confirm(
@@ -313,7 +324,8 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
         const data = await res.json();
         if (data.success) {
           toast({ title: 'Action Undone', description: 'The action has been successfully undone' });
-          fetchLoans();
+          fetchLoans(true);
+          fetchMirrorMappings();
           fetchActionableItems();
         }
       }
@@ -336,7 +348,8 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
         const data = await res.json();
         if (data.success) {
           toast({ title: 'Action Redone', description: 'The action has been successfully redone' });
-          fetchLoans();
+          fetchLoans(true);
+          fetchMirrorMappings();
           fetchActionableItems();
         }
       }

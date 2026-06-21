@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
 
       // Check mirror mapping
       const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: false }
+        where: { originalLoanId: loanId }
       });
 
       // Create new EMI payment settings
@@ -409,7 +409,7 @@ export async function POST(request: NextRequest) {
 
     // ── Record processing fee for online loan (Phase 2 startup) ──────────────────
     const mirrorMappingForPF = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: false }
+      where: { originalLoanId: loanId }
     });
 
     const parsedProcessingFee = parseFloat(processingFee) || 0;
@@ -600,8 +600,7 @@ export async function GET(request: NextRequest) {
           OR: [
             { originalLoanId: loanId },
             { mirrorLoanId: loanId }
-          ],
-          isOfflineLoan: false
+          ]
         }
       });
       if (mirrorMapping) {

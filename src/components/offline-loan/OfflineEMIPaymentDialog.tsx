@@ -557,7 +557,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
             <Label className="text-slate-800 font-semibold mb-3 block">
               <Wallet className="h-4 w-4 inline mr-2" />Credit Type *
             </Label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Personal */}
               <button type="button" onClick={() => handleCreditTypeChange('PERSONAL')}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
@@ -610,7 +610,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
           ) : (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
               <Label className="text-blue-800 font-semibold mb-3 block">Payment Mode *</Label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {/* ONLINE */}
                 <button type="button" onClick={() => setPaymentMode('ONLINE')}
                   className={`p-3 rounded-lg border-2 text-left transition-all ${paymentMode === 'ONLINE' ? 'border-blue-500 bg-blue-100' : 'border-gray-200 bg-white hover:border-gray-300'}`}>

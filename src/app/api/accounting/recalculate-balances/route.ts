@@ -50,6 +50,17 @@ export async function POST(request: NextRequest) {
       log.push('Created Suspense account (9999)');
     }
 
+    // Delete previous auto-generated correcting entries to start from clean business entries
+    const deletedEntries = await db.journalEntry.deleteMany({
+      where: {
+        companyId,
+        referenceType: 'OPENING_BALANCE_ADJUSTMENT'
+      }
+    });
+    if (deletedEntries.count > 0) {
+      log.push(`Deleted ${deletedEntries.count} previous OPENING_BALANCE_ADJUSTMENT entries`);
+    }
+
     // ─── 1. Get system user ───────────────────────────────────────────────────
     const systemUser =
       await db.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true } }) ||
@@ -168,27 +179,45 @@ export async function POST(request: NextRequest) {
     const BANK_CODES = ['1102', '1103', '1104'];
     const CASH_CODES = ['1101', '1100'];
     const CAPITAL_CODES = ['3001', '3002'];
+    const ONLINE_LOANS_CODES = ['1201'];
+    const OFFLINE_LOANS_CODES = ['1210'];
 
     const cashAccount = accounts.find(a => CASH_CODES.includes(a.accountCode));
     const bankAccountCoa = accounts.find(a => BANK_CODES.includes(a.accountCode));
     const capitalAccount = accounts.find(a => CAPITAL_CODES.includes(a.accountCode));
+    const onlineLoansAccount = accounts.find(a => ONLINE_LOANS_CODES.includes(a.accountCode));
+    const offlineLoansAccount = accounts.find(a => OFFLINE_LOANS_CODES.includes(a.accountCode));
 
     let targetCash = 0;
     let hasCashTarget = false;
     const cashBook = await db.cashBook.findFirst({ where: { companyId } });
     if (cashBook) {
-      targetCash = cashBook.currentBalance || 0;
+      const cbWhere = { cashBook: { companyId } };
+      const [cbCredits, cbDebits] = await Promise.all([
+        db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'CREDIT' }, _sum: { amount: true } }),
+        db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'DEBIT' }, _sum: { amount: true } })
+      ]);
+      const openingCash = cashBook.openingBalance || 0;
+      targetCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
       hasCashTarget = true;
     }
 
     let targetBank = 0;
     let hasBankTarget = false;
-    const bankRows = await db.bankAccount.findMany({
-      where: { companyId, isActive: true },
-      select: { currentBalance: true },
-    });
-    if (bankRows.length > 0) {
-      targetBank = bankRows.reduce((s, b) => s + (b.currentBalance || 0), 0);
+    const bankAccounts = await db.bankAccount.findMany({ where: { companyId, isActive: true } });
+    if (bankAccounts.length > 0) {
+      for (const bank of bankAccounts) {
+        const txCredits = await db.bankTransaction.aggregate({
+          where: { bankAccountId: bank.id, transactionType: 'CREDIT' },
+          _sum: { amount: true }
+        });
+        const txDebits = await db.bankTransaction.aggregate({
+          where: { bankAccountId: bank.id, transactionType: 'DEBIT' },
+          _sum: { amount: true }
+        });
+        const historicalBalance = bank.openingBalance + (txCredits._sum.amount || 0) - (txDebits._sum.amount || 0);
+        targetBank += historicalBalance;
+      }
       hasBankTarget = true;
     }
 
@@ -202,6 +231,48 @@ export async function POST(request: NextRequest) {
       );
       hasCapitalTarget = true;
     }
+
+    let targetOnlineLoans = 0;
+    let hasOnlineLoansTarget = true;
+    const onlineLoans = await db.loanApplication.findMany({
+      where: {
+        companyId,
+        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] }
+      },
+      select: {
+        disbursedAmount: true,
+        emiSchedules: {
+          where: { paymentStatus: 'PAID' },
+          select: { paidPrincipal: true }
+        }
+      }
+    });
+    targetOnlineLoans = onlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.disbursedAmount || 0;
+      const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
+
+    let targetOfflineLoans = 0;
+    let hasOfflineLoansTarget = true;
+    const offlineLoans = await db.offlineLoan.findMany({
+      where: {
+        companyId,
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED', 'CLOSED'] }
+      },
+      select: {
+        loanAmount: true,
+        emis: {
+          where: { paymentStatus: 'PAID' },
+          select: { paidPrincipal: true }
+        }
+      }
+    });
+    targetOfflineLoans = offlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.loanAmount || 0;
+      const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
 
     // ─── 5. Calculate Trial Balance discrepancy before Suspense adjustment ───
     let trialDr = 0;
@@ -222,6 +293,10 @@ export async function POST(request: NextRequest) {
         balance = targetBank;
       } else if (CAPITAL_CODES.includes(acc.accountCode) && hasCapitalTarget) {
         balance = targetCapital;
+      } else if (ONLINE_LOANS_CODES.includes(acc.accountCode) && hasOnlineLoansTarget) {
+        balance = targetOnlineLoans;
+      } else if (OFFLINE_LOANS_CODES.includes(acc.accountCode) && hasOfflineLoansTarget) {
+        balance = targetOfflineLoans;
       }
 
       if (isDebitNormal) {
@@ -235,6 +310,11 @@ export async function POST(request: NextRequest) {
 
     // ─── 6. Build correcting journal entry lines to align ledger with overrides ───
     const correctingLines: any[] = [];
+    let netCashAdjustment = 0;
+    let netBankAdjustment = 0;
+    let netCapitalAdjustment = 0;
+    let netOnlineLoansAdjustment = 0;
+    let netOfflineLoansAdjustment = 0;
 
     if (hasCashTarget && cashAccount) {
       const dr = drMap[cashAccount.id] || 0;
@@ -242,6 +322,7 @@ export async function POST(request: NextRequest) {
       const journalCash = (cashAccount.openingBalance || 0) + dr - cr;
       const diffCash = targetCash - journalCash;
       if (Math.abs(diffCash) > 0.005) {
+        netCashAdjustment = diffCash;
         correctingLines.push({
           accountId: cashAccount.id,
           debitAmount: diffCash > 0 ? diffCash : 0,
@@ -257,6 +338,7 @@ export async function POST(request: NextRequest) {
       const journalBank = (bankAccountCoa.openingBalance || 0) + dr - cr;
       const diffBank = targetBank - journalBank;
       if (Math.abs(diffBank) > 0.005) {
+        netBankAdjustment = diffBank;
         correctingLines.push({
           accountId: bankAccountCoa.id,
           debitAmount: diffBank > 0 ? diffBank : 0,
@@ -272,6 +354,7 @@ export async function POST(request: NextRequest) {
       const journalCapital = (capitalAccount.openingBalance || 0) + cr - dr;
       const diffCapital = targetCapital - journalCapital;
       if (Math.abs(diffCapital) > 0.005) {
+        netCapitalAdjustment = diffCapital;
         correctingLines.push({
           accountId: capitalAccount.id,
           debitAmount: diffCapital < 0 ? Math.abs(diffCapital) : 0,
@@ -281,17 +364,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Adjust Suspense account to absorb any net trial balance difference
-    if (Math.abs(trialDiff) > 0.005) {
+    if (hasOnlineLoansTarget && onlineLoansAccount) {
+      const dr = drMap[onlineLoansAccount.id] || 0;
+      const cr = crMap[onlineLoansAccount.id] || 0;
+      const journalOnlineLoans = (onlineLoansAccount.openingBalance || 0) + dr - cr;
+      const diffOnlineLoans = targetOnlineLoans - journalOnlineLoans;
+      if (Math.abs(diffOnlineLoans) > 0.005) {
+        netOnlineLoansAdjustment = diffOnlineLoans;
+        correctingLines.push({
+          accountId: onlineLoansAccount.id,
+          debitAmount: diffOnlineLoans > 0 ? diffOnlineLoans : 0,
+          creditAmount: diffOnlineLoans < 0 ? Math.abs(diffOnlineLoans) : 0,
+          narration: `Adjust online loans ledger to actual outstanding principal`,
+        });
+      }
+    }
+
+    if (hasOfflineLoansTarget && offlineLoansAccount) {
+      const dr = drMap[offlineLoansAccount.id] || 0;
+      const cr = crMap[offlineLoansAccount.id] || 0;
+      const journalOfflineLoans = (offlineLoansAccount.openingBalance || 0) + dr - cr;
+      const diffOfflineLoans = targetOfflineLoans - journalOfflineLoans;
+      if (Math.abs(diffOfflineLoans) > 0.005) {
+        netOfflineLoansAdjustment = diffOfflineLoans;
+        correctingLines.push({
+          accountId: offlineLoansAccount.id,
+          debitAmount: diffOfflineLoans > 0 ? diffOfflineLoans : 0,
+          creditAmount: diffOfflineLoans < 0 ? Math.abs(diffOfflineLoans) : 0,
+          narration: `Adjust offline loans ledger to actual outstanding principal`,
+        });
+      }
+    }
+
+    // Now, calculate the net debit difference of the above adjustments.
+    // - Cash is an Asset (Debit normal): Net Debit = netCashAdjustment.
+    // - Bank is an Asset (Debit normal): Net Debit = netBankAdjustment.
+    // - Online Loans is an Asset (Debit normal): Net Debit = netOnlineLoansAdjustment.
+    // - Offline Loans is an Asset (Debit normal): Net Debit = netOfflineLoansAdjustment.
+    // - Capital is Equity (Credit normal): Net Debit = -netCapitalAdjustment.
+    const netDebitDifference = netCashAdjustment + netBankAdjustment + netOnlineLoansAdjustment + netOfflineLoansAdjustment - netCapitalAdjustment;
+
+    // To balance this correcting entry, the Suspense line must have:
+    // Net Debit = -netDebitDifference
+    // Since Suspense is an Equity account (Credit normal), Net Credit = netDebitDifference.
+    if (Math.abs(netDebitDifference) > 0.005) {
       correctingLines.push({
         accountId: suspenseAccount.id,
-        debitAmount: trialDiff < 0 ? Math.abs(trialDiff) : 0,
-        creditAmount: trialDiff > 0 ? trialDiff : 0,
+        debitAmount: netDebitDifference < 0 ? Math.abs(netDebitDifference) : 0,
+        creditAmount: netDebitDifference > 0 ? netDebitDifference : 0,
         narration: 'Trial balance correcting entry to resolve discrepancy',
       });
     }
-
-    let trialDiffResult = trialDiff;
 
     if (correctingLines.length > 0) {
       const totalDebit = correctingLines.reduce((s, l) => s + l.debitAmount, 0);

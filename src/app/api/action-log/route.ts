@@ -594,7 +594,140 @@ export async function PUT(request: NextRequest) {
                     updatedAt: loanFields.updatedAt ? new Date(loanFields.updatedAt) : undefined,
                   }
                 });
-                localUndoResult = { type: 'loan_recreated_fallback', recordId: actionLog.recordId };
+
+                // Recreate EMIs
+                if (emis && Array.isArray(emis)) {
+                  for (const emi of emis) {
+                    const { offlineLoan: _ol, collector: _col, ...emiFields } = emi;
+                    await tx.offlineLoanEMI.create({
+                      data: {
+                        ...emiFields,
+                        dueDate: emiFields.dueDate ? new Date(emiFields.dueDate) : null,
+                        paidDate: emiFields.paidDate ? new Date(emiFields.paidDate) : null,
+                        collectedAt: emiFields.collectedAt ? new Date(emiFields.collectedAt) : null,
+                        reminderSentAt: emiFields.reminderSentAt ? new Date(emiFields.reminderSentAt) : null,
+                        originalDueDate: emiFields.originalDueDate ? new Date(emiFields.originalDueDate) : null,
+                        interestOnlyPaidAt: emiFields.interestOnlyPaidAt ? new Date(emiFields.interestOnlyPaidAt) : null,
+                        nextPaymentDate: emiFields.nextPaymentDate ? new Date(emiFields.nextPaymentDate) : null,
+                        createdAt: emiFields.createdAt ? new Date(emiFields.createdAt) : undefined,
+                        updatedAt: emiFields.updatedAt ? emiFields.updatedAt ? new Date(emiFields.updatedAt) : undefined : undefined,
+                      }
+                    });
+                  }
+                }
+
+                // Recreate gold details
+                if (goldLoanDetail) {
+                  const { loanApplication, offlineLoan: _ol, ...goldFields } = goldLoanDetail;
+                  await tx.goldLoanDetail.create({
+                    data: {
+                      ...goldFields,
+                      verificationDate: goldFields.verificationDate ? new Date(goldFields.verificationDate) : null,
+                      createdAt: goldFields.createdAt ? new Date(goldFields.createdAt) : undefined,
+                      updatedAt: goldFields.updatedAt ? new Date(goldFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+
+                // Recreate vehicle details
+                if (vehicleLoanDetail) {
+                  const { loanApplication, offlineLoan: _ol, ...vehicleFields } = vehicleLoanDetail;
+                  await tx.vehicleLoanDetail.create({
+                    data: {
+                      ...vehicleFields,
+                      verificationDate: vehicleFields.verificationDate ? new Date(vehicleFields.verificationDate) : null,
+                      createdAt: vehicleFields.createdAt ? new Date(vehicleFields.createdAt) : undefined,
+                      updatedAt: vehicleFields.updatedAt ? new Date(vehicleFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+
+                // Recreate mirror mapping
+                const mirrorMapping = previousData.mirrorMapping;
+                if (mirrorMapping) {
+                  const { mirrorCompany, originalCompany, ...mappingFields } = mirrorMapping;
+                  await tx.mirrorLoanMapping.create({
+                    data: {
+                      ...mappingFields,
+                      mirrorCompletedAt: mappingFields.mirrorCompletedAt ? new Date(mappingFields.mirrorCompletedAt) : null,
+                      createdAt: mappingFields.createdAt ? new Date(mappingFields.createdAt) : undefined,
+                      updatedAt: mappingFields.updatedAt ? new Date(mappingFields.updatedAt) : undefined,
+                    }
+                  });
+                }
+
+                // Recreate mirror loan
+                const mirrorLoan = previousData.mirrorLoan;
+                if (mirrorLoan) {
+                  const {
+                    emis: mirrorEmis,
+                    goldLoanDetail: mirrorGold,
+                    vehicleLoanDetail: mirrorVehicle,
+                    company: _c,
+                    customer: _cu,
+                    creator: _cr,
+                    ...mirrorFields
+                  } = mirrorLoan;
+
+                  await tx.offlineLoan.create({
+                    data: {
+                      ...mirrorFields,
+                      disbursementDate: mirrorFields.disbursementDate ? new Date(mirrorFields.disbursementDate) : null,
+                      startDate: mirrorFields.startDate ? new Date(mirrorFields.startDate) : null,
+                      interestOnlyStartDate: mirrorFields.interestOnlyStartDate ? new Date(mirrorFields.interestOnlyStartDate) : null,
+                      loanStartedAt: mirrorFields.loanStartedAt ? new Date(mirrorFields.loanStartedAt) : null,
+                      closedAt: mirrorFields.closedAt ? new Date(mirrorFields.closedAt) : null,
+                      createdAt: mirrorFields.createdAt ? new Date(mirrorFields.createdAt) : undefined,
+                      updatedAt: mirrorFields.updatedAt ? new Date(mirrorFields.updatedAt) : undefined,
+                    }
+                  });
+
+                  if (mirrorEmis && Array.isArray(mirrorEmis)) {
+                    for (const emi of mirrorEmis) {
+                      const { offlineLoan: _ol, collector: _col, ...emiFields } = emi;
+                      await tx.offlineLoanEMI.create({
+                        data: {
+                          ...emiFields,
+                          dueDate: emiFields.dueDate ? new Date(emiFields.dueDate) : null,
+                          paidDate: emiFields.paidDate ? new Date(emiFields.paidDate) : null,
+                          collectedAt: emiFields.collectedAt ? new Date(emiFields.collectedAt) : null,
+                          reminderSentAt: emiFields.reminderSentAt ? new Date(emiFields.reminderSentAt) : null,
+                          originalDueDate: emiFields.originalDueDate ? new Date(emiFields.originalDueDate) : null,
+                          interestOnlyPaidAt: emiFields.interestOnlyPaidAt ? new Date(emiFields.interestOnlyPaidAt) : null,
+                          nextPaymentDate: emiFields.nextPaymentDate ? new Date(emiFields.nextPaymentDate) : null,
+                          createdAt: emiFields.createdAt ? new Date(emiFields.createdAt) : undefined,
+                          updatedAt: emiFields.updatedAt ? new Date(emiFields.updatedAt) : undefined,
+                        }
+                      });
+                    }
+                  }
+
+                  if (mirrorGold) {
+                    const { loanApplication, offlineLoan: _ol, ...goldFields } = mirrorGold;
+                    await tx.goldLoanDetail.create({
+                      data: {
+                        ...goldFields,
+                        verificationDate: goldFields.verificationDate ? new Date(goldFields.verificationDate) : null,
+                        createdAt: goldFields.createdAt ? new Date(goldFields.createdAt) : undefined,
+                        updatedAt: goldFields.updatedAt ? new Date(goldFields.updatedAt) : undefined,
+                      }
+                    });
+                  }
+
+                  if (mirrorVehicle) {
+                    const { loanApplication, offlineLoan: _ol, ...vehicleFields } = mirrorVehicle;
+                    await tx.vehicleLoanDetail.create({
+                      data: {
+                        ...vehicleFields,
+                        verificationDate: vehicleFields.verificationDate ? new Date(vehicleFields.verificationDate) : null,
+                        createdAt: vehicleFields.createdAt ? new Date(vehicleFields.createdAt) : undefined,
+                        updatedAt: vehicleFields.updatedAt ? new Date(vehicleFields.updatedAt) : undefined,
+                      }
+                    });
+                  }
+                }
+
+                localUndoResult = { type: 'loan_recreated_fallback', recordId: actionLog.recordId, detail: 'Loan and all child records recreated successfully from fallback previousData.' };
               }
             }
           }
@@ -865,21 +998,29 @@ export async function PUT(request: NextRequest) {
 
             // 2. Delete the rolling NEXT EMI that was auto-created after this payment
             //    (installmentNumber = paid EMI's installmentNumber + 1)
+            //    Only appropriate for dynamic interest-only loans. In standard fixed-tenure loans,
+            //    it deletes pre-generated EMIs, corrupting schedules.
             if (loanId) {
-              const paidEMI = await tx.offlineLoanEMI.findUnique({
-                where: { id: emiId }, select: { installmentNumber: true }
+              const loan = await tx.offlineLoan.findUnique({
+                where: { id: loanId },
+                select: { isInterestOnlyLoan: true }
               });
-              if (paidEMI) {
-                const nextInstNum = paidEMI.installmentNumber + 1;
-                // Only delete if it has NEVER been paid (PENDING) — safety guard
-                const deletedCount = await tx.offlineLoanEMI.deleteMany({
-                  where: {
-                    offlineLoanId: loanId,
-                    installmentNumber: nextInstNum,
-                    paymentStatus: 'PENDING'
-                  }
+              if (loan?.isInterestOnlyLoan) {
+                const paidEMI = await tx.offlineLoanEMI.findUnique({
+                  where: { id: emiId }, select: { installmentNumber: true }
                 });
-                console.log(`[Undo EMI] Deleted ${deletedCount.count} rolling next-EMI (#${nextInstNum}) for loan ${loanId}`);
+                if (paidEMI) {
+                  const nextInstNum = paidEMI.installmentNumber + 1;
+                  // Only delete if it has NEVER been paid (PENDING) — safety guard
+                  const deletedCount = await tx.offlineLoanEMI.deleteMany({
+                    where: {
+                      offlineLoanId: loanId,
+                      installmentNumber: nextInstNum,
+                      paymentStatus: 'PENDING'
+                    }
+                  });
+                  console.log(`[Undo EMI] Deleted ${deletedCount.count} rolling next-EMI (#${nextInstNum}) for loan ${loanId}`);
+                }
               }
             }
 
@@ -907,15 +1048,23 @@ export async function PUT(request: NextRequest) {
                   }
                 });
 
-                // Delete mirror's rolling next EMI
-                await tx.offlineLoanEMI.deleteMany({
-                  where: {
-                    offlineLoanId: mirrorLoanId,
-                    installmentNumber: installmentNumber + 1,
-                    paymentStatus: 'PENDING'
-                  }
+                const mirrorLoan = await tx.offlineLoan.findUnique({
+                  where: { id: mirrorLoanId },
+                  select: { isInterestOnlyLoan: true }
                 });
-                console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI deleted`);
+                if (mirrorLoan?.isInterestOnlyLoan) {
+                  // Delete mirror's rolling next EMI
+                  await tx.offlineLoanEMI.deleteMany({
+                    where: {
+                      offlineLoanId: mirrorLoanId,
+                      installmentNumber: installmentNumber + 1,
+                      paymentStatus: 'PENDING'
+                    }
+                  });
+                  console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI deleted`);
+                } else {
+                  console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI NOT deleted (fixed-tenure)`);
+                }
               }
             }
 
@@ -928,9 +1077,14 @@ export async function PUT(request: NextRequest) {
                   data: { totalInterestPaid: { decrement: interestPaid } }
                 });
                 // Also re-open loan if it was auto-closed by this payment
+                const loan = await tx.offlineLoan.findUnique({
+                  where: { id: loanId },
+                  select: { isInterestOnlyLoan: true }
+                });
+                const reopenStatus = loan?.isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE';
                 await tx.offlineLoan.updateMany({
                   where: { id: loanId, status: 'CLOSED', closedAt: { gte: new Date(new Date(actionLog.createdAt).getTime() - 60000) } },
-                  data: { status: 'INTEREST_ONLY', closedAt: null }
+                  data: { status: reopenStatus, closedAt: null }
                 });
               }
             }

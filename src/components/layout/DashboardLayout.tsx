@@ -145,7 +145,7 @@ export default function DashboardLayout({
 
   return (
     <RefreshProvider>
-    <div className="h-screen bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col overflow-hidden">
+    <div className="h-[100dvh] bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 flex flex-col overflow-hidden">
       {/* Push notification registration + FCM token save */}
       <PushNotificationInit />
       {/* Role-based daily briefing popup */}
@@ -341,7 +341,7 @@ export default function DashboardLayout({
                 variants={{ initial: { x: -280 }, animate: { x: 0 }, exit: { x: -280 } }}
                 initial="initial" animate="animate" exit="exit"
                 transition={{ type: 'tween', duration: 0.25, ease: 'easeInOut' }}
-                className="fixed top-0 left-0 h-screen w-72 bg-white z-[60] shadow-2xl lg:hidden flex flex-col overflow-hidden"
+                className="fixed top-0 left-0 h-[100dvh] w-72 bg-white z-[60] shadow-2xl lg:hidden flex flex-col overflow-hidden"
                 onClick={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
               >
