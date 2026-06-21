@@ -1049,7 +1049,7 @@ export default function OfflineLoanDetailPanel({
           interestRate: startInterestRate,
           interestType: startInterestType,
           processingFee: parseFloat(startProcessingFee) || 0,
-          bankAccountId: startBankAccountId || null,
+          bankAccountId: startIsMirrorLoan ? (startBankAccountId || null) : null,
           secondaryPaymentPageId: startSecondaryPageId || null,
           startedBy: userId
         })
@@ -3717,7 +3717,7 @@ export default function OfflineLoanDetailPanel({
             </div>
 
             {/* Bank / Payment Source */}
-            {startBankAccounts.length > 0 && (
+            {startBankAccounts.length > 0 && startIsMirrorLoan && (
               <div className="space-y-2">
                 <Label>Payment Source (Bank / Cash)</Label>
                 <select

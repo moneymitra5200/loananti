@@ -420,7 +420,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           tenure: startLoanForm.tenure,
           interestRate: startLoanForm.interestRate,
           processingFee: startLoanForm.processingFee,
-          bankAccountId: startLoanForm.bankAccountId,
+          bankAccountId: startIsMirrorLoan ? (startLoanForm.bankAccountId || null) : null,
           secondaryPaymentPageId: startLoanForm.secondaryPaymentPageId,
           startedBy: currentUserId
         })
@@ -1206,7 +1206,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 </div>
               </div>
 
-              {startBankAccounts.length > 0 && (
+              {startBankAccounts.length > 0 && startIsMirrorLoan && (
                 <div className="space-y-2">
                   <Label>Processing Fee Payment To</Label>
                   <select
