@@ -1185,7 +1185,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
                   Processing Fee
-                  {emiPreview?.processingFee ? (
+                  {startIsMirrorLoan && emiPreview?.processingFee ? (
                     <span className="text-xs font-normal text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
                       Auto-calculated: {formatCurrency(emiPreview.processingFee)} (original − mirror EMI diff)
                     </span>
@@ -1198,9 +1198,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                   <Input
                     type="number"
                     min="0"
-                    className="pl-8 bg-gray-50 text-gray-500 cursor-not-allowed"
+                    className={`pl-8 ${startIsMirrorLoan ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : ''}`}
                     value={startLoanForm.processingFee}
-                    readOnly
+                    onChange={(e) => handleStartFormChange('processingFee', parseFloat(e.target.value) || 0)}
+                    readOnly={startIsMirrorLoan}
                   />
                 </div>
               </div>

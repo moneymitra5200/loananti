@@ -3706,10 +3706,10 @@ export default function OfflineLoanDetailPanel({
                 step={0.01}
                 value={startProcessingFee}
                 onChange={(e) => setStartProcessingFee(e.target.value)}
-                placeholder="Auto-calculated from mirror EMI diff"
-                disabled
+                placeholder={startIsMirrorLoan ? "Auto-calculated from mirror EMI diff" : "Enter processing fee"}
+                disabled={startIsMirrorLoan}
               />
-              {emiPreview?.processingFee > 0 && (
+              {startIsMirrorLoan && emiPreview?.processingFee > 0 && (
                 <p className="text-xs text-orange-600">
                   Auto-calculated: ₹{emiPreview.processingFee.toFixed(2)} (originalEMI − lastMirrorEMI)
                 </p>
