@@ -1272,10 +1272,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
             {/* Secondary Payment Page Selection */}
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
-                {!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)
-                  ? "Secondary Payment Page for Interest-Only Payment Method Mode"
+                {!startIsMirrorLoan
+                  ? "Secondary Payment Page for EMI Payments"
                   : "Secondary Payment Page for Extra EMI Payments (Optional)"}
-                {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && <span className="text-red-500">*</span>}
+                {!startIsMirrorLoan && <span className="text-red-500">*</span>}
               </Label>
               <select
                 className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
@@ -1289,7 +1289,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                   </option>
                 ))}
               </select>
-              {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startLoanForm.secondaryPaymentPageId && (
+              {!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId && (
                 <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
               )}
             </div>
@@ -1316,7 +1316,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           <Button
             className="bg-amber-600 hover:bg-amber-700"
             onClick={handleStartLoan}
-            disabled={startingLoan || loadingPreview || ((!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startLoanForm.secondaryPaymentPageId)}
+            disabled={startingLoan || loadingPreview || (!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId)}
           >
             {startingLoan ? (
               <>

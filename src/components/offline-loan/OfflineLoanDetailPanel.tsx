@@ -3737,10 +3737,10 @@ export default function OfflineLoanDetailPanel({
             {startSecondaryPages.length > 0 && (
               <div className="space-y-2">
                 <Label className="flex items-center gap-1">
-                  {!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)
-                    ? "Secondary Payment Page for Interest-Only Payment Method Mode"
+                  {!startIsMirrorLoan
+                    ? "Secondary Payment Page for EMI Payments"
                     : "Secondary Payment Page for Extra EMI Payments (Optional)"}
-                  {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && <span className="text-red-500">*</span>}
+                  {!startIsMirrorLoan && <span className="text-red-500">*</span>}
                 </Label>
                 <select
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
@@ -3752,7 +3752,7 @@ export default function OfflineLoanDetailPanel({
                     <option key={p.id} value={p.id}>{p.name || p.title}</option>
                   ))}
                 </select>
-                {(!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startSecondaryPageId && (
+                {!startIsMirrorLoan && !startSecondaryPageId && (
                   <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
                 )}
               </div>
@@ -3806,7 +3806,7 @@ export default function OfflineLoanDetailPanel({
             <Button
               className="bg-purple-500 hover:bg-purple-600"
               onClick={handleStartLoan}
-              disabled={startingLoan || ((!startIsMirrorLoan || (startIsMirrorLoan && startExtraEMICount <= 0)) && !startSecondaryPageId)}
+              disabled={startingLoan || (!startIsMirrorLoan && !startSecondaryPageId)}
             >
               {startingLoan ? (
                 <>
