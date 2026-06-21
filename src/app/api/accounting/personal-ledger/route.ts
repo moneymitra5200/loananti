@@ -664,9 +664,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   let customer: { id: string; name: string | null; phone: string | null; email: string | null; address?: string | null } | null = null;
 
   if (isNameGroupId && groupName) {
-    // Fetch customer info from any offline loan with matching name (case-insensitive)
+    // Fetch customer info from offline loan with matching name and phone
     const sampleLoan = await db.offlineLoan.findFirst({
-      where: { customerName: { contains: groupName } },
+      where: {
+        customerName: { contains: groupName },
+        ...(groupPhone ? { customerPhone: { contains: groupPhone } } : {})
+      },
       select: { customerName: true, customerPhone: true, customerEmail: true }
     });
     if (sampleLoan) {
