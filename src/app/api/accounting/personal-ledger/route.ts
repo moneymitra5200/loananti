@@ -856,12 +856,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   // Filter: hide originals that have mirrors; show mirror loan records
   const validOnlineLoans = [
-    // From customer's own loans — exclude mirrored originals unless viewing original company
+    // From customer's own loans — exclude mirrored originals completely since their receivable belongs to the mirror company
     ...allOnlineLoans.filter(l => {
       if (mirroredIds.has(l.id)) {
-        // If viewing the original company, SHOW the original!
-        if (companyId && l.companyId === companyId) return true;
-        // Otherwise (All Companies or Mirror Company), hide the original (we show mirror via extraMirrorOnlineLoans)
+        // Original company does not carry the receivable anymore, the mirror company does.
         return false; 
       }
       if (mirrorLoanIds.has(l.id)) return !companyId || l.companyId === companyId;
@@ -909,9 +907,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     ...allOfflineLoans.filter(l => {
       // If it's the original offline loan of a mirrored pair
       if (mirroredOfflineIds.has(l.id)) {
-        // If viewing the original company, SHOW the original!
-        if (companyId && l.companyId === companyId) return true;
-        // Otherwise (All Companies or Mirror Company), hide the original (we show mirror instead)
+        // Original company does not carry the receivable anymore, the mirror company does.
         return false;
       }
       

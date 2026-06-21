@@ -110,9 +110,23 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  const companyIdsKey = selectedCompanyIds.join(',');
+
   useEffect(() => {
     fetchCustomers();
-  }, [selectedCompanyIds, refreshKey]);
+  }, [companyIdsKey, refreshKey]);
+
+  useEffect(() => {
+    setSelectedCustomer(null);
+    setSelectedLoan(null);
+    setLoanStatements([]);
+  }, [companyIdsKey]);
+
+  useEffect(() => {
+    if (selectedCustomer) {
+      fetchLoanStatements(selectedCustomer.id).catch(() => {});
+    }
+  }, [refreshKey]);
 
   // ─── Fetch customer list (mirror-aware) ────────────────────────────────────
   const fetchCustomers = async () => {
