@@ -101,7 +101,9 @@ async function getContactUserMap() {
   const userMapByContact = new Map<string, { id: string; name: string; phone: string; email: string }>();
   for (const u of allRegisteredUsers) {
     if (u.name && u.phone) {
-      const key = `${u.name.trim().toLowerCase()}_${u.phone.trim().replace(/\D/g, '')}`;
+      const cleanDigits = u.phone.trim().replace(/\D/g, '');
+      const phoneKey = cleanDigits || u.phone.trim().toLowerCase();
+      const key = `${u.name.trim().toLowerCase()}_${phoneKey}`;
       userMapByContact.set(key, {
         id: u.id,
         name: u.name,
@@ -124,7 +126,9 @@ function getCustomerForContact(
   const cleanPhone = (phone || linkedCustomer?.phone || '').trim();
   
   if (cleanName && cleanPhone) {
-    const key = `${cleanName.toLowerCase()}_${cleanPhone.replace(/\D/g, '')}`;
+    const cleanDigits = cleanPhone.replace(/\D/g, '');
+    const phoneKey = cleanDigits || cleanPhone.toLowerCase();
+    const key = `${cleanName.toLowerCase()}_${phoneKey}`;
     const registered = userMapByContact.get(key);
     if (registered) {
       return registered;
@@ -132,7 +136,7 @@ function getCustomerForContact(
     
     // Fallback to a consistent synthetic group ID based on name and phone
     return {
-      id: `offline_name_${cleanName.toLowerCase()}_${cleanPhone.replace(/\D/g, '')}`,
+      id: `offline_name_${cleanName.toLowerCase()}_${phoneKey}`,
       name: cleanName,
       phone: cleanPhone,
       email: linkedCustomer?.email || '',
@@ -228,19 +232,92 @@ async function listCustomersForCompany(companyId: string | null) {
     return listCustomersFallback(companyId);
   }
 
-  // 4. Get mirror mappings to apply mirror rule (BOTH online AND offline)
-  const mirrorMappings = loanIdsFromLines.length > 0
+  // Fetch all active/disbursed/closed online and offline loans for this company to ensure loan counts are complete
+  const companyActiveLoanIds: string[] = [];
+
+  // --- Online mirror mappings ---
+  const onlineMirrorMappingsForCompany = companyId
     ? await db.mirrorLoanMapping.findMany({
-        where: { originalLoanId: { in: loanIdsFromLines } }, // includes offline mirrors too
+        where: { mirrorCompanyId: companyId, isOfflineLoan: false },
+        select: { originalLoanId: true, mirrorLoanId: true }
+      })
+    : [];
+  // --- Offline mirror mappings ---
+  const offlineMirrorMappingsForCompany = companyId
+    ? await db.mirrorLoanMapping.findMany({
+        where: { mirrorCompanyId: companyId, isOfflineLoan: true },
+        select: { originalLoanId: true, mirrorLoanId: true }
+      })
+    : [];
+
+  for (const m of onlineMirrorMappingsForCompany) {
+    if (m.mirrorLoanId) companyActiveLoanIds.push(m.mirrorLoanId);
+    else if (m.originalLoanId) companyActiveLoanIds.push(m.originalLoanId);
+  }
+  for (const m of offlineMirrorMappingsForCompany) {
+    if (m.mirrorLoanId) companyActiveLoanIds.push(m.mirrorLoanId);
+    else if (m.originalLoanId) companyActiveLoanIds.push(m.originalLoanId);
+  }
+
+  // --- Direct online loans ---
+  const allMirroredOnlineIds = new Set(
+    (await db.mirrorLoanMapping.findMany({
+      where: { isOfflineLoan: false },
+      select: { originalLoanId: true }
+    })).map(m => m.originalLoanId)
+  );
+
+  const onlineWhere: any = {
+    status: { in: ['ACTIVE', 'DISBURSED', 'CLOSED', 'ACTIVE_INTEREST_ONLY', 'FINAL_APPROVED'] },
+  };
+  if (companyId) onlineWhere.companyId = companyId;
+  if (allMirroredOnlineIds.size > 0) onlineWhere.id = { notIn: [...allMirroredOnlineIds] };
+
+  const directOnlineLoans = await db.loanApplication.findMany({
+    where: onlineWhere,
+    select: { id: true }
+  });
+  for (const l of directOnlineLoans) {
+    companyActiveLoanIds.push(l.id);
+  }
+
+  // --- Direct offline loans ---
+  const allMirroredOfflineIds = new Set(
+    (await db.mirrorLoanMapping.findMany({
+      where: { isOfflineLoan: true },
+      select: { originalLoanId: true }
+    })).map(m => m.originalLoanId)
+  );
+
+  const offlineWhere: any = {
+    status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED'] },
+  };
+  if (companyId) offlineWhere.companyId = companyId;
+  if (allMirroredOfflineIds.size > 0) offlineWhere.id = { notIn: [...allMirroredOfflineIds] };
+
+  const directOfflineLoans = await db.offlineLoan.findMany({
+    where: offlineWhere,
+    select: { id: true }
+  });
+  for (const l of directOfflineLoans) {
+    companyActiveLoanIds.push(l.id);
+  }
+
+  const allRelevantLoanIds = [...new Set([...loanIdsFromLines, ...companyActiveLoanIds])];
+
+  // 4. Get mirror mappings to apply mirror rule (BOTH online AND offline)
+  const mirrorMappings = allRelevantLoanIds.length > 0
+    ? await db.mirrorLoanMapping.findMany({
+        where: { originalLoanId: { in: allRelevantLoanIds } }, // includes offline mirrors too
         select: { originalLoanId: true, mirrorCompanyId: true, mirrorLoanId: true }
       })
     : [];
   const mirroredLoanIds    = new Set(mirrorMappings.map(m => m.originalLoanId));
   const mirrorCompanyOfLoan = new Map(mirrorMappings.map(m => [m.originalLoanId, m.mirrorCompanyId]));
 
-  const reverseMirrorMappings = loanIdsFromLines.length > 0
+  const reverseMirrorMappings = allRelevantLoanIds.length > 0
     ? await db.mirrorLoanMapping.findMany({
-        where: { mirrorLoanId: { in: loanIdsFromLines } },
+        where: { mirrorLoanId: { in: allRelevantLoanIds } },
         select: { mirrorLoanId: true, originalLoanId: true }
       })
     : [];
@@ -253,16 +330,17 @@ async function listCustomersForCompany(companyId: string | null) {
   for (const m of mirrorMappings) {
     if (m.mirrorLoanId) mirrorToOriginalId.set(m.mirrorLoanId, m.originalLoanId);
   }
+
   // 5. Build customer name map from loanId
-  const onlineLoans = loanIdsFromLines.length > 0
+  const onlineLoans = allRelevantLoanIds.length > 0
     ? await db.loanApplication.findMany({
-        where: { id: { in: loanIdsFromLines } },
+        where: { id: { in: allRelevantLoanIds } },
         select: { id: true, customer: { select: { id: true, name: true, phone: true, email: true } } }
       })
     : [];
-  const offlineLoans = loanIdsFromLines.length > 0
+  const offlineLoans = allRelevantLoanIds.length > 0
     ? await db.offlineLoan.findMany({
-        where: { id: { in: loanIdsFromLines } },
+        where: { id: { in: allRelevantLoanIds } },
         select: {
           id: true,
           customerName: true,
@@ -324,6 +402,53 @@ async function listCustomersForCompany(companyId: string | null) {
   };
   const byCustomer = new Map<string, CustomerAccum>();
 
+  // Pre-initialize byCustomer with all relevant loans for this company context to correctly count zero-JE loans
+  for (const l of onlineLoans) {
+    if (mirroredLoanIds.has(l.id) && companyId) {
+      const mirrorCo = mirrorCompanyOfLoan.get(l.id);
+      if (mirrorCo !== companyId) continue; // Skip — original company view
+    }
+    const cust = loanToCustomer.get(l.id);
+    if (cust) {
+      if (!byCustomer.has(cust.id)) {
+        byCustomer.set(cust.id, {
+          id: cust.id, name: cust.name, phone: cust.phone, email: cust.email,
+          lrDebits: 0, lrCredits: 0, interestCredits: 0, loans: new Set(),
+          isMirror: mirroredLoanIds.has(l.id) || mirrorToOriginalId.has(l.id),
+        });
+      }
+      const acc = byCustomer.get(cust.id)!;
+      const loanIdToCount = mirrorToOriginalId.get(l.id) || l.id;
+      acc.loans.add(loanIdToCount);
+      if (mirroredLoanIds.has(l.id) || mirrorToOriginalId.has(l.id)) {
+        acc.isMirror = true;
+      }
+    }
+  }
+
+  for (const l of offlineLoans) {
+    if (mirroredLoanIds.has(l.id) && companyId) {
+      const mirrorCo = mirrorCompanyOfLoan.get(l.id);
+      if (mirrorCo !== companyId) continue; // Skip — original company view
+    }
+    const cust = loanToCustomer.get(l.id);
+    if (cust) {
+      if (!byCustomer.has(cust.id)) {
+        byCustomer.set(cust.id, {
+          id: cust.id, name: cust.name, phone: cust.phone, email: cust.email,
+          lrDebits: 0, lrCredits: 0, interestCredits: 0, loans: new Set(),
+          isMirror: mirroredLoanIds.has(l.id) || mirrorToOriginalId.has(l.id),
+        });
+      }
+      const acc = byCustomer.get(cust.id)!;
+      const loanIdToCount = mirrorToOriginalId.get(l.id) || l.id;
+      acc.loans.add(loanIdToCount);
+      if (mirroredLoanIds.has(l.id) || mirrorToOriginalId.has(l.id)) {
+        acc.isMirror = true;
+      }
+    }
+  }
+
   for (const line of lines) {
     // Determine if this line should be included for the requested company
     if (line.loanId) {
@@ -371,6 +496,9 @@ async function listCustomersForCompany(companyId: string | null) {
     if (line.loanId) {
       const loanIdToCount = mirrorToOriginalId.get(line.loanId) || line.loanId;
       acc.loans.add(loanIdToCount);
+    }
+    if (isMirror) {
+      acc.isMirror = true;
     }
   }
 
@@ -698,10 +826,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   let targetPhone = '';
   if (customer) {
     targetName = (customer.name || '').trim().toLowerCase();
-    targetPhone = (customer.phone || '').trim().replace(/\D/g, '');
+    const cleanDigits = (customer.phone || '').trim().replace(/\D/g, '');
+    targetPhone = cleanDigits || (customer.phone || '').trim().toLowerCase();
   } else if (groupName) {
     targetName = groupName.trim().toLowerCase();
-    targetPhone = (groupPhone || '').trim().replace(/\D/g, '');
+    const cleanDigits = (groupPhone || '').trim().replace(/\D/g, '');
+    targetPhone = cleanDigits || (groupPhone || '').trim().toLowerCase();
   }
 
   // Find all matching registered user IDs with the same name and phone
@@ -723,7 +853,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     for (const u of usersWithNameOrPhone) {
       const uName = (u.name || '').trim().toLowerCase();
-      const uPhone = (u.phone || '').trim().replace(/\D/g, '');
+      const cleanDigits = (u.phone || '').trim().replace(/\D/g, '');
+      const uPhone = cleanDigits || (u.phone || '').trim().toLowerCase();
       if (uName === targetName && uPhone === targetPhone) {
         matchingUserIds.add(u.id);
       }
