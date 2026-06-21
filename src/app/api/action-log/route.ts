@@ -1587,24 +1587,30 @@ export async function PUT(request: NextRequest) {
                 await tx.paymentRequest.update({
                   where: { id: prId },
                   data: {
-                    status: 'VERIFIED',
+                    status: 'APPROVED',
                     paymentConfirmedAt: new Date()
                   }
                 });
               }
 
+              const loanApp = await tx.loanApplication.findUnique({
+                where: { id: newData.loanId },
+                select: { customerId: true }
+              });
+              const customerId = loanApp?.customerId || '';
+
               let payment = await tx.payment.findUnique({ where: { id: actionLog.recordId } });
-              if (!payment) {
+              if (!payment && customerId) {
                 await tx.payment.create({
                   data: {
                     id: actionLog.recordId,
                     loanApplicationId: newData.loanId,
                     emiScheduleId: emiId,
+                    customerId: customerId,
                     amount: paymentAmount,
                     paymentMode: paymentMode,
-                    paymentDate: new Date(),
-                    status: 'SUCCESS',
-                    collectedById: newData.collectorId
+                    status: 'COMPLETED',
+                    cashierId: newData.collectorId
                   }
                 });
               }
