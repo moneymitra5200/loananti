@@ -3806,7 +3806,7 @@ export default function OfflineLoanDetailPanel({
             <Button
               className="bg-purple-500 hover:bg-purple-600"
               onClick={handleStartLoan}
-              disabled={startingLoan || (!startIsMirrorLoan && !startSecondaryPageId)}
+              disabled={startingLoan || (!startIsMirrorLoan && startSecondaryPages.length > 0 && !startSecondaryPageId)}
             >
               {startingLoan ? (
                 <>

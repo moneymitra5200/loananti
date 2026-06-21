@@ -1270,29 +1270,31 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
             )}
 
             {/* Secondary Payment Page Selection */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1">
-                {!startIsMirrorLoan
-                  ? "Secondary Payment Page for EMI Payments"
-                  : "Secondary Payment Page for Extra EMI Payments (Optional)"}
-                {!startIsMirrorLoan && <span className="text-red-500">*</span>}
-              </Label>
-              <select
-                className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                value={startLoanForm.secondaryPaymentPageId}
-                onChange={(e) => handleStartFormChange('secondaryPaymentPageId', e.target.value)}
-              >
-                <option value="">Select Payment Page</option>
-                {startSecondaryPages.map((page: any) => (
-                  <option key={page.id} value={page.id}>
-                    {page.name} ({page.upiId || 'No UPI'})
-                  </option>
-                ))}
-              </select>
-              {!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId && (
-                <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
-              )}
-            </div>
+            {startSecondaryPages.length > 0 && (
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  {!startIsMirrorLoan
+                    ? "Secondary Payment Page for EMI Payments"
+                    : "Secondary Payment Page for Extra EMI Payments (Optional)"}
+                  {!startIsMirrorLoan && <span className="text-red-500">*</span>}
+                </Label>
+                <select
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  value={startLoanForm.secondaryPaymentPageId}
+                  onChange={(e) => handleStartFormChange('secondaryPaymentPageId', e.target.value)}
+                >
+                  <option value="">Select Payment Page</option>
+                  {startSecondaryPages.map((page: any) => (
+                    <option key={page.id} value={page.id}>
+                      {page.name} ({page.upiId || 'No UPI'})
+                    </option>
+                  ))}
+                </select>
+                {!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId && (
+                  <p className="text-xs text-red-500">Please select a secondary payment page to proceed.</p>
+                )}
+              </div>
+            )}
 
             {/* Warning */}
             <div className="flex items-start gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1316,7 +1318,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
           <Button
             className="bg-amber-600 hover:bg-amber-700"
             onClick={handleStartLoan}
-            disabled={startingLoan || loadingPreview || (!startIsMirrorLoan && !startLoanForm.secondaryPaymentPageId)}
+            disabled={startingLoan || loadingPreview || (!startIsMirrorLoan && startSecondaryPages.length > 0 && !startLoanForm.secondaryPaymentPageId)}
           >
             {startingLoan ? (
               <>
