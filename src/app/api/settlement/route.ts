@@ -147,8 +147,8 @@ export async function POST(request: NextRequest) {
 
     // Create settlement and decrease user's credit atomically
     // withRetry: retries on deadlock (P2034) up to 3 times
-    const [settlement, creditTx] = await withRetry(() => db.$transaction([
-      db.cashierSettlement.create({
+    const { settlement, creditTx } = await withRetry(() => db.$transaction(async (tx) => {
+      const settlement = await tx.cashierSettlement.create({
         data: {
           settlementNumber,
           userId,
@@ -162,12 +162,12 @@ export async function POST(request: NextRequest) {
           cashDenominations,
           remarks
         }
-      }),
-      db.user.update({
+      });
+      await tx.user.update({
         where: { id: userId },
         data: { credit: { decrement: amount } }
-      }),
-      db.creditTransaction.create({
+      });
+      const creditTx = await tx.creditTransaction.create({
         data: { // @ts-ignore
           userId,
           transactionType: 'CREDIT_DECREASE',
@@ -175,31 +175,27 @@ export async function POST(request: NextRequest) {
           paymentMode: paymentMode,
           balanceAfter: user.credit - amount,
           sourceType: 'SETTLEMENT',
+          settlementId: settlement.id,
           remarks: `Settlement ${settlementNumber}`
         }
-      }),
+      });
       // ActionLog inside transaction — ACID-safe (rolls back if tx fails)
-      db.actionLog.create({
+      await tx.actionLog.create({
         data: {
           userId,
           userRole: 'STAFF',
           actionType: 'CREATE',
           module: 'SETTLEMENT',
-          recordId: userId,
+          recordId: settlement.id,
           recordType: 'CashierSettlement',
           previousData: JSON.stringify({ credit: user.credit }),
-          newData: JSON.stringify({ amount, paymentMode, cashierId, settlementNumber }),
+          newData: JSON.stringify({ amount, paymentMode, cashierId, settlementNumber, settlementId: settlement.id }),
           description: `Settlement ₹${amount} submitted to cashier (${settlementNumber})`,
           canUndo: true,
         },
-      }),
-    ]));
-
-    // Update credit transaction with settlement ID
-    await db.creditTransaction.update({
-      where: { id: creditTx.id },
-      data: { settlementId: settlement.id }
-    });
+      });
+      return { settlement, creditTx };
+    }));
 
     // Update daily collection
     const today = new Date();

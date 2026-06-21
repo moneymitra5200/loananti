@@ -1524,50 +1524,258 @@ export async function PUT(request: NextRequest) {
       }
 
       const newData = salvageJson(actionLog.newData);
-      let redoResult: { type: string; recordId: string } | null = null;
 
-      if (actionLog.module === 'OFFLINE_LOAN') {
-        if (actionLog.actionType === 'CREATE') {
-          await db.offlineLoan.update({ where: { id: actionLog.recordId }, data: { status: 'ACTIVE' } });
-          redoResult = { type: 'loan_re_activated', recordId: actionLog.recordId };
-        } else if (actionLog.actionType === 'UPDATE' && newData) {
-          const { id: _id, createdAt: _c, updatedAt: _u, ...safeFields } = newData;
-          await db.offlineLoan.update({ where: { id: actionLog.recordId }, data: safeFields });
-          redoResult = { type: 'loan_updated', recordId: actionLog.recordId };
-        }
-      }
+      const redoResult = await db.$transaction(async (tx) => {
+        let localRedoResult: { type: string; recordId: string } | null = null;
 
-      else if (actionLog.module === 'EMI_PAYMENT') {
-        if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && newData) {
-          await db.offlineLoanEMI.update({
-            where: { id: actionLog.recordId },
-            data: {
-              paidAmount:    newData.paidAmount,
-              paidPrincipal: newData.paidPrincipal,
-              paidInterest:  newData.paidInterest,
-              paymentStatus: newData.paymentStatus || 'PAID',
-              paidDate: new Date(),
-              paymentMode: newData.paymentMode,
-              collectedById: newData.collectorId,
-              collectedByName: newData.collectorName,
-              collectedAt: new Date()
-            }
-          });
-          if (newData.collectorId && newData.paymentAmount) {
-            const user = await db.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true } });
-            if (user) {
-              await db.user.update({ where: { id: newData.collectorId }, data: { credit: (user.credit || 0) + newData.paymentAmount } });
-            } else {
-              console.warn(`[Redo EMI] Collector user ${newData.collectorId} not found; skipping credit re-application`);
-            }
+        if (actionLog.module === 'OFFLINE_LOAN') {
+          if (actionLog.actionType === 'CREATE') {
+            await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: { status: 'ACTIVE' } });
+            localRedoResult = { type: 'loan_re_activated', recordId: actionLog.recordId };
+          } else if (actionLog.actionType === 'UPDATE' && newData) {
+            const { id: _id, createdAt: _c, updatedAt: _u, ...safeFields } = newData;
+            await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: safeFields });
+            localRedoResult = { type: 'loan_updated', recordId: actionLog.recordId };
           }
-          redoResult = { type: 'payment_re_applied', recordId: actionLog.recordId };
         }
-      }
 
-      await db.actionLog.update({
-        where: { id: actionLogId },
-        data: { isRedone: true, redoneAt: new Date(), redoneById: userId, canRedo: false }
+        else if (
+          actionLog.module === 'EMI_PAYMENT' ||
+          actionLog.module === 'ONLINE_LOAN' ||
+          actionLog.module === 'PAYMENT'
+        ) {
+          if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && newData) {
+            const emiId = newData?.emiId || actionLog.recordId;
+            const paymentAmount = newData.paymentAmount || newData.amount || newData.interestAmount || 0;
+            const paymentMode = (newData.paymentMode || '').toUpperCase();
+            const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+
+            if (actionLog.module === 'EMI_PAYMENT') {
+              await tx.offlineLoanEMI.update({
+                where: { id: actionLog.recordId },
+                data: {
+                  paidAmount:    newData.paidAmount || paymentAmount,
+                  paidPrincipal: newData.paidPrincipal || 0,
+                  paidInterest:  newData.paidInterest || 0,
+                  paymentStatus: newData.paymentStatus || 'PAID',
+                  paidDate:      new Date(),
+                  paymentMode:   newData.paymentMode,
+                  collectedById: newData.collectorId,
+                  collectedByName: newData.collectorName,
+                  collectedAt:   new Date()
+                }
+              });
+            }
+
+            if (actionLog.module === 'ONLINE_LOAN' || actionLog.module === 'PAYMENT') {
+              if (emiId) {
+                await tx.eMISchedule.update({
+                  where: { id: emiId },
+                  data: {
+                    paymentStatus: 'PAID',
+                    paidAmount:    newData.paidAmount || paymentAmount,
+                    paidPrincipal: newData.paidPrincipal || 0,
+                    paidInterest:  newData.paidInterest || 0,
+                    paidDate:      new Date(),
+                    paymentMode:   paymentMode
+                  }
+                });
+              }
+
+              const prId = newData?.paymentRequestId || newData?.paymentRequest?.id;
+              if (prId) {
+                await tx.paymentRequest.update({
+                  where: { id: prId },
+                  data: {
+                    status: 'VERIFIED',
+                    paymentConfirmedAt: new Date()
+                  }
+                });
+              }
+
+              let payment = await tx.payment.findUnique({ where: { id: actionLog.recordId } });
+              if (!payment) {
+                await tx.payment.create({
+                  data: {
+                    id: actionLog.recordId,
+                    loanApplicationId: newData.loanId,
+                    emiScheduleId: emiId,
+                    amount: paymentAmount,
+                    paymentMode: paymentMode,
+                    paymentDate: new Date(),
+                    status: 'SUCCESS',
+                    collectedById: newData.collectorId
+                  }
+                });
+              }
+            }
+
+            // Re-increment collector credit
+            if (newData.collectorId && paymentAmount > 0 && !isOnline) {
+              const creditType = newData.creditType || 'COMPANY';
+              const user = await tx.user.findUnique({
+                where: { id: newData.collectorId },
+                select: { credit: true, personalCredit: true, companyCredit: true }
+              });
+              if (user) {
+                const companyCreditAfter = creditType === 'COMPANY'
+                  ? (user.companyCredit || 0) + paymentAmount
+                  : (user.companyCredit || 0);
+                const personalCreditAfter = creditType === 'PERSONAL'
+                  ? (user.personalCredit || 0) + paymentAmount
+                  : (user.personalCredit || 0);
+
+                await tx.user.update({
+                  where: { id: newData.collectorId },
+                  data: {
+                    credit: companyCreditAfter + personalCreditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
+                  }
+                });
+              }
+            }
+            localRedoResult = { type: 'payment_re_applied', recordId: actionLog.recordId };
+          }
+        }
+
+        else if (actionLog.module === 'SETTLEMENT') {
+          if (actionLog.actionType === 'CREATE' && newData) {
+            const settlementNumber = newData.settlementNumber;
+            const amount = newData.amount;
+            const cashierId = newData.cashierId;
+            const paymentMode = newData.paymentMode;
+
+            const settlementId = actionLog.recordId === actionLog.userId ? undefined : actionLog.recordId;
+
+            const settlement = await tx.cashierSettlement.create({
+              data: {
+                ...(settlementId ? { id: settlementId } : {}),
+                settlementNumber,
+                userId: actionLog.userId,
+                cashierId,
+                amount,
+                paymentMode,
+                status: 'PENDING',
+                remarks: 'Reapplied via REDO'
+              }
+            });
+
+            const user = await tx.user.findUnique({ where: { id: actionLog.userId }, select: { credit: true } });
+            if (user) {
+              await tx.user.update({
+                where: { id: actionLog.userId },
+                data: { credit: Math.max(0, (user.credit || 0) - amount) }
+              });
+            }
+
+            await tx.creditTransaction.create({
+              data: {
+                userId: actionLog.userId,
+                transactionType: 'CREDIT_DECREASE',
+                amount,
+                paymentMode,
+                balanceAfter: Math.max(0, (user?.credit || 0) - amount),
+                sourceType: 'SETTLEMENT',
+                settlementId: settlement.id,
+                remarks: `Settlement ${settlementNumber} (Redone)`
+              }
+            });
+
+            localRedoResult = { type: 'settlement_re_applied', recordId: settlement.id };
+          }
+        }
+
+        else if (actionLog.module === 'LOAN_CLOSE' || actionLog.module === 'LOAN') {
+          if (actionLog.actionType === 'CLOSE' && newData) {
+            await tx.loanApplication.update({
+              where: { id: actionLog.recordId },
+              data: { status: 'CLOSED', closedAt: new Date() }
+            });
+
+            const paymentAmount = newData.totalForeclosureAmount || 0;
+            const paymentMode = (newData.paymentMode || '').toUpperCase();
+            const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+            if (newData.collectorId && paymentAmount > 0 && !isOnline) {
+              const creditType = newData.creditType || 'COMPANY';
+              const user = await tx.user.findUnique({
+                where: { id: newData.collectorId },
+                select: { credit: true, personalCredit: true, companyCredit: true }
+              });
+              if (user) {
+                const companyCreditAfter = creditType === 'COMPANY'
+                  ? (user.companyCredit || 0) + paymentAmount
+                  : (user.companyCredit || 0);
+                const personalCreditAfter = creditType === 'PERSONAL'
+                  ? (user.personalCredit || 0) + paymentAmount
+                  : (user.personalCredit || 0);
+
+                await tx.user.update({
+                  where: { id: newData.collectorId },
+                  data: {
+                    credit: companyCreditAfter + personalCreditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
+                  }
+                });
+              }
+            }
+            localRedoResult = { type: 'loan_closed_re_applied', recordId: actionLog.recordId };
+          }
+        }
+
+        else if (actionLog.module === 'CREDIT_TRANSFER') {
+          if (actionLog.actionType === 'TRANSFER' && newData) {
+            const amount = newData.amount;
+            const creditType = newData.creditType;
+
+            if (newData.toUserId) {
+              const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
+              if (fromUser) {
+                await tx.user.update({
+                  where: { id: actionLog.recordId },
+                  data: {
+                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : fromUser.personalCredit,
+                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : fromUser.companyCredit,
+                    credit: { decrement: amount }
+                  }
+                });
+              }
+
+              const toUser = await tx.user.findUnique({ where: { id: newData.toUserId } });
+              if (toUser) {
+                await tx.user.update({
+                  where: { id: newData.toUserId },
+                  data: {
+                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : toUser.personalCredit,
+                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : toUser.companyCredit,
+                    credit: { increment: amount }
+                  }
+                });
+              }
+            } else if (newData.bankAccountId) {
+              const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
+              if (fromUser) {
+                await tx.user.update({
+                  where: { id: actionLog.recordId },
+                  data: {
+                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : fromUser.personalCredit,
+                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : fromUser.companyCredit,
+                    credit: { decrement: amount }
+                  }
+                });
+              }
+            }
+            localRedoResult = { type: 'credit_transfer_re_applied', recordId: actionLog.recordId };
+          }
+        }
+
+        await tx.actionLog.update({
+          where: { id: actionLogId },
+          data: { isRedone: true, redoneAt: new Date(), redoneById: userId, canRedo: false }
+        });
+
+        return localRedoResult;
       });
 
       return NextResponse.json({ success: true, message: 'Action redone successfully', redoResult });

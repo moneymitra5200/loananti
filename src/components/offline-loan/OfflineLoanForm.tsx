@@ -723,120 +723,391 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   };
 
   const handleSubmit = async () => {
-    // Validate required fields including company
-    // For Interest Only loans, tenure is not required
-    const requiresTenure = !isInterestOnly && (!formData.tenure || parseInt(formData.tenure) <= 0);
-    
-    if (!formData.customerName || !formData.customerPhone || !formData.loanAmount || 
-        !formData.interestRate || requiresTenure || !formData.disbursementDate || 
-        !formData.startDate || !formData.companyId) {
+    let finalGoldLoanDetail: any = null;
+    let finalVehicleLoanDetail: any = null;
+
+    // 1. Company Selection Validation
+    if (!formData.companyId) {
       toast({
         title: 'Validation Error',
-        description: 'Please fill all required fields including Company',
-        variant: 'destructive'
-      });
-    }
-
-    const showSecondaryPage = false;
-    if (showSecondaryPage && !selectedSecondaryPageId) {
-      toast({
-        title: 'Secondary Payment Page Required',
-        description: 'Please select a secondary payment page for this Company 3 loan.',
+        description: 'Error: Company does not have a proper value. Please select a company.',
         variant: 'destructive'
       });
       return;
     }
 
-    // Validate Gold Loan Receipt Data
+    // 2. Product Selection Validation
+    if (!formData.productId) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Loan Product does not have a proper value. Please select a product.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // 3. Customer Details Validation
+    if (!formData.customerName || !formData.customerName.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Customer Name does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!formData.customerPhone || !formData.customerPhone.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Customer Phone does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!formData.customerAddress || !formData.customerAddress.trim()) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Customer Address does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // 4. Loan Details Validation
+    const loanAmountNum = parseFloat(formData.loanAmount);
+    if (isNaN(loanAmountNum) || loanAmountNum <= 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Loan Amount does not have a proper value. It must be greater than 0.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const interestRateNum = parseFloat(formData.interestRate);
+    if (isNaN(interestRateNum) || interestRateNum < 0) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Interest Rate does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const requiresTenure = !isInterestOnly && (!formData.tenure || parseInt(formData.tenure) <= 0);
+    if (requiresTenure) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Tenure does not have a proper value. It must be greater than 0.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // 5. Dates Validation
+    if (!formData.disbursementDate) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: Disbursement Date does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!formData.startDate) {
+      toast({
+        title: 'Validation Error',
+        description: 'Error: EMI Start Date does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // 6. Gold Loan Receipt Validation
     if (formData.loanType === 'GOLD') {
-      if (!goldLoanData.grossWeight || !goldLoanData.netWeight || !goldLoanData.goldRate ||
-          !goldLoanData.valuationAmount || !goldLoanData.loanAmount || !goldLoanData.ownerName) {
+      const calcValuation = (parseFloat(goldLoanData.netWeight as any) || 0) * (parseFloat(goldLoanData.goldRate as any) || 0);
+      const effectiveValuation = goldLoanData.valuationAmount > 0 ? goldLoanData.valuationAmount : calcValuation;
+      const calcLoan = Math.round(effectiveValuation * 0.75);
+      const effectiveLoan = goldLoanData.loanAmount > 0 ? goldLoanData.loanAmount : calcLoan;
+      const effectiveOwnerName = goldLoanData.ownerName && goldLoanData.ownerName.trim()
+        ? goldLoanData.ownerName
+        : formData.customerName;
+
+      const updatedGoldLoanData = {
+        ...goldLoanData,
+        valuationAmount: effectiveValuation,
+        loanAmount: effectiveLoan,
+        ownerName: effectiveOwnerName
+      };
+
+      setGoldLoanData(updatedGoldLoanData);
+      finalGoldLoanDetail = {
+        ...updatedGoldLoanData,
+        verifiedBy: createdById
+      };
+
+      if (!updatedGoldLoanData.grossWeight || updatedGoldLoanData.grossWeight <= 0) {
         toast({
-          title: 'Gold Loan Receipt Required',
-          description: 'Please fill all required fields in the Gold Loan Receipt',
+          title: 'Validation Error',
+          description: 'Error: Gross Weight in Gold Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedGoldLoanData.netWeight || updatedGoldLoanData.netWeight <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Net Weight in Gold Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedGoldLoanData.goldRate || updatedGoldLoanData.goldRate <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Gold Rate in Gold Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedGoldLoanData.valuationAmount || updatedGoldLoanData.valuationAmount <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Valuation Amount in Gold Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedGoldLoanData.loanAmount || updatedGoldLoanData.loanAmount <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Loan Amount in Gold Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedGoldLoanData.ownerName || !updatedGoldLoanData.ownerName.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Owner Name in Gold Receipt does not have a proper value.',
           variant: 'destructive'
         });
         return;
       }
     }
 
-    // Validate Vehicle Loan Receipt Data
+    // 7. Vehicle Loan Receipt Validation
     if (formData.loanType === 'VEHICLE') {
-      if (!vehicleLoanData.vehicleType || !vehicleLoanData.vehicleNumber || 
-          !vehicleLoanData.manufacturer || !vehicleLoanData.valuationAmount ||
-          !vehicleLoanData.loanAmount || !vehicleLoanData.ownerName ||
-          !vehicleLoanData.rcBookPhoto || !vehicleLoanData.vehiclePhoto) {
+      const effectiveOwnerName = vehicleLoanData.ownerName && vehicleLoanData.ownerName.trim()
+        ? vehicleLoanData.ownerName
+        : formData.customerName;
+
+      const updatedVehicleLoanData = {
+        ...vehicleLoanData,
+        ownerName: effectiveOwnerName
+      };
+
+      setVehicleLoanData(updatedVehicleLoanData);
+      finalVehicleLoanDetail = {
+        ...updatedVehicleLoanData,
+        verifiedBy: createdById
+      };
+
+      if (!updatedVehicleLoanData.vehicleType) {
         toast({
-          title: 'Vehicle Loan Receipt Required',
-          description: 'Please fill all required fields in the Vehicle Loan Receipt including photos',
+          title: 'Validation Error',
+          description: 'Error: Vehicle Type in Vehicle Receipt does not have a proper value.',
           variant: 'destructive'
         });
         return;
+      }
+      if (!updatedVehicleLoanData.vehicleNumber || !updatedVehicleLoanData.vehicleNumber.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Vehicle Number in Vehicle Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.manufacturer || !updatedVehicleLoanData.manufacturer.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Manufacturer in Vehicle Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.valuationAmount || updatedVehicleLoanData.valuationAmount <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Valuation Amount in Vehicle Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.loanAmount || updatedVehicleLoanData.loanAmount <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Loan Amount in Vehicle Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.ownerName || !updatedVehicleLoanData.ownerName.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Owner Name in Vehicle Receipt does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.rcBookPhoto) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: RC Book Photo in Vehicle Receipt is missing.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      if (!updatedVehicleLoanData.vehiclePhoto) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Vehicle Photo in Vehicle Receipt is missing.',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+
+    // 8. Mirror Loan Validation
+    if (isMirrorLoan) {
+      if (!mirrorCompanyId) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Mirror Company does not have a proper value. Please select a mirror company.',
+          variant: 'destructive'
+        });
+        return;
+      }
+      const mirrorRate = parseFloat(mirrorInterestRate);
+      if (isNaN(mirrorRate) || mirrorRate <= 0) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Mirror Interest Rate does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+    }
+
+    // 9. Secondary Payment Page Validation (if applicable)
+    const showSecondaryPage = false;
+    if (showSecondaryPage && !selectedSecondaryPageId) {
+      toast({
+        title: 'Secondary Payment Page Required',
+        description: 'Error: Secondary payment page does not have a proper value.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    // 10. Disbursement Account Validation & Split Payments
+    let finalBankAmount = 0;
+    let finalCashAmount = 0;
+
+    if (useSplitPayment) {
+      finalBankAmount = bankAmount;
+      finalCashAmount = cashAmount;
+
+      if (finalBankAmount + finalCashAmount !== loanAmountNum) {
+        toast({
+          title: 'Split Amount Error',
+          description: `Error: Split amounts do not have proper values. Bank amount (₹${finalBankAmount.toLocaleString()}) + Cash amount (₹${finalCashAmount.toLocaleString()}) must equal loan amount (₹${loanAmountNum.toLocaleString()})`,
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      if (finalBankAmount > 0) {
+        if (!formData.bankAccountId) {
+          toast({
+            title: 'Validation Error',
+            description: 'Error: Disbursement bank account does not have a proper value.',
+            variant: 'destructive'
+          });
+          return;
+        }
+        const selectedBank = bankAccounts.find(b => b.id === formData.bankAccountId);
+        if (!selectedBank) {
+          toast({
+            title: 'Validation Error',
+            description: 'Error: Selected Bank Account does not exist.',
+            variant: 'destructive'
+          });
+          return;
+        }
+        if (selectedBank.currentBalance < finalBankAmount) {
+          toast({
+            title: 'Insufficient Balance',
+            description: `Error: Selected Bank Account does not have enough balance. Has ₹${selectedBank.currentBalance.toLocaleString()} but needs ₹${finalBankAmount.toLocaleString()}`,
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
+
+      if (finalCashAmount > 0) {
+        const cashAvailable = cashbookBalance ?? 0;
+        if (cashAvailable < finalCashAmount) {
+          toast({
+            title: 'Insufficient Balance',
+            description: `Error: Cashbook does not have enough balance. Has ₹${cashAvailable.toLocaleString()} but needs ₹${finalCashAmount.toLocaleString()}`,
+            variant: 'destructive'
+          });
+          return;
+        }
+      }
+    } else {
+      // Non-split payment
+      if (!formData.bankAccountId) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Disbursement Payment Source (Bank or Cash) does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      const selectedSource = paymentSources.find(s => s.id === formData.bankAccountId);
+      if (!selectedSource) {
+        toast({
+          title: 'Validation Error',
+          description: 'Error: Selected Payment Source does not have a proper value.',
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      if (selectedSource.currentBalance < loanAmountNum) {
+        toast({
+          title: 'Insufficient Balance',
+          description: `Error: Selected Payment Source does not have enough balance. Has ₹${selectedSource.currentBalance.toLocaleString()} but needs ₹${loanAmountNum.toLocaleString()}`,
+          variant: 'destructive'
+        });
+        return;
+      }
+
+      // Assign disbursement mode values
+      if (selectedSource.type === 'CASH') {
+        finalCashAmount = loanAmountNum;
+      } else {
+        finalBankAmount = loanAmountNum;
       }
     }
 
     try {
       setSubmitting(true);
-
-      const loanAmountNum = parseFloat(formData.loanAmount);
-
-      // Calculate bank and cash amounts based on split payment
-      let finalBankAmount = 0;
-      let finalCashAmount = 0;
-
-      if (useSplitPayment) {
-        finalBankAmount = bankAmount;
-        finalCashAmount = cashAmount;
-        // Validate split amounts
-        if (finalBankAmount + finalCashAmount !== loanAmountNum) {
-          toast({
-            title: 'Split Amount Error',
-            description: `Bank amount (₹${finalBankAmount.toLocaleString()}) + Cash amount (₹${finalCashAmount.toLocaleString()}) must equal loan amount (₹${loanAmountNum.toLocaleString()})`,
-            variant: 'destructive'
-          });
-          setSubmitting(false);
-          return;
-        }
-        // Validate bank balance if bank amount > 0
-        if (finalBankAmount > 0) {
-          const selectedBank = bankAccounts.find(b => b.id === formData.bankAccountId);
-          if (!selectedBank) {
-            toast({
-              title: 'Bank Account Required',
-              description: 'Please select a bank account for the bank portion of disbursement',
-              variant: 'destructive'
-            });
-            setSubmitting(false);
-            return;
-          }
-          if (selectedBank.currentBalance < finalBankAmount) {
-            toast({
-              title: 'Insufficient Bank Balance',
-              description: `Bank account has ₹${selectedBank.currentBalance.toLocaleString()} but you're trying to disburse ₹${finalBankAmount.toLocaleString()}`,
-              variant: 'destructive'
-            });
-            setSubmitting(false);
-            return;
-          }
-        }
-        // Validate cash balance if cash amount > 0
-        if (finalCashAmount > 0 && cashbookBalance !== null && cashbookBalance < finalCashAmount) {
-          toast({
-            title: 'Insufficient Cash Balance',
-            description: `Cashbook has ₹${cashbookBalance.toLocaleString()} but you're trying to disburse ₹${finalCashAmount.toLocaleString()}`,
-            variant: 'destructive'
-          });
-          setSubmitting(false);
-          return;
-        }
-      } else {
-        // Non-split payment: determine based on disbursement mode
-        if (formData.disbursementMode === 'CASH') {
-          finalCashAmount = loanAmountNum;
-        } else {
-          finalBankAmount = loanAmountNum;
-        }
-      }
 
       const hasExtraEMIs = isMirrorLoan && mirrorLoanSummary && (mirrorLoanSummary.extraEMICount || 0) > 0;
 
@@ -875,18 +1146,12 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
 
       // Add Gold Loan Receipt Data
       if (formData.loanType === 'GOLD') {
-        requestBody.goldLoanDetail = {
-          ...goldLoanData,
-          verifiedBy: createdById
-        };
+        requestBody.goldLoanDetail = finalGoldLoanDetail;
       }
 
       // Add Vehicle Loan Receipt Data
       if (formData.loanType === 'VEHICLE') {
-        requestBody.vehicleLoanDetail = {
-          ...vehicleLoanData,
-          verifiedBy: createdById
-        };
+        requestBody.vehicleLoanDetail = finalVehicleLoanDetail;
       }
       
       const res = await fetch('/api/offline-loan', {
@@ -2025,7 +2290,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               <Button
                 className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-500 disabled:opacity-50"
                 onClick={handleSubmit}
-                disabled={!canCreate}
+                disabled={submitting}
                 title={
                   !formData.companyId ? 'Select a company first' :
                   splitCashInsufficient ? `Insufficient cash balance (available: ${formatCurrency(cashAvailable)})` :
