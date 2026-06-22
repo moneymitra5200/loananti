@@ -2,19 +2,25 @@ const { PrismaClient } = require('@prisma/client');
 const db = new PrismaClient();
 
 async function main() {
-  const JEs = await db.journalEntry.findMany({
-    include: {
-      company: true,
-      lines: true
+  const companies = await db.company.findMany();
+  for (const c of companies) {
+    console.log(`\n========================================`);
+    console.log(`Company: ${c.name} (ID: ${c.id})`);
+    const cash = await db.cashBook.findUnique({ where: { companyId: c.id } });
+    console.log(`CashBook:`, cash ? `Balance: ${cash.currentBalance}, Opening: ${cash.openingBalance}` : 'NULL');
+    const banks = await db.bankAccount.findMany({ where: { companyId: c.id } });
+    console.log(`Bank accounts (${banks.length}):`);
+    for (const b of banks) {
+      console.log(`- ${b.bankName}: Balance: ${b.currentBalance}, Opening: ${b.openingBalance}`);
     }
-  });
-  console.log(`Total JEs in DB: ${JEs.length}`);
-  const companyCounts = {};
-  for (const je of JEs) {
-    const key = je.company?.name || 'Unknown';
-    companyCounts[key] = (companyCounts[key] || 0) + 1;
+    const accounts = await db.chartOfAccount.findMany({
+      where: { companyId: c.id, isActive: true, currentBalance: { not: 0 } },
+    });
+    console.log(`COA Non-zero accounts (${accounts.length}):`);
+    for (const a of accounts) {
+      console.log(`- ${a.accountCode} (${a.accountName}): ${a.currentBalance}`);
+    }
   }
-  console.log('JEs per company:', companyCounts);
 }
 
 main().catch(console.error).finally(() => db.$disconnect());

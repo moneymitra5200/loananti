@@ -361,7 +361,7 @@ export async function GET(request: NextRequest) {
     ]);
 
     const otherLeftAccounts = accounts.filter(a => 
-      (a.accountCode.startsWith('2') || a.accountCode.startsWith('3')) &&
+      (a.accountType === 'LIABILITY' || a.accountType === 'EQUITY') &&
       !handledLeftCodes.has(a.accountCode)
     );
 
@@ -369,9 +369,9 @@ export async function GET(request: NextRequest) {
       leftSideItems.push({
         name: acc.accountName,
         amount: acc.currentBalance,
-        type: acc.accountCode.startsWith('2') ? 'LIABILITY' : 'EQUITY',
+        type: acc.accountType,
         accountCode: acc.accountCode,
-        description: `Other ${acc.accountCode.startsWith('2') ? 'Liability' : 'Equity'} account: ${acc.accountName}`
+        description: `Other ${acc.accountType === 'LIABILITY' ? 'Liability' : 'Equity'} account: ${acc.accountName}`
       });
     }
 

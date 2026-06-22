@@ -181,24 +181,24 @@ export async function POST(request: NextRequest) {
     const CAPITAL_CODES = ['3001', '3002'];
     const ONLINE_LOANS_CODES = ['1201'];
     const OFFLINE_LOANS_CODES = ['1210'];
+    const LOANS_RECEIVABLE_CODES = ['1200'];
+    const INTEREST_RECEIVABLE_CODES = ['1301'];
+    const OVERDUE_INTEREST_CODES = ['1305'];
 
     const cashAccount = accounts.find(a => CASH_CODES.includes(a.accountCode));
     const bankAccountCoa = accounts.find(a => BANK_CODES.includes(a.accountCode));
     const capitalAccount = accounts.find(a => CAPITAL_CODES.includes(a.accountCode));
     const onlineLoansAccount = accounts.find(a => ONLINE_LOANS_CODES.includes(a.accountCode));
     const offlineLoansAccount = accounts.find(a => OFFLINE_LOANS_CODES.includes(a.accountCode));
+    const loansReceivableAccount = accounts.find(a => LOANS_RECEIVABLE_CODES.includes(a.accountCode));
+    const interestReceivableAccount = accounts.find(a => INTEREST_RECEIVABLE_CODES.includes(a.accountCode));
+    const overdueInterestAccount = accounts.find(a => OVERDUE_INTEREST_CODES.includes(a.accountCode));
 
     let targetCash = 0;
     let hasCashTarget = false;
     const cashBook = await db.cashBook.findFirst({ where: { companyId } });
     if (cashBook) {
-      const cbWhere = { cashBook: { companyId } };
-      const [cbCredits, cbDebits] = await Promise.all([
-        db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'CREDIT' }, _sum: { amount: true } }),
-        db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'DEBIT' }, _sum: { amount: true } })
-      ]);
-      const openingCash = cashBook.openingBalance || 0;
-      targetCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
+      targetCash = cashBook.currentBalance || 0;
       hasCashTarget = true;
     }
 
@@ -206,18 +206,7 @@ export async function POST(request: NextRequest) {
     let hasBankTarget = false;
     const bankAccounts = await db.bankAccount.findMany({ where: { companyId, isActive: true } });
     if (bankAccounts.length > 0) {
-      for (const bank of bankAccounts) {
-        const txCredits = await db.bankTransaction.aggregate({
-          where: { bankAccountId: bank.id, transactionType: 'CREDIT' },
-          _sum: { amount: true }
-        });
-        const txDebits = await db.bankTransaction.aggregate({
-          where: { bankAccountId: bank.id, transactionType: 'DEBIT' },
-          _sum: { amount: true }
-        });
-        const historicalBalance = bank.openingBalance + (txCredits._sum.amount || 0) - (txDebits._sum.amount || 0);
-        targetBank += historicalBalance;
-      }
+      targetBank = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
       hasBankTarget = true;
     }
 
@@ -274,6 +263,37 @@ export async function POST(request: NextRequest) {
       return sum + Math.max(0, disbursed - paidPrincipal);
     }, 0);
 
+    // Get live targets for Interest Receivable and Overdue Interest Receivable (matches Trial Balance and Balance Sheet)
+    let targetInterestReceivable = 0;
+    const [pendingOnlineEMIs, pendingOfflineEMIs] = await Promise.all([
+      db.eMISchedule.aggregate({
+        where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.offlineLoanEMI.aggregate({
+        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+        _sum: { interestAmount: true, paidInterest: true }
+      })
+    ]);
+    const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
+    const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
+    targetInterestReceivable = Math.max(0, onlinePendingInterest + offlinePendingInterest);
+
+    let targetOverdueInterest = 0;
+    const [overdueOnlineEMIs, overdueOfflineEMIs] = await Promise.all([
+      db.eMISchedule.aggregate({
+        where: { loanApplication: { companyId }, paymentStatus: 'OVERDUE' },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.offlineLoanEMI.aggregate({
+        where: { offlineLoan: { companyId }, paymentStatus: 'OVERDUE' },
+        _sum: { interestAmount: true, paidInterest: true }
+      })
+    ]);
+    const overdueOnlineInterest  = (overdueOnlineEMIs._sum.interestAmount  || 0) - (overdueOnlineEMIs._sum.paidInterest  || 0);
+    const overdueOfflineInterest = (overdueOfflineEMIs._sum.interestAmount || 0) - (overdueOfflineEMIs._sum.paidInterest || 0);
+    targetOverdueInterest = Math.max(0, overdueOnlineInterest + overdueOfflineInterest);
+
     // ─── 5. Calculate Trial Balance discrepancy before Suspense adjustment ───
     let trialDr = 0;
     let trialCr = 0;
@@ -297,6 +317,12 @@ export async function POST(request: NextRequest) {
         balance = targetOnlineLoans;
       } else if (OFFLINE_LOANS_CODES.includes(acc.accountCode) && hasOfflineLoansTarget) {
         balance = targetOfflineLoans;
+      } else if (LOANS_RECEIVABLE_CODES.includes(acc.accountCode)) {
+        balance = 0; // Transfer Loans Receivable from 1200 to 1201/1210 subaccounts
+      } else if (INTEREST_RECEIVABLE_CODES.includes(acc.accountCode)) {
+        balance = targetInterestReceivable;
+      } else if (OVERDUE_INTEREST_CODES.includes(acc.accountCode)) {
+        balance = targetOverdueInterest;
       }
 
       if (isDebitNormal) {
@@ -315,6 +341,9 @@ export async function POST(request: NextRequest) {
     let netCapitalAdjustment = 0;
     let netOnlineLoansAdjustment = 0;
     let netOfflineLoansAdjustment = 0;
+    let netLoansReceivableAdjustment = 0;
+    let netInterestAdjustment = 0;
+    let netOverdueInterestAdjustment = 0;
 
     if (hasCashTarget && cashAccount) {
       const dr = drMap[cashAccount.id] || 0;
@@ -396,17 +425,66 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (loansReceivableAccount) {
+      const dr = drMap[loansReceivableAccount.id] || 0;
+      const cr = crMap[loansReceivableAccount.id] || 0;
+      const journalLoansReceivable = (loansReceivableAccount.openingBalance || 0) + dr - cr;
+      const diffLoansReceivable = 0 - journalLoansReceivable; // Transfer all to 1201/1210
+      if (Math.abs(diffLoansReceivable) > 0.005) {
+        netLoansReceivableAdjustment = diffLoansReceivable;
+        correctingLines.push({
+          accountId: loansReceivableAccount.id,
+          debitAmount: diffLoansReceivable > 0 ? diffLoansReceivable : 0,
+          creditAmount: diffLoansReceivable < 0 ? Math.abs(diffLoansReceivable) : 0,
+          narration: `Transfer loans receivable from 1200 to 1201/1210 subaccounts`,
+        });
+      }
+    }
+
+    if (interestReceivableAccount) {
+      const dr = drMap[interestReceivableAccount.id] || 0;
+      const cr = crMap[interestReceivableAccount.id] || 0;
+      const journalInterest = (interestReceivableAccount.openingBalance || 0) + dr - cr;
+      const diffInterest = targetInterestReceivable - journalInterest;
+      if (Math.abs(diffInterest) > 0.005) {
+        netInterestAdjustment = diffInterest;
+        correctingLines.push({
+          accountId: interestReceivableAccount.id,
+          debitAmount: diffInterest > 0 ? diffInterest : 0,
+          creditAmount: diffInterest < 0 ? Math.abs(diffInterest) : 0,
+          narration: `Adjust interest receivable to match pending EMI interest`,
+        });
+      }
+    }
+
+    if (overdueInterestAccount) {
+      const dr = drMap[overdueInterestAccount.id] || 0;
+      const cr = crMap[overdueInterestAccount.id] || 0;
+      const journalOverdueInterest = (overdueInterestAccount.openingBalance || 0) + dr - cr;
+      const diffOverdueInterest = targetOverdueInterest - journalOverdueInterest;
+      if (Math.abs(diffOverdueInterest) > 0.005) {
+        netOverdueInterestAdjustment = diffOverdueInterest;
+        correctingLines.push({
+          accountId: overdueInterestAccount.id,
+          debitAmount: diffOverdueInterest > 0 ? diffOverdueInterest : 0,
+          creditAmount: diffOverdueInterest < 0 ? Math.abs(diffOverdueInterest) : 0,
+          narration: `Adjust overdue interest receivable to match overdue EMI interest`,
+        });
+      }
+    }
+
     // Now, calculate the net debit difference of the above adjustments.
-    // - Cash is an Asset (Debit normal): Net Debit = netCashAdjustment.
-    // - Bank is an Asset (Debit normal): Net Debit = netBankAdjustment.
-    // - Online Loans is an Asset (Debit normal): Net Debit = netOnlineLoansAdjustment.
-    // - Offline Loans is an Asset (Debit normal): Net Debit = netOfflineLoansAdjustment.
-    // - Capital is Equity (Credit normal): Net Debit = -netCapitalAdjustment.
-    const netDebitDifference = netCashAdjustment + netBankAdjustment + netOnlineLoansAdjustment + netOfflineLoansAdjustment - netCapitalAdjustment;
+    const netDebitDifference = 
+      netCashAdjustment + 
+      netBankAdjustment + 
+      netOnlineLoansAdjustment + 
+      netOfflineLoansAdjustment + 
+      netLoansReceivableAdjustment + 
+      netInterestAdjustment + 
+      netOverdueInterestAdjustment - 
+      netCapitalAdjustment;
 
     // To balance this correcting entry, the Suspense line must have:
-    // Net Debit = -netDebitDifference
-    // Since Suspense is an Equity account (Credit normal), Net Credit = netDebitDifference.
     if (Math.abs(netDebitDifference) > 0.005) {
       correctingLines.push({
         accountId: suspenseAccount.id,

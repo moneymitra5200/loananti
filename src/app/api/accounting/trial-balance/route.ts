@@ -177,8 +177,9 @@ export async function GET(request: NextRequest) {
     }).filter(row => row.debitBalance !== 0 || row.creditBalance !== 0); // Hide zero balance accounts for clarity
 
     // ─── 6. SUMMARY & BALANCING ─────────────────────────────────────────────
-    const totalDebitBalance  = rows.reduce((s, r) => s + r.debitBalance,  0);
-    const totalCreditBalance = rows.reduce((s, r) => s + r.creditBalance, 0);
+    // Exclude parent head '1200' from the Trial Balance totals to avoid double counting with sub-ledger accounts 1201 and 1210
+    const totalDebitBalance  = rows.filter(r => r.accountCode !== '1200').reduce((s, r) => s + r.debitBalance,  0);
+    const totalCreditBalance = rows.filter(r => r.accountCode !== '1200').reduce((s, r) => s + r.creditBalance, 0);
     const difference         = Math.abs(totalDebitBalance - totalCreditBalance);
     const isBalanced         = difference < 1; // within ₹1 tolerance
 

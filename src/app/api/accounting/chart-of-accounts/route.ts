@@ -71,8 +71,66 @@ export async function GET(request: NextRequest) {
     // ── AGGREGATE bank balance (sum of all BankAccount.currentBalance) ───
     const realBankTotal = realBankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
+    // Fetch other real-time targets for precision
+    const [cashBook, equityEntries, onlineLoans, offlineLoans, pendingOnlineEMIs, pendingOfflineEMIs, overdueOnlineEMIs, overdueOfflineEMIs] = await Promise.all([
+      db.cashBook.findUnique({ where: { companyId } }),
+      db.equityEntry.findMany({ where: { companyId } }),
+      db.loanApplication.findMany({
+        where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] } },
+        select: { disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
+      }),
+      db.offlineLoan.findMany({
+        where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
+        select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
+      }),
+      db.eMISchedule.aggregate({
+        where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.offlineLoanEMI.aggregate({
+        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.eMISchedule.aggregate({
+        where: { loanApplication: { companyId }, paymentStatus: 'OVERDUE' },
+        _sum: { interestAmount: true, paidInterest: true }
+      }),
+      db.offlineLoanEMI.aggregate({
+        where: { offlineLoan: { companyId }, paymentStatus: 'OVERDUE' },
+        _sum: { interestAmount: true, paidInterest: true }
+      })
+    ]);
+
+    const actualCash = cashBook?.currentBalance || 0;
+    const actualCapital = equityEntries.reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
+    
+    const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.disbursedAmount || 0;
+      const paid = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paid);
+    }, 0);
+    
+    const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
+      const disbursed = loan.loanAmount || 0;
+      const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paid);
+    }, 0);
+
+    const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
+    const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);
+    const interestReceivable     = Math.max(0, onlinePendingInterest + offlinePendingInterest);
+
+    const overdueOnlineInterest  = (overdueOnlineEMIs._sum.interestAmount  || 0) - (overdueOnlineEMIs._sum.paidInterest  || 0);
+    const overdueOfflineInterest = (overdueOfflineEMIs._sum.interestAmount || 0) - (overdueOfflineEMIs._sum.paidInterest || 0);
+    const overdueInterestReceivable = Math.max(0, overdueOnlineInterest + overdueOfflineInterest);
+
     // ── Build enriched list ────────────────────────────────────────────
     const enrichedRaw = accounts.map(account => {
+      // Skip parent/summary Loans Receivable account 1200 to avoid double counting with 1201/1210 subaccounts
+      if (account.accountCode === '1200') {
+        return null;
+      }
+
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
       const opening = account.openingBalance || 0;
@@ -80,6 +138,14 @@ export async function GET(request: NextRequest) {
       let liveBalance = isDebitNormal
         ? opening + txn.totalDebit - txn.totalCredit
         : opening + txn.totalCredit - txn.totalDebit;
+
+      // Apply real-time overrides
+      if (account.accountCode === '1101') liveBalance = actualCash;
+      if (account.accountCode === '1201') liveBalance = actualOnlineLoans;
+      if (account.accountCode === '1210') liveBalance = actualOfflineLoans;
+      if (account.accountCode === '1301') liveBalance = interestReceivable;
+      if (account.accountCode === '1305') liveBalance = overdueInterestReceivable;
+      if (account.accountCode === '3002') liveBalance = actualCapital;
 
       // ── BANK ACCOUNT 1102: override with real bank total ────────────
       // Show ONE "Bank Account" row = sum of all banks (e.g. HDFC ₹5k + ICICI ₹5k = ₹10k)
