@@ -373,13 +373,23 @@ export async function PUT(request: NextRequest) {
             });
             if (mirrorMapping) {
               if (mirrorMapping.mirrorLoanId) {
+                // ── Reverse accrual entries for mirror EMIs ──
+                const mirrorEmiIds = (await tx.offlineLoanEMI.findMany({
+                  where: { offlineLoanId: mirrorMapping.mirrorLoanId },
+                  select: { id: true }
+                })).map(e => e.id);
+
+                for (const emiId of mirrorEmiIds) {
+                  await reverseJournalEntriesForRef(emiId, userId, tx);
+                }
+
                 // Delete mirror EMIs
                 await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: mirrorMapping.mirrorLoanId } });
                 
                 // Delete mirror loan bank/cash transactions & revert balances
                 await deleteBankOrCashEntriesForRef(mirrorMapping.mirrorLoanId, tx);
                 
-                // Delete mirror loan journal entries
+                // Delete mirror loan journal entries (disbursement etc)
                 await reverseJournalEntriesForRef(mirrorMapping.mirrorLoanId, userId, tx);
 
                 // Delete mirror loan record
@@ -391,12 +401,24 @@ export async function PUT(request: NextRequest) {
             // 2. Delete original loan bank/cash transactions & revert balances
             await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
 
-            // 3. Delete EMIs, journal entries, and original loan record
+            // 3. ── Reverse accrual entries for original EMIs ──
+            //    Accrual journal entries use referenceId = emi.id (NOT loanId),
+            //    so we must find each EMI ID and reverse its accrual entries.
+            const originalEmiIds = (await tx.offlineLoanEMI.findMany({
+              where: { offlineLoanId: actionLog.recordId },
+              select: { id: true }
+            })).map(e => e.id);
+
+            for (const emiId of originalEmiIds) {
+              await reverseJournalEntriesForRef(emiId, userId, tx);
+            }
+
+            // 4. Delete EMIs, journal entries (disbursement etc), and original loan record
             await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: actionLog.recordId } });
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
             await tx.offlineLoan.delete({ where: { id: actionLog.recordId } });
 
-            localUndoResult = { type: 'loan_creation_deleted', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} and all its accounting entries were completely deleted` };
+            localUndoResult = { type: 'loan_creation_deleted', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} and all its accounting entries (including accruals) were completely deleted` };
           }
 
           // DELETE → restore loan to ACTIVE (and recreate structural data if hard-deleted)
