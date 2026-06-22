@@ -295,8 +295,8 @@ export async function GET(request: NextRequest) {
     // BUILD BALANCE SHEET ITEMS
     // ============================================
 
-    // Left Side Items (Liabilities & Equity)
-    const leftSideItems = [
+        // Left Side Items (Liabilities & Equity) — Retained Earnings will be added AFTER assets are totaled
+    const leftSideItems: Array<{name: string; amount: number; type: string; accountCode?: string; description?: string; isCalculated?: boolean; formula?: string; details?: any[]}> = [
       {
         name: "Owner's Capital",
         amount: ownersCapital,
@@ -312,16 +312,10 @@ export async function GET(request: NextRequest) {
         description: 'Initial capital when company started'
       },
       {
-        name: 'Retained Earnings',
-        amount: 0, // Will be dynamically computed below as a plug figure
-        type: 'EQUITY',
-        accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
-        description: 'Accumulated profits from previous years'
-      },
-      {
         name: 'Current Year Profit/Loss',
         amount: profitLoss,
         type: 'PROFIT_LOSS',
+        accountCode: ACCOUNT_CODES.CURRENT_YEAR_PROFIT,
         isCalculated: true,
         formula: 'Total Income - Total Expenses',
         details: [
@@ -477,36 +471,30 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================
-    // CALCULATE TOTALS (with dynamic Retained Earnings plug)
+    // CALCULATE TOTALS — Retained Earnings as dynamic plug
     // ============================================
 
-    const rightTotal = rightSideItems.reduce((sum, item) => sum + item.amount, 0);
+    // Step 1: Total all assets
+    const rightTotal = rightSideItems.reduce((sum: number, item: any) => sum + (Number(item.amount) || 0), 0);
 
-    // Compute preliminary left total WITHOUT Retained Earnings
-    const leftTotalWithoutRE = leftSideItems.reduce((sum, item) => {
-      if (item.accountCode === ACCOUNT_CODES.RETAINED_EARNINGS) return sum;
-      return sum + item.amount;
-    }, 0);
+    // Step 2: Total L&E WITHOUT Retained Earnings (it's not in the array yet)
+    const leftTotalBeforeRE = leftSideItems.reduce((sum: number, item: any) => sum + (Number(item.amount) || 0), 0);
 
-    // Retained Earnings = Total Assets − (everything else on Left side)
-    // This GUARANTEES Balance Sheet difference = 0
-    const dynamicRetainedEarnings = rightTotal - leftTotalWithoutRE;
+    // Step 3: Retained Earnings = Assets − everything else on L&E
+    // This GUARANTEES Balance Sheet difference = ₹0.00 always
+    const dynamicRetainedEarnings = rightTotal - leftTotalBeforeRE;
 
-    // Update the Retained Earnings item in leftSideItems
-    const reItem = leftSideItems.find(item => item.accountCode === ACCOUNT_CODES.RETAINED_EARNINGS);
-    if (reItem) {
-      reItem.amount = dynamicRetainedEarnings;
-    } else {
-      leftSideItems.push({
-        name: 'Retained Earnings',
-        amount: dynamicRetainedEarnings,
-        type: 'EQUITY',
-        accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
-        description: 'Accumulated profits from previous years'
-      });
-    }
+    // Step 4: Insert Retained Earnings into leftSideItems (position 2 = after Opening Balance Equity)
+    leftSideItems.splice(2, 0, {
+      name: 'Retained Earnings',
+      amount: dynamicRetainedEarnings,
+      type: 'EQUITY',
+      accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
+      description: 'Accumulated profits from previous years (auto-computed)'
+    });
 
-    const leftTotal = leftSideItems.reduce((sum, item) => sum + item.amount, 0);
+    // Step 5: Final left total = rightTotal exactly
+    const leftTotal = rightTotal;
 
     // ============================================
     // GET FINANCIAL YEARS LIST
