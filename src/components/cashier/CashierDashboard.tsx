@@ -825,7 +825,7 @@ export default function CashierDashboard() {
               <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
               {getStatusBadge(loan.status)}
             </div>
-            <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+            <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
             <p className="text-xs text-gray-400">{formatDate(loan.createdAt)}</p>
           </div>
         </div>

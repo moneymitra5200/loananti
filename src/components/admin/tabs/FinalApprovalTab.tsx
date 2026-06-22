@@ -80,7 +80,7 @@ function FinalApprovalTab({ loans, onViewLoan, onApprove, onReject }: Props) {
                             <Badge className="bg-emerald-100 text-emerald-700">Sanction: {formatCurrency(displayAmount)}</Badge>
                           )}
                         </div>
-                        <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+                        <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
                         <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
                       </div>
                     </div>
@@ -95,9 +95,9 @@ function FinalApprovalTab({ loans, onViewLoan, onApprove, onReject }: Props) {
                             </div>
                             <div className="flex items-center gap-2 justify-end text-xs text-gray-500">
                               <span>{displayTenure} mo</span>
-                              <span>•</span>
+                              <span>|</span>
                               <span>{displayInterest}%</span>
-                              <span>•</span>
+                              <span>|</span>
                               <span className="text-emerald-600 font-medium">EMI: {formatCurrency(displayEMI)}</span>
                             </div>
                           </div>

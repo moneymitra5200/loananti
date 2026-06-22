@@ -133,7 +133,7 @@ export function PendingLoansSection({
                           {getStatusBadge(loan.status)}
                           {loan.fraudFlag && <Badge className="bg-red-100 text-red-700">High Risk</Badge>}
                         </div>
-                        <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+                        <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
                         <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
                       </div>
                     </div>

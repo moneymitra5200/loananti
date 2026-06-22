@@ -429,7 +429,7 @@ export default function CompanyDashboard() {
               {getStatusBadge(loan.status)}
               {loan.fraudFlag && <Badge className="bg-red-100 text-red-700">High Risk</Badge>}
             </div>
-            <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+            <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
             <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
           </div>
         </div>
@@ -587,7 +587,7 @@ export default function CompanyDashboard() {
                                 {getStatusBadge(loan.status)}
                                 {loan.fraudFlag && <Badge className="bg-red-100 text-red-700">High Risk</Badge>}
                               </div>
-                              <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+                              <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
                               <p className="text-xs text-gray-400 mt-1">{formatDate(loan.createdAt)}</p>
                             </div>
                           </div>
@@ -1043,7 +1043,7 @@ export default function CompanyDashboard() {
                                 <h4 className="font-semibold text-gray-900">{loan.applicationNo}</h4>
                                 {loan.fraudFlag && <Badge className="bg-red-100 text-red-700">Fraud Flag</Badge>}
                               </div>
-                              <p className="text-sm text-gray-500">{loan.customer?.name} • {loan.customer?.email}</p>
+                              <p className="text-sm text-gray-500">{loan.customer?.name} | {loan.customer?.email}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-4">
