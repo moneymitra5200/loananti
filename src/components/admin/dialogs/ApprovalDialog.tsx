@@ -196,6 +196,29 @@ export default function ApprovalDialog({
     }
   };
 
+  const getCreditScore = () => {
+    if (fullLoanDetails?.creditScore !== undefined && fullLoanDetails?.creditScore !== null && fullLoanDetails?.creditScore > 0) {
+      return fullLoanDetails.creditScore;
+    }
+    if (selectedLoan && (selectedLoan as any).creditScore !== undefined && (selectedLoan as any).creditScore > 0) {
+      return (selectedLoan as any).creditScore;
+    }
+    const remarks = fullLoanDetails?.loanForm?.internalRemarks || selectedLoan?.loanForm?.internalRemarks || '';
+    if (remarks) {
+      try {
+        const parsed = JSON.parse(remarks);
+        if (parsed && typeof parsed === 'object' && parsed.creditScore) {
+          return parseInt(parsed.creditScore) || 0;
+        }
+      } catch (e) {
+        // not JSON
+      }
+      const match = remarks.match(/Credit Score[:\s]*(\d+)/i);
+      if (match) return parseInt(match[1]);
+    }
+    return null;
+  };
+
   const openDoc = (docUrl: string) => {
     if (!docUrl) return;
     if (docUrl.startsWith('data:')) {
@@ -331,9 +354,15 @@ export default function ApprovalDialog({
                                           : `${selectedLoan.requestedTenure || 'N/A'} months`}
                                       </span>
                                     </div>
-                                    <div className="flex justify-between">
+                                    <div className="flex justify-between font-bold border-b pb-1.5 mb-1.5">
                                       <span className="text-gray-500">Interest:</span>
                                       <span className="font-medium">{selectedLoan.requestedInterestRate || 'N/A'}%</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Loan Type:</span>
+                                      <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] font-bold px-1.5 py-0.2 select-none uppercase">
+                                        {selectedLoan.loanType}
+                                      </Badge>
                                     </div>
                                   </div>
                                 </div>
@@ -352,9 +381,24 @@ export default function ApprovalDialog({
                                           : `${selectedLoan.sessionForm.tenure} months`}
                                       </span>
                                     </div>
-                                    <div className="flex justify-between">
+                                    <div className="flex justify-between font-bold border-b border-emerald-200 pb-1.5 mb-1.5">
                                       <span className="text-gray-500">Interest:</span>
                                       <span className="font-bold text-emerald-700">{selectedLoan.sessionForm.interestRate}%</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-gray-500">Credit Score:</span>
+                                      {(() => {
+                                        const score = getCreditScore();
+                                        if (score === null || score === 0) {
+                                          return <span className="font-bold text-gray-500">N/A</span>;
+                                        }
+                                        const scoreColor = score >= 750 ? 'bg-green-100 text-green-700 border-green-200' : score >= 650 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-red-100 text-red-700 border-red-200';
+                                        return (
+                                          <Badge className={`${scoreColor} border text-[10px] font-extrabold px-1.5 py-0.2 select-none`}>
+                                            {score}
+                                          </Badge>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
                                 </div>
