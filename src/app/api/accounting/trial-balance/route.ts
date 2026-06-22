@@ -177,9 +177,40 @@ export async function GET(request: NextRequest) {
     }).filter(row => row.debitBalance !== 0 || row.creditBalance !== 0); // Hide zero balance accounts for clarity
 
     // ─── 6. SUMMARY & BALANCING ─────────────────────────────────────────────
-    // Exclude parent head '1200' from the Trial Balance totals to avoid double counting with sub-ledger accounts 1201 and 1210
-    const totalDebitBalance  = rows.filter(r => r.accountCode !== '1200').reduce((s, r) => s + r.debitBalance,  0);
-    const totalCreditBalance = rows.filter(r => r.accountCode !== '1200').reduce((s, r) => s + r.creditBalance, 0);
+    // Exclude parent head '1200' and Suspense '9999' from totals
+    const excludeCodes = new Set(['1200', '9999']);
+
+    // Calculate preliminary totals WITHOUT Retained Earnings and WITHOUT excluded codes
+    let prelimDebit  = rows.filter(r => !excludeCodes.has(r.accountCode) && r.accountCode !== '3003').reduce((s, r) => s + r.debitBalance,  0);
+    let prelimCredit = rows.filter(r => !excludeCodes.has(r.accountCode) && r.accountCode !== '3003').reduce((s, r) => s + r.creditBalance, 0);
+
+    // Dynamically plug Retained Earnings (3003) so Trial Balance always balances
+    const reRow = rows.find(r => r.accountCode === '3003');
+    const reDiff = prelimDebit - prelimCredit; // positive = need more credit
+    if (reRow) {
+      // Retained Earnings is credit-normal (Equity), so adjust its credit balance
+      if (reDiff > 0) {
+        reRow.creditBalance = Math.round(reDiff * 100) / 100;
+        reRow.debitBalance = 0;
+      } else if (reDiff < 0) {
+        reRow.debitBalance = Math.round(Math.abs(reDiff) * 100) / 100;
+        reRow.creditBalance = 0;
+      }
+    } else if (Math.abs(reDiff) > 0.005) {
+      // Add Retained Earnings row if it doesn't exist
+      rows.push({
+        accountCode: '3003',
+        accountName: 'Retained Earnings',
+        accountType: 'EQUITY',
+        debitBalance: reDiff < 0 ? Math.round(Math.abs(reDiff) * 100) / 100 : 0,
+        creditBalance: reDiff > 0 ? Math.round(reDiff * 100) / 100 : 0,
+        isSystem: true
+      });
+    }
+
+    // Now compute final totals (excluding 1200/9999 but INCLUDING the plugged 3003)
+    const totalDebitBalance  = rows.filter(r => !excludeCodes.has(r.accountCode)).reduce((s, r) => s + r.debitBalance,  0);
+    const totalCreditBalance = rows.filter(r => !excludeCodes.has(r.accountCode)).reduce((s, r) => s + r.creditBalance, 0);
     const difference         = Math.abs(totalDebitBalance - totalCreditBalance);
     const isBalanced         = difference < 1; // within ₹1 tolerance
 

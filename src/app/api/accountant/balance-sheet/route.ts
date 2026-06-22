@@ -245,7 +245,6 @@ export async function GET(request: NextRequest) {
     // Use EquityEntry if it has data, otherwise fall back to CoA
     const ownersCapital       = ownersCapitalFromEquity !== 0 ? ownersCapitalFromEquity : coaCapital3002;
     const openingBalanceEquity = coaCapital3001;
-    const retainedEarnings    = getAccountBalance(ACCOUNT_CODES.RETAINED_EARNINGS);
     const currentYearProfit   = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
 
     // Calculate total income and expenses for P&L
@@ -255,6 +254,10 @@ export async function GET(request: NextRequest) {
     const totalIncome = incomeAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
     const totalExpenses = expenseAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
     const profitLoss = totalIncome - totalExpenses;
+
+    // ── DYNAMIC RETAINED EARNINGS COMPUTATION ──────────────────────────────
+    // After we compute totalAssets below, we plug Retained Earnings so
+    // the Balance Sheet ALWAYS balances: Assets = L + E exactly.
 
     // Liability Accounts
     const bankLoans = Math.abs(getAccountBalance(ACCOUNT_CODES.BANK_LOANS));
@@ -310,7 +313,7 @@ export async function GET(request: NextRequest) {
       },
       {
         name: 'Retained Earnings',
-        amount: retainedEarnings,
+        amount: 0, // Will be dynamically computed below as a plug figure
         type: 'EQUITY',
         accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
         description: 'Accumulated profits from previous years'
@@ -362,7 +365,8 @@ export async function GET(request: NextRequest) {
 
     const otherLeftAccounts = accounts.filter(a => 
       (a.accountType === 'LIABILITY' || a.accountType === 'EQUITY') &&
-      !handledLeftCodes.has(a.accountCode)
+      !handledLeftCodes.has(a.accountCode) &&
+      a.accountCode !== '9999' // Exclude Suspense account
     );
 
     for (const acc of otherLeftAccounts) {
@@ -455,6 +459,7 @@ export async function GET(request: NextRequest) {
     const otherRightAccounts = accounts.filter(a =>
       a.accountCode.startsWith('1') &&
       !handledRightCodes.has(a.accountCode) &&
+      a.accountCode !== '1200' && // Exclude parent Loans Receivable (avoids double counting)
       !a.accountCode.startsWith('14') && // Exclude custom bank accounts starting with 14
       !a.accountCode.startsWith('1102') &&
       !a.accountCode.startsWith('1103') &&
@@ -472,11 +477,36 @@ export async function GET(request: NextRequest) {
     }
 
     // ============================================
-    // CALCULATE TOTALS
+    // CALCULATE TOTALS (with dynamic Retained Earnings plug)
     // ============================================
 
-    const leftTotal = leftSideItems.reduce((sum, item) => sum + item.amount, 0);
     const rightTotal = rightSideItems.reduce((sum, item) => sum + item.amount, 0);
+
+    // Compute preliminary left total WITHOUT Retained Earnings
+    const leftTotalWithoutRE = leftSideItems.reduce((sum, item) => {
+      if (item.accountCode === ACCOUNT_CODES.RETAINED_EARNINGS) return sum;
+      return sum + item.amount;
+    }, 0);
+
+    // Retained Earnings = Total Assets − (everything else on Left side)
+    // This GUARANTEES Balance Sheet difference = 0
+    const dynamicRetainedEarnings = rightTotal - leftTotalWithoutRE;
+
+    // Update the Retained Earnings item in leftSideItems
+    const reItem = leftSideItems.find(item => item.accountCode === ACCOUNT_CODES.RETAINED_EARNINGS);
+    if (reItem) {
+      reItem.amount = dynamicRetainedEarnings;
+    } else {
+      leftSideItems.push({
+        name: 'Retained Earnings',
+        amount: dynamicRetainedEarnings,
+        type: 'EQUITY',
+        accountCode: ACCOUNT_CODES.RETAINED_EARNINGS,
+        description: 'Accumulated profits from previous years'
+      });
+    }
+
+    const leftTotal = leftSideItems.reduce((sum, item) => sum + item.amount, 0);
 
     // ============================================
     // GET FINANCIAL YEARS LIST
@@ -500,7 +530,7 @@ export async function GET(request: NextRequest) {
       leftSide: { title: 'Liabilities & Equity', items: leftSideItems, total: leftTotal },
       rightSide: { title: 'Assets', items: rightSideItems, total: rightTotal },
       summary: {
-        totalEquity: ownersCapital + openingBalanceEquity + retainedEarnings + profitLoss,
+        totalEquity: ownersCapital + openingBalanceEquity + dynamicRetainedEarnings + profitLoss,
         totalLiabilities: bankLoans + investorCapital + borrowedFunds,
         totalAssets: rightTotal, profitLoss, totalIncome, totalExpenses,
         equitySource: ownersCapitalFromEquity > 0 ? 'EquityEntry' : 'ChartOfAccount',

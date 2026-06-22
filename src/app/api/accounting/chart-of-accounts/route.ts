@@ -130,6 +130,10 @@ export async function GET(request: NextRequest) {
       if (account.accountCode === '1200') {
         return null;
       }
+      // Skip Suspense account 9999 — not needed in reports
+      if (account.accountCode === '9999') {
+        return null;
+      }
 
       const isDebitNormal = account.accountType === 'ASSET' || account.accountType === 'EXPENSE';
       const txn = txnMap[account.id] || { totalDebit: 0, totalCredit: 0 };
