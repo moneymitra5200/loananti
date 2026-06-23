@@ -120,6 +120,8 @@ export async function POST(request: NextRequest) {
         // ACID GUARD: Re-read balance inside tx to prevent concurrent overdraft
         await guardCreditBalance(tx, fromUserId, amount, creditType as any);
 
+        const transferRefId = `CT-UU-${fromUserId}-${Date.now()}`;
+
         // Deduct from sender
         await tx.user.update({
           where: { id: fromUserId },
@@ -152,6 +154,7 @@ export async function POST(request: NextRequest) {
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,
             sourceType: 'CREDIT_TRANSFER',
+            sourceId: transferRefId,
             description: `Credit transferred to ${toUser.name} (${toUser.role})`,
             proofDocument: proofUrl,
             transactionDate: new Date()
@@ -170,6 +173,7 @@ export async function POST(request: NextRequest) {
             personalBalanceAfter: creditType === 'PERSONAL' ? toUser.personalCredit + amount : toUser.personalCredit,
             balanceAfter: toUser.credit + amount,
             sourceType: 'CREDIT_TRANSFER',
+            sourceId: transferRefId,
             description: `Credit received from ${fromUser.name} (${fromUser.role})`,
             proofDocument: proofUrl,
             transactionDate: new Date()
@@ -186,7 +190,7 @@ export async function POST(request: NextRequest) {
             recordId: fromUserId,
             recordType: 'User',
             previousData: JSON.stringify({ balance: fromUser.credit, companyCredit: fromUser.companyCredit, personalCredit: fromUser.personalCredit }),
-            newData: JSON.stringify({ toUserId, toUserName: toUser.name, amount, creditType, paymentMode }),
+            newData: JSON.stringify({ toUserId, toUserName: toUser.name, amount, creditType, paymentMode, transferRefId }),
             description: `₹${amount} ${creditType} credit transferred from ${fromUser.name} to ${toUser.name}`,
             canUndo: true,
           },
@@ -226,6 +230,8 @@ export async function POST(request: NextRequest) {
         // ACID GUARD: Re-read balance inside tx to prevent concurrent overdraft
         await guardCreditBalance(tx, fromUserId, amount, creditType as any);
 
+        const transferRefId = `CT-UB-${fromUserId}-${Date.now()}`;
+
         // Deduct from user
         await tx.user.update({
           where: { id: fromUserId },
@@ -252,9 +258,43 @@ export async function POST(request: NextRequest) {
             balanceAfter: newBalance,
             description: `Credit deposit from ${fromUser.name} (${fromUser.role})`,
             referenceType: 'CREDIT_TRANSFER',
-            referenceId: `CREDIT-TRANSFER-${fromUserId}-${Date.now()}`,
+            referenceId: transferRefId,
             createdById: fromUserId,
             transactionDate: new Date()
+          }
+        });
+
+        // Create journal entry for company (BANK DEPOSIT)
+        await tx.journalEntry.create({
+          data: {
+            companyId: bankAccount.companyId,
+            entryNumber: `JE-CT-${Date.now()}`,
+            entryDate: new Date(),
+            referenceType: 'BANK_DEPOSIT',
+            referenceId: transferRefId,
+            narration: `Credit deposit to bank from ${fromUser.name} (${fromUser.role})`,
+            totalDebit: amount,
+            totalCredit: amount,
+            isAutoEntry: true,
+            isApproved: true,
+            bankAccountId: bankAccountId,
+            createdById: fromUserId,
+            lines: {
+              create: [
+                {
+                  accountId: 'BANK_ACCOUNT',
+                  debitAmount: amount,
+                  creditAmount: 0,
+                  narration: 'Bank deposit from user credit'
+                },
+                {
+                  accountId: 'CAPITAL_ACCOUNT',
+                  debitAmount: 0,
+                  creditAmount: amount,
+                  narration: 'Credit transfer from user'
+                }
+              ]
+            }
           }
         });
 
@@ -270,6 +310,7 @@ export async function POST(request: NextRequest) {
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,
             sourceType: 'BANK_DEPOSIT',
+            sourceId: transferRefId,
             description: `Credit deposited to ${bankAccount.bankName} (${bankAccount.company?.name})`,
             proofDocument: proofUrl,
             transactionDate: new Date()
@@ -286,7 +327,7 @@ export async function POST(request: NextRequest) {
             recordId: fromUserId,
             recordType: 'User',
             previousData: JSON.stringify({ balance: fromUser.credit, companyCredit: fromUser.companyCredit, personalCredit: fromUser.personalCredit }),
-            newData: JSON.stringify({ bankAccountId, bankName: bankAccount.bankName, amount, creditType }),
+            newData: JSON.stringify({ bankAccountId, bankName: bankAccount.bankName, amount, creditType, transferRefId }),
             description: `₹${amount} deposited to ${bankAccount.bankName} from ${fromUser.name}`,
             canUndo: true,
           },
@@ -323,12 +364,14 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await db.$transaction(async (tx) => {
+        const transferRefId = `CT-UC-${fromUserId}-${Date.now()}`;
+
         // Deduct from user
         await tx.user.update({
           where: { id: fromUserId },
           data: {
-            personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : fromUser.personalCredit,
-            companyCredit: creditType === 'COMPANY' ? { decrement: amount } : fromUser.companyCredit,
+            personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : undefined,
+            companyCredit: creditType === 'COMPANY' ? { decrement: amount } : undefined,
             credit: { decrement: amount }
           }
         });
@@ -352,6 +395,7 @@ export async function POST(request: NextRequest) {
             personalBalanceAfter: creditType === 'PERSONAL' ? fromUser.personalCredit - amount : fromUser.personalCredit,
             balanceAfter: fromUser.credit - amount,
             sourceType: 'CASH_DEPOSIT',
+            sourceId: transferRefId,
             description: `Cash deposited to ${company.name} (My Cash)`,
             proofDocument: proofUrl,
             transactionDate: new Date()
@@ -365,6 +409,7 @@ export async function POST(request: NextRequest) {
             entryNumber: `JE-${Date.now()}`,
             entryDate: new Date(),
             referenceType: 'CASH_DEPOSIT',
+            referenceId: transferRefId,
             narration: `Cash deposit from ${fromUser.name} (${fromUser.role})`,
             totalDebit: amount,
             totalCredit: amount,
@@ -390,6 +435,22 @@ export async function POST(request: NextRequest) {
           }
         });
 
+        // ActionLog (inside tx — ACID-safe)
+        await tx.actionLog.create({
+          data: {
+            userId: createdBy || fromUserId,
+            userRole: 'STAFF',
+            actionType: 'TRANSFER',
+            module: 'CREDIT_TRANSFER',
+            recordId: fromUserId,
+            recordType: 'User',
+            previousData: JSON.stringify({ balance: fromUser.credit, companyCredit: fromUser.companyCredit, personalCredit: fromUser.personalCredit, myCash: company.myCash }),
+            newData: JSON.stringify({ companyId, companyName: company.name, amount, creditType, transferRefId }),
+            description: `₹${amount} deposited to ${company.name}'s My Cash from ${fromUser.name}`,
+            canUndo: true,
+          },
+        });
+
         return { success: true, newCashBalance };
       });
 
@@ -413,6 +474,8 @@ export async function POST(request: NextRequest) {
       }
 
       const newCashBalance = await db.$transaction(async (tx) => {
+        const transferRefId = `CT-AC-${companyId}-${Date.now()}`;
+
         const updated = await tx.company.update({
           where: { id: companyId },
           data: { myCash: { increment: amount } }
@@ -425,6 +488,7 @@ export async function POST(request: NextRequest) {
             entryNumber: `JE-${Date.now()}`,
             entryDate: new Date(),
             referenceType: 'CASH_ADDITION',
+            referenceId: transferRefId,
             narration: remarks || 'Cash added to company',
             totalDebit: amount,
             totalCredit: amount,
@@ -448,6 +512,22 @@ export async function POST(request: NextRequest) {
               ]
             }
           }
+        });
+
+        // ActionLog (inside tx — ACID-safe)
+        await tx.actionLog.create({
+          data: {
+            userId: createdBy,
+            userRole: 'STAFF',
+            actionType: 'TRANSFER',
+            module: 'CREDIT_TRANSFER',
+            recordId: companyId,
+            recordType: 'Company',
+            previousData: JSON.stringify({ myCash: company.myCash }),
+            newData: JSON.stringify({ amount, remarks, transferRefId }),
+            description: `₹${amount} cash added to ${company.name}'s My Cash`,
+            canUndo: true,
+          },
         });
 
         return updated.myCash;
@@ -477,6 +557,8 @@ export async function POST(request: NextRequest) {
       }
 
       const newBalance = await db.$transaction(async (tx) => {
+        const transferRefId = `CT-AB-${bankAccountId}-${Date.now()}`;
+
         const updated = await tx.bankAccount.update({
           where: { id: bankAccountId },
           data: { currentBalance: { increment: amount } }
@@ -491,6 +573,7 @@ export async function POST(request: NextRequest) {
             balanceAfter: updated.currentBalance,
             description: remarks || 'Funds added to bank account',
             referenceType: 'BANK_DEPOSIT',
+            referenceId: transferRefId,
             createdById: createdBy,
             transactionDate: new Date()
           }
@@ -503,6 +586,7 @@ export async function POST(request: NextRequest) {
             entryNumber: `JE-${Date.now()}`,
             entryDate: new Date(),
             referenceType: 'BANK_DEPOSIT',
+            referenceId: transferRefId,
             narration: remarks || 'Bank deposit',
             totalDebit: amount,
             totalCredit: amount,
@@ -527,6 +611,22 @@ export async function POST(request: NextRequest) {
               ]
             }
           }
+        });
+
+        // ActionLog (inside tx — ACID-safe)
+        await tx.actionLog.create({
+          data: {
+            userId: createdBy,
+            userRole: 'STAFF',
+            actionType: 'TRANSFER',
+            module: 'CREDIT_TRANSFER',
+            recordId: bankAccountId,
+            recordType: 'BankAccount',
+            previousData: JSON.stringify({ currentBalance: bankAccount.currentBalance }),
+            newData: JSON.stringify({ amount, remarks, transferRefId }),
+            description: `₹${amount} added to ${bankAccount.bankName}`,
+            canUndo: true,
+          },
         });
 
         return updated.currentBalance;

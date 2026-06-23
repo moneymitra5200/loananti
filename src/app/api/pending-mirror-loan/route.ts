@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
       const pendingLoan = await db.pendingMirrorLoan.findUnique({
         where: { id },
         include: {
-          mirrorCompany: { select: { id: true, name: true, code: true } },
-          originalCompany: { select: { id: true, name: true, code: true } }
+          mirrorCompany: { select: { id: true, name: true, code: true, isMirrorCompany: true } },
+          originalCompany: { select: { id: true, name: true, code: true, isMirrorCompany: true } }
         }
       });
 
@@ -63,8 +63,8 @@ export async function GET(request: NextRequest) {
     const pendingLoans = await db.pendingMirrorLoan.findMany({
       where: whereClause,
       include: {
-        mirrorCompany: { select: { id: true, name: true, code: true } },
-        originalCompany: { select: { id: true, name: true, code: true } }
+        mirrorCompany: { select: { id: true, name: true, code: true, isMirrorCompany: true } },
+        originalCompany: { select: { id: true, name: true, code: true, isMirrorCompany: true } }
       },
       orderBy: { createdAt: 'desc' }
     });

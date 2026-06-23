@@ -91,7 +91,7 @@ interface LoanDetail {
   internalNotes?: string;
   createdAt: string;
   createdByRole: string;
-  company?: { id: string; name: string; code: string };
+  company?: { id: string; name: string; code: string; isMirrorCompany?: boolean };
   customerId?: string;
   allowInterestOnly?: boolean;
   allowPartialPayment?: boolean;
@@ -1139,7 +1139,7 @@ export default function OfflineLoanDetailPanel({
 
   // Check if loan is from Company 3 and not mirrored
   // For Company 3 non-mirrored loans, Company Credit only shows CASH option (no bank account)
-  const isCompany3NonMirroredLoan = loan?.company?.code === 'C3' && !loan?.isMirrored;
+  const isCompany3NonMirroredLoan = (loan?.company?.code === 'C3' || loan?.company?.isMirrorCompany === false) && !loan?.isMirrored;
   
   // Check if this is a MIRROR loan (original from C3 mirrored to C1/C2)
   // For mirror loans, only Company Credit is available

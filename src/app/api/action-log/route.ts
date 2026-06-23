@@ -9,9 +9,11 @@ async function deleteDaybookEntriesForRef(refId: string, tx: any) {
         OR: [
           { referenceId: refId },
           { referenceId: { startsWith: refId } },
+          { referenceId: { contains: refId } },
           { sourceType: refId },
           { sourceId: refId },
-          { sourceId: { startsWith: refId } }
+          { sourceId: { startsWith: refId } },
+          { sourceId: { contains: refId } }
         ]
       }
     });
@@ -49,7 +51,8 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
       where: {
         OR: [
           { referenceId: refId },
-          { referenceId: { startsWith: refId } }
+          { referenceId: { startsWith: refId } },
+          { referenceId: { contains: refId } }
         ]
       },
       include: { lines: { include: { account: true } } }
@@ -106,7 +109,7 @@ async function reverseJournalEntriesForRef(refId: string, userId: string, tx: an
         where: { id: originalEntry.id }
       });
 
-      console.log(`[Undo Delete] Successfully deleted journal entry ${originalEntry.entryNumber} (${originalEntry.id})`);
+      console.log(`[Undo Delete] Reversals completed for journal entry ${originalEntry.entryNumber}`);
     }
   } catch (err) {
     console.error('[Undo Delete] Error deleting journal entries:', err);
@@ -124,7 +127,8 @@ async function deleteBankOrCashEntriesForRef(refId: string, tx: any) {
       where: {
         OR: [
           { referenceId: refId },
-          { referenceId: { startsWith: refId } }
+          { referenceId: { startsWith: refId } },
+          { referenceId: { contains: refId } }
         ]
       }
     });
@@ -146,7 +150,8 @@ async function deleteBankOrCashEntriesForRef(refId: string, tx: any) {
       where: {
         OR: [
           { referenceId: refId },
-          { referenceId: { startsWith: refId } }
+          { referenceId: { startsWith: refId } },
+          { referenceId: { contains: refId } }
         ]
       }
     });
@@ -367,10 +372,58 @@ export async function PUT(request: NextRequest) {
             const loan = await tx.offlineLoan.findUnique({ where: { id: actionLog.recordId } });
             if (!loan) throw new Error('Loan not found');
 
+            // Fetch everything before delete so REDO can restore it
+            const originalEmis = await tx.offlineLoanEMI.findMany({ where: { offlineLoanId: actionLog.recordId } });
+            const originalGold = await tx.goldLoanDetail.findFirst({ where: { offlineLoanId: actionLog.recordId } });
+            const originalVehicle = await tx.vehicleLoanDetail.findFirst({ where: { offlineLoanId: actionLog.recordId } });
+
             // 1. Find and clean up mirror loan mapping + mirror loan
             const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
               where: { originalLoanId: actionLog.recordId }
             });
+
+            let mirrorMappingData: any = null;
+            let mirrorLoanData: any = null;
+            let mirrorEmisData: any[] = [];
+            let mirrorGoldData: any = null;
+            let mirrorVehicleData: any = null;
+
+            if (mirrorMapping) {
+              mirrorMappingData = mirrorMapping;
+              if (mirrorMapping.mirrorLoanId) {
+                mirrorLoanData = await tx.offlineLoan.findUnique({ where: { id: mirrorMapping.mirrorLoanId } });
+                if (mirrorLoanData) {
+                  mirrorEmisData = await tx.offlineLoanEMI.findMany({ where: { offlineLoanId: mirrorMapping.mirrorLoanId } });
+                  mirrorGoldData = await tx.goldLoanDetail.findFirst({ where: { offlineLoanId: mirrorMapping.mirrorLoanId } });
+                  mirrorVehicleData = await tx.vehicleLoanDetail.findFirst({ where: { offlineLoanId: mirrorMapping.mirrorLoanId } });
+                }
+              }
+            }
+
+            const deletePayload = {
+              loan: {
+                ...loan,
+                emis: originalEmis,
+                goldLoanDetail: originalGold || null,
+                vehicleLoanDetail: originalVehicle || null
+              },
+              mirrorMapping: mirrorMappingData,
+              mirrorLoan: mirrorLoanData ? {
+                ...mirrorLoanData,
+                emis: mirrorEmisData,
+                goldLoanDetail: mirrorGoldData || null,
+                vehicleLoanDetail: mirrorVehicleData || null
+              } : null
+            };
+
+            // Save this serialized data into actionLog.previousData
+            await tx.actionLog.update({
+              where: { id: actionLog.id },
+              data: {
+                previousData: JSON.stringify(deletePayload)
+              }
+            });
+
             if (mirrorMapping) {
               if (mirrorMapping.mirrorLoanId) {
                 // ── Reverse accrual entries for mirror EMIs ──
@@ -761,12 +814,12 @@ export async function PUT(request: NextRequest) {
               await tx.offlineLoan.update({
                 where: { id: actionLog.recordId },
                 data: {
-                  status: previousData.status || 'INTEREST_ONLY',
+                  status: previousData.status || 'ACTIVE',
                   tenure: previousData.tenure ?? 0,
                   interestRate: previousData.interestRate,
                   interestType: previousData.interestType,
                   emiAmount: previousData.emiAmount,
-                  isInterestOnlyLoan: previousData.isInterestOnlyLoan ?? true,
+                  isInterestOnlyLoan: previousData.isInterestOnlyLoan !== undefined ? previousData.isInterestOnlyLoan : false,
                   partialPaymentEnabled: previousData.partialPaymentEnabled ?? false,
                   processingFee: previousData.processingFee ?? 0,
                   processingFeeRecorded: previousData.processingFeeRecorded ?? false,
@@ -775,36 +828,38 @@ export async function PUT(request: NextRequest) {
                 }
               });
 
-              // 2. Re-create Interest Only placeholder EMI for original loan
-              await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: actionLog.recordId } });
-              
-              const originalLoan = await tx.offlineLoan.findUnique({
-                where: { id: actionLog.recordId },
-                select: { disbursementDate: true, loanAmount: true, loanNumber: true, interestOnlyMonthlyAmount: true }
-              });
-              if (originalLoan) {
-                const monthlyInterestAmount = originalLoan.interestOnlyMonthlyAmount || previousData.emiAmount || 0;
-                const _d = originalLoan.disbursementDate ? new Date(originalLoan.disbursementDate) : new Date();
-                const _year  = _d.getMonth() === 11 ? _d.getFullYear() + 1 : _d.getFullYear();
-                const _month = (_d.getMonth() + 1) % 12;
-                const _lastDay = new Date(_year, _month + 1, 0).getDate();
-                const _day   = Math.min(_d.getDate(), _lastDay);
-                const dueDate = new Date(_year, _month, _day, 0, 0, 0, 0);
-                await tx.offlineLoanEMI.create({
-                  data: {
-                    offlineLoanId: actionLog.recordId,
-                    installmentNumber: 1,
-                    dueDate,
-                    originalDueDate: dueDate,
-                    principalAmount: 0,
-                    interestAmount: monthlyInterestAmount,
-                    totalAmount: monthlyInterestAmount,
-                    outstandingPrincipal: originalLoan.loanAmount,
-                    paymentStatus: 'PENDING',
-                    isInterestOnly: true,
-                    interestOnlyAmount: monthlyInterestAmount
-                  }
+              // 2. Re-create Interest Only placeholder EMI for original loan (only if it was interest-only)
+              if (previousData.isInterestOnlyLoan === true) {
+                await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: actionLog.recordId } });
+                
+                const originalLoan = await tx.offlineLoan.findUnique({
+                  where: { id: actionLog.recordId },
+                  select: { disbursementDate: true, loanAmount: true, loanNumber: true, interestOnlyMonthlyAmount: true }
                 });
+                if (originalLoan) {
+                  const monthlyInterestAmount = originalLoan.interestOnlyMonthlyAmount || previousData.emiAmount || 0;
+                  const _d = originalLoan.disbursementDate ? new Date(originalLoan.disbursementDate) : new Date();
+                  const _year  = _d.getMonth() === 11 ? _d.getFullYear() + 1 : _d.getFullYear();
+                  const _month = (_d.getMonth() + 1) % 12;
+                  const _lastDay = new Date(_year, _month + 1, 0).getDate();
+                  const _day   = Math.min(_d.getDate(), _lastDay);
+                  const dueDate = new Date(_year, _month, _day, 0, 0, 0, 0);
+                  await tx.offlineLoanEMI.create({
+                    data: {
+                      offlineLoanId: actionLog.recordId,
+                      installmentNumber: 1,
+                      dueDate,
+                      originalDueDate: dueDate,
+                      principalAmount: 0,
+                      interestAmount: monthlyInterestAmount,
+                      totalAmount: monthlyInterestAmount,
+                      outstandingPrincipal: originalLoan.loanAmount,
+                      paymentStatus: 'PENDING',
+                      isInterestOnly: true,
+                      interestOnlyAmount: monthlyInterestAmount
+                    }
+                  });
+                }
               }
 
               // 3. Delete processing fee bank/cash transactions for original loan
@@ -839,43 +894,46 @@ export async function PUT(request: NextRequest) {
                     interestRate: previousData.mirrorInterestRate,
                     interestType: previousData.mirrorInterestType,
                     emiAmount: previousData.mirrorEmiAmount,
-                    isInterestOnlyLoan: previousData.mirrorIsInterestOnlyLoan ?? true,
+                    isInterestOnlyLoan: previousData.mirrorIsInterestOnlyLoan !== undefined ? previousData.mirrorIsInterestOnlyLoan : false,
                     partialPaymentEnabled: previousData.mirrorPartialPaymentEnabled ?? false,
                     processingFee: previousData.mirrorProcessingFeeValue ?? 0,
                   }
                 });
 
-                await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: previousData.mirrorLoanId } });
+                if (previousData.mirrorIsInterestOnlyLoan === true) {
+                  await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: previousData.mirrorLoanId } });
 
-                const mirrorLoan = await tx.offlineLoan.findUnique({
-                  where: { id: previousData.mirrorLoanId },
-                  select: { disbursementDate: true, loanAmount: true, interestRate: true, interestOnlyMonthlyAmount: true }
-                });
-                if (mirrorLoan) {
-                  const monthlyMirrorInterest = mirrorLoan.interestOnlyMonthlyAmount || Math.round((mirrorLoan.loanAmount * (mirrorLoan.interestRate || 0) / 100 / 12) * 100) / 100;
-                  const firstDueDate = mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate) : new Date();
-                  firstDueDate.setMonth(firstDueDate.getMonth() + 1);
-                  firstDueDate.setDate(mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate).getDate() : new Date().getDate());
-                  firstDueDate.setHours(0, 0, 0, 0);
-                  await tx.offlineLoanEMI.create({
-                    data: {
-                      offlineLoanId: previousData.mirrorLoanId,
-                      installmentNumber: 1,
-                      dueDate: firstDueDate,
-                      originalDueDate: firstDueDate,
-                      principalAmount: 0,
-                      interestAmount: monthlyMirrorInterest,
-                      totalAmount: monthlyMirrorInterest,
-                      outstandingPrincipal: mirrorLoan.loanAmount,
-                      paymentStatus: 'PENDING',
-                      isInterestOnly: true,
-                      interestOnlyAmount: monthlyMirrorInterest,
-                    }
+                  const mirrorLoan = await tx.offlineLoan.findUnique({
+                    where: { id: previousData.mirrorLoanId },
+                    select: { disbursementDate: true, loanAmount: true, interestRate: true, interestOnlyMonthlyAmount: true }
                   });
+                  if (mirrorLoan) {
+                    const monthlyMirrorInterest = mirrorLoan.interestOnlyMonthlyAmount || Math.round((mirrorLoan.loanAmount * (mirrorLoan.interestRate || 0) / 100 / 12) * 100) / 100;
+                    const firstDueDate = mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate) : new Date();
+                    firstDueDate.setMonth(firstDueDate.getMonth() + 1);
+                    firstDueDate.setDate(mirrorLoan.disbursementDate ? new Date(mirrorLoan.disbursementDate).getDate() : new Date().getDate());
+                    firstDueDate.setHours(0, 0, 0, 0);
+                    await tx.offlineLoanEMI.create({
+                      data: {
+                        offlineLoanId: previousData.mirrorLoanId,
+                        installmentNumber: 1,
+                        dueDate: firstDueDate,
+                        originalDueDate: firstDueDate,
+                        principalAmount: 0,
+                        interestAmount: monthlyMirrorInterest,
+                        totalAmount: monthlyMirrorInterest,
+                        outstandingPrincipal: mirrorLoan.loanAmount,
+                        paymentStatus: 'PENDING',
+                        isInterestOnly: true,
+                        interestOnlyAmount: monthlyMirrorInterest,
+                      }
+                    });
+                  }
                 }
 
                 // 7. Delete mirror processing fee journal entries in mirror company
                 //    (referencing mirrorLoanId with PROCESSING_FEE)
+                await deleteBankOrCashEntriesForRef(previousData.mirrorLoanId, tx);
                 await reverseJournalEntriesForRef(previousData.mirrorLoanId, userId, tx);
               }
 
@@ -899,9 +957,32 @@ export async function PUT(request: NextRequest) {
               data: { status: previousData.status || 'ACTIVE', closedAt: null }
             });
 
+            // 1.5. Re-activate mirror loan if it exists
+            const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+              where: { originalLoanId: actionLog.recordId }
+            });
+            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
+              const mirrorLoan = await tx.offlineLoan.findUnique({
+                where: { id: mirrorMapping.mirrorLoanId },
+                select: { isInterestOnlyLoan: true }
+              });
+              const mirrorReopenStatus = mirrorLoan?.isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE';
+              await tx.offlineLoan.update({
+                where: { id: mirrorMapping.mirrorLoanId },
+                data: { status: mirrorReopenStatus, closedAt: null }
+              });
+            }
+
             // 2. Revert EMIs marked paid during foreclosure
             const closedEMIIds = newData?.closedEMIIds || [];
+            let revertedInstNumbers: number[] = [];
             if (closedEMIIds.length > 0) {
+              const revertedEMIs = await tx.offlineLoanEMI.findMany({
+                where: { id: { in: closedEMIIds } },
+                select: { installmentNumber: true }
+              });
+              revertedInstNumbers = revertedEMIs.map(e => e.installmentNumber);
+
               await tx.offlineLoanEMI.updateMany({
                 where: { id: { in: closedEMIIds } },
                 data: {
@@ -929,6 +1010,8 @@ export async function PUT(request: NextRequest) {
                 }
               });
 
+              revertedInstNumbers = emis.map(e => e.installmentNumber);
+
               for (const emi of emis) {
                 await tx.offlineLoanEMI.update({
                   where: { id: emi.id },
@@ -947,9 +1030,33 @@ export async function PUT(request: NextRequest) {
               }
             }
 
+            // 2.5. Revert corresponding mirror EMIs
+            if (mirrorMapping && mirrorMapping.mirrorLoanId && revertedInstNumbers.length > 0) {
+              await tx.offlineLoanEMI.updateMany({
+                where: {
+                  offlineLoanId: mirrorMapping.mirrorLoanId,
+                  installmentNumber: { in: revertedInstNumbers }
+                },
+                data: {
+                  paymentStatus: 'PENDING',
+                  paidAmount: 0,
+                  paidPrincipal: 0,
+                  paidInterest: 0,
+                  paidDate: null,
+                  paymentMode: null,
+                  collectedById: null,
+                  collectedByName: null,
+                  collectedAt: null
+                }
+              });
+            }
+
             // 3. Delete foreclosure bank/cash transactions and revert balances
             await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
             await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
+              await deleteBankOrCashEntriesForRef(`${mirrorMapping.mirrorLoanId}-FORECLOSURE`, tx);
+            }
 
             // Revert collector credit for foreclosure if applicable
             if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
@@ -981,9 +1088,21 @@ export async function PUT(request: NextRequest) {
               }
             }
 
+            // Delete credit transactions tied to this foreclosure
+            await tx.creditTransaction.deleteMany({
+              where: {
+                sourceType: 'FORECLOSURE',
+                sourceId: `${actionLog.recordId}-FORECLOSURE`
+              }
+            });
+
             // 4. Delete writeoff / foreclosure journal entries
             await reverseJournalEntriesForRef(`${actionLog.recordId}-LOSS`, userId, tx);
             await reverseJournalEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, userId, tx);
+            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
+              await reverseJournalEntriesForRef(`${mirrorMapping.mirrorLoanId}-FORECLOSURE`, userId, tx);
+              await reverseJournalEntriesForRef(`${mirrorMapping.mirrorLoanId}-LOSS`, userId, tx);
+            }
 
             localUndoResult = { type: 'loan_reopened', recordId: actionLog.recordId };
           }
@@ -1471,11 +1590,23 @@ export async function PUT(request: NextRequest) {
             const settlement = await tx.cashierSettlement.findUnique({ where: { id: actionLog.recordId } });
             if (settlement) {
               // Revert cashier credit
-              const user = await tx.user.findUnique({ where: { id: settlement.userId }, select: { credit: true } });
+              const user = await tx.user.findUnique({ where: { id: settlement.userId }, select: { credit: true, personalCredit: true, companyCredit: true } });
               if (user) {
+                const creditTx = await tx.creditTransaction.findFirst({
+                  where: { settlementId: actionLog.recordId, userId: settlement.userId }
+                });
+                const creditType = creditTx?.creditType || 'COMPANY';
+                const companyCreditAfter = creditType === 'COMPANY' ? (user.companyCredit || 0) + settlement.amount : (user.companyCredit || 0);
+                const personalCreditAfter = creditType === 'PERSONAL' ? (user.personalCredit || 0) + settlement.amount : (user.personalCredit || 0);
+                const creditAfter = companyCreditAfter + personalCreditAfter;
+
                 await tx.user.update({
                   where: { id: settlement.userId },
-                  data: { credit: (user.credit || 0) + settlement.amount }
+                  data: {
+                    credit: creditAfter,
+                    companyCredit: companyCreditAfter,
+                    personalCredit: personalCreditAfter
+                  }
                 });
               } else {
                 console.warn(`[Undo Settlement] User ${settlement.userId} not found; skipping credit reversion`);
@@ -1501,17 +1632,50 @@ export async function PUT(request: NextRequest) {
             // 1. Re-activate loan
             await tx.loanApplication.update({
               where: { id: actionLog.recordId },
-              data: { status: previousData.status || 'ACTIVE' }
+              data: { status: previousData.status || 'ACTIVE', closedAt: null }
             });
+
+            // 1.5. Re-activate partner loan if it exists
+            const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+              where: {
+                OR: [
+                  { originalLoanId: actionLog.recordId },
+                  { mirrorLoanId: actionLog.recordId }
+                ]
+              }
+            });
+            const partnerLoanId = mirrorMapping
+              ? (actionLog.recordId === mirrorMapping.originalLoanId ? mirrorMapping.mirrorLoanId : mirrorMapping.originalLoanId)
+              : null;
+            if (partnerLoanId) {
+              const partnerLoan = await tx.loanApplication.findUnique({
+                where: { id: partnerLoanId },
+                select: { sessionForm: { select: { interestRate: true } } }
+              });
+              const isIO = partnerLoan?.sessionForm?.interestRate === 0;
+              await tx.loanApplication.update({
+                where: { id: partnerLoanId },
+                data: { status: isIO ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE', closedAt: null }
+              });
+            }
 
             // 2. Revert EMIs marked paid during foreclosure
             const closedEMIIds = newData?.closedEMIIds || [];
+            let revertedInstNumbers: number[] = [];
             if (closedEMIIds.length > 0) {
+              const revertedEMIs = await tx.eMISchedule.findMany({
+                where: { id: { in: closedEMIIds } },
+                select: { installmentNumber: true }
+              });
+              revertedInstNumbers = revertedEMIs.map(e => e.installmentNumber);
+
               await tx.eMISchedule.updateMany({
                 where: { id: { in: closedEMIIds } },
                 data: {
                   paymentStatus: 'PENDING',
                   paidAmount: 0,
+                  paidPrincipal: 0,
+                  paidInterest: 0,
                   paidDate: null,
                   paymentMode: null,
                   notes: null
@@ -1519,6 +1683,19 @@ export async function PUT(request: NextRequest) {
               });
             } else {
               const logTime = new Date(actionLog.createdAt).getTime();
+              const revertedEMIs = await tx.eMISchedule.findMany({
+                where: {
+                  loanApplicationId: actionLog.recordId,
+                  paymentStatus: 'PAID',
+                  paidDate: {
+                    gte: new Date(logTime - 360000), // 6 minutes tolerance
+                    lte: new Date(logTime + 360000)
+                  }
+                },
+                select: { installmentNumber: true }
+              });
+              revertedInstNumbers = revertedEMIs.map(e => e.installmentNumber);
+
               await tx.eMISchedule.updateMany({
                 where: {
                   loanApplicationId: actionLog.recordId,
@@ -1531,6 +1708,27 @@ export async function PUT(request: NextRequest) {
                 data: {
                   paymentStatus: 'PENDING',
                   paidAmount: 0,
+                  paidPrincipal: 0,
+                  paidInterest: 0,
+                  paidDate: null,
+                  paymentMode: null,
+                  notes: null
+                }
+              });
+            }
+
+            // Revert partner EMIs if partner exists
+            if (partnerLoanId && revertedInstNumbers.length > 0) {
+              await tx.eMISchedule.updateMany({
+                where: {
+                  loanApplicationId: partnerLoanId,
+                  installmentNumber: { in: revertedInstNumbers }
+                },
+                data: {
+                  paymentStatus: 'PENDING',
+                  paidAmount: 0,
+                  paidPrincipal: 0,
+                  paidInterest: 0,
                   paidDate: null,
                   paymentMode: null,
                   notes: null
@@ -1541,6 +1739,9 @@ export async function PUT(request: NextRequest) {
             // 3. Delete bank/cash transactions & revert balances
             await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
             await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+            if (partnerLoanId) {
+              await deleteBankOrCashEntriesForRef(`${partnerLoanId}-FORECLOSURE`, tx);
+            }
 
             // Revert collector credit
             if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
@@ -1575,6 +1776,24 @@ export async function PUT(request: NextRequest) {
             // 4. Delete writeoff / foreclosure journal entries
             await reverseJournalEntriesForRef(`${actionLog.recordId}-LOSS`, userId, tx);
             await reverseJournalEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, userId, tx);
+            if (partnerLoanId) {
+              await reverseJournalEntriesForRef(`${partnerLoanId}-FORECLOSURE`, userId, tx);
+              await reverseJournalEntriesForRef(`${partnerLoanId}-LOSS`, userId, tx);
+            }
+
+            // 5. Delete payments and credit transactions created during foreclosure
+            await tx.payment.deleteMany({
+              where: {
+                loanApplicationId: { in: [actionLog.recordId, partnerLoanId].filter(Boolean) as string[] },
+                paymentType: 'FORECLOSURE'
+              }
+            });
+            await tx.creditTransaction.deleteMany({
+              where: {
+                loanApplicationId: { in: [actionLog.recordId, partnerLoanId].filter(Boolean) as string[] },
+                sourceType: 'FORECLOSURE'
+              }
+            });
 
             localUndoResult = { type: 'loan_reopened', recordId: actionLog.recordId };
           }
@@ -1604,55 +1823,92 @@ export async function PUT(request: NextRequest) {
           if (actionLog.actionType === 'TRANSFER' && newData) {
             const amount = newData.amount;
             const creditType = newData.creditType;
+            const transferRefId = newData.transferRefId || actionLog.recordId;
+
+            // 1. Revert bank & cash transactions matching the transferRefId
+            await deleteBankOrCashEntriesForRef(transferRefId, tx);
+
+            // 2. Reverse double-entry journal entries matching the transferRefId
+            await reverseJournalEntriesForRef(transferRefId, userId, tx);
 
             if (newData.toUserId) {
-              // Revert receiver credit
+              // Revert receiver credit (decrement)
               const toUser = await tx.user.findUnique({ where: { id: newData.toUserId } });
               if (toUser) {
                 await tx.user.update({
                   where: { id: newData.toUserId },
                   data: {
-                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : toUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : toUser.companyCredit,
+                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : undefined,
+                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : undefined,
                     credit: { decrement: amount }
                   }
                 });
               }
 
-              // Revert sender credit
+              // Revert sender credit (increment)
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
               if (fromUser) {
                 await tx.user.update({
                   where: { id: actionLog.recordId },
                   data: {
-                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : fromUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : fromUser.companyCredit,
+                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : undefined,
+                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : undefined,
                     credit: { increment: amount }
                   }
                 });
               }
 
-              // Delete credit transactions
-              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
-
               localUndoResult = { type: 'credit_transfer_deleted', recordId: actionLog.recordId };
             } else if (newData.bankAccountId) {
-              // Revert bank and sender credit
-              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
-
+              // Revert sender credit (increment)
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
               if (fromUser) {
                 await tx.user.update({
                   where: { id: actionLog.recordId },
                   data: {
-                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : fromUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : fromUser.companyCredit,
+                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : undefined,
+                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : undefined,
                     credit: { increment: amount }
                   }
                 });
               }
 
               localUndoResult = { type: 'credit_deposit_deleted', recordId: actionLog.recordId };
+            } else if (newData.companyId) {
+              // Revert company myCash (decrement)
+              await tx.company.update({
+                where: { id: newData.companyId },
+                data: { myCash: { decrement: amount } }
+              });
+
+              // Revert sender credit (increment)
+              const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
+              if (fromUser) {
+                await tx.user.update({
+                  where: { id: actionLog.recordId },
+                  data: {
+                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : undefined,
+                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : undefined,
+                    credit: { increment: amount }
+                  }
+                });
+              }
+
+              localUndoResult = { type: 'credit_cash_deposit_deleted', recordId: actionLog.recordId };
+            } else {
+              // Add-cash or Add-to-bank
+              const isCompany = actionLog.recordType === 'Company';
+              if (isCompany) {
+                // Add-cash: Revert company myCash (decrement)
+                await tx.company.update({
+                  where: { id: actionLog.recordId },
+                  data: { myCash: { decrement: amount } }
+                });
+                localUndoResult = { type: 'add_cash_deleted', recordId: actionLog.recordId };
+              } else {
+                // Add-to-bank: bankAccount balance was already decremented by deleteBankOrCashEntriesForRef(transferRefId)
+                localUndoResult = { type: 'add_to_bank_deleted', recordId: actionLog.recordId };
+              }
             }
           }
         }
@@ -1843,11 +2099,24 @@ export async function PUT(request: NextRequest) {
               }
             });
 
-            const user = await tx.user.findUnique({ where: { id: actionLog.userId }, select: { credit: true } });
+            const user = await tx.user.findUnique({ where: { id: actionLog.userId }, select: { credit: true, personalCredit: true, companyCredit: true } });
+            const creditType = newData.creditType || 'COMPANY';
+            let finalCredit = 0;
+            let finalCompanyCredit = 0;
+            let finalPersonalCredit = 0;
+
             if (user) {
+              finalCompanyCredit = creditType === 'COMPANY' ? Math.max(0, (user.companyCredit || 0) - amount) : (user.companyCredit || 0);
+              finalPersonalCredit = creditType === 'PERSONAL' ? Math.max(0, (user.personalCredit || 0) - amount) : (user.personalCredit || 0);
+              finalCredit = finalCompanyCredit + finalPersonalCredit;
+
               await tx.user.update({
                 where: { id: actionLog.userId },
-                data: { credit: Math.max(0, (user.credit || 0) - amount) }
+                data: {
+                  credit: finalCredit,
+                  companyCredit: finalCompanyCredit,
+                  personalCredit: finalPersonalCredit
+                }
               });
             }
 
@@ -1857,7 +2126,10 @@ export async function PUT(request: NextRequest) {
                 transactionType: 'CREDIT_DECREASE',
                 amount,
                 paymentMode,
-                balanceAfter: Math.max(0, (user?.credit || 0) - amount),
+                creditType: creditType as any,
+                companyBalanceAfter: finalCompanyCredit,
+                personalBalanceAfter: finalPersonalCredit,
+                balanceAfter: finalCredit,
                 sourceType: 'SETTLEMENT',
                 settlementId: settlement.id,
                 remarks: `Settlement ${settlementNumber} (Redone)`
@@ -1910,45 +2182,341 @@ export async function PUT(request: NextRequest) {
           if (actionLog.actionType === 'TRANSFER' && newData) {
             const amount = newData.amount;
             const creditType = newData.creditType;
+            const transferRefId = newData.transferRefId || `CT-${Date.now()}`;
 
             if (newData.toUserId) {
+              // User-to-User
+              // Deduct from sender
+              await tx.user.update({
+                where: { id: actionLog.recordId },
+                data: {
+                  personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : undefined,
+                  companyCredit: creditType === 'COMPANY' ? { decrement: amount } : undefined,
+                  credit: { decrement: amount }
+                }
+              });
+
+              // Add to receiver
+              await tx.user.update({
+                where: { id: newData.toUserId },
+                data: {
+                  personalCredit: creditType === 'PERSONAL' ? { increment: amount } : undefined,
+                  companyCredit: creditType === 'COMPANY' ? { increment: amount } : undefined,
+                  credit: { increment: amount }
+                }
+              });
+
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
-              if (fromUser) {
-                await tx.user.update({
-                  where: { id: actionLog.recordId },
+              const toUser = await tx.user.findUnique({ where: { id: newData.toUserId } });
+
+              // Create transaction record for sender
+              await tx.creditTransaction.create({
+                data: {
+                  userId: actionLog.recordId,
+                  transactionType: 'CREDIT_DECREASE',
+                  amount: -amount,
+                  paymentMode: newData.paymentMode || 'CASH',
+                  creditType: creditType as any,
+                  companyBalanceAfter: fromUser?.companyCredit || 0,
+                  personalBalanceAfter: fromUser?.personalCredit || 0,
+                  balanceAfter: fromUser?.credit || 0,
+                  sourceType: 'CREDIT_TRANSFER',
+                  sourceId: transferRefId,
+                  description: `Credit transferred (Redone)`,
+                  transactionDate: new Date()
+                }
+              });
+
+              // Create transaction record for receiver
+              await tx.creditTransaction.create({
+                data: {
+                  userId: newData.toUserId,
+                  transactionType: 'CREDIT_INCREASE',
+                  amount: amount,
+                  paymentMode: newData.paymentMode || 'CASH',
+                  creditType: creditType as any,
+                  companyBalanceAfter: toUser?.companyCredit || 0,
+                  personalBalanceAfter: toUser?.personalCredit || 0,
+                  balanceAfter: toUser?.credit || 0,
+                  sourceType: 'CREDIT_TRANSFER',
+                  sourceId: transferRefId,
+                  description: `Credit received (Redone)`,
+                  transactionDate: new Date()
+                }
+              });
+
+              localRedoResult = { type: 'credit_transfer_re_applied', recordId: actionLog.recordId };
+            } else if (newData.bankAccountId) {
+              // User-to-Bank
+              // Deduct from user
+              await tx.user.update({
+                where: { id: actionLog.recordId },
+                data: {
+                  personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : undefined,
+                  companyCredit: creditType === 'COMPANY' ? { decrement: amount } : undefined,
+                  credit: { decrement: amount }
+                }
+              });
+
+              // Add to bank account
+              const bankAccount = await tx.bankAccount.findUnique({ where: { id: newData.bankAccountId } });
+              if (bankAccount) {
+                const newBalance = bankAccount.currentBalance + amount;
+                await tx.bankAccount.update({
+                  where: { id: newData.bankAccountId },
+                  data: { currentBalance: newBalance }
+                });
+
+                // Create bank transaction
+                await tx.bankTransaction.create({
                   data: {
-                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : fromUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : fromUser.companyCredit,
-                    credit: { decrement: amount }
+                    bankAccountId: newData.bankAccountId,
+                    transactionType: 'CREDIT',
+                    amount: amount,
+                    balanceAfter: newBalance,
+                    description: `Credit deposit (Redone)`,
+                    referenceType: 'CREDIT_TRANSFER',
+                    referenceId: transferRefId,
+                    createdById: actionLog.userId,
+                    transactionDate: new Date()
+                  }
+                });
+
+                // Create journal entry for company
+                await tx.journalEntry.create({
+                  data: {
+                    companyId: bankAccount.companyId,
+                    entryNumber: `JE-CT-${Date.now()}`,
+                    entryDate: new Date(),
+                    referenceType: 'BANK_DEPOSIT',
+                    referenceId: transferRefId,
+                    narration: `Credit deposit to bank (Redone)`,
+                    totalDebit: amount,
+                    totalCredit: amount,
+                    isAutoEntry: true,
+                    isApproved: true,
+                    bankAccountId: newData.bankAccountId,
+                    createdById: actionLog.userId,
+                    lines: {
+                      create: [
+                        {
+                          accountId: 'BANK_ACCOUNT',
+                          debitAmount: amount,
+                          creditAmount: 0,
+                          narration: 'Bank deposit from user credit'
+                        },
+                        {
+                          accountId: 'CAPITAL_ACCOUNT',
+                          debitAmount: 0,
+                          creditAmount: amount,
+                          narration: 'Credit transfer from user'
+                        }
+                      ]
+                    }
                   }
                 });
               }
 
-              const toUser = await tx.user.findUnique({ where: { id: newData.toUserId } });
-              if (toUser) {
-                await tx.user.update({
-                  where: { id: newData.toUserId },
-                  data: {
-                    personalCredit: creditType === 'PERSONAL' ? { increment: amount } : toUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { increment: amount } : toUser.companyCredit,
-                    credit: { increment: amount }
-                  }
-                });
-              }
-            } else if (newData.bankAccountId) {
               const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
-              if (fromUser) {
-                await tx.user.update({
+
+              // Create transaction record for user
+              await tx.creditTransaction.create({
+                data: {
+                  userId: actionLog.recordId,
+                  transactionType: 'CREDIT_DECREASE',
+                  amount: -amount,
+                  paymentMode: newData.paymentMode || 'ONLINE',
+                  creditType: creditType as any,
+                  companyBalanceAfter: fromUser?.companyCredit || 0,
+                  personalBalanceAfter: fromUser?.personalCredit || 0,
+                  balanceAfter: fromUser?.credit || 0,
+                  sourceType: 'BANK_DEPOSIT',
+                  sourceId: transferRefId,
+                  description: `Credit deposited to bank (Redone)`,
+                  transactionDate: new Date()
+                }
+              });
+
+              localRedoResult = { type: 'credit_deposit_re_applied', recordId: actionLog.recordId };
+            } else if (newData.companyId) {
+              // User-to-Cash
+              // Deduct from user
+              await tx.user.update({
+                where: { id: actionLog.recordId },
+                data: {
+                  personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : undefined,
+                  companyCredit: creditType === 'COMPANY' ? { decrement: amount } : undefined,
+                  credit: { decrement: amount }
+                }
+              });
+
+              // Add to company myCash
+              await tx.company.update({
+                where: { id: newData.companyId },
+                data: { myCash: { increment: amount } }
+              });
+
+              // Create journal entry
+              await tx.journalEntry.create({
+                data: {
+                  companyId: newData.companyId,
+                  entryNumber: `JE-CT-${Date.now()}`,
+                  entryDate: new Date(),
+                  referenceType: 'CASH_DEPOSIT',
+                  referenceId: transferRefId,
+                  narration: `Cash deposit from user credit (Redone)`,
+                  totalDebit: amount,
+                  totalCredit: amount,
+                  isAutoEntry: true,
+                  isApproved: true,
+                  createdById: actionLog.userId,
+                  lines: {
+                    create: [
+                      {
+                        accountId: 'CASH_ACCOUNT',
+                        debitAmount: amount,
+                        creditAmount: 0,
+                        narration: 'Cash received from user'
+                      },
+                      {
+                        accountId: 'CAPITAL_ACCOUNT',
+                        debitAmount: 0,
+                        creditAmount: amount,
+                        narration: 'Credit transfer from user'
+                      }
+                    ]
+                  }
+                }
+              });
+
+              const fromUser = await tx.user.findUnique({ where: { id: actionLog.recordId } });
+
+              // Create transaction record for user
+              await tx.creditTransaction.create({
+                data: {
+                  userId: actionLog.recordId,
+                  transactionType: 'CREDIT_DECREASE',
+                  amount: -amount,
+                  paymentMode: 'CASH',
+                  creditType: creditType as any,
+                  companyBalanceAfter: fromUser?.companyCredit || 0,
+                  personalBalanceAfter: fromUser?.personalCredit || 0,
+                  balanceAfter: fromUser?.credit || 0,
+                  sourceType: 'CASH_DEPOSIT',
+                  sourceId: transferRefId,
+                  description: `Cash deposited to company myCash (Redone)`,
+                  transactionDate: new Date()
+                }
+              });
+
+              localRedoResult = { type: 'credit_cash_deposit_re_applied', recordId: actionLog.recordId };
+            } else {
+              // Add-cash or Add-to-bank
+              const isCompany = actionLog.recordType === 'Company';
+              if (isCompany) {
+                // Add-cash
+                await tx.company.update({
                   where: { id: actionLog.recordId },
+                  data: { myCash: { increment: amount } }
+                });
+
+                // Create journal entry
+                await tx.journalEntry.create({
                   data: {
-                    personalCredit: creditType === 'PERSONAL' ? { decrement: amount } : fromUser.personalCredit,
-                    companyCredit: creditType === 'COMPANY' ? { decrement: amount } : fromUser.companyCredit,
-                    credit: { decrement: amount }
+                    companyId: actionLog.recordId,
+                    entryNumber: `JE-CT-${Date.now()}`,
+                    entryDate: new Date(),
+                    referenceType: 'CASH_ADDITION',
+                    referenceId: transferRefId,
+                    narration: `Cash added to company (Redone)`,
+                    totalDebit: amount,
+                    totalCredit: amount,
+                    isAutoEntry: true,
+                    isApproved: true,
+                    createdById: actionLog.userId,
+                    lines: {
+                      create: [
+                        {
+                          accountId: 'CASH_ACCOUNT',
+                          debitAmount: amount,
+                          creditAmount: 0,
+                          narration: 'Cash added'
+                        },
+                        {
+                          accountId: 'CAPITAL_ACCOUNT',
+                          debitAmount: 0,
+                          creditAmount: amount,
+                          narration: 'Capital contribution'
+                        }
+                      ]
+                    }
                   }
                 });
+
+                localRedoResult = { type: 'add_cash_re_applied', recordId: actionLog.recordId };
+              } else {
+                // Add-to-bank
+                const bankAccount = await tx.bankAccount.findUnique({ where: { id: actionLog.recordId } });
+                if (bankAccount) {
+                  const newBalance = bankAccount.currentBalance + amount;
+                  await tx.bankAccount.update({
+                    where: { id: actionLog.recordId },
+                    data: { currentBalance: newBalance }
+                  });
+
+                  // Create bank transaction
+                  await tx.bankTransaction.create({
+                    data: {
+                      bankAccountId: actionLog.recordId,
+                      transactionType: 'CREDIT',
+                      amount: amount,
+                      balanceAfter: newBalance,
+                      description: `Funds added to bank account (Redone)`,
+                      referenceType: 'BANK_DEPOSIT',
+                      referenceId: transferRefId,
+                      createdById: actionLog.userId,
+                      transactionDate: new Date()
+                    }
+                  });
+
+                  // Create journal entry
+                  await tx.journalEntry.create({
+                    data: {
+                      companyId: bankAccount.companyId,
+                      entryNumber: `JE-CT-${Date.now()}`,
+                      entryDate: new Date(),
+                      referenceType: 'BANK_DEPOSIT',
+                      referenceId: transferRefId,
+                      narration: `Bank deposit (Redone)`,
+                      totalDebit: amount,
+                      totalCredit: amount,
+                      isAutoEntry: true,
+                      isApproved: true,
+                      bankAccountId: actionLog.recordId,
+                      createdById: actionLog.userId,
+                      lines: {
+                        create: [
+                          {
+                            accountId: 'BANK_ACCOUNT',
+                            debitAmount: amount,
+                            creditAmount: 0,
+                            narration: 'Bank deposit'
+                          },
+                          {
+                            accountId: 'CAPITAL_ACCOUNT',
+                            debitAmount: 0,
+                            creditAmount: amount,
+                            narration: 'Capital contribution'
+                          }
+                        ]
+                      }
+                    }
+                  });
+                }
+
+                localRedoResult = { type: 'add_to_bank_re_applied', recordId: actionLog.recordId };
               }
             }
-            localRedoResult = { type: 'credit_transfer_re_applied', recordId: actionLog.recordId };
           }
         }
 

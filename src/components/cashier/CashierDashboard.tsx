@@ -362,9 +362,14 @@ export default function CashierDashboard() {
     }
   };
 
-  // Helper to identify Company 3
-  const identifyCompany3 = (company: { code?: string | null; name: string } | null | undefined): boolean => {
+  // Helper to identify Company 3 (original non-mirror company)
+  const identifyCompany3 = (company: { code?: string | null; name: string; isMirrorCompany?: boolean } | null | undefined): boolean => {
     if (!company) return false;
+    
+    // Primary check: if isMirrorCompany flag is explicitly set
+    if (company.isMirrorCompany === true) return false;
+    if (company.isMirrorCompany === false) return true;
+    
     const code = (company.code || '').toUpperCase().trim();
     const name = (company.name || '').toLowerCase().trim();
     
@@ -527,14 +532,16 @@ export default function CashierDashboard() {
       return;
     }
     
-    // Check for Secondary Payment Page selection (required for all mirror loans)
-    if (mirrorLoanInfo?.isMirrorLoan && !disbursementForm.extraEMIPaymentPageId) {
+    // Check for Secondary Payment Page selection (required for all mirror loans and Company 3)
+    if ((mirrorLoanInfo?.isMirrorLoan || isCompany3) && !disbursementForm.extraEMIPaymentPageId) {
       console.error('[handleDisburse] No secondary payment page selected');
       toast({ 
         title: 'Error', 
-        description: selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo.extraEMICount ?? 0) === 0
-          ? 'Please select a Secondary Payment Page for Interest Only payments'
-          : 'Please select a Secondary Payment Page for Extra EMIs', 
+        description: isCompany3
+          ? 'Please select a Secondary Payment Page for EMI payments'
+          : (selectedLoan?.isInterestOnlyLoan || selectedLoan?.loanType === 'INTEREST_ONLY' || (mirrorLoanInfo?.extraEMICount ?? 0) === 0
+            ? 'Please select a Secondary Payment Page for Interest Only payments'
+            : 'Please select a Secondary Payment Page for Extra EMIs'), 
         variant: 'destructive' 
       });
       return;
@@ -607,6 +614,7 @@ export default function CashierDashboard() {
         action: 'disburse',
         role: 'CASHIER',
         userId: user?.id,
+        secondaryPaymentPageId: disbursementForm.extraEMIPaymentPageId || null,
         disbursementData: {
           amount: disbursementForm.disbursedAmount,
           mode: isCashDisbursement ? 'CASH' : 'BANK_TRANSFER',
@@ -641,7 +649,10 @@ export default function CashierDashboard() {
           await fetch('/api/emi', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ loanId: selectedLoan.id })
+            body: JSON.stringify({ 
+              loanId: selectedLoan.id,
+              secondaryPaymentPageId: disbursementForm.extraEMIPaymentPageId || null
+            })
           });
         }
 

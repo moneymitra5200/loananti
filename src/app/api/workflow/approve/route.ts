@@ -128,7 +128,7 @@ const ALLOWED_ACTIONS: Record<string, Record<string, {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { loanId, loanIds, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, isBulk, mirrorLoanConfig, signatureData } = body;
+    const { loanId, loanIds, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, isBulk, mirrorLoanConfig, signatureData, secondaryPaymentPageId } = body;
 
     // Handle bulk approval
     if (isBulk && loanIds && Array.isArray(loanIds) && loanIds.length > 0) {
@@ -148,7 +148,8 @@ export async function POST(request: NextRequest) {
             disbursementData,
             mirrorLoanConfig,
             signatureData,
-            request
+            request,
+            secondaryPaymentPageId
           });
           results.push({ id, success: true });
         } catch (error) {
@@ -177,7 +178,7 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await processSingleApproval({
-      loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request
+      loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request, secondaryPaymentPageId
     });
 
     setImmediate(() => {
@@ -191,7 +192,7 @@ export async function POST(request: NextRequest) {
 }
 
 async function processSingleApproval({
-  loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request
+  loanId, action, remarks, role, userId, companyId, agentId, staffId, disbursementData, mirrorLoanConfig, signatureData, request, secondaryPaymentPageId
 }: {
   loanId: string;
   action: string;
@@ -215,6 +216,7 @@ async function processSingleApproval({
   mirrorLoanConfig?: { enabled: boolean; mirrorCompanyId?: string; mirrorType?: string };
   signatureData?: string;
   request: NextRequest;
+  secondaryPaymentPageId?: string;
 }): Promise<{ nextStatus: LoanStatus }> {
 
   // Fast loan lookup - only get what we need
@@ -442,7 +444,7 @@ async function processSingleApproval({
       dueDate.setDate(1); // Issue 8 Fix: 1st of next month (standard EMI day; was hardcoded 5)
       dueDate.setHours(0, 0, 0, 0);
       
-      await tx.eMISchedule.create({
+      const emi = await tx.eMISchedule.create({
         data: {
           loanApplicationId: loanId,
           installmentNumber: 1,
@@ -465,7 +467,20 @@ async function processSingleApproval({
         }
       });
       
-      console.log(`[WORKFLOW] Created first Interest EMI for loan ${loan.applicationNo}, Amount: ${monthlyInterest}, Due: ${dueDate.toISOString()}`);
+      // Create EMI Payment Setting for the interest-only EMI
+      await tx.eMIPaymentSetting.create({
+        data: {
+          emiScheduleId: emi.id,
+          loanApplicationId: loanId,
+          enableFullPayment: true,
+          enablePartialPayment: false,
+          enableInterestOnly: true,
+          useDefaultCompanyPage: !secondaryPaymentPageId,
+          secondaryPaymentPageId: secondaryPaymentPageId || null
+        }
+      });
+      
+      console.log(`[WORKFLOW] Created first Interest EMI and payment settings for loan ${loan.applicationNo}, Amount: ${monthlyInterest}, Due: ${dueDate.toISOString()}`);
     }
 
     // Handle disbursement accounting

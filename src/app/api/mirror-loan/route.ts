@@ -4,54 +4,24 @@ import { calculateMirrorLoan } from '@/lib/mirror-loan';
 import { getMirrorCompanies } from '@/lib/mirror-company-utils';
 import { getNextUniqueColor } from '@/utils/loanColors';
 
-// Helper function to check if a company is Company 3
+// Helper function to check if a company is the original company (non-mirror)
 async function isCompany3(companyId: string): Promise<boolean> {
-  // First try to find by code C3
-  const companyByCode = await db.company.findFirst({
-    where: { code: 'C3', id: companyId }
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { isMirrorCompany: true }
   });
-  
-  if (companyByCode) {
-    return true;
-  }
-  
-  // Otherwise check if it's the third company by creation order
-  const companies = await db.company.findMany({
-    orderBy: { createdAt: 'asc' },
-    take: 3,
-    select: { id: true }
-  });
-  
-  if (companies.length >= 3 && companies[2].id === companyId) {
-    return true;
-  }
-  
-  return false;
+  return company?.isMirrorCompany === false;
 }
 
-// Helper function to get Company 3 ID
+// Helper function to get the original company (non-mirror) ID
 async function getCompany3Id(): Promise<string | null> {
-  // First try to find by code C3
-  const companyByCode = await db.company.findFirst({
-    where: { code: 'C3' }
+  const company = await db.company.findFirst({
+    where: { isMirrorCompany: false },
+    select: { id: true }
   });
-  
-  if (companyByCode) {
-    return companyByCode.id;
-  }
-  
-  // Otherwise get the third company by creation order
-  const companies = await db.company.findMany({
-    orderBy: { createdAt: 'asc' },
-    take: 3
-  });
-  
-  if (companies.length >= 3) {
-    return companies[2].id;
-  }
-  
-  return null;
+  return company?.id || null;
 }
+
 
 // GET - Fetch mirror companies or preview calculation
 export async function GET(request: NextRequest) {

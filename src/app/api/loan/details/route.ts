@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
             customerId: true,
             companyId: true,
             customer: { select: { id: true, name: true, phone: true } },
-            company: { select: { id: true, name: true, code: true } },
+            company: { select: { id: true, name: true, code: true, isMirrorCompany: true } },
             sessionForm: { select: { approvedAmount: true, emiAmount: true, tenure: true, interestRate: true, interestType: true } }
           }
         }),
@@ -222,7 +222,8 @@ export async function GET(request: NextRequest) {
             city: true,
             state: true,
             contactEmail: true,
-            contactPhone: true
+            contactPhone: true,
+            isMirrorCompany: true
           }
         },
         loanForm: true,

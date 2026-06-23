@@ -31,6 +31,7 @@ export interface Loan {
     id: string;
     name: string;
     code: string;
+    isMirrorCompany?: boolean;
   };
   companyId?: string;
   requestedTenure?: number;
@@ -127,6 +128,7 @@ export interface BankAccount {
     id: string;
     name: string;
     code: string;
+    isMirrorCompany?: boolean;
   };
 }
 

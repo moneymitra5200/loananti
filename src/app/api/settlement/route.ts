@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     // Validate user has enough credit
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { credit: true }
+      select: { credit: true, personalCredit: true, companyCredit: true }
     });
 
     if (!user) {
@@ -163,9 +163,19 @@ export async function POST(request: NextRequest) {
           remarks
         }
       });
+
+      const creditType = paymentMode === 'CASH' ? 'COMPANY' : 'PERSONAL';
+      const userCompanyCredit = creditType === 'COMPANY' ? Math.max(0, (user.companyCredit || 0) - amount) : (user.companyCredit || 0);
+      const userPersonalCredit = creditType === 'PERSONAL' ? Math.max(0, (user.personalCredit || 0) - amount) : (user.personalCredit || 0);
+      const userTotalCredit = userCompanyCredit + userPersonalCredit;
+
       await tx.user.update({
         where: { id: userId },
-        data: { credit: { decrement: amount } }
+        data: {
+          credit: userTotalCredit,
+          companyCredit: userCompanyCredit,
+          personalCredit: userPersonalCredit
+        }
       });
       const creditTx = await tx.creditTransaction.create({
         data: { // @ts-ignore
@@ -173,7 +183,10 @@ export async function POST(request: NextRequest) {
           transactionType: 'CREDIT_DECREASE',
           amount,
           paymentMode: paymentMode,
-          balanceAfter: user.credit - amount,
+          creditType: creditType as any,
+          companyBalanceAfter: userCompanyCredit,
+          personalBalanceAfter: userPersonalCredit,
+          balanceAfter: userTotalCredit,
           sourceType: 'SETTLEMENT',
           settlementId: settlement.id,
           remarks: `Settlement ${settlementNumber}`
@@ -188,8 +201,8 @@ export async function POST(request: NextRequest) {
           module: 'SETTLEMENT',
           recordId: settlement.id,
           recordType: 'CashierSettlement',
-          previousData: JSON.stringify({ credit: user.credit }),
-          newData: JSON.stringify({ amount, paymentMode, cashierId, settlementNumber, settlementId: settlement.id }),
+          previousData: JSON.stringify({ credit: user.credit, companyCredit: user.companyCredit, personalCredit: user.personalCredit }),
+          newData: JSON.stringify({ amount, paymentMode, cashierId, settlementNumber, settlementId: settlement.id, creditType }),
           description: `Settlement ₹${amount} submitted to cashier (${settlementNumber})`,
           canUndo: true,
         },
@@ -240,7 +253,7 @@ export async function PUT(request: NextRequest) {
 
     const settlement = await db.cashierSettlement.findUnique({
       where: { id: settlementId },
-      include: { user: { select: { id: true, credit: true } } }
+      include: { user: { select: { id: true, credit: true, personalCredit: true, companyCredit: true } } }
     });
 
     if (!settlement) {
@@ -297,7 +310,7 @@ export async function PUT(request: NextRequest) {
       // Add credit transaction for cashier (they received the money)
       const cashier = await db.user.findUnique({
         where: { id: settlement.cashierId },
-        select: { credit: true, role: true }
+        select: { credit: true, personalCredit: true, companyCredit: true, role: true }
       });
 
       if (cashier) {
@@ -305,13 +318,21 @@ export async function PUT(request: NextRequest) {
           // ACID GUARD: Re-read settlement status inside tx to prevent double-processing
           await guardSettlementStatus(tx, settlementId, 'VERIFIED');
 
+          const creditType = settlement.paymentMode === 'CASH' ? 'COMPANY' : 'PERSONAL';
+          const cashierCompanyCredit = creditType === 'COMPANY' ? (cashier.companyCredit || 0) + settlement.amount : (cashier.companyCredit || 0);
+          const cashierPersonalCredit = creditType === 'PERSONAL' ? (cashier.personalCredit || 0) + settlement.amount : (cashier.personalCredit || 0);
+          const cashierTotalCredit = cashierCompanyCredit + cashierPersonalCredit;
+
           await tx.creditTransaction.create({
             data: { // @ts-ignore
               userId: settlement.cashierId,
               transactionType: 'SETTLEMENT',
               amount: settlement.amount,
               paymentMode: settlement.paymentMode,
-              balanceAfter: cashier.credit + settlement.amount,
+              creditType: creditType as any,
+              companyBalanceAfter: cashierCompanyCredit,
+              personalBalanceAfter: cashierPersonalCredit,
+              balanceAfter: cashierTotalCredit,
               sourceType: 'SETTLEMENT',
               sourceId: settlementId,
               settlementId: settlementId,
@@ -320,7 +341,11 @@ export async function PUT(request: NextRequest) {
           });
           await tx.user.update({
             where: { id: settlement.cashierId },
-            data: { credit: { increment: settlement.amount } }
+            data: {
+              credit: cashierTotalCredit,
+              companyCredit: cashierCompanyCredit,
+              personalCredit: cashierPersonalCredit
+            }
           });
           // ActionLog inside transaction — ACID-safe
           await tx.actionLog.create({
@@ -331,8 +356,8 @@ export async function PUT(request: NextRequest) {
               module: 'SETTLEMENT',
               recordId: settlementId,
               recordType: 'CashierSettlement',
-              previousData: JSON.stringify({ status: 'VERIFIED', cashierCredit: cashier.credit }),
-              newData: JSON.stringify({ status: 'COMPLETED', amount: settlement.amount, cashierCreditAfter: cashier.credit + settlement.amount }),
+              previousData: JSON.stringify({ status: 'VERIFIED', cashierCredit: cashier.credit, cashierCompanyCredit: cashier.companyCredit, cashierPersonalCredit: cashier.personalCredit }),
+              newData: JSON.stringify({ status: 'COMPLETED', amount: settlement.amount, cashierCreditAfter: cashierTotalCredit, cashierCompanyCreditAfter: cashierCompanyCredit, cashierPersonalCreditAfter: cashierPersonalCredit }),
               description: `Settlement ${settlement.settlementNumber || settlementId} completed. Cashier received ₹${settlement.amount}`,
               canUndo: false, // completed settlements should not be undone
             },
@@ -353,6 +378,11 @@ export async function PUT(request: NextRequest) {
         }
       });
 
+      const creditType = settlement.paymentMode === 'CASH' ? 'COMPANY' : 'PERSONAL';
+      const userCompanyCredit = creditType === 'COMPANY' ? (settlement.user?.companyCredit || 0) + settlement.amount : (settlement.user?.companyCredit || 0);
+      const userPersonalCredit = creditType === 'PERSONAL' ? (settlement.user?.personalCredit || 0) + settlement.amount : (settlement.user?.personalCredit || 0);
+      const userTotalCredit = userCompanyCredit + userPersonalCredit;
+
       // Return credit to user
       await db.$transaction([
         db.creditTransaction.create({
@@ -361,7 +391,10 @@ export async function PUT(request: NextRequest) {
             transactionType: 'ADJUSTMENT',
             amount: settlement.amount,
             paymentMode: settlement.paymentMode,
-            balanceAfter: (settlement.user?.credit || 0) + settlement.amount,
+            creditType: creditType as any,
+            companyBalanceAfter: userCompanyCredit,
+            personalBalanceAfter: userPersonalCredit,
+            balanceAfter: userTotalCredit,
             sourceType: 'SETTLEMENT',
             sourceId: settlementId,
             settlementId: settlementId,
@@ -371,7 +404,11 @@ export async function PUT(request: NextRequest) {
         }),
         db.user.update({
           where: { id: settlement.userId },
-          data: { credit: { increment: settlement.amount } }
+          data: {
+            credit: userTotalCredit,
+            companyCredit: userCompanyCredit,
+            personalCredit: userPersonalCredit
+          }
         })
       ]);
 

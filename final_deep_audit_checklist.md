@@ -68,7 +68,7 @@ This checklist consolidates all critical issues, database transaction failures, 
   * **Description**: Reverting a payment deletes the next installment (`installmentNumber + 1`). This is only appropriate for dynamic interest-only loans. In standard fixed-tenure loans, it deletes pre-generated EMIs, corrupting schedules.
   * **Fix**: Restrict EMI schedule deletions strictly to loans where `isInterestOnlyLoan` is true.
 
-- [ ] **Issue 11: Reopening Standard Loans as Interest-Only**
+- [x] **Issue 11: Reopening Standard Loans as Interest-Only**
   * **File**: [src/app/api/action-log/route.ts](file:///c:/Users/bscom/Desktop/reallll/src/app/api/action-log/route.ts#L608)
   * **Description**: Undo resets loan status to `INTEREST_ONLY` even if the original loan was a standard EMI loan.
   * **Fix**: Restore loan status using the actual status from the action log's `previousData`.

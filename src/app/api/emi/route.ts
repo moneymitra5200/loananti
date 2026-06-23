@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { loanId, action, graceDays = 5 } = body;
+    const { loanId, action, graceDays = 5, secondaryPaymentPageId } = body;
 
     // Update overdue status
     if (action === 'update-overdue') {
@@ -150,9 +150,10 @@ export async function POST(request: NextRequest) {
       startDate
     );
 
-    const schedules = await Promise.all(
-      emiCalculation.schedule.map((item) =>
-        db.eMISchedule.create({
+    const schedules = await db.$transaction(async (tx) => {
+      const list: any[] = [];
+      for (const item of emiCalculation.schedule) {
+        const emi = await tx.eMISchedule.create({
           data: {
             loanApplicationId: loanId,
             installmentNumber: item.installmentNumber,
@@ -165,9 +166,23 @@ export async function POST(request: NextRequest) {
             outstandingInterest: 0,
             paymentStatus: 'PENDING'
           }
-        })
-      )
-    );
+        });
+
+        await tx.eMIPaymentSetting.create({
+          data: {
+            emiScheduleId: emi.id,
+            loanApplicationId: loanId,
+            enableFullPayment: true,
+            enablePartialPayment: true,
+            enableInterestOnly: true,
+            useDefaultCompanyPage: !secondaryPaymentPageId,
+            secondaryPaymentPageId: secondaryPaymentPageId || null
+          }
+        });
+        list.push(emi);
+      }
+      return list;
+    });
 
     return NextResponse.json({ success: true, count: schedules.length, schedules });
   } catch (error) {
