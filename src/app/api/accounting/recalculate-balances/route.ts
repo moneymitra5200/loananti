@@ -28,6 +28,1017 @@ export async function POST(request: NextRequest) {
     const log: string[] = [];
     const warn: string[] = [];
 
+    // ─── 1. Get system user ───────────────────────────────────────────────────
+    const systemUser =
+      await db.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true } }) ||
+      await db.user.findFirst({ select: { id: true } });
+
+    if (!systemUser) {
+      return NextResponse.json({ error: 'No system user found' }, { status: 500 });
+    }
+
+    // =========================================================================
+    // ─── 00. REBUILD CASH AND BANK BALANCES FROM LEDGER (GROUND TRUTH SYNC) ──
+    // =========================================================================
+    try {
+      const cashBooks = await db.cashBook.findMany({ where: { companyId } });
+      for (const cb of cashBooks) {
+        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cb.id } });
+        const creditSum = entries.filter(e => e.entryType === 'CREDIT').reduce((s, e) => s + e.amount, 0);
+        const debitSum = entries.filter(e => e.entryType === 'DEBIT').reduce((s, e) => s + e.amount, 0);
+        const calculatedBalance = (cb.openingBalance || 0) + creditSum - debitSum;
+
+        await db.cashBook.update({
+          where: { id: cb.id },
+          data: { currentBalance: calculatedBalance }
+        });
+        log.push(`Recalculated CashBook balance for ${cb.id}: ₹${calculatedBalance.toFixed(2)}`);
+      }
+
+      const bankAccs = await db.bankAccount.findMany({ where: { companyId } });
+      for (const ba of bankAccs) {
+        const txns = await db.bankTransaction.findMany({ where: { bankAccountId: ba.id } });
+        const creditSum = txns.filter(t => t.transactionType === 'CREDIT').reduce((s, t) => s + t.amount, 0);
+        const debitSum = txns.filter(t => t.transactionType === 'DEBIT').reduce((s, t) => s + t.amount, 0);
+        const calculatedBalance = (ba.openingBalance || 0) + creditSum - debitSum;
+
+        await db.bankAccount.update({
+          where: { id: ba.id },
+          data: { currentBalance: calculatedBalance }
+        });
+        log.push(`Recalculated BankAccount balance for ${ba.accountNumber || ba.id}: ₹${calculatedBalance.toFixed(2)}`);
+      }
+    } catch (rebuildErr) {
+      warn.push(`Error rebuilding cash/bank balances: ${rebuildErr instanceof Error ? rebuildErr.message : 'Unknown'}`);
+    }
+
+    // =========================================================================
+    // ─── 01. DEEP RECONCILIATION - ORPHAN CLEANUP ────────────────────────────
+    // =========================================================================
+    try {
+      const onlineLoanIds = (await db.loanApplication.findMany({ select: { id: true } })).map(l => l.id);
+      const offlineLoanIds = (await db.offlineLoan.findMany({ select: { id: true } })).map(l => l.id);
+      const allLoanIdsSet = new Set([...onlineLoanIds, ...offlineLoanIds]);
+
+      // Delete orphaned loan disbursement JEs
+      const disbursementJEs = await db.journalEntry.findMany({
+        where: {
+          companyId,
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanJEIds = disbursementJEs.filter(je => je.referenceId && !allLoanIdsSet.has(je.referenceId)).map(je => je.id);
+      if (orphanJEIds.length > 0) {
+        await db.journalEntryLine.deleteMany({ where: { journalEntryId: { in: orphanJEIds } } });
+        await db.journalEntry.deleteMany({ where: { id: { in: orphanJEIds } } });
+        log.push(`Deleted ${orphanJEIds.length} orphaned disbursement journal entries`);
+      }
+
+      // Delete orphaned loan disbursement Daybook entries
+      const orphanDBEntries = await db.daybookEntry.findMany({
+        where: {
+          companyId,
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanDBIds = orphanDBEntries.filter(dbEntry => dbEntry.referenceId && !allLoanIdsSet.has(dbEntry.referenceId)).map(dbEntry => dbEntry.id);
+      if (orphanDBIds.length > 0) {
+        await db.daybookEntry.deleteMany({ where: { id: { in: orphanDBIds } } });
+        log.push(`Deleted ${orphanDBIds.length} orphaned disbursement daybook entries`);
+      }
+
+      // Delete orphaned loan disbursement Bank transactions
+      const orphanBankTxns = await db.bankTransaction.findMany({
+        where: {
+          bankAccount: { companyId },
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanBankTxnIds = orphanBankTxns.filter(bt => bt.referenceId && !allLoanIdsSet.has(bt.referenceId)).map(bt => bt.id);
+      if (orphanBankTxnIds.length > 0) {
+        await db.bankTransaction.deleteMany({ where: { id: { in: orphanBankTxnIds } } });
+        log.push(`Deleted ${orphanBankTxnIds.length} orphaned disbursement bank transactions`);
+      }
+
+      // Delete orphaned loan disbursement CashBook entries
+      const orphanCashEntries = await db.cashBookEntry.findMany({
+        where: {
+          cashBook: { companyId },
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanCashEntryIds = orphanCashEntries.filter(ce => ce.referenceId && !allLoanIdsSet.has(ce.referenceId)).map(ce => ce.id);
+      if (orphanCashEntryIds.length > 0) {
+        await db.cashBookEntry.deleteMany({ where: { id: { in: orphanCashEntryIds } } });
+        log.push(`Deleted ${orphanCashEntryIds.length} orphaned disbursement cashbook entries`);
+      }
+
+      // Payments & EMIs
+      const completedOnlinePaymentIds = (await db.payment.findMany({
+        where: { status: 'COMPLETED' },
+        select: { id: true }
+      })).map(p => p.id);
+
+      const paidOfflineEMIIds = (await db.offlineLoanEMI.findMany({
+        where: { OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] } }] },
+        select: { id: true }
+      })).map(e => e.id);
+
+      const allValidPaymentIdsSet = new Set([...completedOnlinePaymentIds, ...paidOfflineEMIIds]);
+
+      // Delete orphaned payment JEs
+      const paymentJEs = await db.journalEntry.findMany({
+        where: {
+          companyId,
+          referenceType: { in: ['EMI_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPaymentJEIds = paymentJEs.filter(je => je.referenceId && !allValidPaymentIdsSet.has(je.referenceId)).map(je => je.id);
+      if (orphanPaymentJEIds.length > 0) {
+        await db.journalEntryLine.deleteMany({ where: { journalEntryId: { in: orphanPaymentJEIds } } });
+        await db.journalEntry.deleteMany({ where: { id: { in: orphanPaymentJEIds } } });
+        log.push(`Deleted ${orphanPaymentJEIds.length} orphaned payment journal entries`);
+      }
+
+      // Delete orphaned payment Daybook entries
+      const orphanPaymentDBEntries = await db.daybookEntry.findMany({
+        where: {
+          companyId,
+          referenceType: { in: ['EMI_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPaymentDBIds = orphanPaymentDBEntries.filter(dbEntry => dbEntry.referenceId && !allValidPaymentIdsSet.has(dbEntry.referenceId)).map(dbEntry => dbEntry.id);
+      if (orphanPaymentDBIds.length > 0) {
+        await db.daybookEntry.deleteMany({ where: { id: { in: orphanPaymentDBIds } } });
+        log.push(`Deleted ${orphanPaymentDBIds.length} orphaned payment daybook entries`);
+      }
+
+      // Delete orphaned payment Bank transactions
+      const orphanPaymentBankTxns = await db.bankTransaction.findMany({
+        where: {
+          bankAccount: { companyId },
+          referenceType: { in: ['EMI_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPaymentBankTxnIds = orphanPaymentBankTxns.filter(bt => bt.referenceId && !allValidPaymentIdsSet.has(bt.referenceId)).map(bt => bt.id);
+      if (orphanPaymentBankTxnIds.length > 0) {
+        await db.bankTransaction.deleteMany({ where: { id: { in: orphanPaymentBankTxnIds } } });
+        log.push(`Deleted ${orphanPaymentBankTxnIds.length} orphaned payment bank transactions`);
+      }
+
+      // Delete orphaned payment CashBook entries
+      const orphanPaymentCashEntries = await db.cashBookEntry.findMany({
+        where: {
+          cashBook: { companyId },
+          referenceType: { in: ['EMI_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPaymentCashEntryIds = orphanPaymentCashEntries.filter(ce => ce.referenceId && !allValidPaymentIdsSet.has(ce.referenceId)).map(ce => ce.id);
+      if (orphanPaymentCashEntryIds.length > 0) {
+        await db.cashBookEntry.deleteMany({ where: { id: { in: orphanPaymentCashEntryIds } } });
+        log.push(`Deleted ${orphanPaymentCashEntryIds.length} orphaned payment cashbook entries`);
+      }
+
+      // Delete orphaned processing fee bank transactions
+      const pfBankTxns = await db.bankTransaction.findMany({
+        where: {
+          bankAccount: { companyId },
+          referenceType: 'PROCESSING_FEE'
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPfBankTxnIds = pfBankTxns.filter(bt => {
+        if (!bt.referenceId) return false;
+        const loanId = bt.referenceId.replace('-PF', '');
+        return !allLoanIdsSet.has(loanId);
+      }).map(bt => bt.id);
+      if (orphanPfBankTxnIds.length > 0) {
+        await db.bankTransaction.deleteMany({ where: { id: { in: orphanPfBankTxnIds } } });
+        log.push(`Deleted ${orphanPfBankTxnIds.length} orphaned processing fee bank transactions`);
+      }
+
+      // Delete orphaned processing fee cashbook entries
+      const pfCashEntries = await db.cashBookEntry.findMany({
+        where: {
+          cashBook: { companyId },
+          referenceType: 'PROCESSING_FEE'
+        },
+        select: { id: true, referenceId: true }
+      });
+      const orphanPfCashEntryIds = pfCashEntries.filter(ce => {
+        if (!ce.referenceId) return false;
+        const loanId = ce.referenceId.replace('-PF', '');
+        return !allLoanIdsSet.has(loanId);
+      }).map(ce => ce.id);
+      if (orphanPfCashEntryIds.length > 0) {
+        await db.cashBookEntry.deleteMany({ where: { id: { in: orphanPfCashEntryIds } } });
+        log.push(`Deleted ${orphanPfCashEntryIds.length} orphaned processing fee cashbook entries`);
+      }
+    } catch (cleanupErr) {
+      warn.push(`Error cleaning up orphaned accounting records: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown'}`);
+    }
+
+    // =========================================================================
+    // ─── 02. DEEP RECONCILIATION - RECONSTRUCT MISSING ENTRIES ───────────────
+    // =========================================================================
+    try {
+      const { AccountingService } = await import('@/lib/accounting-service');
+      const {
+        recordLoanDisbursement: recOnlineDisb,
+        recordEMIPayment: recOnlineEmi,
+        recordOfflineLoanDisbursement: recOfflineDisb,
+        recordOfflineEMIPayment: recOfflineEmi,
+      } = await import('@/lib/accounting-helper');
+      const { recordBankTransaction: recBank, recordCashBookEntry: recCash } = await import('@/lib/simple-accounting');
+
+      // 1. Online Loans Reconstruction
+      const activeOnlineLoans = await db.loanApplication.findMany({
+        where: {
+          companyId,
+          status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] },
+          disbursedAmount: { not: null }
+        },
+        include: {
+          sessionForm: true,
+          customer: { select: { name: true } }
+        }
+      });
+
+      for (const loan of activeOnlineLoans) {
+        try {
+          const hasJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: loan.id,
+              referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+            }
+          });
+
+          const isMirrorLoan = !!(await db.mirrorLoanMapping.findFirst({
+            where: { mirrorLoanId: loan.id }
+          }));
+
+          const disbursementMode = loan.disbursementMode || 'BANK_TRANSFER';
+          const customerName = loan.customer?.name || `${loan.firstName || ''} ${loan.lastName || ''}`.trim() || 'Customer';
+          const amount = loan.disbursedAmount || loan.requestedAmount;
+
+          if (!hasJE) {
+            const accountingService = new AccountingService(companyId);
+            await accountingService.initializeChartOfAccounts();
+
+            if (isMirrorLoan) {
+              const journalLines: Array<{
+                accountCode: string;
+                debitAmount: number;
+                creditAmount: number;
+                loanId?: string;
+                narration: string;
+              }> = [];
+
+              journalLines.push({
+                accountCode: '1210',
+                debitAmount: amount,
+                creditAmount: 0,
+                loanId: loan.id,
+                narration: 'Mirror loan principal disbursed',
+              });
+
+              const creditCode = disbursementMode === 'CASH' ? '1101' : '1102';
+              journalLines.push({
+                accountCode: creditCode,
+                debitAmount: 0,
+                creditAmount: amount,
+                narration: disbursementMode === 'CASH' ? 'Cash payment for mirror loan' : 'Bank payment for mirror loan',
+              });
+
+              await accountingService.createJournalEntry({
+                entryDate: loan.disbursedAt || loan.createdAt,
+                referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                narration: `Mirror Loan Disbursement - ${loan.applicationNo} - Principal: ₹${amount.toLocaleString()}`,
+                lines: journalLines,
+                createdById: loan.disbursedById || systemUser.id,
+                paymentMode: disbursementMode,
+                isAutoEntry: true,
+              });
+              log.push(`Reconstructed mirror loan disbursement JournalEntry for online loan: ${loan.applicationNo}`);
+            } else {
+              await accountingService.recordLoanDisbursement({
+                loanId: loan.id,
+                customerId: loan.customerId,
+                customerName,
+                amount,
+                disbursementDate: loan.disbursedAt || loan.createdAt,
+                createdById: loan.disbursedById || systemUser.id,
+                paymentMode: disbursementMode,
+                reference: `Reconstruction: ${loan.applicationNo}`
+              });
+              log.push(`Reconstructed loan disbursement JournalEntry for online loan: ${loan.applicationNo}`);
+            }
+          }
+
+          // Check Daybook Entry
+          const hasDB = await db.daybookEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: loan.id,
+              referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+            }
+          });
+
+          if (!hasDB) {
+            if (isMirrorLoan) {
+              await recOfflineDisb({
+                companyId,
+                loanId: loan.id,
+                loanNo: loan.applicationNo,
+                customerName,
+                amount,
+                processingFee: 0,
+                paymentMode: disbursementMode,
+                createdById: loan.disbursedById || systemUser.id,
+                isMirrorLoan: true
+              });
+            } else {
+              await recOnlineDisb({
+                companyId,
+                loanId: loan.id,
+                loanNo: loan.applicationNo,
+                customerName,
+                amount,
+                processingFee: loan.sessionForm?.processingFee || 0,
+                paymentMode: disbursementMode,
+                createdById: loan.disbursedById || systemUser.id
+              });
+            }
+            log.push(`Reconstructed Daybook Entry for online loan disbursement: ${loan.applicationNo}`);
+          }
+
+          // Check Bank/Cash transaction
+          if (disbursementMode === 'CASH') {
+            const hasCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: loan.id,
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+              }
+            });
+            if (!hasCash) {
+              await recCash({
+                companyId,
+                entryType: 'DEBIT',
+                amount,
+                description: `Loan Disbursement - ${loan.applicationNo} - ${customerName}`,
+                referenceType: isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                createdById: loan.disbursedById || systemUser.id
+              });
+              log.push(`Reconstructed CashBookEntry for online loan disbursement: ${loan.applicationNo}`);
+            }
+          } else {
+            const hasBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: loan.id,
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+              }
+            });
+            if (!hasBank) {
+              await recBank({
+                companyId,
+                transactionType: 'DEBIT',
+                amount,
+                description: `Loan Disbursement - ${loan.applicationNo} - ${customerName}`,
+                referenceType: isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                createdById: loan.disbursedById || systemUser.id
+              });
+              log.push(`Reconstructed BankTransaction for online loan disbursement: ${loan.applicationNo}`);
+            }
+          }
+
+          // Check Processing Fee
+          const pf = loan.sessionForm?.processingFee || 0;
+          if (pf > 0) {
+            const hasPFBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: `${loan.id}-PF`,
+                referenceType: 'PROCESSING_FEE'
+              }
+            });
+            const hasPFCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: `${loan.id}-PF`,
+                referenceType: 'PROCESSING_FEE'
+              }
+            });
+
+            if (!hasPFBank && !hasPFCash) {
+              const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS'].includes(disbursementMode.toUpperCase());
+              if (isOnline) {
+                await recBank({
+                  companyId,
+                  transactionType: 'CREDIT',
+                  amount: pf,
+                  description: `Processing Fee - ${loan.applicationNo}`,
+                  referenceType: 'PROCESSING_FEE',
+                  referenceId: `${loan.id}-PF`,
+                  createdById: loan.disbursedById || systemUser.id
+                });
+              } else {
+                await recCash({
+                  companyId,
+                  entryType: 'CREDIT',
+                  amount: pf,
+                  description: `Processing Fee - ${loan.applicationNo}`,
+                  referenceType: 'PROCESSING_FEE',
+                  referenceId: `${loan.id}-PF`,
+                  createdById: loan.disbursedById || systemUser.id
+                });
+              }
+              log.push(`Reconstructed processing fee bank/cash entry for online loan: ${loan.applicationNo}`);
+            }
+
+            const hasPFAccrual = await db.journalEntry.findFirst({
+              where: {
+                companyId,
+                referenceId: loan.id,
+                referenceType: 'PROCESSING_FEE_ACCRUAL'
+              }
+            });
+            if (!hasPFAccrual) {
+              const accountingService = new AccountingService(companyId);
+              await accountingService.initializeChartOfAccounts();
+              await accountingService.recordProcessingFeeAccrual({
+                loanId: loan.id,
+                customerId: loan.customerId,
+                amount: pf,
+                accrualDate: new Date(new Date(loan.disbursedAt || loan.createdAt).getTime() - 5000),
+                createdById: loan.disbursedById || systemUser.id
+              });
+              log.push(`Reconstructed processing fee accrual JournalEntry for online loan: ${loan.applicationNo}`);
+            }
+
+            const hasPFCollection = await db.journalEntry.findFirst({
+              where: {
+                companyId,
+                referenceId: loan.id,
+                referenceType: 'PROCESSING_FEE_COLLECTION'
+              }
+            });
+            if (!hasPFCollection) {
+              const accountingService = new AccountingService(companyId);
+              await accountingService.initializeChartOfAccounts();
+              await accountingService.recordProcessingFee({
+                loanId: loan.id,
+                customerId: loan.customerId,
+                amount: pf,
+                collectionDate: loan.disbursedAt || loan.createdAt,
+                createdById: loan.disbursedById || systemUser.id,
+                paymentMode: disbursementMode,
+                reference: `Processing Fee: ${loan.applicationNo}`
+              });
+              log.push(`Reconstructed processing fee collection JournalEntry for online loan: ${loan.applicationNo}`);
+            }
+          }
+        } catch (loanErr) {
+          warn.push(`Failed to reconstruct online loan ${loan.applicationNo}: ${loanErr instanceof Error ? loanErr.message : 'Unknown'}`);
+        }
+      }
+
+      // 2. Offline Loans Reconstruction
+      const activeOfflineLoans = await db.offlineLoan.findMany({
+        where: {
+          companyId,
+          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'DEFAULTED', 'RESTRUCTURED'] },
+          loanAmount: { not: null }
+        },
+        include: {
+          customer: { select: { name: true } }
+        }
+      });
+
+      for (const loan of activeOfflineLoans) {
+        try {
+          const isMirrorLoan = !!(await db.mirrorLoanMapping.findFirst({
+            where: { mirrorLoanId: loan.id }
+          }));
+
+          const hasJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: loan.id,
+              referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+            }
+          });
+
+          const disbursementMode = loan.paymentMode || 'BANK_TRANSFER';
+          const customerName = loan.customerName || loan.customer?.name || 'Customer';
+          const amount = loan.loanAmount;
+
+          if (!hasJE) {
+            const accountingService = new AccountingService(companyId);
+            await accountingService.initializeChartOfAccounts();
+
+            if (isMirrorLoan) {
+              const journalLines: Array<{
+                accountCode: string;
+                debitAmount: number;
+                creditAmount: number;
+                loanId?: string;
+                narration: string;
+              }> = [];
+
+              journalLines.push({
+                accountCode: '1210',
+                debitAmount: amount,
+                creditAmount: 0,
+                loanId: loan.id,
+                narration: 'Mirror loan principal disbursed',
+              });
+
+              const creditCode = disbursementMode === 'CASH' ? '1101' : '1102';
+              journalLines.push({
+                accountCode: creditCode,
+                debitAmount: 0,
+                creditAmount: amount,
+                narration: disbursementMode === 'CASH' ? 'Cash payment for mirror loan' : 'Bank payment for mirror loan',
+              });
+
+              await accountingService.createJournalEntry({
+                entryDate: loan.disbursedAt || loan.createdAt,
+                referenceType: 'MIRROR_LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                narration: `Mirror Loan Disbursement - ${loan.loanNumber} - Principal: ₹${amount.toLocaleString()}`,
+                lines: journalLines,
+                createdById: loan.createdById || systemUser.id,
+                paymentMode: disbursementMode,
+                isAutoEntry: true,
+              });
+              log.push(`Reconstructed mirror loan disbursement JournalEntry for offline loan: ${loan.loanNumber}`);
+            } else {
+              await accountingService.recordLoanDisbursement({
+                loanId: loan.id,
+                customerId: loan.customerId || loan.id,
+                customerName,
+                amount,
+                disbursementDate: loan.disbursedAt || loan.createdAt,
+                createdById: loan.createdById || systemUser.id,
+                paymentMode: disbursementMode,
+                reference: `Reconstruction: ${loan.loanNumber}`
+              });
+              log.push(`Reconstructed loan disbursement JournalEntry for offline loan: ${loan.loanNumber}`);
+            }
+          }
+
+          // Check Daybook Entry
+          const hasDB = await db.daybookEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: loan.id,
+              referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+            }
+          });
+
+          if (!hasDB) {
+            await recOfflineDisb({
+              companyId,
+              loanId: loan.id,
+              loanNo: loan.loanNumber,
+              customerName,
+              amount,
+              processingFee: loan.processingFee || 0,
+              paymentMode: disbursementMode,
+              createdById: loan.createdById || systemUser.id,
+              isMirrorLoan
+            });
+            log.push(`Reconstructed Daybook Entry for offline loan disbursement: ${loan.loanNumber}`);
+          }
+
+          // Check Bank/Cash transaction
+          if (disbursementMode === 'CASH') {
+            const hasCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: loan.id,
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+              }
+            });
+            if (!hasCash) {
+              await recCash({
+                companyId,
+                entryType: 'DEBIT',
+                amount,
+                description: `Loan Disbursement - ${loan.loanNumber} - ${customerName}`,
+                referenceType: isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                createdById: loan.createdById || systemUser.id
+              });
+              log.push(`Reconstructed CashBookEntry for offline loan disbursement: ${loan.loanNumber}`);
+            }
+          } else {
+            const hasBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: loan.id,
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+              }
+            });
+            if (!hasBank) {
+              await recBank({
+                companyId,
+                transactionType: 'DEBIT',
+                amount,
+                description: `Loan Disbursement - ${loan.loanNumber} - ${customerName}`,
+                referenceType: isMirrorLoan ? 'MIRROR_LOAN_DISBURSEMENT' : 'LOAN_DISBURSEMENT',
+                referenceId: loan.id,
+                createdById: loan.createdById || systemUser.id
+              });
+              log.push(`Reconstructed BankTransaction for offline loan disbursement: ${loan.loanNumber}`);
+            }
+          }
+
+          // Check Processing Fee
+          const pf = loan.processingFee || 0;
+          if (pf > 0) {
+            const hasPFBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: `${loan.id}-PF`,
+                referenceType: 'PROCESSING_FEE'
+              }
+            });
+            const hasPFCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: `${loan.id}-PF`,
+                referenceType: 'PROCESSING_FEE'
+              }
+            });
+
+            if (!hasPFBank && !hasPFCash) {
+              const isOnline = ['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS'].includes(disbursementMode.toUpperCase());
+              if (isOnline) {
+                await recBank({
+                  companyId,
+                  transactionType: 'CREDIT',
+                  amount: pf,
+                  description: `Processing Fee - ${loan.loanNumber}`,
+                  referenceType: 'PROCESSING_FEE',
+                  referenceId: `${loan.id}-PF`,
+                  createdById: loan.createdById || systemUser.id
+                });
+              } else {
+                await recCash({
+                  companyId,
+                  entryType: 'CREDIT',
+                  amount: pf,
+                  description: `Processing Fee - ${loan.loanNumber}`,
+                  referenceType: 'PROCESSING_FEE',
+                  referenceId: `${loan.id}-PF`,
+                  createdById: loan.createdById || systemUser.id
+                });
+              }
+              log.push(`Reconstructed processing fee bank/cash entry for offline loan: ${loan.loanNumber}`);
+            }
+
+            const hasPFAccrual = await db.journalEntry.findFirst({
+              where: {
+                companyId,
+                referenceId: loan.id,
+                referenceType: 'PROCESSING_FEE_ACCRUAL'
+              }
+            });
+            if (!hasPFAccrual) {
+              const accountingService = new AccountingService(companyId);
+              await accountingService.initializeChartOfAccounts();
+              await accountingService.recordProcessingFeeAccrual({
+                loanId: loan.id,
+                customerId: loan.customerId || loan.id,
+                amount: pf,
+                accrualDate: new Date(new Date(loan.disbursedAt || loan.createdAt).getTime() - 5000),
+                createdById: loan.createdById || systemUser.id
+              });
+              log.push(`Reconstructed processing fee accrual JournalEntry for offline loan: ${loan.loanNumber}`);
+            }
+
+            const hasPFCollection = await db.journalEntry.findFirst({
+              where: {
+                companyId,
+                referenceId: loan.id,
+                referenceType: 'PROCESSING_FEE_COLLECTION'
+              }
+            });
+            if (!hasPFCollection) {
+              const accountingService = new AccountingService(companyId);
+              await accountingService.initializeChartOfAccounts();
+              await accountingService.recordProcessingFee({
+                loanId: loan.id,
+                customerId: loan.customerId || loan.id,
+                amount: pf,
+                collectionDate: loan.disbursedAt || loan.createdAt,
+                createdById: loan.createdById || systemUser.id,
+                paymentMode: disbursementMode,
+                reference: `Processing Fee: ${loan.loanNumber}`
+              });
+              log.push(`Reconstructed processing fee collection JournalEntry for offline loan: ${loan.loanNumber}`);
+            }
+          }
+        } catch (loanErr) {
+          warn.push(`Failed to reconstruct offline loan ${loan.loanNumber}: ${loanErr instanceof Error ? loanErr.message : 'Unknown'}`);
+        }
+      }
+
+      // 3. Online Payments reconstruction
+      const onlinePayments = await db.payment.findMany({
+        where: {
+          loanApplication: { companyId },
+          status: 'COMPLETED'
+        },
+        include: {
+          loanApplication: {
+            select: {
+              applicationNo: true,
+              customerId: true,
+              customer: { select: { name: true } },
+              firstName: true,
+              lastName: true
+            }
+          }
+        }
+      });
+
+      for (const payment of onlinePayments) {
+        try {
+          const hasJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: payment.id,
+              referenceType: 'EMI_PAYMENT'
+            }
+          });
+
+          const customerName = payment.loanApplication?.customer?.name || 
+            `${payment.loanApplication?.firstName || ''} ${payment.loanApplication?.lastName || ''}`.trim() || 'Customer';
+          const paymentMode = payment.paymentMode || 'ONLINE';
+
+          if (!hasJE) {
+            const accountingService = new AccountingService(companyId);
+            await accountingService.initializeChartOfAccounts();
+
+            await accountingService.recordEMIPayment({
+              loanId: payment.loanApplicationId,
+              customerId: payment.customerId,
+              customerName,
+              paymentId: payment.id,
+              totalAmount: payment.amount,
+              principalComponent: payment.principalComponent || 0,
+              interestComponent: payment.interestComponent || 0,
+              penaltyComponent: payment.penaltyComponent || 0,
+              paymentDate: payment.createdAt,
+              createdById: payment.verifiedById || systemUser.id,
+              paymentMode
+            });
+            log.push(`Reconstructed JournalEntry for online payment: ${payment.id}`);
+          }
+
+          const hasDB = await db.daybookEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: payment.id,
+              referenceType: 'EMI_PAYMENT'
+            }
+          });
+
+          if (!hasDB) {
+            await recOnlineEmi({
+              companyId,
+              loanId: payment.loanApplicationId,
+              emiId: payment.emiScheduleId || payment.id,
+              loanNo: payment.loanApplication?.applicationNo || 'N/A',
+              customerName,
+              principalAmount: payment.principalComponent || 0,
+              interestAmount: payment.interestComponent || 0,
+              penaltyAmount: payment.penaltyComponent || 0,
+              paymentMode,
+              createdById: payment.verifiedById || systemUser.id
+            });
+            log.push(`Reconstructed DaybookEntry for online payment: ${payment.id}`);
+          }
+
+          if (paymentMode === 'CASH') {
+            const hasCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: payment.id,
+                referenceType: 'EMI_PAYMENT'
+              }
+            });
+            if (!hasCash) {
+              await recCash({
+                companyId,
+                entryType: 'CREDIT',
+                amount: payment.amount,
+                description: `EMI Collection - ${payment.loanApplication?.applicationNo} - ${customerName}`,
+                referenceType: 'EMI_PAYMENT',
+                referenceId: payment.id,
+                createdById: payment.verifiedById || systemUser.id
+              });
+              log.push(`Reconstructed CashBookEntry for online payment: ${payment.id}`);
+            }
+          } else {
+            const hasBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: payment.id,
+                referenceType: 'EMI_PAYMENT'
+              }
+            });
+            if (!hasBank) {
+              await recBank({
+                companyId,
+                transactionType: 'CREDIT',
+                amount: payment.amount,
+                description: `EMI Collection - ${payment.loanApplication?.applicationNo} - ${customerName}`,
+                referenceType: 'EMI_PAYMENT',
+                referenceId: payment.id,
+                createdById: payment.verifiedById || systemUser.id
+              });
+              log.push(`Reconstructed BankTransaction for online payment: ${payment.id}`);
+            }
+          }
+        } catch (payErr) {
+          warn.push(`Failed to reconstruct online payment ${payment.id}: ${payErr instanceof Error ? payErr.message : 'Unknown'}`);
+        }
+      }
+
+      // 4. Offline Payments reconstruction
+      const offlinePaidEMIs = await db.offlineLoanEMI.findMany({
+        where: {
+          offlineLoan: { companyId },
+          OR: [{ paidAmount: { gt: 0 } }, { paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] } }]
+        },
+        include: {
+          offlineLoan: {
+            select: {
+              loanNumber: true,
+              customerId: true,
+              customerName: true,
+              customer: { select: { name: true } }
+            }
+          }
+        }
+      });
+
+      for (const emi of offlinePaidEMIs) {
+        try {
+          const hasJE = await db.journalEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: emi.id,
+              referenceType: 'EMI_PAYMENT'
+            }
+          });
+
+          const customerName = emi.offlineLoan?.customerName || emi.offlineLoan?.customer?.name || 'Customer';
+          const paymentMode = emi.paymentMode || 'CASH';
+
+          if (!hasJE) {
+            const accountingService = new AccountingService(companyId);
+            await accountingService.initializeChartOfAccounts();
+
+            await accountingService.recordEMIPayment({
+              loanId: emi.offlineLoanId,
+              customerId: emi.offlineLoan?.customerId || emi.offlineLoanId,
+              customerName,
+              paymentId: emi.id,
+              totalAmount: emi.paidAmount,
+              principalComponent: emi.paidPrincipal || 0,
+              interestComponent: emi.paidInterest || 0,
+              penaltyComponent: emi.penaltyPaid || 0,
+              paymentDate: emi.paidDate || emi.updatedAt,
+              createdById: emi.collectedById || systemUser.id,
+              paymentMode
+            });
+            log.push(`Reconstructed JournalEntry for offline EMI payment: ${emi.id}`);
+          }
+
+          const hasDB = await db.daybookEntry.findFirst({
+            where: {
+              companyId,
+              referenceId: emi.id,
+              referenceType: 'EMI_PAYMENT'
+            }
+          });
+
+          if (!hasDB) {
+            await recOfflineEmi({
+              companyId,
+              loanId: emi.offlineLoanId,
+              emiId: emi.id,
+              loanNo: emi.offlineLoan?.loanNumber || 'N/A',
+              customerName,
+              principalAmount: emi.paidPrincipal || 0,
+              interestAmount: emi.paidInterest || 0,
+              penaltyAmount: emi.penaltyPaid || 0,
+              paymentMode,
+              createdById: emi.collectedById || systemUser.id
+            });
+            log.push(`Reconstructed DaybookEntry for offline EMI payment: ${emi.id}`);
+          }
+
+          if (paymentMode === 'CASH') {
+            const hasCash = await db.cashBookEntry.findFirst({
+              where: {
+                cashBook: { companyId },
+                referenceId: emi.id,
+                referenceType: 'EMI_PAYMENT'
+              }
+            });
+            if (!hasCash) {
+              await recCash({
+                companyId,
+                entryType: 'CREDIT',
+                amount: emi.paidAmount,
+                description: `Offline EMI Payment - ${emi.offlineLoan?.loanNumber} - ${customerName}`,
+                referenceType: 'EMI_PAYMENT',
+                referenceId: emi.id,
+                createdById: emi.collectedById || systemUser.id
+              });
+              log.push(`Reconstructed CashBookEntry for offline EMI payment: ${emi.id}`);
+            }
+          } else {
+            const hasBank = await db.bankTransaction.findFirst({
+              where: {
+                bankAccount: { companyId },
+                referenceId: emi.id,
+                referenceType: 'EMI_PAYMENT'
+              }
+            });
+            if (!hasBank) {
+              await recBank({
+                companyId,
+                transactionType: 'CREDIT',
+                amount: emi.paidAmount,
+                description: `Offline EMI Payment - ${emi.offlineLoan?.loanNumber} - ${customerName}`,
+                referenceType: 'EMI_PAYMENT',
+                referenceId: emi.id,
+                createdById: emi.collectedById || systemUser.id
+              });
+              log.push(`Reconstructed BankTransaction for offline EMI payment: ${emi.id}`);
+            }
+          }
+        } catch (emiErr) {
+          warn.push(`Failed to reconstruct offline EMI ${emi.id}: ${emiErr instanceof Error ? emiErr.message : 'Unknown'}`);
+        }
+      }
+    } catch (reconErr) {
+      warn.push(`Error during deep reconciliation: ${reconErr instanceof Error ? reconErr.message : 'Unknown'}`);
+    }
+
+    // =========================================================================
+    // ─── 03. RE-CALCULATE CASH AND BANK BALANCES (POST-RECONSTRUCTION) ───────
+    // =========================================================================
+    try {
+      const cashBooks = await db.cashBook.findMany({ where: { companyId } });
+      for (const cb of cashBooks) {
+        const entries = await db.cashBookEntry.findMany({ where: { cashBookId: cb.id } });
+        const creditSum = entries.filter(e => e.entryType === 'CREDIT').reduce((s, e) => s + e.amount, 0);
+        const debitSum = entries.filter(e => e.entryType === 'DEBIT').reduce((s, e) => s + e.amount, 0);
+        const calculatedBalance = (cb.openingBalance || 0) + creditSum - debitSum;
+
+        await db.cashBook.update({
+          where: { id: cb.id },
+          data: { currentBalance: calculatedBalance }
+        });
+      }
+
+      const bankAccs = await db.bankAccount.findMany({ where: { companyId } });
+      for (const ba of bankAccs) {
+        const txns = await db.bankTransaction.findMany({ where: { bankAccountId: ba.id } });
+        const creditSum = txns.filter(t => t.transactionType === 'CREDIT').reduce((s, t) => s + t.amount, 0);
+        const debitSum = txns.filter(t => t.transactionType === 'DEBIT').reduce((s, t) => s + t.amount, 0);
+        const calculatedBalance = (ba.openingBalance || 0) + creditSum - debitSum;
+
+        await db.bankAccount.update({
+          where: { id: ba.id },
+          data: { currentBalance: calculatedBalance }
+        });
+      }
+    } catch (recalcErr) {
+      warn.push(`Error in post-reconstruction balance recalculation: ${recalcErr instanceof Error ? recalcErr.message : 'Unknown'}`);
+    }
+
     // ─── 0. CLEANUP ────────────────────────────────────────────────────────────
 
     // Delete previous auto-generated correcting entries
@@ -53,15 +1064,6 @@ export async function POST(request: NextRequest) {
         data: { isActive: false, currentBalance: 0 }
       });
       log.push('Deactivated Suspense account (9999) — no longer needed');
-    }
-
-    // ─── 1. Get system user ───────────────────────────────────────────────────
-    const systemUser =
-      await db.user.findFirst({ where: { role: 'SUPER_ADMIN' }, select: { id: true } }) ||
-      await db.user.findFirst({ select: { id: true } });
-
-    if (!systemUser) {
-      return NextResponse.json({ error: 'No system user found' }, { status: 500 });
     }
 
     // ─── 2. Ensure Opening Balance Equity account exists ──────────────────────
