@@ -325,7 +325,7 @@ export async function POST(request: NextRequest) {
       await closePartnerLoan();
 
       // ── Accounting: Irrecoverable Debt write-off journal — ORIGINAL COMPANY
-      if (effectiveCompanyId) {
+      if (effectiveCompanyId && (!mirrorMapping || effectiveCompanyId === mirrorMapping.mirrorCompanyId)) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
           const accSvc = new AccountingService(effectiveCompanyId);
@@ -404,7 +404,7 @@ export async function POST(request: NextRequest) {
       }
 
       // ── Accounting: Irrecoverable Debt write-off journal — PARTNER COMPANY ──
-      if (partnerLoanId && partnerCompanyId && partnerLoan) {
+      if (partnerLoanId && partnerCompanyId && partnerLoan && partnerCompanyId === mirrorMapping?.mirrorCompanyId) {
         try {
           const partnerUnpaid = partnerUnpaidEMIs;
           const partnerUnpaidIds = partnerUnpaid.map(e => e.id);
@@ -683,7 +683,7 @@ export async function POST(request: NextRequest) {
     }).catch(e => console.error('[Close/Payment] ActionLog failed:', e));
 
     // ── Accounting: Foreclosure entries for original loan ──
-    if (effectiveCompanyId && totalForeclosureAmount > 0) {
+    if (effectiveCompanyId && (!mirrorMapping || effectiveCompanyId === mirrorMapping.mirrorCompanyId) && totalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
         const entryArgs = {
@@ -790,7 +790,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Accounting: Foreclosure entries for partner loan ──
-    if (partnerCompanyId && partnerTotalForeclosureAmount > 0) {
+    if (partnerCompanyId && partnerCompanyId === mirrorMapping?.mirrorCompanyId && partnerTotalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
         const entryArgs = {

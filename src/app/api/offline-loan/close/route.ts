@@ -171,9 +171,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Loan ID and User ID required' }, { status: 400 });
     }
 
+    // Find mirror mapping — we close mirror too if it exists
+    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+      where: {
+        OR: [
+          { originalLoanId: loanId, isOfflineLoan: true },
+          { mirrorLoanId: loanId, isOfflineLoan: true }
+        ]
+      }
+    });
+
+    const targetOriginalId = mirrorMapping ? mirrorMapping.originalLoanId : loanId;
+    const targetMirrorId   = mirrorMapping ? mirrorMapping.mirrorLoanId   : null;
+
     const loan = await (db.offlineLoan as any).findUnique({
-      where: { id: loanId },
-      // Only fetch the fields needed for calculation — don't JOIN heavy relations
+      where: { id: targetOriginalId },
       include: { emis: { orderBy: { installmentNumber: 'asc' } } }
     });
 
@@ -185,11 +197,6 @@ export async function POST(request: NextRequest) {
     const now   = new Date();
     const user  = await db.user.findUnique({ where: { id: userId }, select: { id: true, name: true, role: true } });
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
-    // Find mirror mapping — we close mirror too if it exists
-    const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-      where: { originalLoanId: loanId, isOfflineLoan: true }
-    });
 
     let effectiveCompanyId = companyId || loan.companyId || '';
     // If still empty, resolve to first available company (OfflineLoan.companyId is nullable)
@@ -211,9 +218,9 @@ export async function POST(request: NextRequest) {
     let mirrorTotalInterest  = 0;
     let mirrorTotalForeclosureAmount = 0;
 
-    if (mirrorMapping?.mirrorLoanId) {
+    if (targetMirrorId) {
       mirrorLoan = await (db.offlineLoan as any).findUnique({
-        where:   { id: mirrorMapping.mirrorLoanId },
+        where:   { id: targetMirrorId },
         include: { emis: { orderBy: { installmentNumber: 'asc' } } }
       });
       if (mirrorLoan) {
@@ -232,44 +239,6 @@ export async function POST(request: NextRequest) {
         mirrorTotalForeclosureAmount = mirrorTotalPrincipal + mirrorTotalInterest;
       }
     }
-
-    // ─── Helper: close mirror loan (BATCH — avoids sequential round-trips) ─────
-    const closeMirrorLoan = async () => {
-      if (!mirrorMapping?.mirrorLoanId) return;
-      try {
-        const mirrorLoan = await (db.offlineLoan as any).findUnique({
-          where:   { id: mirrorMapping.mirrorLoanId },
-          select:  { id: true, loanNumber: true, status: true }
-        });
-        if (!mirrorLoan || mirrorLoan.status === 'CLOSED') return;
-
-        // BATCH: close all unpaid mirror EMIs in one query — no loop needed
-        await (db.offlineLoanEMI as any).updateMany({
-          where: {
-            offlineLoanId: mirrorMapping.mirrorLoanId,
-            paymentStatus: { notIn: ['PAID', 'INTEREST_ONLY_PAID'] }
-          },
-          data: {
-            paymentStatus:   'PAID',
-            paidDate:        now,
-            collectedById:   userId,
-            collectedByName: user.name,
-            collectedAt:     now,
-            // Note: updateMany cannot use per-row computed values (totalAmount varies per EMI).
-            // We keep paidAmount null here; a follow-up findMany would be needed for exact amounts.
-            // For foreclosure/write-off this is acceptable — the loan is CLOSED.
-          }
-        });
-        await db.offlineLoan.update({
-          where: { id: mirrorMapping.mirrorLoanId! },
-          data:  { status: 'CLOSED', closedAt: now }
-        });
-        console.log(`[Close] ✅ Mirror loan ${mirrorLoan.loanNumber} also closed`);
-      } catch (e: any) {
-        console.error('[Close] ❌ Mirror loan close failed:', e?.message);
-        accountingWarnings.push(`Mirror loan close failed: ${e?.message}`);
-      }
-    };
 
     // ─── A. WRITE-OFF AS LOSS ────────────────────────────────────────────────
     if (closeType === 'LOSS') {
@@ -291,6 +260,7 @@ export async function POST(request: NextRequest) {
         : totalRemainingPrincipal + totalRemainingInterest;
 
       await withRetry(() => db.$transaction(async (tx) => {
+        // 1. Close original loan & EMIs
         if (unpaidEMIIds.length > 0) {
           await (tx.offlineLoanEMI as any).updateMany({
             where: { id: { in: unpaidEMIIds } },
@@ -304,9 +274,28 @@ export async function POST(request: NextRequest) {
           });
         }
         await (tx.offlineLoan as any).update({
-          where: { id: loanId },
+          where: { id: targetOriginalId },
           data:  { status: 'CLOSED', closedAt: now }
         });
+
+        // 2. Close mirror loan & EMIs (if mirror exists)
+        if (targetMirrorId && mirrorUnpaidEMIs.length > 0) {
+          const mirrorUnpaidEMIIds = mirrorUnpaidEMIs.map((e: any) => e.id);
+          await (tx.offlineLoanEMI as any).updateMany({
+            where: { id: { in: mirrorUnpaidEMIIds } },
+            data: {
+              paymentStatus:   'PAID',
+              paidDate:        now,
+              collectedById:   userId,
+              collectedByName: user.name,
+              collectedAt:     now,
+            }
+          });
+          await (tx.offlineLoan as any).update({
+            where: { id: targetMirrorId },
+            data:  { status: 'CLOSED', closedAt: now }
+          });
+        }
       }, { maxWait: 5000, timeout: 10000 }));
 
       db.actionLog.create({
@@ -325,8 +314,6 @@ export async function POST(request: NextRequest) {
           canUndo: true,
         }
       }).catch(e => console.error('[Close/Loss] ActionLog failed (non-critical):', e));
-
-      await closeMirrorLoan();
 
       // ── Accounting: Write-off journal ─────────────────────────────────────
       if (mirrorMapping) {
@@ -408,6 +395,8 @@ export async function POST(request: NextRequest) {
           } catch (e: any) { accountingWarnings.push(`Mirror write-off journal failed: ${e?.message}`); }
         }
 
+        // Disable original company settlement entry to prevent entries in original company for mirror loans
+        /*
         if (mirrorMapping.originalCompanyId || loan.companyId) {
           try {
             const { AccountingService } = await import('@/lib/accounting-service');
@@ -428,6 +417,7 @@ export async function POST(request: NextRequest) {
             });
           } catch (settleErr: any) { accountingWarnings.push(`Intercompany settlement journal failed: ${settleErr?.message}`); }
         }
+        */
       } else if (effectiveCompanyId) {
         try {
           const { AccountingService } = await import('@/lib/accounting-service');
@@ -748,6 +738,8 @@ export async function POST(request: NextRequest) {
         } catch (e: any) { accountingWarnings.push(`Mirror foreclosure accounting failed: ${e?.message}`); }
       }
 
+      // Disable original company foreclosure entries to prevent entries in original company for mirror loans
+      /*
       if ((mirrorMapping.originalCompanyId || loan.companyId) && totalForeclosureAmount > 0) {
         try {
           const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
@@ -802,6 +794,7 @@ export async function POST(request: NextRequest) {
           }, { maxWait: 15000, timeout: 30000 }));
         } catch (e: any) { accountingWarnings.push(`Original company foreclosure accounting failed: ${e?.message}`); }
       }
+      */
     } else if (effectiveCompanyId && totalForeclosureAmount > 0) {
       try {
         const { recordCashBookEntry, recordBankTransaction } = await import('@/lib/simple-accounting');
