@@ -786,7 +786,8 @@ async function processSingleApproval({
               description: `Processing Fee - ${loan.applicationNo}`, 
               referenceType: 'PROCESSING_FEE',
               referenceId: `${loanId}-PF`, 
-              createdById: userId || 'SYSTEM' 
+              createdById: userId || 'SYSTEM',
+              tx
             });
           } else {
             await pfCb({ 
@@ -796,7 +797,8 @@ async function processSingleApproval({
               description: `Processing Fee - ${loan.applicationNo}`, 
               referenceType: 'PROCESSING_FEE',
               referenceId: `${loanId}-PF`, 
-              createdById: userId || 'SYSTEM' 
+              createdById: userId || 'SYSTEM',
+              tx
             });
           }
 
