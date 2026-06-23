@@ -317,7 +317,6 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         disbursedAmount: true,
         emiSchedules: {
           where: {
-            paymentStatus: 'PAID',
             paidDate: { lte: dateFilter }
           },
           select: { paidPrincipal: true }
@@ -336,7 +335,6 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         loanAmount: true,
         emis: {
           where: {
-            paymentStatus: 'PAID',
             paidDate: { lte: dateFilter }
           },
           select: { paidPrincipal: true }

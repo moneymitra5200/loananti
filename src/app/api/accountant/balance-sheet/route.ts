@@ -164,7 +164,7 @@ export async function GET(request: NextRequest) {
     const actualCashBalance = cashBookData?.currentBalance || 0;
     const actualCashOpening = cashBookData?.openingBalance || 0;
 
-    // Calculate actual outstanding online loans (exclude CLOSED, only count PAID principal repayments)
+    // Calculate actual outstanding online loans (exclude CLOSED, count all principal repayments including partial payments)
     const onlineLoans = await db.loanApplication.findMany({
       where: {
         companyId,
@@ -174,7 +174,6 @@ export async function GET(request: NextRequest) {
         disbursedAmount: true,
         status: true,
         emiSchedules: {
-          where: { paymentStatus: 'PAID' }, // Only count actually paid EMIs
           select: { paidPrincipal: true }
         }
       }
@@ -200,7 +199,6 @@ export async function GET(request: NextRequest) {
         loanAmount: true,
         status: true,
         emis: {
-          where: { paymentStatus: 'PAID' }, // Only count actually paid EMIs
           select: { paidPrincipal: true }
         }
       }
