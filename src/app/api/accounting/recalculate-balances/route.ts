@@ -520,11 +520,7 @@ export async function POST(request: NextRequest) {
       const activeOfflineLoans = await db.offlineLoan.findMany({
         where: {
           companyId,
-          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'DEFAULTED', 'RESTRUCTURED'] },
-          loanAmount: { not: null }
-        },
-        include: {
-          customer: { select: { name: true } }
+          status: { in: ['ACTIVE', 'INTEREST_ONLY', 'CLOSED', 'DEFAULTED', 'RESTRUCTURED'] }
         }
       });
 
@@ -542,8 +538,8 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          const disbursementMode = loan.paymentMode || 'BANK_TRANSFER';
-          const customerName = loan.customerName || loan.customer?.name || 'Customer';
+          const disbursementMode = loan.disbursementMode || 'BANK_TRANSFER';
+          const customerName = loan.customerName || 'Customer';
           const amount = loan.loanAmount;
 
           if (!hasJE) {
@@ -576,7 +572,7 @@ export async function POST(request: NextRequest) {
               });
 
               await accountingService.createJournalEntry({
-                entryDate: loan.disbursedAt || loan.createdAt,
+                entryDate: loan.disbursementDate || loan.createdAt,
                 referenceType: 'MIRROR_LOAN_DISBURSEMENT',
                 referenceId: loan.id,
                 narration: `Mirror Loan Disbursement - ${loan.loanNumber} - Principal: ₹${amount.toLocaleString()}`,
@@ -592,7 +588,7 @@ export async function POST(request: NextRequest) {
                 customerId: loan.customerId || loan.id,
                 customerName,
                 amount,
-                disbursementDate: loan.disbursedAt || loan.createdAt,
+                disbursementDate: loan.disbursementDate || loan.createdAt,
                 createdById: loan.createdById || systemUser.id,
                 paymentMode: disbursementMode,
                 reference: `Reconstruction: ${loan.loanNumber}`
@@ -726,7 +722,7 @@ export async function POST(request: NextRequest) {
                 loanId: loan.id,
                 customerId: loan.customerId || loan.id,
                 amount: pf,
-                accrualDate: new Date(new Date(loan.disbursedAt || loan.createdAt).getTime() - 5000),
+                accrualDate: new Date(new Date(loan.disbursementDate || loan.createdAt).getTime() - 5000),
                 createdById: loan.createdById || systemUser.id
               });
               log.push(`Reconstructed processing fee accrual JournalEntry for offline loan: ${loan.loanNumber}`);
@@ -746,7 +742,7 @@ export async function POST(request: NextRequest) {
                 loanId: loan.id,
                 customerId: loan.customerId || loan.id,
                 amount: pf,
-                collectionDate: loan.disbursedAt || loan.createdAt,
+                collectionDate: loan.disbursementDate || loan.createdAt,
                 createdById: loan.createdById || systemUser.id,
                 paymentMode: disbursementMode,
                 reference: `Processing Fee: ${loan.loanNumber}`
