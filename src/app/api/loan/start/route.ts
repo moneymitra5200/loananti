@@ -402,6 +402,9 @@ export async function POST(request: NextRequest) {
       }
 
       return { updatedLoan, emiSchedules };
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     })); // end withRetry + $transaction
 
     console.log(`[Start Loan] Successfully started loan ${loan.applicationNo}`);

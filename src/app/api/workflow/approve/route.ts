@@ -924,6 +924,9 @@ async function processSingleApproval({
         console.log(`[Mirror Loan] Synced closure to mirror loan ${mirrorMapping.mirrorLoanId}`);
       }
     }
+  }, {
+    maxWait: 15000,
+    timeout: 30000
   });
 
   // Invalidate cache for this loan
