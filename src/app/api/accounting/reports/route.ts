@@ -306,11 +306,11 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     companyId ? db.cashBook.findUnique({ where: { companyId } }) : null,
     db.bankAccount.findMany({ where: { ...(companyId ? { companyId } : {}), isActive: true } }),
     db.equityEntry.findMany({ where: { ...(companyId ? { companyId } : {}) } }),
-    // Online loans — disbursed on or before dateFilter
+    // Online loans — disbursed on or before dateFilter (exclude CLOSED = fully recovered)
     db.loanApplication.findMany({
       where: {
         ...(companyId ? { companyId } : {}),
-        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] },
+        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }, // CLOSED excluded — ₹0 outstanding
         disbursedAt: { lte: dateFilter }
       },
       select: {
@@ -324,11 +324,12 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         }
       }
     }),
-    // Offline loans
+    // Offline loans — CRITICAL: isMirrorLoan:false to exclude accounting duplicates
     db.offlineLoan.findMany({
       where: {
         ...(companyId ? { companyId } : {}),
-        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED', 'CLOSED'] },
+        isMirrorLoan: false, // ✅ FIX: Mirror loans are not this company's assets
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] }, // CLOSED excluded — fully recovered
         disbursementDate: { lte: dateFilter }
       },
       select: {
@@ -420,7 +421,8 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     if (acc.accountCode === '1201') balance = actualOnlineLoans;
     if (acc.accountCode === '1210') balance = actualOfflineLoans;
     if (acc.accountCode === '3002') {
-      balance = actualCapital > 0 || actualCapital < 0 ? actualCapital : balance;
+      // Always use EquityEntry-derived actualCapital (source of truth) instead of stale CoA balance
+      balance = actualCapital !== 0 ? actualCapital : balance;
     }
     if (acc.accountCode === '1200') balance = actualOnlineLoans + actualOfflineLoans;
 
