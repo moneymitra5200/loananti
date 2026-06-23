@@ -186,12 +186,14 @@ export async function GET(request: NextRequest) {
     }, 0);
 
     // Calculate actual outstanding offline loans
-    // CRITICAL: isMirrorLoan: false — mirror loans are accounting duplicates in the partner company,
-    // NOT real assets of this company. Counting them inflates the Offline Loans balance.
+    // Each loan record has companyId set to the company that OWNS it:
+    //   - Original loans → companyId = original company
+    //   - Mirror loans  → companyId = mirror company (the funder)
+    // The companyId filter already prevents cross-company double-counting.
+    // Mirror loans in the mirror company ARE that company's real funded assets.
     const offlineLoans = await db.offlineLoan.findMany({
       where: {
         companyId,
-        isMirrorLoan: false, // ✅ FIX: Exclude mirror loans — they are not this company's assets
         status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } // Exclude CLOSED — fully recovered
       },
       select: {

@@ -324,11 +324,11 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         }
       }
     }),
-    // Offline loans — CRITICAL: isMirrorLoan:false to exclude accounting duplicates
+    // Offline loans — companyId filter already ensures each company sees only its own loans.
+    // Mirror loans in the mirror company ARE that company's real funded assets.
     db.offlineLoan.findMany({
       where: {
         ...(companyId ? { companyId } : {}),
-        isMirrorLoan: false, // ✅ FIX: Mirror loans are not this company's assets
         status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] }, // CLOSED excluded — fully recovered
         disbursementDate: { lte: dateFilter }
       },

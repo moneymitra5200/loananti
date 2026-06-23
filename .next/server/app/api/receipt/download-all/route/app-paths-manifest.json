@@ -1,0 +1,3 @@
+{
+  "/api/receipt/download-all/route": "app/api/receipt/download-all/route.js"
+}
