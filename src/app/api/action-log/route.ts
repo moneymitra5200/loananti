@@ -1173,6 +1173,20 @@ export async function PUT(request: NextRequest) {
               const installmentNumber = paidEMI?.installmentNumber;
 
               if (installmentNumber) {
+                // Find mirror EMIs that were paid to reverse their accounting entries
+                const mirrorEMIs = await tx.offlineLoanEMI.findMany({
+                  where: {
+                    offlineLoanId: mirrorLoanId,
+                    installmentNumber,
+                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID'] }
+                  }
+                });
+
+                for (const memi of mirrorEMIs) {
+                  await deleteBankOrCashEntriesForRef(memi.id, tx);
+                  await reverseJournalEntriesForRef(memi.id, userId, tx);
+                }
+
                 // Revert mirror EMI to PENDING
                 await tx.offlineLoanEMI.updateMany({
                   where: {
@@ -1510,8 +1524,30 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // Delete bank/cash transactions & revert balances
-            await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+            // Clean up payments, credit transactions, and audit logs - define paymentsToDelete first
+            const paymentsToDelete = [actionLog.recordId];
+            if (loanId && emi) {
+              const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+                where: { originalLoanId: loanId }
+              });
+              if (mirrorMapping?.mirrorLoanId) {
+                const mirrorEMI = await tx.eMISchedule.findFirst({
+                  where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
+                });
+                if (mirrorEMI) {
+                  const mirrorPayments = await tx.payment.findMany({
+                    where: { emiScheduleId: mirrorEMI.id },
+                    select: { id: true }
+                  });
+                  paymentsToDelete.push(...mirrorPayments.map((p: any) => p.id));
+                }
+              }
+            }
+
+            // Delete bank/cash transactions & revert balances for all payments (including mirror payments)
+            for (const pid of paymentsToDelete) {
+              await deleteBankOrCashEntriesForRef(pid, tx);
+            }
 
             // Revert collector credit
             if (newData) {
@@ -1544,27 +1580,9 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // Delete journal entries
-            await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
-
-            // Clean up payments, credit transactions, and audit logs
-            const paymentsToDelete = [actionLog.recordId];
-            if (loanId && emi) {
-              const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-                where: { originalLoanId: loanId }
-              });
-              if (mirrorMapping?.mirrorLoanId) {
-                const mirrorEMI = await tx.eMISchedule.findFirst({
-                  where: { loanApplicationId: mirrorMapping.mirrorLoanId, installmentNumber: emi.installmentNumber }
-                });
-                if (mirrorEMI) {
-                  const mirrorPayments = await tx.payment.findMany({
-                    where: { emiScheduleId: mirrorEMI.id },
-                    select: { id: true }
-                  });
-                  paymentsToDelete.push(...mirrorPayments.map((p: any) => p.id));
-                }
-              }
+            // Delete journal entries for all payments (including mirror payments)
+            for (const pid of paymentsToDelete) {
+              await reverseJournalEntriesForRef(pid, userId, tx);
             }
 
             await tx.auditLog.deleteMany({
