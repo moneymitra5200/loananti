@@ -797,7 +797,7 @@ export class AccountingService {
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
       isAutoEntry: true,
-    });
+    }, tx);
   }
 
 
