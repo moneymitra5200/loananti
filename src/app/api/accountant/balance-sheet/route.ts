@@ -164,43 +164,46 @@ export async function GET(request: NextRequest) {
     const actualCashBalance = cashBookData?.currentBalance || 0;
     const actualCashOpening = cashBookData?.openingBalance || 0;
 
-    // Calculate actual outstanding online loans
+    // Calculate actual outstanding online loans (exclude CLOSED, only count PAID principal repayments)
     const onlineLoans = await db.loanApplication.findMany({
       where: {
         companyId,
-        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED', 'CLOSED'] }
+        status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } // Exclude CLOSED — they're fully recovered
       },
       select: {
         disbursedAmount: true,
         status: true,
         emiSchedules: {
+          where: { paymentStatus: 'PAID' }, // Only count actually paid EMIs
           select: { paidPrincipal: true }
         }
       }
     });
     const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
-      if (loan.status === 'CLOSED') return sum;
       const disbursed = loan.disbursedAmount || 0;
       const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
       return sum + Math.max(0, disbursed - paidPrincipal);
     }, 0);
 
     // Calculate actual outstanding offline loans
+    // CRITICAL: isMirrorLoan: false — mirror loans are accounting duplicates in the partner company,
+    // NOT real assets of this company. Counting them inflates the Offline Loans balance.
     const offlineLoans = await db.offlineLoan.findMany({
       where: {
         companyId,
-        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED', 'CLOSED'] }
+        isMirrorLoan: false, // ✅ FIX: Exclude mirror loans — they are not this company's assets
+        status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } // Exclude CLOSED — fully recovered
       },
       select: {
         loanAmount: true,
         status: true,
         emis: {
+          where: { paymentStatus: 'PAID' }, // Only count actually paid EMIs
           select: { paidPrincipal: true }
         }
       }
     });
     const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
-      if (loan.status === 'CLOSED') return sum;
       const disbursed = loan.loanAmount || 0;
       const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
       return sum + Math.max(0, disbursed - paidPrincipal);
