@@ -237,15 +237,36 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
         INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
         PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7,
       };
-      const loanEntries = entries
-        .filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber)
+      const loanEntriesRaw = entries.filter(e => e.loanId === loan.id || e.loanNumber === loan.loanNumber);
+      const disbursementEntry = loanEntriesRaw.find(e =>
+        e.referenceType === 'LOAN_DISBURSEMENT' || e.referenceType === 'MIRROR_LOAN_DISBURSEMENT'
+      );
+      const disbursementDate = disbursementEntry ? new Date(disbursementEntry.date) : null;
+
+      const isInitialSetup = (entry: LedgerEntry) => {
+        if (!disbursementDate) return true;
+        const entryDate = new Date(entry.date);
+        const diffTime = Math.abs(entryDate.getTime() - disbursementDate.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays <= 3;
+      };
+
+      const loanEntries = loanEntriesRaw
         .sort((a, b) => {
           // Step 1: Disbursement (0) always first, PF accrual (1) always second
-          // regardless of what date the JE carries.
+          // ONLY if it is part of the initial setup (close to the disbursement date).
           const oA = LEDGER_ORDER[a.referenceType] ?? 9;
           const oB = LEDGER_ORDER[b.referenceType] ?? 9;
-          if (oA <= 1 || oB <= 1) {
-            if (oA !== oB) return oA - oB;
+
+          const isInitialA = oA <= 1 && (oA === 0 || isInitialSetup(a));
+          const isInitialB = oB <= 1 && (oB === 0 || isInitialSetup(b));
+
+          if (isInitialA || isInitialB) {
+            if (isInitialA && isInitialB) {
+              if (oA !== oB) return oA - oB;
+            } else {
+              return isInitialA ? -1 : 1;
+            }
           }
 
           // Step 2: chronological by date
