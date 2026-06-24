@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
       const orphanDBEntries = await db.daybookEntry.findMany({
         where: {
           companyId,
-          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
         },
         select: { id: true, referenceId: true }
       });
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       const orphanBankTxns = await db.bankTransaction.findMany({
         where: {
           bankAccount: { companyId },
-          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
         },
         select: { id: true, referenceId: true }
       });
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       const orphanCashEntries = await db.cashBookEntry.findMany({
         where: {
           cashBook: { companyId },
-          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+          referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
         },
         select: { id: true, referenceId: true }
       });
@@ -246,6 +246,109 @@ export async function POST(request: NextRequest) {
       warn.push(`Error cleaning up orphaned accounting records: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown'}`);
     }
 
+    // Clean up incorrect journal/ledger entries for mirrored loans from original company books
+    try {
+      const mirrorMappings = await db.mirrorLoanMapping.findMany({
+        select: { originalLoanId: true }
+      });
+      const mirroredOriginalIdsSet = new Set(mirrorMappings.map(m => m.originalLoanId));
+
+      if (mirroredOriginalIdsSet.size > 0) {
+        const mirroredEMIs = await db.offlineLoanEMI.findMany({
+          where: { offlineLoanId: { in: [...mirroredOriginalIdsSet] } },
+          select: { id: true }
+        });
+        const mirroredEMIIds = mirroredEMIs.map(e => e.id);
+
+        const onlineEMIs = await db.eMISchedule.findMany({
+          where: { loanApplicationId: { in: [...mirroredOriginalIdsSet] } },
+          select: { id: true }
+        });
+        const onlineEMIIds = onlineEMIs.map(e => e.id);
+
+        const payments = await db.payment.findMany({
+          where: { loanApplicationId: { in: [...mirroredOriginalIdsSet] } },
+          select: { id: true }
+        });
+        const paymentIds = payments.map(p => p.id);
+
+        const cleanReferenceIds = [
+          ...mirroredOriginalIdsSet,
+          ...mirroredEMIIds,
+          ...onlineEMIIds,
+          ...paymentIds,
+          ...[...mirroredOriginalIdsSet].map(id => `${id}-PF`),
+        ];
+
+        if (cleanReferenceIds.length > 0) {
+          // Delete lines first
+          await db.journalEntryLine.deleteMany({
+            where: {
+              journalEntry: {
+                companyId,
+                referenceId: { in: cleanReferenceIds }
+              }
+            }
+          });
+          await db.journalEntryLine.deleteMany({
+            where: {
+              journalEntry: { companyId },
+              loanId: { in: [...mirroredOriginalIdsSet] }
+            }
+          });
+
+          // Delete journal entries
+          const deletedJEs = await db.journalEntry.deleteMany({
+            where: {
+              companyId,
+              OR: [
+                { referenceId: { in: cleanReferenceIds } },
+                { lines: { some: { loanId: { in: [...mirroredOriginalIdsSet] } } } }
+              ]
+            }
+          });
+          if (deletedJEs.count > 0) {
+            log.push(`Cleaned up ${deletedJEs.count} incorrect journal entries for mirrored loans from original company books`);
+          }
+
+          // Delete daybook entries
+          const deletedDB = await db.daybookEntry.deleteMany({
+            where: {
+              companyId,
+              referenceId: { in: cleanReferenceIds }
+            }
+          });
+          if (deletedDB.count > 0) {
+            log.push(`Cleaned up ${deletedDB.count} daybook entries for mirrored loans from original company books`);
+          }
+
+          // Delete cash book entries
+          const deletedCash = await db.cashBookEntry.deleteMany({
+            where: {
+              cashBook: { companyId },
+              referenceId: { in: cleanReferenceIds }
+            }
+          });
+          if (deletedCash.count > 0) {
+            log.push(`Cleaned up ${deletedCash.count} cash book entries for mirrored loans from original company books`);
+          }
+
+          // Delete bank transactions
+          const deletedBank = await db.bankTransaction.deleteMany({
+            where: {
+              bankAccount: { companyId },
+              referenceId: { in: cleanReferenceIds }
+            }
+          });
+          if (deletedBank.count > 0) {
+            log.push(`Cleaned up ${deletedBank.count} bank transactions for mirrored loans from original company books`);
+          }
+        }
+      }
+    } catch (cleanupErr) {
+      warn.push(`Error cleaning up mirrored accounting records from original company: ${cleanupErr instanceof Error ? cleanupErr.message : 'Unknown'}`);
+    }
+
     // =========================================================================
     // ─── 02. DEEP RECONCILIATION - RECONSTRUCT MISSING ENTRIES ───────────────
     // =========================================================================
@@ -258,6 +361,11 @@ export async function POST(request: NextRequest) {
         recordOfflineEMIPayment: recOfflineEmi,
       } = await import('@/lib/accounting-helper');
       const { recordBankTransaction: recBank, recordCashBookEntry: recCash } = await import('@/lib/simple-accounting');
+
+      const mirrorMappings = await db.mirrorLoanMapping.findMany({
+        select: { originalLoanId: true }
+      });
+      const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
 
       // 1. Online Loans Reconstruction
       const activeOnlineLoans = await db.loanApplication.findMany({
@@ -274,6 +382,9 @@ export async function POST(request: NextRequest) {
 
       for (const loan of activeOnlineLoans) {
         try {
+          if (mirroredOriginalIds.has(loan.id)) {
+            continue; // Skip mirrored original loans from original company's books
+          }
           const hasJE = await db.journalEntry.findFirst({
             where: {
               companyId,
@@ -388,7 +499,7 @@ export async function POST(request: NextRequest) {
               where: {
                 cashBook: { companyId },
                 referenceId: loan.id,
-                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
               }
             });
             if (!hasCash) {
@@ -408,7 +519,7 @@ export async function POST(request: NextRequest) {
               where: {
                 bankAccount: { companyId },
                 referenceId: loan.id,
-                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
               }
             });
             if (!hasBank) {
@@ -526,6 +637,9 @@ export async function POST(request: NextRequest) {
 
       for (const loan of activeOfflineLoans) {
         try {
+          if (mirroredOriginalIds.has(loan.id)) {
+            continue; // Skip mirrored original loans from original company's books
+          }
           const isMirrorLoan = !!(await db.mirrorLoanMapping.findFirst({
             where: { mirrorLoanId: loan.id }
           }));
@@ -627,7 +741,7 @@ export async function POST(request: NextRequest) {
               where: {
                 cashBook: { companyId },
                 referenceId: loan.id,
-                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
               }
             });
             if (!hasCash) {
@@ -647,7 +761,7 @@ export async function POST(request: NextRequest) {
               where: {
                 bankAccount: { companyId },
                 referenceId: loan.id,
-                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] }
+                referenceType: { in: ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT', 'OFFLINE_LOAN'] }
               }
             });
             if (!hasBank) {
@@ -776,6 +890,9 @@ export async function POST(request: NextRequest) {
 
       for (const payment of onlinePayments) {
         try {
+          if (payment.loanApplicationId && mirroredOriginalIds.has(payment.loanApplicationId)) {
+            continue;
+          }
           const hasJE = await db.journalEntry.findFirst({
             where: {
               companyId,
@@ -898,13 +1015,43 @@ export async function POST(request: NextRequest) {
 
       for (const emi of offlinePaidEMIs) {
         try {
-          const hasJE = await db.journalEntry.findFirst({
+          if (emi.offlineLoanId && mirroredOriginalIds.has(emi.offlineLoanId)) {
+            continue;
+          }
+
+          // Build possible reference IDs (including original EMI IDs for mirror loans)
+          const possibleRefIds = [emi.id];
+          if (emi.offlineLoanId) {
+            const mapping = await db.mirrorLoanMapping.findFirst({
+              where: { mirrorLoanId: emi.offlineLoanId }
+            });
+            if (mapping) {
+              const origEMIs = await db.offlineLoanEMI.findMany({
+                where: { offlineLoanId: mapping.originalLoanId },
+                orderBy: { dueDate: 'asc' }
+              });
+              const mirrorEMIs = await db.offlineLoanEMI.findMany({
+                where: { offlineLoanId: emi.offlineLoanId },
+                orderBy: { dueDate: 'asc' }
+              });
+              const idx = mirrorEMIs.findIndex(m => m.id === emi.id);
+              if (idx !== -1 && origEMIs[idx]) {
+                possibleRefIds.push(origEMIs[idx].id);
+              }
+            }
+          }
+
+          const existingJE = await db.journalEntry.findFirst({
             where: {
               companyId,
-              referenceId: emi.id,
-              referenceType: 'EMI_PAYMENT'
+              OR: [
+                { referenceId: { in: possibleRefIds } },
+                ...possibleRefIds.map(refId => ({ referenceId: { startsWith: refId } }))
+              ],
+              referenceType: { in: ['EMI_PAYMENT', 'PRINCIPAL_ONLY_PAYMENT', 'INTEREST_ONLY_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
             }
           });
+          const hasJE = !!existingJE;
 
           const customerName = emi.offlineLoan?.customerName || emi.offlineLoan?.customer?.name || 'Customer';
           const paymentMode = emi.paymentMode || 'CASH';
@@ -929,13 +1076,17 @@ export async function POST(request: NextRequest) {
             log.push(`Reconstructed JournalEntry for offline EMI payment: ${emi.id}`);
           }
 
-          const hasDB = await db.daybookEntry.findFirst({
+          const existingDB = await db.daybookEntry.findFirst({
             where: {
               companyId,
-              referenceId: emi.id,
-              referenceType: 'EMI_PAYMENT'
+              OR: [
+                { referenceId: { in: possibleRefIds } },
+                ...possibleRefIds.map(refId => ({ referenceId: { startsWith: refId } }))
+              ],
+              referenceType: { in: ['EMI_PAYMENT', 'PRINCIPAL_ONLY_PAYMENT', 'INTEREST_ONLY_PAYMENT', 'MIRROR_EMI_PAYMENT'] }
             }
           });
+          const hasDB = !!existingDB;
 
           if (!hasDB) {
             await recOfflineEmi({
@@ -954,13 +1105,17 @@ export async function POST(request: NextRequest) {
           }
 
           if (paymentMode === 'CASH') {
-            const hasCash = await db.cashBookEntry.findFirst({
+            const existingCash = await db.cashBookEntry.findFirst({
               where: {
                 cashBook: { companyId },
-                referenceId: emi.id,
-                referenceType: 'EMI_PAYMENT'
+                OR: [
+                  { referenceId: { in: possibleRefIds } },
+                  ...possibleRefIds.map(refId => ({ referenceId: { startsWith: refId } }))
+                ]
               }
             });
+            const hasCash = !!existingCash;
+
             if (!hasCash) {
               await recCash({
                 companyId,
@@ -974,13 +1129,17 @@ export async function POST(request: NextRequest) {
               log.push(`Reconstructed CashBookEntry for offline EMI payment: ${emi.id}`);
             }
           } else {
-            const hasBank = await db.bankTransaction.findFirst({
+            const existingBank = await db.bankTransaction.findFirst({
               where: {
                 bankAccount: { companyId },
-                referenceId: emi.id,
-                referenceType: 'EMI_PAYMENT'
+                OR: [
+                  { referenceId: { in: possibleRefIds } },
+                  ...possibleRefIds.map(refId => ({ referenceId: { startsWith: refId } }))
+                ]
               }
             });
+            const hasBank = !!existingBank;
+
             if (!hasBank) {
               await recBank({
                 companyId,
@@ -1205,33 +1364,44 @@ export async function POST(request: NextRequest) {
     const bankAccounts = await db.bankAccount.findMany({ where: { companyId, isActive: true } });
     const targetBank = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
 
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      select: { originalLoanId: true }
+    });
+    const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
+
     // Online Loans Outstanding
     const onlineLoans = await db.loanApplication.findMany({
       where: { companyId, status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } },
       select: {
+        id: true,
         disbursedAmount: true,
         emiSchedules: { select: { paidPrincipal: true } }
       }
     });
-    const targetOnlineLoans = onlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.disbursedAmount || 0;
-      const paid = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
-      return sum + Math.max(0, disbursed - paid);
-    }, 0);
+    const targetOnlineLoans = onlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.disbursedAmount || 0;
+        const paid = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paid);
+      }, 0);
 
     // Offline Loans Outstanding
     const offlineLoans = await db.offlineLoan.findMany({
       where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } },
       select: {
+        id: true,
         loanAmount: true,
         emis: { select: { paidPrincipal: true } }
       }
     });
-    const targetOfflineLoans = offlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.loanAmount || 0;
-      const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-      return sum + Math.max(0, disbursed - paid);
-    }, 0);
+    const targetOfflineLoans = offlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.loanAmount || 0;
+        const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paid);
+      }, 0);
 
     // Interest Receivable (pending EMIs)
     const [pendingOnlineEMIs, pendingOfflineEMIs] = await Promise.all([

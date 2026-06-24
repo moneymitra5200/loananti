@@ -314,6 +314,7 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         disbursedAt: { lte: dateFilter }
       },
       select: {
+        id: true,
         disbursedAmount: true,
         emiSchedules: {
           where: {
@@ -332,6 +333,7 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         disbursementDate: { lte: dateFilter }
       },
       select: {
+        id: true,
         loanAmount: true,
         emis: {
           where: {
@@ -342,6 +344,12 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
       }
     })
   ]);
+
+  // Fetch all mirror mappings to filter out original mirrored loans from their original company
+  const mirrorMappings = await db.mirrorLoanMapping.findMany({
+    select: { originalLoanId: true }
+  });
+  const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
 
   // Compute historical ground truths up to dateFilter
   
@@ -382,18 +390,22 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     .reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
 
   // 4. Online Loans outstanding principal up to dateFilter
-  const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
-    const disbursed = loan.disbursedAmount || 0;
-    const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
-    return sum + Math.max(0, disbursed - paidPrincipal);
-  }, 0);
+  const actualOnlineLoans = onlineLoans
+    .filter(loan => !mirroredOriginalIds.has(loan.id))
+    .reduce((sum, loan) => {
+      const disbursed = loan.disbursedAmount || 0;
+      const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
 
   // 5. Offline Loans outstanding principal up to dateFilter
-  const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
-    const disbursed = loan.loanAmount || 0;
-    const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-    return sum + Math.max(0, disbursed - paidPrincipal);
-  }, 0);
+  const actualOfflineLoans = offlineLoans
+    .filter(loan => !mirroredOriginalIds.has(loan.id))
+    .reduce((sum, loan) => {
+      const disbursed = loan.loanAmount || 0;
+      const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+      return sum + Math.max(0, disbursed - paidPrincipal);
+    }, 0);
 
   // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
   const drMap: Record<string, number> = {};

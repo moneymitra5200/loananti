@@ -57,11 +57,11 @@ export async function GET(request: NextRequest) {
       db.equityEntry.findMany({ where: { companyId } }),
       db.loanApplication.findMany({
         where: { companyId, status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] as any[] } },
-        select: { disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
+        select: { id: true, disbursedAmount: true, emiSchedules: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
       db.offlineLoan.findMany({
         where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] as any[] } },
-        select: { loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
+        select: { id: true, loanAmount: true, emis: { select: { principalAmount: true, paidPrincipal: true } } }
       }),
       db.eMISchedule.aggregate({
         where: { loanApplication: { companyId }, paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] } },
@@ -82,24 +82,34 @@ export async function GET(request: NextRequest) {
       })
     ]);
 
+    // Fetch all mirror mappings to filter out original mirrored loans from their original company
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      select: { originalLoanId: true }
+    });
+    const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
+
     // Compute ground truths
     const actualCash      = cashBook?.currentBalance || 0;
     const actualBankTotal = bankAccounts.reduce((s, b) => s + (b.currentBalance || 0), 0);
     const actualCapital    = equityEntries.reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
     
-    const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.disbursedAmount || 0;
-      // In online loans, we use total principal from schedule if disbursedAmount is zero
-      const principal = disbursed > 0 ? disbursed : loan.emiSchedules.reduce((s, e) => s + (e.principalAmount || 0), 0);
-      const paid = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-      return sum + Math.max(0, principal - paid);
-    }, 0);
+    const actualOnlineLoans = onlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.disbursedAmount || 0;
+        // In online loans, we use total principal from schedule if disbursedAmount is zero
+        const principal = disbursed > 0 ? disbursed : loan.emiSchedules.reduce((s, e) => s + (e.principalAmount || 0), 0);
+        const paid = loan.emiSchedules.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+        return sum + Math.max(0, principal - paid);
+      }, 0);
     
-    const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.loanAmount || 0;
-      const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-      return sum + Math.max(0, disbursed - paid);
-    }, 0);
+    const actualOfflineLoans = offlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.loanAmount || 0;
+        const paid = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paid);
+      }, 0);
 
     const onlinePendingInterest  = (pendingOnlineEMIs._sum.interestAmount  || 0) - (pendingOnlineEMIs._sum.paidInterest  || 0);
     const offlinePendingInterest = (pendingOfflineEMIs._sum.interestAmount || 0) - (pendingOfflineEMIs._sum.paidInterest || 0);

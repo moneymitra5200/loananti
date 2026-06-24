@@ -164,6 +164,12 @@ export async function GET(request: NextRequest) {
     const actualCashBalance = cashBookData?.currentBalance || 0;
     const actualCashOpening = cashBookData?.openingBalance || 0;
 
+    // Fetch all mirror mappings to filter out original mirrored loans from their original company
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      select: { originalLoanId: true }
+    });
+    const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
+
     // Calculate actual outstanding online loans (exclude CLOSED, count all principal repayments including partial payments)
     const onlineLoans = await db.loanApplication.findMany({
       where: {
@@ -171,6 +177,7 @@ export async function GET(request: NextRequest) {
         status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } // Exclude CLOSED — they're fully recovered
       },
       select: {
+        id: true,
         disbursedAmount: true,
         status: true,
         emiSchedules: {
@@ -178,11 +185,13 @@ export async function GET(request: NextRequest) {
         }
       }
     });
-    const actualOnlineLoans = onlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.disbursedAmount || 0;
-      const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
-      return sum + Math.max(0, disbursed - paidPrincipal);
-    }, 0);
+    const actualOnlineLoans = onlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.disbursedAmount || 0;
+        const paidPrincipal = loan.emiSchedules.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paidPrincipal);
+      }, 0);
 
     // Calculate actual outstanding offline loans
     // Each loan record has companyId set to the company that OWNS it:
@@ -196,6 +205,7 @@ export async function GET(request: NextRequest) {
         status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] } // Exclude CLOSED — fully recovered
       },
       select: {
+        id: true,
         loanAmount: true,
         status: true,
         emis: {
@@ -203,11 +213,13 @@ export async function GET(request: NextRequest) {
         }
       }
     });
-    const actualOfflineLoans = offlineLoans.reduce((sum, loan) => {
-      const disbursed = loan.loanAmount || 0;
-      const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
-      return sum + Math.max(0, disbursed - paidPrincipal);
-    }, 0);
+    const actualOfflineLoans = offlineLoans
+      .filter(loan => !mirroredOriginalIds.has(loan.id))
+      .reduce((sum, loan) => {
+        const disbursed = loan.loanAmount || 0;
+        const paidPrincipal = loan.emis.reduce((s, emi) => s + (emi.paidPrincipal || 0), 0);
+        return sum + Math.max(0, disbursed - paidPrincipal);
+      }, 0);
 
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {

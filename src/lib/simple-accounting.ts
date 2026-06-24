@@ -83,10 +83,10 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
   // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
   if (referenceId) {
     const existing = await client.cashBookEntry.findFirst({
-      where: { cashBookId, referenceId, referenceType, entryType },
+      where: { referenceId },
     });
     if (existing) {
-      console.warn(`[CashBook] DUPLICATE ${entryType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
+      console.warn(`[CashBook] DUPLICATE BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
       const cashBook = await client.cashBook.findUnique({ where: { id: cashBookId } });
       return { success: true, cashBookId, newBalance: cashBook?.currentBalance || 0 };
     }
@@ -177,11 +177,11 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
   // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────
   if (referenceId) {
     const existing = await client.bankTransaction.findFirst({
-      where: { bankAccountId: targetBankId, referenceId, referenceType, transactionType },
-      select: { id: true, balanceAfter: true },
+      where: { referenceId },
+      select: { id: true },
     });
     if (existing) {
-      console.warn(`[Bank] DUPLICATE ${transactionType} BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
+      console.warn(`[Bank] DUPLICATE BLOCKED — referenceId: ${referenceId}, type: ${referenceType}`);
       const bank = await client.bankAccount.findUnique({ where: { id: targetBankId }, select: { currentBalance: true } });
       return { success: true, bankAccountId: targetBankId, newBalance: bank?.currentBalance || 0 };
     }
