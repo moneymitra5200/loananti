@@ -221,14 +221,63 @@ export async function GET(request: NextRequest) {
         return sum + Math.max(0, disbursed - paidPrincipal);
       }, 0);
 
+    // Fetch approved, non-reversed journal lines up to fyEnd to calculate date-filtered balances
+    const journalLines = await db.journalEntryLine.findMany({
+      where: {
+        journalEntry: {
+          companyId,
+          entryDate: { lte: fyEnd },
+          isApproved: true,
+          isReversed: false
+        }
+      },
+      select: {
+        accountId: true,
+        debitAmount: true,
+        creditAmount: true
+      }
+    });
+
+    const accountBalancesMap = new Map<string, { debit: number; credit: number }>();
+    for (const line of journalLines) {
+      const existing = accountBalancesMap.get(line.accountId) || { debit: 0, credit: 0 };
+      existing.debit += line.debitAmount || 0;
+      existing.credit += line.creditAmount || 0;
+      accountBalancesMap.set(line.accountId, existing);
+    }
+
+    const getAccountGLBalance = (accountId: string, accountType: string, openingBalance: number): number => {
+      const entry = accountBalancesMap.get(accountId) || { debit: 0, credit: 0 };
+      if (['ASSET', 'EXPENSE'].includes(accountType)) {
+        return openingBalance + entry.debit - entry.credit;
+      } else {
+        return openingBalance + entry.credit - entry.debit;
+      }
+    };
+
+    // Override the currentBalance of each account in the accounts array
+    for (const account of accounts) {
+      account.currentBalance = getAccountGLBalance(account.id, account.accountType, account.openingBalance || 0);
+    }
+
+    // Calculate date-filtered bank and cash balances from General Ledger
+    const actualCashBalanceFromGL = accounts.find(a => a.accountCode === '1101')?.currentBalance || 0;
+    const actualBankBalanceFromGL = accounts
+      .filter(a => a.accountCode.startsWith('1102') || a.accountCode.startsWith('1103') || a.accountCode.startsWith('1104') || a.accountCode.startsWith('14'))
+      .reduce((sum, a) => sum + a.currentBalance, 0);
+
+    const actualOnlineLoansFromGL = accounts.find(a => a.accountCode === '1201')?.currentBalance || 0;
+    const actualOfflineLoansFromGL = accounts.find(a => a.accountCode === '1210')?.currentBalance || 0;
+    const totalLoansReceivableFromGL = accounts.find(a => a.accountCode === '1200')?.currentBalance || 0;
+
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {
-      // For Bank Account (1102) and Cash in Hand (1101), use actual balances
-      if (code === '1101') return actualCashBalance;
-      if (code === '1102') return actualBankBalance;
-      if (code === '1201') return actualOnlineLoans;
-      if (code === '1210') return actualOfflineLoans;
-      if (code === '1200') return actualOnlineLoans + actualOfflineLoans;
+      // For Bank Account (1102) and Cash in Hand (1101), use actual balances from GL
+      if (code === '1101') return actualCashBalanceFromGL;
+      if (code === '1102') return actualBankBalanceFromGL;
+      if (code === '1201') return actualOnlineLoansFromGL !== 0 ? actualOnlineLoansFromGL : actualOnlineLoans;
+      if (code === '1210') return actualOfflineLoansFromGL !== 0 ? actualOfflineLoansFromGL : actualOfflineLoans;
+      if (code === '1200') return totalLoansReceivableFromGL !== 0 ? totalLoansReceivableFromGL : (actualOnlineLoans + actualOfflineLoans);
       
       const account = accounts.find(a => a.accountCode === code);
       return account?.currentBalance || 0;
@@ -247,7 +296,12 @@ export async function GET(request: NextRequest) {
     // ─── Owner's Capital: READ FROM EquityEntry table (source of truth) ─────
     // ChartOfAccount.currentBalance for 3002 may be stale if Fix-Imbalance
     // hasn't run yet.  EquityEntry is ALWAYS written when capital is added.
-    const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
+    const equityEntries = await db.equityEntry.findMany({ 
+      where: { 
+        companyId,
+        createdAt: { lte: fyEnd }
+      } 
+    });
     const ownersCapitalFromEquity = equityEntries.reduce(
       (s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0),
       0
