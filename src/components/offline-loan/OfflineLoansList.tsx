@@ -132,6 +132,22 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     fetchCompanies();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Listen to global search selections to auto-filter and view the loan
+  useEffect(() => {
+    const handleGlobalSelect = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.type === 'offline_loan') {
+        // Set search query to match the selected loan number
+        setSearchQuery(customEvent.detail.title);
+        // Automatically open the detail view for this loan!
+        setSelectedLoanId(customEvent.detail.id);
+        setDetailOpen(true);
+      }
+    };
+    window.addEventListener('global-search-select', handleGlobalSelect);
+    return () => window.removeEventListener('global-search-select', handleGlobalSelect);
+  }, []);
+
   // Fetch loans + mirror mappings when filters/page/refreshKey change
   // Mirror mappings must re-fetch with refreshKey so new loans with mirrors appear instantly
   const prevFilters = useRef({ page, statusFilter, companyFilter });

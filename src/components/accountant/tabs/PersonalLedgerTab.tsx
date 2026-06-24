@@ -116,6 +116,30 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
     fetchCustomers();
   }, [companyIdsKey, refreshKey]);
 
+  // Listen to global search selections to auto-select customer ledger
+  useEffect(() => {
+    const handleGlobalSelect = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && (customEvent.detail.type === 'user' || customEvent.detail.type === 'offline_loan')) {
+        const nameToMatch = customEvent.detail.meta?.name || customEvent.detail.title;
+        // Search in the loaded customers list
+        const found = customers.find(c => 
+          c.name.toLowerCase() === nameToMatch.toLowerCase() ||
+          (c.phone && c.phone === customEvent.detail.meta?.phone)
+        );
+        if (found) {
+          setSelectedCustomer(found);
+          fetchLoanStatements(found.id).catch(() => {});
+        } else {
+          // Fallback: set the search query so they can see the customer in the list
+          setSearchQuery(nameToMatch);
+        }
+      }
+    };
+    window.addEventListener('global-search-select', handleGlobalSelect);
+    return () => window.removeEventListener('global-search-select', handleGlobalSelect);
+  }, [customers]);
+
   useEffect(() => {
     setSelectedCustomer(null);
     setSelectedLoan(null);

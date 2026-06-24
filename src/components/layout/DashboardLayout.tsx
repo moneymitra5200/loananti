@@ -55,6 +55,109 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [expandedMenu, setExpandedMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [activeResultIndex, setActiveResultIndex] = useState(-1);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Debounced search fetching
+  useEffect(() => {
+    if (searchQuery.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success) {
+            setSearchResults(data.results || []);
+          }
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Click outside to close
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleResultClick = (result: any) => {
+    // Dispatch custom event for child components
+    window.dispatchEvent(new CustomEvent('global-search-select', { detail: result }));
+
+    // Determine target tab based on user role and result type
+    let targetTab = '';
+    
+    if (result.type === 'offline_loan') {
+      targetTab = 'offline-loans';
+    } else if (result.type === 'online_loan') {
+      if (user?.role === 'SUPER_ADMIN') {
+        targetTab = result.status === 'APPROVED' || result.status === 'DISBURSED' ? 'activeLoans' : 'pending';
+      } else if (user?.role === 'COMPANY') {
+        targetTab = result.status === 'APPROVED' || result.status === 'DISBURSED' ? 'active' : 'pending';
+      } else if (user?.role === 'AGENT') {
+        targetTab = result.status === 'APPROVED' || result.status === 'DISBURSED' ? 'active' : 'pending';
+      } else if (user?.role === 'STAFF') {
+        targetTab = result.status === 'APPROVED' || result.status === 'DISBURSED' ? 'activeLoans' : 'pending';
+      } else if (user?.role === 'CASHIER') {
+        targetTab = result.status === 'APPROVED' || result.status === 'DISBURSED' ? 'activeLoans' : 'pending';
+      }
+    } else if (result.type === 'user') {
+      if (user?.role === 'SUPER_ADMIN' || user?.role === 'CASHIER') {
+        targetTab = result.role === 'CUSTOMER' ? 'customers' : 'users';
+      } else if (user?.role === 'ACCOUNTANT') {
+        targetTab = 'overview'; // Accountant overview displays the ledger select
+      }
+    }
+
+    if (targetTab && onTabChange) {
+      onTabChange(targetTab);
+    }
+
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchOpen(false);
+    setActiveResultIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (searchResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveResultIndex(prev => (prev + 1) % searchResults.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveResultIndex(prev => (prev - 1 + searchResults.length) % searchResults.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeResultIndex >= 0 && activeResultIndex < searchResults.length) {
+        handleResultClick(searchResults[activeResultIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setSearchOpen(false);
+    }
+  };
+
   // Ref to block re-open during the 250ms exit animation (fixes stuck drawer bug)
   const isClosingRef = useRef(false);
 
@@ -270,9 +373,82 @@ export default function DashboardLayout({
                 </motion.div>
               </>
             )}
-            <div className="relative hidden md:block">
+            <div ref={searchRef} className="relative hidden md:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input className="pl-10 w-64 bg-gray-50 border-gray-200" placeholder="Search..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+              <Input 
+                className="pl-10 w-64 bg-gray-50 border-gray-200 focus:bg-white focus:ring-2 focus:ring-emerald-500 transition-all" 
+                placeholder="Search loans, customers..." 
+                value={searchQuery} 
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setSearchOpen(true);
+                  setActiveResultIndex(-1);
+                }}
+                onFocus={() => setSearchOpen(true)}
+                onKeyDown={handleKeyDown}
+              />
+              
+              {/* Floating search results overlay */}
+              {searchOpen && (searchQuery.length >= 2) && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden max-h-96 flex flex-col">
+                  {searchLoading ? (
+                    <div className="p-4 flex items-center justify-center gap-2 text-sm text-gray-500">
+                      <RefreshCw className="h-4 w-4 animate-spin text-emerald-600" />
+                      <span>Searching...</span>
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-gray-400">
+                      No results found for "{searchQuery}"
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto py-1.5 divide-y divide-gray-50 max-h-80">
+                      {searchResults.map((result, idx) => {
+                        const isSelected = idx === activeResultIndex;
+                        let Icon = FileText;
+                        if (result.type === 'user') Icon = Users;
+                        if (result.type === 'online_loan') Icon = Wallet;
+
+                        return (
+                          <button
+                            key={`${result.type}-${result.id}`}
+                            onClick={() => handleResultClick(result)}
+                            onMouseEnter={() => setActiveResultIndex(idx)}
+                            className={`w-full text-left px-4 py-2.5 flex items-start gap-3 transition-colors ${
+                              isSelected ? 'bg-emerald-50 text-emerald-900' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className={`p-1.5 rounded-lg mt-0.5 ${
+                              isSelected ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold truncate text-gray-900">{result.title}</p>
+                              <p className="text-xs text-gray-500 truncate">{result.subtitle}</p>
+                              {result.amount && (
+                                <p className="text-xs font-medium text-emerald-600 mt-0.5">
+                                  Amount: ₹{result.amount.toLocaleString('en-IN')}
+                                </p>
+                              )}
+                            </div>
+                            {result.status && (
+                              <Badge className={`text-[10px] px-1.5 py-0.5 mt-0.5 ${
+                                result.status === 'ACTIVE' || result.status === 'DISBURSED'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                  : result.status === 'CLOSED'
+                                    ? 'bg-gray-100 text-gray-800'
+                                    : 'bg-amber-100 text-amber-800 border-amber-200'
+                              }`}>
+                                {result.status}
+                              </Badge>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <NotificationBell />
             
