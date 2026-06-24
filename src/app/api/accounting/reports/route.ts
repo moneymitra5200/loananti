@@ -509,9 +509,27 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
   const currentYearProfit = pnlData.netProfit || 0;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
 
-  // ── TOTALS ────────────────────────────────────────────────────────────────────
+  // ── TOTALS & DYNAMIC RETAINED EARNINGS PLUG ────────────────────────────────────
   const totalAssets = assets.filter(a => !a.isSection).reduce((s, a) => s + (a.amount || 0), 0);
   const totalLiabilities = liabilities.reduce((s, a) => s + (a.amount || 0), 0);
+  
+  // Total equity without 3003 (Retained Earnings)
+  const totalEquityWithoutRE = equity
+    .filter(e => e.accountCode !== '3003')
+    .reduce((s, e) => s + (e.amount || 0), 0);
+
+  // Retained Earnings = Assets - (Liabilities + Equity Without RE)
+  const dynamicRetainedEarnings = totalAssets - (totalLiabilities + totalEquityWithoutRE);
+
+  // Update the 3003 item in the equity array
+  const reEntry = equity.find(e => e.accountCode === '3003');
+  if (reEntry) {
+    reEntry.amount = dynamicRetainedEarnings;
+  } else {
+    equity.splice(0, 0, { accountCode: '3003', accountName: 'Retained Earnings', amount: dynamicRetainedEarnings });
+  }
+
+  // Final Total Equity (now includes the corrected Retained Earnings)
   const totalEquity = equity.reduce((s, a) => s + (a.amount || 0), 0);
 
   return NextResponse.json({
