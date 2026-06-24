@@ -2954,7 +2954,7 @@ export async function PUT(request: NextRequest) {
             userId,
             transactionType: isOnlinePayment && !isSplitPayment ? 'BANK_DIRECT' : 'CREDIT_INCREASE',
             amount: creditIncreaseAmount, // 0 for online; cash portion for split
-            paymentMode: paymentMode || 'CASH',
+            paymentMode: isSplitPayment ? 'CASH' : (paymentMode || 'CASH'),
             creditType: creditTypeUsed,
             companyBalanceAfter:  newCompanyCr,
             personalBalanceAfter: newPersonalCr,

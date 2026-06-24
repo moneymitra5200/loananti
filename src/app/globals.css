@@ -145,6 +145,8 @@ html {
   overscroll-behavior: none;
   /* FIX: No horizontal scroll on any page */
   overflow-x: hidden;
+  /* Zoom out by 10% for a more compact, premium dashboard feel */
+  zoom: 0.9;
 }
 
 body {
@@ -771,5 +773,19 @@ table [role="button"] {
 
 /* Pull-to-refresh: let the app control overscroll */
 html { overscroll-behavior-y: none; }
+
+/* ── Hide browser default spin buttons (up/down arrows) on all number inputs ── */
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield !important;
+}
+
 
 

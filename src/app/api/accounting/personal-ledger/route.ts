@@ -923,7 +923,8 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       return true;
     }
     const lName = (l.customerName || '').trim().toLowerCase();
-    const lPhone = (l.customerPhone || '').trim().replace(/\D/g, '');
+    const cleanDigits = (l.customerPhone || '').trim().replace(/\D/g, '');
+    const lPhone = cleanDigits || (l.customerPhone || '').trim().toLowerCase();
     return lName === targetName && lPhone === targetPhone;
   });
 
