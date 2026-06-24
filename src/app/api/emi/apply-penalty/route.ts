@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
           select: {
             id: true, loanNumber: true, customerId: true, companyId: true,
             customerName: true, customerPhone: true,
-            approvedAmount: true, disbursedAmount: true
+            loanAmount: true
           }
         }
       }
@@ -179,7 +179,7 @@ export async function POST(request: NextRequest) {
 
       if (daysOverdue <= 0) continue;
 
-      const loanAmount = emi.offlineLoan?.disbursedAmount || emi.offlineLoan?.approvedAmount || emi.totalAmount;
+      const loanAmount = emi.offlineLoan?.loanAmount || emi.totalAmount;
       const ratePerDay = getPenaltyPerDay(loanAmount);
 
       let newPenalty = daysOverdue * ratePerDay;
@@ -261,7 +261,7 @@ export async function GET(request: NextRequest) {
     if (type === 'offline') {
       emi = await (db as any).offlineLoanEMI.findUnique({
         where: { id: emiId },
-        include: { offlineLoan: { select: { approvedAmount: true, disbursedAmount: true } } }
+        include: { offlineLoan: { select: { loanAmount: true } } }
       });
     } else {
       emi = await db.eMISchedule.findUnique({
@@ -281,7 +281,7 @@ export async function GET(request: NextRequest) {
     );
 
     const loanAmount = type === 'offline'
-      ? (emi.offlineLoan?.disbursedAmount || emi.offlineLoan?.approvedAmount || emi.totalAmount)
+      ? (emi.offlineLoan?.loanAmount || emi.totalAmount)
       : (emi.loanApplication?.sessionForm?.approvedAmount || emi.totalAmount);
     const ratePerDay = getPenaltyPerDay(loanAmount);
     const calculatedPenalty = Math.min(
