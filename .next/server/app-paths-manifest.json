@@ -162,6 +162,7 @@
   "/api/reports/money-summary/route": "app/api/reports/money-summary/route.js",
   "/api/reset-system/route": "app/api/reset-system/route.js",
   "/api/route": "app/api/route.js",
+  "/api/search/route": "app/api/search/route.js",
   "/api/secondary-payment-pages/route": "app/api/secondary-payment-pages/route.js",
   "/api/secure-document/route": "app/api/secure-document/route.js",
   "/api/session/route": "app/api/session/route.js",

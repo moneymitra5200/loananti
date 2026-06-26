@@ -1135,6 +1135,12 @@
       "namedRegex": "^/api/reset\\-system(?:/)?$"
     },
     {
+      "page": "/api/search",
+      "regex": "^/api/search(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/search(?:/)?$"
+    },
+    {
       "page": "/api/secondary-payment-pages",
       "regex": "^/api/secondary\\-payment\\-pages(?:/)?$",
       "routeKeys": {},

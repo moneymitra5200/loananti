@@ -162,6 +162,7 @@
   "/api/reports/money-summary/route": "/api/reports/money-summary",
   "/api/reset-system/route": "/api/reset-system",
   "/api/route": "/api",
+  "/api/search/route": "/api/search",
   "/api/secondary-payment-pages/route": "/api/secondary-payment-pages",
   "/api/secure-document/route": "/api/secure-document",
   "/api/session/route": "/api/session",
