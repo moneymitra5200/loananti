@@ -1563,6 +1563,7 @@ export class AccountingService {
         ? ACCOUNT_CODES.INVESTOR_CAPITAL
         : ACCOUNT_CODES.BORROWED_FUNDS;
 
+    const debitAccountCode = params.bankAccountId ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
     const narration = params.description || `Loan received from ${params.source} - Principal: ₹${params.amount.toLocaleString()}`;
 
     return this.createJournalEntry({
@@ -1571,8 +1572,8 @@ export class AccountingService {
       narration,
       lines: [
         {
-          // Debit: Bank Account (Asset increases - money IN)
-          accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+          // Debit: Bank or Cash Account (Asset increases - money IN)
+          accountCode: debitAccountCode,
           debitAmount: params.amount,
           creditAmount: 0,
           narration: `Loan received from ${params.source}`,
@@ -1586,7 +1587,7 @@ export class AccountingService {
         },
       ],
       createdById: params.createdById,
-      paymentMode: 'BANK_TRANSFER',
+      paymentMode: params.bankAccountId ? 'BANK_TRANSFER' : 'CASH',
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
       isAutoEntry: true,
@@ -1599,7 +1600,7 @@ export class AccountingService {
    * 
    * Debit: Bank Loans or Borrowed Funds (Liability decreases)
    * Debit: Interest Expense (Interest paid)
-   * Credit: Bank Account (Asset decreases - money OUT)
+   * Credit: Bank Account or Cash Account (Asset decreases - money OUT)
    */
   async recordLoanRepayment(params: {
     amount: number;
@@ -1618,6 +1619,8 @@ export class AccountingService {
       : params.loanType === 'INVESTOR_CAPITAL'
         ? ACCOUNT_CODES.INVESTOR_CAPITAL
         : ACCOUNT_CODES.BORROWED_FUNDS;
+
+    const creditAccountCode = params.bankAccountId ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND;
 
     const lines: Array<{
       accountCode: string;
@@ -1646,9 +1649,9 @@ export class AccountingService {
       });
     }
 
-    // Credit: Bank Account (money OUT)
+    // Credit: Bank or Cash Account (money OUT)
     lines.push({
-      accountCode: ACCOUNT_CODES.BANK_ACCOUNT,
+      accountCode: creditAccountCode,
       debitAmount: 0,
       creditAmount: params.amount,
       narration: `Payment to ${params.source}`,
@@ -1662,7 +1665,7 @@ export class AccountingService {
       narration,
       lines,
       createdById: params.createdById,
-      paymentMode: 'BANK_TRANSFER',
+      paymentMode: params.bankAccountId ? 'BANK_TRANSFER' : 'CASH',
       bankAccountId: params.bankAccountId,
       bankRefNumber: params.reference,
       isAutoEntry: true,

@@ -68,3 +68,6 @@ public/uploads/
 # Logs
 *.log
 logs/
+
+# Scratch scripts
+/scratch/

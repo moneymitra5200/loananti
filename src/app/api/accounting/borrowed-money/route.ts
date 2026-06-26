@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
       data: { journalEntryId }
     });
 
-    // Get bank account to update its balance
+    // Update bank or cash balance based on payment mode
     if (bankAccountId) {
       const bankAccount = await db.bankAccount.findUnique({
         where: { id: bankAccountId }
@@ -167,6 +167,32 @@ export async function POST(request: NextRequest) {
           }
         });
       }
+    } else {
+      // Update CashBook + create CashBookEntry
+      let cashBook = await db.cashBook.findUnique({ where: { companyId } });
+      if (!cashBook) {
+        cashBook = await db.cashBook.create({
+          data: { companyId, openingBalance: 0, currentBalance: 0 }
+        });
+      }
+      const newBalance = (cashBook.currentBalance || 0) + parseFloat(amount);
+      await db.cashBookEntry.create({
+        data: {
+          cashBookId: cashBook.id,
+          entryType: 'CREDIT', // Cash received
+          amount: parseFloat(amount),
+          balanceAfter: newBalance,
+          description: description || `Loan received from ${sourceName}`,
+          referenceType: 'BORROWED_MONEY',
+          referenceId: borrowedEntry.id,
+          entryDate: borrowedEntry.borrowedDate,
+          createdById
+        }
+      });
+      await db.cashBook.update({
+        where: { id: cashBook.id },
+        data: { currentBalance: newBalance }
+      });
     }
 
     // Sync bank balance to Chart of Accounts
@@ -246,7 +272,7 @@ export async function PUT(request: NextRequest) {
       }
     });
 
-    // Update bank account balance
+    // Update bank or cash balance based on payment mode
     if (bankAccountId) {
       const bankAccount = await db.bankAccount.findUnique({
         where: { id: bankAccountId }
@@ -275,6 +301,32 @@ export async function PUT(request: NextRequest) {
           }
         });
       }
+    } else {
+      // Update CashBook + create CashBookEntry
+      let cashBook = await db.cashBook.findUnique({ where: { companyId } });
+      if (!cashBook) {
+        cashBook = await db.cashBook.create({
+          data: { companyId, openingBalance: 0, currentBalance: 0 }
+        });
+      }
+      const newBalance = (cashBook.currentBalance || 0) - totalPayment;
+      await db.cashBookEntry.create({
+        data: {
+          cashBookId: cashBook.id,
+          entryType: 'DEBIT', // Cash paid
+          amount: totalPayment,
+          balanceAfter: newBalance,
+          description: description || `Loan repayment to ${borrowedEntry.sourceName}`,
+          referenceType: 'LOAN_REPAYMENT',
+          referenceId: `repay-${borrowedMoneyId}-${Date.now()}`,
+          entryDate: repaymentDate ? new Date(repaymentDate) : new Date(),
+          createdById
+        }
+      });
+      await db.cashBook.update({
+        where: { id: cashBook.id },
+        data: { currentBalance: newBalance }
+      });
     }
 
     // Sync bank balance to Chart of Accounts
