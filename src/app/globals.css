@@ -145,16 +145,17 @@ html {
   overscroll-behavior: none;
   /* FIX: No horizontal scroll on any page */
   overflow-x: hidden;
-  /* Zoom out by 10% for a more compact, premium dashboard feel */
-  zoom: 0.9;
-  width: 111.11%;
-  min-height: 111.11%;
+  width: 100%;
+  min-height: 100%;
 }
 
 body {
   overflow-x: hidden;
-  width: 100%;
-  max-width: 100%;
+  /* Zoom out by 10% for a more compact, premium dashboard feel */
+  zoom: 0.9;
+  width: 111.11%;
+  max-width: 111.11%;
+  min-height: 111.11%;
 }
 
 
