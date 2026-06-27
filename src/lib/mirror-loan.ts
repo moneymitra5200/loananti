@@ -264,15 +264,22 @@ export function calculateMirrorLoan(
 
   // ---- Shifted Schedule ----
   // Move the last (smallest) EMI to position 1, shift all others down by one.
-  // Re-assign installmentNumbers 1..N.
+  // Re-assign installmentNumbers 1..N and recalculate outstandingPrincipal.
   let shiftedSchedule: EMIScheduleItem[] = [];
   if (schedule.length > 0) {
     const lastItem = schedule[schedule.length - 1];
     const rest = schedule.slice(0, schedule.length - 1);
-    shiftedSchedule = [lastItem, ...rest].map((item, idx) => ({
-      ...item,
-      installmentNumber: idx + 1
-    }));
+    const tempShifted = [lastItem, ...rest];
+    
+    let runningPrincipal = principal;
+    shiftedSchedule = tempShifted.map((item, idx) => {
+      runningPrincipal = Math.max(0, Math.round((runningPrincipal - item.principal) * 100) / 100);
+      return {
+        ...item,
+        installmentNumber: idx + 1,
+        outstandingPrincipal: runningPrincipal
+      };
+    });
   }
 
   return {
