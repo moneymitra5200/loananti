@@ -1022,7 +1022,8 @@ export default function CashierDashboard() {
                       company: mirrorSource.company || mapping?.mirrorCompany,
                       createdAt: mirrorSource.createdAt || new Date().toISOString(),
                       disbursementDate: mirrorSource.disbursementDate,
-                      _count: (mirrorSource as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+                      _count: (mirrorSource as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+                      outstandingAmount: mirrorSource.outstandingAmount
                     } : null;
 
                     // ID of mirror loan for opening detail panel
@@ -1049,7 +1050,8 @@ export default function CashierDashboard() {
                           createdAt: loan.createdAt ? new Date(loan.createdAt).toISOString() : new Date().toISOString(),
                           disbursementDate: loan.disbursementDate ? new Date(loan.disbursementDate).toISOString() : undefined,
                           summary: loan.summary,
-                          _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+                          _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+                          outstandingAmount: loan.outstandingAmount
                         }}
                         mirrorLoan={mirrorLoanData}
                         mirrorMapping={mapping ? {

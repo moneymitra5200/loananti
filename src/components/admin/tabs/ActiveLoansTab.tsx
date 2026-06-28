@@ -42,6 +42,7 @@ interface Loan {
     displayColor?: string;
     isOfflineLoan?: boolean;
   };
+  outstandingAmount?: number;
 }
 
 interface MirrorLoanData {
@@ -66,6 +67,7 @@ interface MirrorLoanData {
     emiAmount?: number;
     disbursementDate?: string;
   };
+  outstandingAmount?: number;
 }
 
 interface MirrorMapping {
@@ -217,7 +219,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
       code: loan.company.code || ''
     } : undefined,
     nextEmi: loan.nextEmi,
-    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 }
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || loan.sessionForm?.tenure || 0 },
+    outstandingAmount: loan.outstandingAmount || (loan as any).outstandingAmount
   });
 
   // Convert MirrorLoanData to format expected by ParallelLoanView
@@ -247,7 +250,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
         } : undefined,
         nextEmi: undefined,
         isMirrorLoan: true,
-        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: (offlineMirror as any).outstandingAmount
       };
     }
     
@@ -278,7 +282,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           code: mapping.mirrorCompany.code
         } : undefined,
         nextEmi: undefined,
-        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (mirrorLoan as any)._count || (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: mirrorLoan.outstandingAmount || (mirrorLoan as any).outstandingAmount
       };
     }
     
@@ -305,7 +310,8 @@ function ActiveLoansTab({ loans, stats, onRefresh, onViewLoan }: Props) {
           code: mapping.mirrorCompany.code
         } : undefined,
         nextEmi: undefined,
-        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 }
+        _count: (originalLoan as any)._count || { emiSchedules: (originalLoan as any).emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
+        outstandingAmount: originalLoan.outstandingAmount || (originalLoan as any).outstandingAmount
       };
     }
     

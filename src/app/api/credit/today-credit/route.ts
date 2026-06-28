@@ -103,6 +103,7 @@ export async function GET(request: NextRequest) {
       userCompanyName: string | null;
       totalIncrease: number; personalIncrease: number; companyIncrease: number;
       cashAmount: number; onlineAmount: number;
+      principalIncrease: number; interestIncrease: number;
       transactionCount: number;
       companyBreakdown: Map<string, { companyId: string; companyName: string; amount: number }>;
       transactions: any[];
@@ -124,6 +125,8 @@ export async function GET(request: NextRequest) {
           companyIncrease: 0,
           cashAmount: 0,
           onlineAmount: 0,
+          principalIncrease: 0,
+          interestIncrease: 0,
           transactionCount: 0,
           companyBreakdown: new Map(),
           transactions: [],
@@ -142,6 +145,12 @@ export async function GET(request: NextRequest) {
       const mode = (tx.paymentMode || '').toUpperCase();
       if (mode === 'CASH') entry.cashAmount += amt;
       else entry.onlineAmount += amt;
+
+      // Track principal and interest components
+      const pComp = tx.principalComponent !== null && tx.principalComponent !== undefined ? Number(tx.principalComponent) : (tx.sourceType === 'EMI_PAYMENT' ? 0 : amt);
+      const iComp = tx.interestComponent !== null && tx.interestComponent !== undefined ? Number(tx.interestComponent) : 0;
+      entry.principalIncrease += pComp;
+      entry.interestIncrease += iComp;
 
       // Resolve company for this transaction
       const loanAppId = (tx as any).loanApplicationId;
@@ -179,6 +188,8 @@ export async function GET(request: NextRequest) {
         installmentNumber: (tx as any).installmentNumber,
         transactionDate: tx.transactionDate || tx.createdAt,
         createdAt: tx.createdAt,
+        principalComponent: pComp,
+        interestComponent: iComp,
       });
     }
 
@@ -192,6 +203,8 @@ export async function GET(request: NextRequest) {
     const grandCompany  = users.reduce((s, u) => s + u.companyIncrease, 0);
     const grandCash     = users.reduce((s, u) => s + u.cashAmount, 0);
     const grandOnline   = users.reduce((s, u) => s + u.onlineAmount, 0);
+    const grandPrincipal = users.reduce((s, u) => s + u.principalIncrease, 0);
+    const grandInterest  = users.reduce((s, u) => s + u.interestIncrease, 0);
 
     return NextResponse.json({
       success: true,
@@ -205,6 +218,8 @@ export async function GET(request: NextRequest) {
         company: grandCompany,
         cash: grandCash,
         online: grandOnline,
+        principal: grandPrincipal,
+        interest: grandInterest,
         userCount: users.length,
       },
       users,

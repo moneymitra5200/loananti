@@ -81,7 +81,8 @@ export default function ActiveTab({ activeLoans, onViewLoan, onRefresh }: Active
     loanType: loan.loanType,
     createdAt: loan.createdAt,
     company: loan.company,
-    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || (loan as any).tenure || loan.sessionForm?.tenure || 0 }
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || (loan as any).tenure || loan.sessionForm?.tenure || 0 },
+    outstandingAmount: loan.outstandingAmount || (loan as any).outstandingAmount
   });
 
   // Render each loan in parallel view format

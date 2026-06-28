@@ -257,21 +257,93 @@ export async function GET(request: NextRequest) {
         });
       }
 
-      // Enrich mappings with loan details
+      // Fetch outstanding amounts for all online loans in these mappings
+      const allOnlineIds = [...onlineMirrorLoanIds, ...onlineOriginalLoanIds];
+      const onlineOutstandingMap = new Map<string, number>();
+      if (allOnlineIds.length > 0) {
+        const unpaidOnlineEmis = await db.eMISchedule.findMany({
+          where: {
+            loanApplicationId: { in: allOnlineIds },
+            paymentStatus: { not: 'PAID' }
+          },
+          select: {
+            loanApplicationId: true,
+            totalAmount: true,
+            paidAmount: true
+          }
+        });
+        unpaidOnlineEmis.forEach(emi => {
+          const current = onlineOutstandingMap.get(emi.loanApplicationId) || 0;
+          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          onlineOutstandingMap.set(emi.loanApplicationId, current + remaining);
+        });
+      }
+
+      // Fetch outstanding amounts for all offline loans in these mappings
+      const allOfflineIds = Array.from(offlineLoanIds);
+      const offlineOutstandingMap = new Map<string, number>();
+      if (allOfflineIds.length > 0) {
+        const unpaidOfflineEmis = await db.offlineLoanEMI.findMany({
+          where: {
+            offlineLoanId: { in: allOfflineIds },
+            paymentStatus: { not: 'PAID' }
+          },
+          select: {
+            offlineLoanId: true,
+            totalAmount: true,
+            paidAmount: true
+          }
+        });
+        unpaidOfflineEmis.forEach(emi => {
+          const current = offlineOutstandingMap.get(emi.offlineLoanId) || 0;
+          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          offlineOutstandingMap.set(emi.offlineLoanId, current + remaining);
+        });
+      }
+
+      const getOnlineLoanWithOutstanding = (loan: typeof onlineMirrorLoans[number] | null | undefined) => {
+        if (!loan) return null;
+        let outstanding = onlineOutstandingMap.get(loan.id) || 0;
+        if (loan.status === 'ACTIVE_INTEREST_ONLY') {
+          outstanding = loan.sessionForm?.approvedAmount || loan.disbursedAmount || 0;
+        }
+        return {
+          ...loan,
+          outstandingAmount: outstanding
+        };
+      };
+
+      const getOfflineLoanWithOutstanding = (loan: any) => {
+        if (!loan) return null;
+        let outstanding = offlineOutstandingMap.get(loan.id) || 0;
+        if (loan.status === 'INTEREST_ONLY') {
+          outstanding = loan.loanAmount || 0;
+        }
+        return {
+          ...loan,
+          outstandingAmount: outstanding
+        };
+      };
+
+      // Enrich mappings with loan details including outstandingAmount
       const enrichedMappings = mappings.map(m => {
         if (m.isOfflineLoan) {
+          const offlineOriginal = m.originalLoanId ? offlineLoansMap[m.originalLoanId] : null;
+          const offlineMirror = m.mirrorLoanId ? offlineLoansMap[m.mirrorLoanId] : null;
           return {
             ...m,
-            offlineOriginalLoan: m.originalLoanId ? offlineLoansMap[m.originalLoanId] : null,
-            offlineMirrorLoan: m.mirrorLoanId ? offlineLoansMap[m.mirrorLoanId] : null,
+            offlineOriginalLoan: getOfflineLoanWithOutstanding(offlineOriginal),
+            offlineMirrorLoan: getOfflineLoanWithOutstanding(offlineMirror),
             mirrorLoan: null,
             originalLoan: null
           };
         }
+        const mirrorLoan = m.mirrorLoanId ? mirrorLoanMap.get(m.mirrorLoanId) : null;
+        const originalLoan = originalLoanMap.get(m.originalLoanId);
         return {
           ...m,
-          mirrorLoan: m.mirrorLoanId ? mirrorLoanMap.get(m.mirrorLoanId) || null : null,
-          originalLoan: originalLoanMap.get(m.originalLoanId) || null,
+          mirrorLoan: getOnlineLoanWithOutstanding(mirrorLoan),
+          originalLoan: getOnlineLoanWithOutstanding(originalLoan),
           offlineOriginalLoan: null,
           offlineMirrorLoan: null
         };

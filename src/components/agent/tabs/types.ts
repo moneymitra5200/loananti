@@ -20,6 +20,7 @@ export interface Loan {
   loanForm?: any;
   company?: any;
   currentHandlerId?: string;
+  outstandingAmount?: number;
 }
 
 export interface Agent {

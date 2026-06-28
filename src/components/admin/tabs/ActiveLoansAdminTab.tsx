@@ -23,6 +23,7 @@ interface ActiveLoan {
   tenure?: number;
   company?: { id?: string; name: string; code?: string };
   isMirrorLoan?: boolean;
+  outstandingAmount?: number;
 }
 
 interface ActiveLoanStats {
@@ -97,7 +98,7 @@ export default function ActiveLoansTab({
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const matchesSearch = 
-        loan.identifier?.toLowerCase().includes(query) ||
+         loan.identifier?.toLowerCase().includes(query) ||
         loan.customer?.name?.toLowerCase().includes(query) ||
         loan.customer?.phone?.includes(query);
       if (!matchesSearch) return false;
@@ -126,7 +127,8 @@ export default function ActiveLoansTab({
       code: loan.company.code || ''
     } : undefined,
     createdAt: new Date().toISOString(),
-    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+    _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+    outstandingAmount: loan.outstandingAmount || (loan as any).outstandingAmount
   });
 
   // Render each loan in parallel view format

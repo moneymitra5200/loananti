@@ -152,6 +152,11 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
               <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 border border-emerald-100 rounded-xl p-3.5 shadow-sm">
                 <p className="text-[10px] uppercase tracking-wider font-semibold text-emerald-600">Total Collections</p>
                 <p className="font-bold text-lg text-emerald-700 mt-1">{formatCurrency(todayCreditData.summary.total)}</p>
+                {todayCreditData.summary.principal !== undefined && (
+                  <p className="text-[9px] text-emerald-600 mt-0.5 font-medium whitespace-nowrap">
+                    P: {formatCurrency(todayCreditData.summary.principal)} | I: {formatCurrency(todayCreditData.summary.interest)}
+                  </p>
+                )}
               </div>
               <div className="bg-gradient-to-br from-amber-50 to-orange-50/50 border border-amber-100 rounded-xl p-3.5 shadow-sm">
                 <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-600">Personal Credit</p>
@@ -278,8 +283,8 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
                       transition={{ duration: 0.2 }}
                       className="bg-gray-50/40 border-t border-gray-100 p-4 space-y-4"
                     >
-                      {/* Personal vs Company breakdown */}
-                      <div className="grid grid-cols-2 gap-3">
+                      {/* Personal vs Company breakdown & Principal vs Interest breakdown */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-3">
                           <p className="text-[10px] uppercase tracking-wider font-semibold text-amber-600">Personal Credit</p>
                           <p className="text-base font-bold text-amber-700 mt-1">{formatCurrency(u.personalIncrease)}</p>
@@ -289,6 +294,16 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
                           <p className="text-[10px] uppercase tracking-wider font-semibold text-emerald-600">Company Credit</p>
                           <p className="text-base font-bold text-emerald-700 mt-1">{formatCurrency(u.companyIncrease)}</p>
                           <p className="text-[10px] text-emerald-500 mt-0.5">Cash payments</p>
+                        </div>
+                        <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3">
+                          <p className="text-[10px] uppercase tracking-wider font-semibold text-blue-600">Principal Repaid</p>
+                          <p className="text-base font-bold text-blue-700 mt-1">{formatCurrency(u.principalIncrease || 0)}</p>
+                          <p className="text-[10px] text-blue-500 mt-0.5">P Component</p>
+                        </div>
+                        <div className="bg-purple-50/60 border border-purple-100 rounded-xl p-3">
+                          <p className="text-[10px] uppercase tracking-wider font-semibold text-purple-600">Interest Repaid</p>
+                          <p className="text-base font-bold text-purple-700 mt-1">{formatCurrency(u.interestIncrease || 0)}</p>
+                          <p className="text-[10px] text-purple-500 mt-0.5">I Component</p>
                         </div>
                       </div>
 
@@ -322,6 +337,11 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
                                 {tx.loanApplicationNo && <span className="text-gray-400 ml-1">({tx.loanApplicationNo})</span>}
                                 {tx.installmentNumber && <span className="text-indigo-600 font-medium ml-1">EMI #{tx.installmentNumber}</span>}
                                 {tx.description && <span className="text-gray-400 ml-1.5">— {tx.description}</span>}
+                                {(tx.principalComponent !== undefined || tx.interestComponent !== undefined) && (
+                                  <span className="text-[10px] font-semibold text-amber-700 ml-2 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded inline-flex items-center">
+                                    P: {formatCurrency(tx.principalComponent || 0)} | I: {formatCurrency(tx.interestComponent || 0)}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 ml-2 flex-shrink-0">
                                 <Badge className={`text-[10px] px-2 py-0 border-0 ${
