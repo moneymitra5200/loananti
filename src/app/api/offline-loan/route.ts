@@ -2985,8 +2985,12 @@ export async function PUT(request: NextRequest) {
             previousData: JSON.stringify(previousState),
             newData: JSON.stringify({
               paidAmount, paidPrincipal, paidInterest, paymentStatus, sessionAmount,
-              paymentAmount: sessionAmount, // alias used by undo handler
-              companyId: emi.offlineLoan.companyId, // required for undo balance reversal
+              paymentAmount: sessionAmount,   // alias used by undo handler (credit reversal)
+              amount: sessionAmount,          // extra alias
+              interestAmount: sessionInterest, // for credit reversal calculation
+              loanId: emi.offlineLoanId,      // ← CRITICAL: undo needs this to look up mirror mapping
+              mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || null, // ← store directly for fast lookup
+              companyId: emi.offlineLoan.companyId,
               collectorId: userId,
               collectorName: user.name,
               paymentMode,

@@ -1173,26 +1173,29 @@ export async function PUT(request: NextRequest) {
               const installmentNumber = paidEMI?.installmentNumber;
 
               if (installmentNumber) {
-                // Find mirror EMIs that were paid to reverse their accounting entries
+                // Find mirror EMIs at this installment — include ALL non-PENDING statuses
+                // (PAID, INTEREST_ONLY_PAID, PARTIALLY_PAID) so partial payments are also reversed
                 const mirrorEMIs = await tx.offlineLoanEMI.findMany({
                   where: {
                     offlineLoanId: mirrorLoanId,
                     installmentNumber,
-                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID'] }
+                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID', 'PARTIALLY_PAID'] }
                   }
                 });
 
                 for (const memi of mirrorEMIs) {
+                  // Delete bank/cash entries referencing mirror EMI id
                   await deleteBankOrCashEntriesForRef(memi.id, tx);
+                  // Delete journal entries referencing mirror EMI id (exact + startsWith for partial suffix)
                   await reverseJournalEntriesForRef(memi.id, userId, tx);
                 }
 
-                // Revert mirror EMI to PENDING
+                // Revert mirror EMI to PENDING — covers all paid statuses
                 await tx.offlineLoanEMI.updateMany({
                   where: {
                     offlineLoanId: mirrorLoanId,
                     installmentNumber,
-                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID'] }
+                    paymentStatus: { in: ['PAID', 'INTEREST_ONLY_PAID', 'PARTIALLY_PAID'] }
                   },
                   data: {
                     paymentStatus: 'PENDING',
@@ -1202,6 +1205,7 @@ export async function PUT(request: NextRequest) {
                     interestOnlyPaidAt: null,
                   }
                 });
+                console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted to PENDING (including PARTIALLY_PAID)`);
 
                 const mirrorLoan = await tx.offlineLoan.findUnique({
                   where: { id: mirrorLoanId },
