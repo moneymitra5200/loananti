@@ -237,7 +237,7 @@ function ActiveLoansTabComponent({
         } : undefined,
         nextEmi: undefined,
         _count: (originalLoan as any)._count || { emiSchedules: originalLoan.emiSchedules?.length || originalLoan.tenure || originalLoan.sessionForm?.tenure || 0 },
-        outstandingAmount: originalLoan.approvedAmount || originalLoan.sessionForm?.approvedAmount || 0
+        outstandingAmount: (originalLoan as any).outstandingAmount
       };
     }
     
@@ -343,6 +343,40 @@ function ActiveLoansTabComponent({
           <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
             <p className="text-xs text-emerald-600">Total Amount</p>
             <p className="text-lg font-bold text-emerald-700">{formatCurrency(stats.totalAmount)}</p>
+          </div>
+        </div>
+
+        {/* Portfolio Principal & Interest Summary Box */}
+        <div className="bg-slate-900 text-white rounded-lg p-4 mb-4 border border-slate-800">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-semibold text-emerald-400">Portfolio Financial Aggregates</h3>
+              <p className="text-[11px] text-slate-400">
+                Consolidated stats for all active loans (original loans counted; mirror duplicates excluded).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-6 w-full md:w-auto">
+              <div className="border-l border-emerald-500 pl-3">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Total Principal (P)</p>
+                <p className="text-lg font-bold text-slate-100 mt-0.5">
+                  {formatCurrency(filteredLoans.reduce((sum, l) => sum + (l.approvedAmount || l.sessionForm?.approvedAmount || 0), 0))}
+                </p>
+              </div>
+              <div className="border-l border-amber-500 pl-3">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Total Interest (I)</p>
+                <p className="text-lg font-bold text-slate-100 mt-0.5">
+                  {formatCurrency(filteredLoans.reduce((sum, l) => sum + ((l as any).totalInterest || 0), 0))}
+                </p>
+              </div>
+              <div className="border-l border-blue-500 pl-3">
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Total Value (P + I)</p>
+                <p className="text-lg font-bold text-slate-100 mt-0.5">
+                  {formatCurrency(
+                    filteredLoans.reduce((sum, l) => sum + (l.approvedAmount || l.sessionForm?.approvedAmount || 0) + ((l as any).totalInterest || 0), 0)
+                  )}
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

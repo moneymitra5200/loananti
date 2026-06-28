@@ -410,7 +410,8 @@ export default function ActiveLoansTab({
     } : undefined,
     emiSchedules: loan.emiSchedules,
     createdAt: new Date().toISOString(),
-    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+    _count: (loan as any)._count || { emiSchedules: loan.emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+    outstandingAmount: (loan as any).outstandingAmount
   });
 
   // Render each loan in parallel view format
@@ -438,6 +439,7 @@ export default function ActiveLoansTab({
       interestOnlyMonthlyAmount?: number;
       createdAt: string;
       _count?: any;
+      outstandingAmount?: number;
     } | null = null;
     
     if (mapping?.mirrorLoan) {
@@ -464,7 +466,8 @@ export default function ActiveLoansTab({
         isInterestOnlyLoan: ml.isInterestOnlyLoan,
         interestOnlyMonthlyAmount: ml.interestOnlyMonthlyAmount,
         createdAt: ml.createdAt || new Date().toISOString(),
-        _count: (ml as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+        _count: (ml as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+        outstandingAmount: (ml as any).outstandingAmount
       };
     } else if (mapping?.offlineMirrorLoan) {
       const oml = mapping.offlineMirrorLoan;
@@ -486,7 +489,8 @@ export default function ActiveLoansTab({
           code: oml.company.code || ''
         } : undefined,
         createdAt: oml.createdAt || new Date().toISOString(),
-        _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 }
+        _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+        outstandingAmount: (oml as any).outstandingAmount
       };
     }
     
@@ -661,6 +665,42 @@ export default function ActiveLoansTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Portfolio Principal & Interest Summary Box */}
+      <Card className="border-0 shadow-sm bg-slate-900 text-white">
+        <CardContent className="p-5">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <h3 className="text-lg font-semibold text-emerald-400">Portfolio Financial Aggregates</h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Consolidated stats for all active loans (original loans counted; mirror duplicates excluded).
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-8 w-full md:w-auto">
+              <div className="border-l-2 border-emerald-500 pl-4">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Principal (P)</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">
+                  {formatCurrency(filteredActiveLoans.reduce((sum, l) => sum + (l.approvedAmount || 0), 0))}
+                </p>
+              </div>
+              <div className="border-l-2 border-amber-500 pl-4">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Interest (I)</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">
+                  {formatCurrency(filteredActiveLoans.reduce((sum, l) => sum + ((l as any).totalInterest || 0), 0))}
+                </p>
+              </div>
+              <div className="border-l-2 border-blue-500 pl-4">
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Value (P + I)</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">
+                  {formatCurrency(
+                    filteredActiveLoans.reduce((sum, l) => sum + (l.approvedAmount || 0) + ((l as any).totalInterest || 0), 0)
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-gray-500">

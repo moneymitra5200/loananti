@@ -136,6 +136,8 @@ export async function GET(request: NextRequest) {
     // Lookup maps for mirror loan details (populated after mirrorLoanMappings is fetched)
     let onlineMirrorLoanMap = new Map<string, any>();
     let offlineMirrorLoanMap = new Map<string, any>();
+    const onlineOutstandingMap = new Map<string, number>();
+    const offlineOutstandingMap = new Map<string, number>();
     const allLoanIds = [
       ...onlineLoans.map(l => l.id),
       ...offlineLoans.map(l => l.id)
@@ -208,6 +210,54 @@ export async function GET(request: NextRequest) {
         });
       }
       offlineMirrorLoanMap = new Map(offlineMirrorLoanDetails.map(l => [l.id, l]));
+
+      // Fetch outstanding principal amounts
+      const allOnlineIdsForOutstanding = [
+        ...onlineLoans.map(l => l.id),
+        ...onlineMirrorLoanIds
+      ];
+      const allOfflineIdsForOutstanding = [
+        ...offlineLoans.map(l => l.id),
+        ...offlineMirrorLoanIds
+      ];
+
+      if (allOnlineIdsForOutstanding.length > 0) {
+        const unpaidOnlineEmis = await db.eMISchedule.findMany({
+          where: {
+            loanApplicationId: { in: allOnlineIdsForOutstanding },
+            paymentStatus: { not: 'PAID' }
+          },
+          select: {
+            loanApplicationId: true,
+            totalAmount: true,
+            paidAmount: true
+          }
+        });
+        unpaidOnlineEmis.forEach(emi => {
+          const current = onlineOutstandingMap.get(emi.loanApplicationId) || 0;
+          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          onlineOutstandingMap.set(emi.loanApplicationId, current + remaining);
+        });
+      }
+
+      if (allOfflineIdsForOutstanding.length > 0) {
+        const unpaidOfflineEmis = await db.offlineLoanEMI.findMany({
+          where: {
+            offlineLoanId: { in: allOfflineIdsForOutstanding },
+            paymentStatus: { not: 'PAID' }
+          },
+          select: {
+            offlineLoanId: true,
+            totalAmount: true,
+            paidAmount: true
+          }
+        });
+        unpaidOfflineEmis.forEach(emi => {
+          const current = offlineOutstandingMap.get(emi.offlineLoanId) || 0;
+          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          offlineOutstandingMap.set(emi.offlineLoanId, current + remaining);
+        });
+      }
     }
 
     // Create lookup maps
@@ -264,10 +314,28 @@ export async function GET(request: NextRequest) {
           mirrorCompany: mirrorMapping.mirrorCompany,
           originalCompany: mirrorMapping.originalCompany,
           // Embed full mirror loan object for ParallelLoanView
-          mirrorLoan: mirrorMapping.mirrorLoanId ? (onlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId) || null) : null,
+          mirrorLoan: mirrorMapping.mirrorLoanId ? (() => {
+            const ml = onlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId);
+            if (!ml) return null;
+            let mlOutstanding = onlineOutstandingMap.get(ml.id) || 0;
+            if (ml.status === 'ACTIVE_INTEREST_ONLY') {
+              mlOutstanding = ml.sessionForm?.approvedAmount || ml.requestedAmount || 0;
+            }
+            return {
+              ...ml,
+              outstandingAmount: mlOutstanding
+            };
+          })() : null,
         } : null,
         requestedAmount: loan.requestedAmount,
         approvedAmount: loan.sessionForm?.approvedAmount || loan.requestedAmount,
+        outstandingAmount: (() => {
+          let outstanding = onlineOutstandingMap.get(loan.id) || 0;
+          if (loan.status === 'ACTIVE_INTEREST_ONLY') {
+            outstanding = loan.sessionForm?.approvedAmount || loan.requestedAmount || 0;
+          }
+          return outstanding;
+        })(),
         interestRate: loan.sessionForm?.interestRate || 0,
         tenure: loan.sessionForm?.tenure || 0,
         emiAmount: loan.sessionForm?.emiAmount || 0,
@@ -335,10 +403,28 @@ export async function GET(request: NextRequest) {
           mirrorCompany: mirrorMapping.mirrorCompany,
           originalCompany: mirrorMapping.originalCompany,
           // Embed the offline mirror loan detail for ParallelLoanView
-          offlineMirrorLoan: mirrorMapping.mirrorLoanId ? (offlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId) || null) : null,
+          offlineMirrorLoan: mirrorMapping.mirrorLoanId ? (() => {
+            const oml = offlineMirrorLoanMap.get(mirrorMapping.mirrorLoanId);
+            if (!oml) return null;
+            let omlOutstanding = offlineOutstandingMap.get(oml.id) || 0;
+            if (oml.status === 'INTEREST_ONLY') {
+              omlOutstanding = oml.loanAmount || 0;
+            }
+            return {
+              ...oml,
+              outstandingAmount: omlOutstanding
+            };
+          })() : null,
         } : null,
         requestedAmount: loan.loanAmount,
         approvedAmount: loan.loanAmount,
+        outstandingAmount: (() => {
+          let outstanding = offlineOutstandingMap.get(loan.id) || 0;
+          if (loan.status === 'INTEREST_ONLY') {
+            outstanding = loan.loanAmount || 0;
+          }
+          return outstanding;
+        })(),
         interestRate: loan.interestRate,
         tenure: loan.tenure,
         emiAmount: loan.emiAmount,

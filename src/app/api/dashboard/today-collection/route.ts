@@ -69,6 +69,30 @@ export async function GET(request: NextRequest) {
       onlineEmiCount: number; offlineEmiCount: number;
     }>();
 
+    // Query mirror mappings to filter out mirror loan collections
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorLoanId: { not: null } },
+      select: { mirrorLoanId: true }
+    });
+    const mirrorLoanIds = new Set(mirrorMappings.map(m => m.mirrorLoanId));
+
+    // Deduplicate today's collections
+    const dedupedOnlinePayments = onlinePayments.filter(p => {
+      const loanId = p.emiSchedule?.loanApplicationId;
+      return !loanId || !mirrorLoanIds.has(loanId);
+    });
+
+    const dedupedOfflineEmis = offlineEmis.filter(e => {
+      return !e.offlineLoan?.isMirrorLoan;
+    });
+
+    const dedupedCreditTxs = creditTxs.filter(tx => {
+      if (tx.loanApplicationId && mirrorLoanIds.has(tx.loanApplicationId)) {
+        return false;
+      }
+      return true;
+    });
+
     const ensureCompany = (id: string, name: string, code: string) => {
       if (!companyMap.has(id)) {
         companyMap.set(id, { id, name, code, cashTotal: 0, onlineTotal: 0, total: 0, onlineEmiCount: 0, offlineEmiCount: 0 });
@@ -78,7 +102,7 @@ export async function GET(request: NextRequest) {
 
     const ONLINE_MODES = new Set(['ONLINE', 'UPI', 'BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'CHEQUE']);
 
-    for (const p of onlinePayments) {
+    for (const p of dedupedOnlinePayments) {
       const company = p.emiSchedule?.loanApplication?.company;
       if (!company) continue;
       const c = ensureCompany(company.id, company.name, company.code);
@@ -89,7 +113,7 @@ export async function GET(request: NextRequest) {
       c.onlineEmiCount++;
     }
 
-    for (const e of offlineEmis) {
+    for (const e of dedupedOfflineEmis) {
       const company = e.offlineLoan?.company;
       if (!company) continue;
       const c = ensureCompany(company.id, company.name, company.code);
@@ -102,7 +126,7 @@ export async function GET(request: NextRequest) {
 
     // ── Collector (role) breakdown from credit transactions ───────────────────
     const collectorMap = new Map<string, { id: string; name: string; role: string; total: number; personal: number; company: number }>();
-    for (const tx of creditTxs) {
+    for (const tx of dedupedCreditTxs) {
       const u = tx.user;
       if (!u) continue;
       if (!collectorMap.has(u.id)) {
@@ -129,9 +153,9 @@ export async function GET(request: NextRequest) {
       companies,
       collectors,
       emiCounts: {
-        online: onlinePayments.length,
-        offline: offlineEmis.length,
-        total: onlinePayments.length + offlineEmis.length,
+        online: dedupedOnlinePayments.length,
+        offline: dedupedOfflineEmis.length,
+        total: dedupedOnlinePayments.length + dedupedOfflineEmis.length,
       },
     });
   } catch (error: any) {
