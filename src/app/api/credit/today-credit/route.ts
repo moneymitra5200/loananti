@@ -9,7 +9,7 @@ import { db } from '@/lib/db';
  *   ?startDate=...&endDate= → date range
  *
  * Rules:
- * - SUPER_ADMIN transactions are excluded.
+ * - ALL roles are included (SUPER_ADMIN, AGENT, CASHIER, STAFF, etc.)
  * - Mirror loan transactions are excluded (only original loan data shown).
  * - ALL payment modes included (CASH, ONLINE, UPI, BANK_TRANSFER, etc.)
  */
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
       where: {
         transactionType: { in: ['CREDIT_INCREASE', 'PERSONAL_COLLECTION'] },
         createdAt: { gte: startOfRange, lte: endOfRange },
-        user: { role: { not: 'SUPER_ADMIN' } },
+        // Include ALL roles — SUPER_ADMIN may record EMI payments directly
       },
       include: {
         user: {

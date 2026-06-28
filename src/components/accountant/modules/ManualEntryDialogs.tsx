@@ -283,12 +283,19 @@ export function RepayBorrowingDialog({
   const [selected, setSelected] = useState('');
   const [form, setForm] = useState({ principal: '', interest: '', payFrom: 'CASH', bankAccountId: '', date: new Date().toISOString().split('T')[0] });
   const [saving, setSaving] = useState(false);
+  const [cashBalance, setCashBalance] = useState<number | null>(null);
 
   useEffect(() => {
     if (open && companyId) {
       fetch(`/api/accounting/borrowed-money?companyId=${companyId}`)
         .then(r => r.json())
         .then(d => setBorrowings((d.borrowedEntries || []).filter((b: any) => b.status !== 'FULLY_PAID')));
+      
+      // Fetch cashbook balance for this company
+      fetch(`/api/accountant/cashbook?companyId=${companyId}`)
+        .then(r => r.json())
+        .then(d => setCashBalance(d?.currentBalance ?? 0))
+        .catch(() => setCashBalance(0));
     }
   }, [open, companyId]);
 
@@ -301,6 +308,25 @@ export function RepayBorrowingDialog({
     if (form.payFrom !== 'CASH' && !form.bankAccountId) {
       toast.error('Select bank account'); return;
     }
+
+    const principalAmount = parseFloat(form.principal);
+    const interestAmount = parseFloat(form.interest) || 0;
+    const totalPayment = principalAmount + interestAmount;
+
+    // Client-side balance checks
+    if (form.payFrom === 'CASH') {
+      if (cashBalance !== null && cashBalance < totalPayment) {
+        toast.error(`Insufficient cash balance. Available: ₹${cashBalance.toLocaleString('en-IN')}, Required: ₹${totalPayment.toLocaleString('en-IN')}`);
+        return;
+      }
+    } else {
+      const selectedBank = bankAccounts.find(b => b.id === form.bankAccountId);
+      if (selectedBank && (selectedBank.currentBalance || 0) < totalPayment) {
+        toast.error(`Insufficient bank balance. Available: ₹${(selectedBank.currentBalance || 0).toLocaleString('en-IN')}, Required: ₹${totalPayment.toLocaleString('en-IN')}`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const res = await fetch('/api/accounting/borrowed-money', {
@@ -377,7 +403,7 @@ export function RepayBorrowingDialog({
               <Select value={form.payFrom} onValueChange={v => setForm(f => ({ ...f, payFrom: v, bankAccountId: '' }))}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="CASH">💵 Cash</SelectItem>
+                  <SelectItem value="CASH">💵 Cash {cashBalance !== null ? `(Bal: ₹${cashBalance.toLocaleString('en-IN')})` : ''}</SelectItem>
                   <SelectItem value="BANK">🏦 Bank</SelectItem>
                 </SelectContent>
               </Select>
@@ -387,6 +413,11 @@ export function RepayBorrowingDialog({
               <Input type="date" className="mt-1" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
             </div>
           </div>
+          {form.payFrom === 'CASH' && cashBalance !== null && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5 mt-1">
+              Available Cash: <span className="font-semibold">₹{cashBalance.toLocaleString('en-IN')}</span>
+            </div>
+          )}
           {form.payFrom !== 'CASH' && (
             <div>
               <Label>Bank Account *</Label>
