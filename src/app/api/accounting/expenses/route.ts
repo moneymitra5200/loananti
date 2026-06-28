@@ -131,6 +131,24 @@ export async function POST(request: NextRequest) {
     // Get account code for expense type
     const accountCode = EXPENSE_ACCOUNT_CODES[expenseType] || '4800';
 
+    // Check sufficient balance before proceeding
+    if (paymentMode === 'CASH') {
+      const cashBook = await db.cashBook.findUnique({
+        where: { companyId: effectiveCompanyId }
+      });
+      if (!cashBook || (cashBook.currentBalance || 0) < amount) {
+        return NextResponse.json({
+          error: `Insufficient cash balance. Available: ₹${(cashBook?.currentBalance || 0).toLocaleString('en-IN')}`
+        }, { status: 400 });
+      }
+    } else if (bankAccount) {
+      if ((bankAccount.currentBalance || 0) < amount) {
+        return NextResponse.json({
+          error: `Insufficient bank balance. Available: ₹${(bankAccount.currentBalance || 0).toLocaleString('en-IN')}`
+        }, { status: 400 });
+      }
+    }
+
     // Pre-initialize AccountingService BEFORE the transaction
     // (initializeChartOfAccounts is slow — many DB reads/writes — and would timeout the 5s tx)
     let accountingService: AccountingService | null = null;

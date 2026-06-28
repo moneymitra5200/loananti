@@ -392,7 +392,7 @@ export function RepayBorrowingDialog({
               <Label>Bank Account *</Label>
               <Select value={form.bankAccountId} onValueChange={v => setForm(f => ({ ...f, bankAccountId: v }))}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select bank..." /></SelectTrigger>
-                <SelectContent>{bankAccounts.map(b => <SelectItem key={b.id} value={b.id}>{b.bankName} (...{b.accountNumber.slice(-4)})</SelectItem>)}</SelectContent>
+                <SelectContent>{bankAccounts.map(b => <SelectItem key={b.id} value={b.id}>{b.bankName} (...{b.accountNumber.slice(-4)}) — Bal: ₹{b.currentBalance.toLocaleString('en-IN')}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}

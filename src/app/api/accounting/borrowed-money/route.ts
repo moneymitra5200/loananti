@@ -243,6 +243,27 @@ export async function PUT(request: NextRequest) {
 
     const totalPayment = parseFloat(principalAmount) + (parseFloat(interestAmount) || 0);
 
+    // Check sufficient balance before proceeding
+    if (bankAccountId) {
+      const bankAccount = await db.bankAccount.findUnique({
+        where: { id: bankAccountId }
+      });
+      if (!bankAccount || (bankAccount.currentBalance || 0) < totalPayment) {
+        return NextResponse.json({
+          error: `Insufficient bank balance. Available: ₹${(bankAccount?.currentBalance || 0).toLocaleString('en-IN')}`
+        }, { status: 400 });
+      }
+    } else {
+      const cashBook = await db.cashBook.findUnique({
+        where: { companyId }
+      });
+      if (!cashBook || (cashBook.currentBalance || 0) < totalPayment) {
+        return NextResponse.json({
+          error: `Insufficient cash balance. Available: ₹${(cashBook?.currentBalance || 0).toLocaleString('en-IN')}`
+        }, { status: 400 });
+      }
+    }
+
     // Use AccountingService for proper double-entry accounting
     const accountingService = new AccountingService(companyId);
 
@@ -295,7 +316,7 @@ export async function PUT(request: NextRequest) {
             balanceAfter: bankAccount.currentBalance - totalPayment,
             description: description || `Loan repayment to ${borrowedEntry.sourceName}`,
             referenceType: 'LOAN_REPAYMENT',
-            referenceId: borrowedMoneyId,
+            referenceId: `repay-${borrowedMoneyId}-${Date.now()}`,
             transactionDate: repaymentDate ? new Date(repaymentDate) : new Date(),
             createdById
           }
