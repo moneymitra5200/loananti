@@ -83,7 +83,7 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
   // ── IDEMPOTENCY CHECK ──────────────────────────────────────────────
   if (referenceId) {
     const existing = await client.cashBookEntry.findFirst({
-      where: { referenceId },
+      where: { referenceId, cashBookId },
     });
     if (existing) {
       console.warn(`[CashBook] DUPLICATE BLOCKED — referenceId: ${referenceId}, type: ${referenceType}. Returning existing balance.`);
@@ -177,7 +177,7 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
   // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────
   if (referenceId) {
     const existing = await client.bankTransaction.findFirst({
-      where: { referenceId },
+      where: { referenceId, bankAccountId: targetBankId },
       select: { id: true },
     });
     if (existing) {
@@ -290,6 +290,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
   cashBookEntry?: { success: boolean; cashBookId: string; newBalance: number };
   bankTransaction?: { success: boolean; bankAccountId: string; newBalance: number };
   journalEntryId?: string;
+  mirrorCashBookEntry?: { success: boolean; cashBookId: string; newBalance: number };
+  mirrorBankTransaction?: { success: boolean; bankAccountId: string; newBalance: number };
+  mirrorJournalEntryId?: string;
 }> {
   const {
     amount,
@@ -323,6 +326,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     cashBookEntry?: { success: boolean; cashBookId: string; newBalance: number };
     bankTransaction?: { success: boolean; bankAccountId: string; newBalance: number };
     journalEntryId?: string;
+    mirrorCashBookEntry?: { success: boolean; cashBookId: string; newBalance: number };
+    mirrorBankTransaction?: { success: boolean; bankAccountId: string; newBalance: number };
+    mirrorJournalEntryId?: string;
   } = {};
 
   const customerLabel = params.customerName || loanNumber;
@@ -595,7 +601,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           amount: mirrorCashPortion,
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
-          referenceId: paymentId,
+          referenceId: `${paymentId}-MIRROR`,
           createdById: userId
         });
       }
@@ -607,7 +613,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           amount: mirrorOnlinePortion,
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
-          referenceId: `${paymentId}-SPLIT-ONLINE`,
+          referenceId: `${paymentId}-SPLIT-ONLINE-MIRROR`,
           createdById: userId
         });
       }
@@ -624,7 +630,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           amount: recordAmount,
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
-          referenceId: paymentId,
+          referenceId: `${paymentId}-MIRROR`,
           createdById: userId
         });
         console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company BANK ACCOUNT`);
@@ -635,7 +641,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           amount: recordAmount,
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
-          referenceId: paymentId,
+          referenceId: `${paymentId}-MIRROR`,
           createdById: userId
         });
         console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company CASH BOOK`);
@@ -859,8 +865,16 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         userId: userId || 'SYSTEM'
       }).catch(err => console.error('[Accounting] Failed to trigger next mirror EMI interest accrual:', err));
     }
-    
-    return result;
+
+    // Store mirror results in mirror-specific fields
+    result.mirrorCashBookEntry = result.cashBookEntry;
+    result.mirrorBankTransaction = result.bankTransaction;
+    result.mirrorJournalEntryId = result.journalEntryId;
+
+    // Reset standard fields so they can be populated by the original company's entries
+    result.cashBookEntry = undefined;
+    result.bankTransaction = undefined;
+    result.journalEntryId = undefined;
   }
 
   // ============================================

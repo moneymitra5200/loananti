@@ -1787,7 +1787,7 @@ export async function POST(request: NextRequest) {
         const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL_EMI' && isAdvancePayment === true);
         
         if (isMirrorPayment) {
-          // ── MIRROR LOAN: Only record in MIRROR company ───────────────────────────────
+          // ── MIRROR LOAN: Record in MIRROR company ───────────────────────────────
           // Use MIRROR principal and MIRROR interest (not original)
           // CRITICAL: Do NOT fall back to original values - must use mirror EMI values
           if (mirrorPrincipalForAccounting === undefined || mirrorInterestForAccounting === undefined) {
@@ -1827,42 +1827,41 @@ export async function POST(request: NextRequest) {
               console.error(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED:`, mirrorPoResult.error);
             } else {
               onlineJournalCreated = true; // ✅ journal created successfully
-              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Journal registered (MIRROR company only)`);
+              console.log(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${mirrorPrincipal} collected, I:₹${mirrorInterest} → Journal registered (MIRROR company)`);
             }
             
           }
-          // NO entry for original company - mirror loan only affects mirror company
+        }
+
+        // ── ORIGINAL LOAN: Record in original company ───────────────────────────────
+        // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
+        if (paidPrincipal <= 0) {
+          onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal skipped: paidPrincipal=0`);
+          console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Skipped — paidPrincipal=₹${paidPrincipal}.`);
         } else {
-          // ── NON-MIRROR LOAN: Record in original company ───────────────────────────────
-          // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
-          if (paidPrincipal <= 0) {
-            onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal skipped: paidPrincipal=0`);
-            console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Skipped — paidPrincipal=₹${paidPrincipal}.`);
+          const poJournalResult = await poPrincipalJournal({
+            companyId:            loanCompanyId,
+            company3Id:           company3Id || undefined,
+            creditType:           effectiveCreditType as 'PERSONAL' | 'COMPANY',
+            loanId,
+            paymentId:            payment.id,
+            principalAmount:      paidPrincipal,
+            interestWrittenOff:   isAdv ? 0 : remainingInterest, // No interest written off for ADVANCE!
+            paymentDate:          new Date(),
+            createdById:          paidBy || 'SYSTEM',
+            paymentMode:          paymentMode as string,
+            loanNumber:           emi.loanApplication?.applicationNo || loanId,
+            installmentNumber:    emi.installmentNumber,
+            isInterestAccrued:    !!(emi as any).interestAccrued,
+            isInterestReclassified: emi.paymentStatus === 'OVERDUE',
+            customerId:           emi.loanApplication?.customerId || undefined,
+          });
+          if (!poJournalResult.success) {
+            onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);
+            console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
           } else {
-            const poJournalResult = await poPrincipalJournal({
-              companyId:            loanCompanyId,
-              company3Id:           company3Id || undefined,
-              creditType:           effectiveCreditType as 'PERSONAL' | 'COMPANY',
-              loanId,
-              paymentId:            payment.id,
-              principalAmount:      paidPrincipal,
-              interestWrittenOff:   isAdv ? 0 : remainingInterest, // No interest written off for ADVANCE!
-              paymentDate:          new Date(),
-              createdById:          paidBy || 'SYSTEM',
-              paymentMode:          paymentMode as string,
-              loanNumber:           emi.loanApplication?.applicationNo || loanId,
-              installmentNumber:    emi.installmentNumber,
-              isInterestAccrued:    !!(emi as any).interestAccrued,
-              isInterestReclassified: emi.paymentStatus === 'OVERDUE',
-              customerId:           emi.loanApplication?.customerId || undefined,
-            });
-            if (!poJournalResult.success) {
-              onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);
-              console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
-            } else {
-              onlineJournalCreated = true; // ✅ journal created successfully
-              console.log(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${paidPrincipal} collected, I:₹${isAdv ? 0 : remainingInterest} → Journal registered (${loanCompanyId})`);
-            }
+            onlineJournalCreated = true; // ✅ journal created successfully
+            console.log(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${paidPrincipal} collected, I:₹${isAdv ? 0 : remainingInterest} → Journal registered (${loanCompanyId})`);
           }
         }
 
@@ -1953,7 +1952,7 @@ export async function POST(request: NextRequest) {
         //   (lines 381-414 in simple-accounting.ts) using the isSplitPayment params we now pass.
         //   Do NOT add extra bank entry here for mirror loans — it would double-count the online portion.
         // This matches offline route line 3226: if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan)
-        if (isSplitPayment && splitOnlineAmount > 0 && !isMirrorPayment) {
+        if (isSplitPayment && splitOnlineAmount > 0) {
           try {
             await recordBankTransaction({
               companyId: loanCompanyId,
@@ -1964,7 +1963,7 @@ export async function POST(request: NextRequest) {
               referenceId: `${payment.id}-SPLIT-ONLINE`,
               createdById: paidBy,
             });
-            console.log(`[Accounting] SPLIT (non-mirror): ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${loanCompanyId})`);
+            console.log(`[Accounting] SPLIT: ₹${splitCashAmount} → Cashbook, ₹${splitOnlineAmount} → Bank (company: ${loanCompanyId})`);
           } catch (splitErr) {
             console.error('[Accounting] SPLIT bank entry failed (non-critical):', splitErr);
           }
