@@ -222,10 +222,12 @@ function entryToVoucher(entry: DayEntry): Voucher {
            name.includes('axis') ||
            name.includes('kotak') ||
            name.includes('punjab') ||
-           name.includes('bob ') ||
+           name.includes('bob') ||
            name.includes('canara') ||
+           name.includes('1101') ||
+           name.includes('1102') ||
            /^140\d/.test(accountName) || // Bank account codes 1401, 1402, etc.
-           accountName === '1101'; // Cash in Hand code
+           /^110\d/.test(accountName); // Cash/Bank account codes 1101, 1102, etc.
   };
 
   const cashOnDebitSide = drLines.some(l => isCashOrBankAccount(l.account));
@@ -248,8 +250,8 @@ function entryToVoucher(entry: DayEntry): Voucher {
       // Cash/bank credited = asset decreased = money OUT
       balanceImpact = -crLines.filter(l => isCashOrBankAccount(l.account)).reduce((s, l) => s + l.amount, 0);
     } else {
-      // Fallback: use the amount based on entry type
-      balanceImpact = isCashIn ? entry.amount : -entry.amount;
+      // Fallback: non-cash/bank journal entries have 0 impact on cash balance
+      balanceImpact = 0;
     }
   }
 
