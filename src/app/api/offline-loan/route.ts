@@ -1075,10 +1075,12 @@ export async function POST(request: NextRequest) {
             loanType: loanType || 'PERSONAL',
             interestType: mirrorTypeInterest as 'FLAT' | 'REDUCING',
             productId: null, // productIds are company-specific; mirror company won't have the same product
-            loanAmount,
+            loanAmount,         // Same principal as original
             interestRate: mirrorRate,
             tenure: mirrorTenure,
-            emiAmount: calculatedEmiAmount, // Same EMI as original
+            // ✅ FIX: Mirror EMI is calculated at mirrorRate (reducing), NOT the original flat EMI.
+            // Using mirrorCalc.mirrorLoan.emiAmount gives the correct mirror-loan EMI amount.
+            emiAmount: mirrorCalc.mirrorLoan.emiAmount,
             processingFee: 0, // No processing fee for mirror
             disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
             // FIX: Preserve the actual disbursement mode instead of hardcoding BANK_TRANSFER

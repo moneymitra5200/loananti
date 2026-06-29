@@ -24,18 +24,22 @@ export async function GET(request: NextRequest) {
     let endOfRange: Date;
     let isRange = false;
 
+    // Helper: parse YYYY-MM-DD as UTC midnight regardless of server locale
+    const parseUTCDate = (str: string) => {
+      const [y, m, d] = str.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d));
+    };
+
     if (startDateParam && endDateParam) {
       isRange = true;
-      startOfRange = new Date(startDateParam);
-      startOfRange.setHours(0, 0, 0, 0);
-      endOfRange = new Date(endDateParam);
-      endOfRange.setHours(23, 59, 59, 999);
+      startOfRange = parseUTCDate(startDateParam);
+      // endOfRange = end of that day (23:59:59.999 UTC)
+      const endParsed = parseUTCDate(endDateParam);
+      endOfRange = new Date(endParsed.getTime() + 24 * 60 * 60 * 1000 - 1);
     } else {
-      const targetDate = dateParam ? new Date(dateParam) : new Date();
-      startOfRange = new Date(targetDate);
-      startOfRange.setHours(0, 0, 0, 0);
-      endOfRange = new Date(targetDate);
-      endOfRange.setHours(23, 59, 59, 999);
+      const todayStr = dateParam || new Date().toISOString().split('T')[0];
+      startOfRange = parseUTCDate(todayStr);
+      endOfRange = new Date(startOfRange.getTime() + 24 * 60 * 60 * 1000 - 1);
     }
 
     // ── Step 1: Get all mirror loan IDs so we can exclude them ──────────────

@@ -9,7 +9,8 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Banknote, FileText, CheckCircle, CreditCard, DollarSign, 
-  TrendingUp, Eye, Receipt, Send, Activity, Landmark, Percent, PartyPopper
+  TrendingUp, Eye, Receipt, Send, Activity, Landmark, Percent, PartyPopper,
+  Navigation, MapPin, Loader2
 } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate, generateTransactionId } from '@/utils/helpers';
@@ -40,6 +41,81 @@ import CashierExpenseSection from '@/components/expense/CashierExpenseSection';
 import TodayCreditPanel from '@/components/credit/TodayCreditPanel';
 import CustomersSection from '@/components/admin/modules/CustomersSection';
 import UserDetailsSheet from '@/components/admin/UserDetailsSheet';
+import EMICollectionSection from '@/components/emi/EMICollectionSection';
+import EMICalendar from '@/components/emi/EMICalendar';
+import LocationHistoryViewer from '@/components/admin/LocationHistoryViewer';
+
+/** Live-location button: requests device GPS and posts to /api/location/track */
+function CashierFindLocationButton() {
+  const { user } = useAuth();
+  const [locating, setLocating] = useState(false);
+  const [lastCoords, setLastCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleFindLocation = () => {
+    if (!navigator.geolocation) {
+      toast({ title: 'Not Supported', description: 'Your browser does not support geolocation.', variant: 'destructive' });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setLastCoords({ lat: latitude, lng: longitude });
+        try {
+          await fetch('/api/location/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: user?.id,
+              latitude,
+              longitude,
+              accuracy,
+              action: 'LOGIN',
+              deviceType: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+            }),
+          });
+          toast({
+            title: '📍 Location Found',
+            description: `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)} (±${accuracy?.toFixed(0)}m)`,
+          });
+        } catch {
+          toast({ title: 'Location saved locally', description: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` });
+        } finally {
+          setLocating(false);
+        }
+      },
+      (err) => {
+        setLocating(false);
+        toast({ title: 'Location Error', description: err.message || 'Could not get location. Check permissions.', variant: 'destructive' });
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        onClick={handleFindLocation}
+        disabled={locating}
+        className="bg-emerald-600 hover:bg-emerald-700 gap-2"
+      >
+        {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Navigation className="h-4 w-4" />}
+        {locating ? 'Finding...' : 'Find My Location'}
+      </Button>
+      {lastCoords && (
+        <a
+          href={`https://www.google.com/maps?q=${lastCoords.lat},${lastCoords.lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-emerald-600 flex items-center gap-1 hover:underline"
+        >
+          <MapPin className="h-3 w-3" />
+          {lastCoords.lat.toFixed(4)}, {lastCoords.lng.toFixed(4)} — View on Maps
+        </a>
+      )}
+    </div>
+  );
+}
 
 // Self-fetching wrapper so Cashier customers tab doesn't need parent-level data
 function CashierCustomersPage({ companyId }: { companyId?: string }) {
@@ -817,6 +893,7 @@ export default function CashierDashboard() {
            item.id === 'audit'            ? allDisbursed.length :
            item.id === 'activeLoans'      ? originalActiveLoans.length :
            item.id === 'paymentRequests'  ? (pendingPaymentRequestCount || undefined) :
+           item.id === 'inactiveLoans'    ? loans.filter(l => l.status === 'CLOSED').length :
            undefined
   }));
 
@@ -1109,6 +1186,72 @@ export default function CashierDashboard() {
         );
 
 
+      case 'emi-collection':
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <span>💰</span> EMI Collection
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">Collect EMI payments — filter by date range or single date</p>
+            </div>
+            <EMICollectionSection
+              userId={user?.id || ''}
+              userRole={user?.role || 'CASHIER'}
+              onPaymentComplete={() => fetchAllData(true)}
+            />
+          </div>
+        );
+
+      case 'emi-calendar':
+        return (
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <span>📅</span> EMI Calendar
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">Monthly view of all EMI due dates — click a day to see details</p>
+            </div>
+            <EMICalendar
+              userId={user?.id || ''}
+              userRole={user?.role || 'CASHIER'}
+            />
+          </div>
+        );
+
+      case 'locationHistory':
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <span>📍</span> Location History
+                </h2>
+                <p className="text-gray-500 text-sm mt-1">Track user location events — use Find Location for live coordinates</p>
+              </div>
+              <CashierFindLocationButton />
+            </div>
+            <LocationHistoryViewer />
+          </div>
+        );
+
+      case 'inactiveLoans':
+        return (
+          <ClosedLoansTab
+            setSelectedLoanId={(id, type) => {
+              if (type === 'OFFLINE') {
+                setSelectedOfflineLoanId(id);
+                setShowOfflineLoanPanel(true);
+              } else {
+                setSelectedLoan(id ? { id } as any : null);
+                setShowLoanDetailPanel(!!id);
+              }
+            }}
+            setShowLoanDetailPanel={setShowLoanDetailPanel}
+            mirrorEnabled={(systemSettings as any)?.mirrorLoanEnabled !== false}
+          />
+        );
+
       case 'paymentRequests':
         return <PaymentRequestsSection cashierId={user?.id || ''} />;
 
@@ -1162,6 +1305,7 @@ export default function CashierDashboard() {
             mirrorEnabled={(systemSettings as any)?.mirrorLoanEnabled !== false}
           />
         );
+
 
       case 'myCredit':
         return <MyCreditPassbook />;

@@ -111,6 +111,65 @@ interface CompanyItem {
   maxLoanAmount?: number; minLoanAmount?: number; maxTenureMonths?: number;
 }
 
+/** Live-location button for SuperAdmin Location History page */
+function SuperAdminFindLocationButton({ userId }: { userId?: string }) {
+  const [locating, setLocating] = useState(false);
+  const [lastCoords, setLastCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const handleFindLocation = () => {
+    if (!navigator.geolocation) {
+      toast({ title: 'Not Supported', description: 'Geolocation is not available in your browser.', variant: 'destructive' });
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        setLastCoords({ lat: latitude, lng: longitude });
+        try {
+          await fetch('/api/location/track', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId,
+              latitude,
+              longitude,
+              accuracy,
+              action: 'LOGIN',
+              deviceType: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+            }),
+          });
+          toast({ title: '📍 Location Found', description: `${latitude.toFixed(5)}, ${longitude.toFixed(5)} (±${accuracy?.toFixed(0)}m)` });
+        } catch {
+          toast({ title: 'Location captured', description: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` });
+        } finally { setLocating(false); }
+      },
+      (err) => { setLocating(false); toast({ title: 'Error', description: err.message, variant: 'destructive' }); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        onClick={handleFindLocation}
+        disabled={locating}
+        className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+      >
+        {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+        {locating ? 'Finding...' : 'Find My Location'}
+      </button>
+      {lastCoords && (
+        <a href={`https://www.google.com/maps?q=${lastCoords.lat},${lastCoords.lng}`} target="_blank" rel="noopener noreferrer"
+          className="text-xs text-emerald-600 flex items-center gap-1 hover:underline">
+          <MapPin className="h-3 w-3" />
+          {lastCoords.lat.toFixed(4)}, {lastCoords.lng.toFixed(4)} — View on Maps
+        </a>
+      )}
+    </div>
+  );
+}
+
 export default function SuperAdminDashboard() {
   const { user } = useAuth();
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -1566,7 +1625,22 @@ export default function SuperAdminDashboard() {
         );
 
       case 'locationHistory':
-        return <LocationHistoryViewer />;
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                  <MapPin className="h-6 w-6 text-blue-600" /> Location History
+                </h2>
+                <p className="text-gray-500 text-sm mt-1">Track all user location events — click to capture live coordinates</p>
+              </div>
+              <SuperAdminFindLocationButton userId={user?.id} />
+            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>}>
+              <LocationHistoryViewer />
+            </Suspense>
+          </div>
+        );
 
       case 'personalCredits':
         return (

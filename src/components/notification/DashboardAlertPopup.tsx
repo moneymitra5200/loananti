@@ -32,6 +32,8 @@ interface AlertItem {
 interface DashboardAlerts {
   todayDueEMIs: number;
   todayDueAmount: number;
+  tomorrowDueEMIs: number;
+  tomorrowDueAmount: number;
   overdueEMIs: number;
   overdueAmount: number;
   newApplications: number;
@@ -66,6 +68,7 @@ export default function DashboardAlertPopup() {
         const data = res.ok ? await res.json() : {};
         setAlerts({
           todayDueEMIs: 0, todayDueAmount: 0,
+          tomorrowDueEMIs: 0, tomorrowDueAmount: 0,
           overdueEMIs: 0, overdueAmount: 0,
           newApplications: 0, pendingDisbursements: 0,
           myUpcomingEMIs: data.upcomingCount || 0,
@@ -83,6 +86,8 @@ export default function DashboardAlertPopup() {
         setAlerts({
           todayDueEMIs:        data.todayDueEMIs        || 0,
           todayDueAmount:      data.todayDueAmount       || 0,
+          tomorrowDueEMIs:     data.tomorrowDueEMIs      || 0,
+          tomorrowDueAmount:   data.tomorrowDueAmount    || 0,
           overdueEMIs:         data.overdueEMIs          || 0,
           overdueAmount:       data.overdueAmount        || 0,
           newApplications:     data.newApplications      || 0,
@@ -140,6 +145,10 @@ export default function DashboardAlertPopup() {
       alerts.todayDueEMIs > 0 && {
         icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100',
         label: "Today's EMIs Due", value: `${alerts.todayDueEMIs} EMI${alerts.todayDueEMIs > 1 ? 's' : ''} — ${INR(alerts.todayDueAmount)}`,
+      },
+      alerts.tomorrowDueEMIs > 0 && {
+        icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100',
+        label: "Tomorrow's EMIs Due", value: `${alerts.tomorrowDueEMIs} EMI${alerts.tomorrowDueEMIs > 1 ? 's' : ''} — ${INR(alerts.tomorrowDueAmount)} (due tomorrow)`,
       },
       alerts.newApplications > 0 && {
         icon: FileText, color: 'text-blue-600', bg: 'bg-blue-100',

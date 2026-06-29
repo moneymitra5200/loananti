@@ -14,11 +14,14 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateParam = searchParams.get('date'); // optional YYYY-MM-DD, defaults to today
 
-    const targetDate = dateParam ? new Date(dateParam) : new Date();
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Parse as UTC midnight to avoid server-timezone offset causing wrong-day queries
+    const parseUTCDate = (str: string) => {
+      const [y, m, d] = str.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d));
+    };
+    const todayStr = dateParam || new Date().toISOString().split('T')[0];
+    const startOfDay = parseUTCDate(todayStr);
+    const endOfDay   = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000 - 1);
 
     // ── 1. Online loan EMI payments (Payment table) ────────────────────────────
     const onlinePayments = await db.payment.findMany({
@@ -148,7 +151,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      date: targetDate.toISOString().split('T')[0],
+      date: todayStr,
       summary: { total: grandTotal, cash: grandCash, online: grandOnline },
       companies,
       collectors,

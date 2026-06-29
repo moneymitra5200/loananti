@@ -6,9 +6,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const dateStr = searchParams.get('date') || new Date().toISOString().split('T')[0];
     const agentId = searchParams.get('agentId') || undefined;
+    const cashierId = searchParams.get('cashierId') || undefined;
 
     const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
     const dayEnd   = new Date(`${dateStr}T23:59:59.999Z`);
+    // Tomorrow window
+    const tmrStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+    const tmrEnd   = new Date(dayEnd.getTime()   + 24 * 60 * 60 * 1000);
 
     // Optionally scope EMI / loan queries to a specific agent
     const onlineLoanWhere: any = agentId ? { 
@@ -90,12 +94,34 @@ export async function GET(request: NextRequest) {
 
 
 
+    // Tomorrow EMIs (online + offline)
+    const tomorrowOnlineEMIs = await db.eMISchedule.findMany({
+      where: {
+        dueDate: { gte: tmrStart, lte: tmrEnd },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
+        loanApplication: onlineLoanWhere,
+      },
+      select: { totalAmount: true },
+    }).catch(() => [] as any[]);
+
+    const tomorrowOfflineEMIs = await db.offlineLoanEMI.findMany({
+      where: {
+        dueDate: { gte: tmrStart, lte: tmrEnd },
+        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
+        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
+      },
+      select: { totalAmount: true, paidAmount: true },
+    }).catch(() => [] as any[]);
+
     return NextResponse.json({
       success:              true,
       date:                 dateStr,
       todayDueEMIs:         todayEMIs.length + offlineTodayEMIs.length,
       todayDueAmount:       todayEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
                           + offlineTodayEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
+      tomorrowDueEMIs:      tomorrowOnlineEMIs.length + tomorrowOfflineEMIs.length,
+      tomorrowDueAmount:    tomorrowOnlineEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
+                          + tomorrowOfflineEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
       overdueEMIs:          overdueEMIs.length + offlineOverdueEMIs.length,
       overdueAmount:        overdueEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
                           + offlineOverdueEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
