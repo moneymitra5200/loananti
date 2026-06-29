@@ -336,6 +336,72 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Get EMIs by date range (startDate to endDate)
+    if (action === 'by-date-range') {
+      const startDateStr = searchParams.get('startDate');
+      const endDateStr   = searchParams.get('endDate');
+
+      if (!startDateStr || !endDateStr) {
+        return NextResponse.json({ error: 'startDate and endDate required (YYYY-MM-DD)' }, { status: 400 });
+      }
+
+      const rangeStart = new Date(startDateStr);
+      rangeStart.setHours(0, 0, 0, 0);
+      const rangeEnd = new Date(endDateStr);
+      rangeEnd.setHours(23, 59, 59, 999);
+
+      const onlineEmiWhere: Record<string, unknown> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { gte: rangeStart, lte: rangeEnd }
+      };
+      if (userRole === 'AGENT') {
+        onlineEmiWhere.loanApplication = { sessionForm: { agentId: userId } };
+      }
+
+      const offlineEmiWhere: Record<string, unknown> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { gte: rangeStart, lte: rangeEnd },
+        offlineLoan: { isMirrorLoan: false }
+      };
+      if (userRole === 'AGENT') {
+        offlineEmiWhere.offlineLoan = { isMirrorLoan: false, createdById: userId };
+      }
+
+      const [onlineEmis, offlineEmis] = await Promise.all([
+        db.eMISchedule.findMany({
+          where: onlineEmiWhere,
+          include: {
+            loanApplication: {
+              select: { id: true, applicationNo: true, firstName: true, lastName: true, phone: true, address: true, companyId: true }
+            }
+          },
+          orderBy: { dueDate: 'asc' }
+        }),
+        db.offlineLoanEMI.findMany({
+          where: offlineEmiWhere,
+          include: {
+            offlineLoan: {
+              select: { id: true, loanNumber: true, customerName: true, customerPhone: true, customerAddress: true, companyId: true }
+            }
+          },
+          orderBy: { dueDate: 'asc' }
+        })
+      ]);
+
+      const summary = {
+        online:   { count: onlineEmis.length,  totalAmount: onlineEmis.reduce((s,e)=>s+e.totalAmount,0),  totalPrincipal: onlineEmis.reduce((s,e)=>s+e.principalAmount,0),  totalInterest: onlineEmis.reduce((s,e)=>s+e.interestAmount,0) },
+        offline:  { count: offlineEmis.length, totalAmount: offlineEmis.reduce((s,e)=>s+e.totalAmount,0), totalPrincipal: offlineEmis.reduce((s,e)=>s+e.principalAmount,0), totalInterest: offlineEmis.reduce((s,e)=>s+e.interestAmount,0) },
+        combined: {
+          count: onlineEmis.length + offlineEmis.length,
+          totalAmount:   onlineEmis.reduce((s,e)=>s+e.totalAmount,0)    + offlineEmis.reduce((s,e)=>s+e.totalAmount,0),
+          totalPrincipal: onlineEmis.reduce((s,e)=>s+e.principalAmount,0) + offlineEmis.reduce((s,e)=>s+e.principalAmount,0),
+          totalInterest: onlineEmis.reduce((s,e)=>s+e.interestAmount,0)  + offlineEmis.reduce((s,e)=>s+e.interestAmount,0),
+        }
+      };
+
+      return NextResponse.json({ success: true, startDate: startDateStr, endDate: endDateStr, onlineEmis, offlineEmis, summary });
+    }
+
     // Get EMIs by specific date
     if (action === 'by-date') {
       const dateStr = searchParams.get('date'); // Format: YYYY-MM-DD
@@ -529,7 +595,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, userId } = body;
 
-    // Send daily reminders to all roles
+    // Send daily reminders to all roles + customers
     if (action === 'send-daily-reminders') {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -537,8 +603,11 @@ export async function POST(request: NextRequest) {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // Get all active staff who should receive reminders
-      const users = await db.user.findMany({
+      const dayAfterTomorrow = new Date(tomorrow);
+      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+
+      // ── 1. Staff notifications (existing behaviour) ─────────────────────────
+      const staffUsers = await db.user.findMany({
         where: {
           role: { in: ['SUPER_ADMIN', 'AGENT', 'STAFF', 'COMPANY', 'CASHIER'] },
           isActive: true
@@ -547,8 +616,7 @@ export async function POST(request: NextRequest) {
 
       let remindersSent = 0;
 
-      for (const user of users) {
-        // Get EMIs for this user based on role
+      for (const user of staffUsers) {
         let onlineEmis: typeof onlineEmisInner = [];
         let offlineEmis: typeof offlineEmisInner = [];
 
@@ -567,7 +635,8 @@ export async function POST(request: NextRequest) {
         const offlineEmisInner = await db.offlineLoanEMI.findMany({
           where: {
             paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-            dueDate: { gte: today, lt: tomorrow }
+            dueDate: { gte: today, lt: tomorrow },
+            offlineLoan: { isMirrorLoan: false }
           },
           include: {
             offlineLoan: {
@@ -576,47 +645,98 @@ export async function POST(request: NextRequest) {
           }
         });
 
-        // For agents, filter by their loans
         if (user.role === 'AGENT') {
           const agentLoanIds = await db.sessionForm.findMany({
             where: { agentId: user.id },
             select: { loanApplicationId: true }
           });
           const loanIdSet = new Set(agentLoanIds.map(s => s.loanApplicationId));
-          
           onlineEmis = onlineEmisInner.filter(e => loanIdSet.has(e.loanApplicationId));
-          
-          offlineEmis = offlineEmisInner.filter(e => 
-            e.offlineLoan.createdById === user.id
-          );
+          offlineEmis = offlineEmisInner.filter(e => e.offlineLoan.createdById === user.id);
         } else {
           onlineEmis = onlineEmisInner;
           offlineEmis = offlineEmisInner;
         }
 
-        // Send notification if there are EMIs
         if (onlineEmis.length > 0 || offlineEmis.length > 0) {
           const totalEmis = onlineEmis.length + offlineEmis.length;
           const totalAmount = [...onlineEmis, ...offlineEmis].reduce((sum, e) => sum + e.totalAmount, 0);
-
           await db.notification.create({
             data: {
               userId: user.id,
               type: 'EMI_REMINDER_DAILY',
               title: `${totalEmis} EMIs Due Today`,
-              message: `You have ${totalEmis} EMIs to collect today. Total amount: ₹${totalAmount.toFixed(0)}`,
+              message: `You have ${totalEmis} EMIs to collect today. Total: ₹${totalAmount.toFixed(0)}`,
               data: JSON.stringify({ count: totalEmis, amount: totalAmount })
             }
           });
-
           remindersSent++;
         }
       }
 
+      // ── 2. Customer notifications — Due Today ────────────────────────────────
+      // Online loans: find EMIs due today where the loanApplication has a customerId
+      const onlineTodayEmis = await db.eMISchedule.findMany({
+        where: {
+          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+          dueDate: { gte: today, lt: tomorrow }
+        },
+        include: {
+          loanApplication: {
+            select: { id: true, applicationNo: true, customerId: true, firstName: true, lastName: true }
+          }
+        }
+      });
+
+      let customerNotifCount = 0;
+      for (const emi of onlineTodayEmis) {
+        const cid = emi.loanApplication?.customerId;
+        if (!cid) continue;
+        await db.notification.create({
+          data: {
+            userId: cid,
+            type: 'EMI_DUE_TODAY',
+            title: '📅 Your EMI is Due Today',
+            message: `Your EMI of ₹${emi.totalAmount.toFixed(0)} for loan ${emi.loanApplication?.applicationNo} is due today. Please pay to avoid penalty.`,
+            data: JSON.stringify({ emiId: emi.id, amount: emi.totalAmount, loanNo: emi.loanApplication?.applicationNo })
+          }
+        });
+        customerNotifCount++;
+      }
+
+      // ── 3. Customer notifications — Due Tomorrow ─────────────────────────────
+      const onlineTomorrowEmis = await db.eMISchedule.findMany({
+        where: {
+          paymentStatus: { in: ['PENDING'] },
+          dueDate: { gte: tomorrow, lt: dayAfterTomorrow }
+        },
+        include: {
+          loanApplication: {
+            select: { id: true, applicationNo: true, customerId: true }
+          }
+        }
+      });
+
+      for (const emi of onlineTomorrowEmis) {
+        const cid = emi.loanApplication?.customerId;
+        if (!cid) continue;
+        await db.notification.create({
+          data: {
+            userId: cid,
+            type: 'EMI_DUE_TOMORROW',
+            title: '⏰ EMI Due Tomorrow',
+            message: `Your EMI of ₹${emi.totalAmount.toFixed(0)} for loan ${emi.loanApplication?.applicationNo} is due tomorrow. Please arrange payment.`,
+            data: JSON.stringify({ emiId: emi.id, amount: emi.totalAmount, loanNo: emi.loanApplication?.applicationNo })
+          }
+        });
+        customerNotifCount++;
+      }
+
       return NextResponse.json({
         success: true,
-        message: `Sent ${remindersSent} daily reminders`,
-        remindersSent
+        message: `Sent ${remindersSent} staff + ${customerNotifCount} customer notifications`,
+        remindersSent,
+        customerNotifCount
       });
     }
 

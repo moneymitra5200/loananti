@@ -18,13 +18,21 @@ interface TodayCreditPanelProps {
 }
 
 export default function TodayCreditPanel({ userRole, userId, className = '' }: TodayCreditPanelProps) {
-  const [todayCreditDate, setTodayCreditDate] = useState(() => new Date().toISOString().split('T')[0]);
+  // Compute today's date in IST (UTC+5:30) so the panel works correctly for
+  // users past midnight UTC but still within the IST business day.
+  const getISTDate = () => {
+    const now = new Date();
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    return new Date(now.getTime() + istOffset).toISOString().split('T')[0];
+  };
+
+  const [todayCreditDate, setTodayCreditDate] = useState(() => getISTDate());
   const [todayCreditData, setTodayCreditData] = useState<any>(null);
   const [todayCreditLoading, setTodayCreditLoading] = useState(false);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [dateRangeMode, setDateRangeMode] = useState(false);
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(() => getISTDate());
+  const [endDate, setEndDate] = useState(() => getISTDate());
 
   const fetchTodayCredit = useCallback(async (date?: string, start?: string, end?: string) => {
     setTodayCreditLoading(true);

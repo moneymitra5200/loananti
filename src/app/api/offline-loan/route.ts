@@ -2143,7 +2143,61 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { action, loanId, emiId, userId, userRole } = body;
 
-    // Pay Interest Only Loan - Same logic as online loan
+    // ── Update basic loan details (customer info, loan type, narration) ────────
+    if (action === 'update-basic-details' && loanId && userId) {
+      const { customerName, customerPhone, customerEmail, customerAddress,
+              customerPan, customerAadhaar, loanType, narration } = body;
+
+      // Only authorised roles (block ACCOUNTANT / CUSTOMER)
+      const allowed = ['SUPER_ADMIN', 'CASHIER', 'STAFF', 'AGENT', 'COMPANY'];
+      if (!allowed.includes(userRole)) {
+        return NextResponse.json({ error: 'Not authorised to edit loan details' }, { status: 403 });
+      }
+
+      const existing = await db.offlineLoan.findUnique({
+        where: { id: loanId },
+        select: { id: true, isMirrorLoan: true, loanNumber: true, customerName: true,
+                  customerPhone: true, customerEmail: true, customerAddress: true,
+                  customerPan: true, customerAadhaar: true, loanType: true }
+      });
+      if (!existing) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
+      if (existing.isMirrorLoan) {
+        return NextResponse.json({ error: 'Cannot edit a mirror loan directly — edit the original loan' }, { status: 400 });
+      }
+
+      const updated = await db.offlineLoan.update({
+        where: { id: loanId },
+        data: {
+          ...(customerName    ? { customerName }    : {}),
+          ...(customerPhone   ? { customerPhone }   : {}),
+          ...(customerEmail   !== undefined ? { customerEmail }   : {}),
+          ...(customerAddress !== undefined ? { customerAddress } : {}),
+          ...(customerPan     !== undefined ? { customerPan }     : {}),
+          ...(loanType        ? { loanType }        : {}),
+          ...(narration       !== undefined ? { narration: narration || null } as any : {}),
+        }
+      });
+
+      // Audit log
+      await db.actionLog.create({
+        data: {
+          userId, userRole,
+          actionType: 'UPDATE',
+          module: 'OFFLINE_LOAN',
+          recordId: loanId,
+          recordType: 'OfflineLoan',
+          previousData: JSON.stringify({ customerName: existing.customerName, customerPhone: existing.customerPhone,
+                                         customerEmail: existing.customerEmail, loanType: existing.loanType }),
+          newData:      JSON.stringify({ customerName, customerPhone, customerEmail, loanType }),
+          description:  `Updated loan details for ${existing.loanNumber}`,
+          canUndo: false
+        }
+      });
+
+      return NextResponse.json({ success: true, loan: updated });
+    }
+
+
     // 1. Find pending interest EMI
     // 2. Mark it as PAID
     // 3. Create next month's interest EMI

@@ -16,7 +16,8 @@ import {
   X, FileText, Wallet, Building, Loader2, Receipt, PlayCircle, Calculator, AlertCircle,
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
-  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar, RotateCcw
+  Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar, RotateCcw,
+  Pencil, Save
 } from 'lucide-react';
 import { EMIDateChangeDialog } from '../loan/sections';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -351,6 +352,53 @@ export default function OfflineLoanDetailPanel({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [closeLoanDialogOpen, setCloseLoanDialogOpen] = useState(false);
+
+  // ── Edit Loan Details ───────────────────────────────────────────────────────
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    customerName: '', customerPhone: '', customerEmail: '', customerAddress: '',
+    customerPan: '', customerAadhaar: '', loanType: '', narration: ''
+  });
+
+  const openEditDialog = () => {
+    if (!loan) return;
+    setEditForm({
+      customerName:    loan.customerName    || '',
+      customerPhone:   loan.customerPhone   || '',
+      customerEmail:   loan.customerEmail   || '',
+      customerAddress: loan.customerAddress || '',
+      customerPan:     loan.customerPan     || '',
+      customerAadhaar: loan.customerAadhaar || '',
+      loanType:        loan.loanType        || '',
+      narration:       (loan as any).narration || '',
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!loanId || !userId) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/offline-loan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update-basic-details', loanId, userId, userRole, ...editForm })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Loan Updated', description: 'Loan details saved successfully.' });
+        setEditDialogOpen(false);
+        fetchLoanDetails();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to update', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   // Multi-EMI selection state
   const [selectedEmiIds, setSelectedEmiIds] = useState<Set<string>>(new Set());
@@ -1267,6 +1315,12 @@ export default function OfflineLoanDetailPanel({
                       Start Loan
                     </Button>
                   </>
+                )}
+              {/* Edit button — hidden for mirror loans */}
+                {loan && !loan.isMirrorLoan && (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER' || userRole === 'STAFF') && (
+                  <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={openEditDialog} title="Edit loan details">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                 )}
                 {userRole === 'SUPER_ADMIN' && (
                   <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={() => setDeleteDialogOpen(true)}>
@@ -4071,6 +4125,78 @@ export default function OfflineLoanDetailPanel({
           <DialogFooter>
             <Button variant="outline" onClick={() => setPaymentHistoryDialogOpen(false)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit Loan Details Dialog ──────────────────────────────── */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-indigo-600" /> Edit Loan Details
+            </DialogTitle>
+            <DialogDescription>Update customer or loan information. Changes are logged in the audit history.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer Info</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Customer Name *</Label>
+                <Input value={editForm.customerName} onChange={e => setEditForm(f => ({ ...f, customerName: e.target.value }))} placeholder="Full name" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Phone *</Label>
+                <Input value={editForm.customerPhone} onChange={e => setEditForm(f => ({ ...f, customerPhone: e.target.value }))} placeholder="Phone" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Email</Label>
+                <Input value={editForm.customerEmail} onChange={e => setEditForm(f => ({ ...f, customerEmail: e.target.value }))} placeholder="Email" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">PAN</Label>
+                <Input value={editForm.customerPan} onChange={e => setEditForm(f => ({ ...f, customerPan: e.target.value.toUpperCase() }))} placeholder="ABCDE1234F" maxLength={10} />
+              </div>
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Address</Label>
+                <Textarea rows={2} value={editForm.customerAddress} onChange={e => setEditForm(f => ({ ...f, customerAddress: e.target.value }))} placeholder="Full address" />
+              </div>
+            </div>
+
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider pt-2">Loan Info</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Loan Type</Label>
+                <Select value={editForm.loanType} onValueChange={v => setEditForm(f => ({ ...f, loanType: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PERSONAL">Personal</SelectItem>
+                    <SelectItem value="BUSINESS">Business</SelectItem>
+                    <SelectItem value="GOLD">Gold</SelectItem>
+                    <SelectItem value="VEHICLE">Vehicle</SelectItem>
+                    <SelectItem value="IO">Interest Only (IO)</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1 col-span-2">
+                <Label className="text-xs">Narration / Remarks</Label>
+                <Textarea rows={2} value={editForm.narration} onChange={e => setEditForm(f => ({ ...f, narration: e.target.value }))} placeholder="Internal notes or remarks" />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+            <Button
+              disabled={editSaving || !editForm.customerName || !editForm.customerPhone}
+              onClick={handleSaveEdit}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {editSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -69,10 +69,17 @@ interface EMICollectionSectionProps {
 export default function EMICollectionSection({ userId, userRole, onPaymentComplete }: EMICollectionSectionProps) {
   const { settings } = useSystemSettings();
   const [loading, setLoading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const todayIST = () => {
+    const now = new Date();
+    // Use IST offset (UTC+5:30) to get the correct date
+    const istOffset = 5.5 * 60 * 60 * 1000;
+    return new Date(now.getTime() + istOffset).toISOString().split('T')[0];
+  };
+
+  const [dateRangeMode, setDateRangeMode] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string>(todayIST);
+  const [startDate, setStartDate] = useState<string>(todayIST);
+  const [endDate, setEndDate] = useState<string>(todayIST);
   const [emis, setEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
   const [summary, setSummary] = useState({
     online: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 },
@@ -113,12 +120,15 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   useEffect(() => {
     fetchEmisByDate();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, userId, userRole, refreshKey]);
+  }, [selectedDate, startDate, endDate, dateRangeMode, userId, userRole, refreshKey]);
 
   const fetchEmisByDate = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/emi-reminder?action=by-date&date=${selectedDate}&userId=${userId}&userRole=${userRole}`);
+      const url = dateRangeMode
+        ? `/api/emi-reminder?action=by-date-range&startDate=${startDate}&endDate=${endDate}&userId=${userId}&userRole=${userRole}`
+        : `/api/emi-reminder?action=by-date&date=${selectedDate}&userId=${userId}&userRole=${userRole}`;
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
@@ -483,25 +493,70 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
         <CardContent className="p-4">
           {/* Date Selection Section */}
           <div className="mb-4 p-4 bg-gray-50 rounded-lg border">
-            <Label className="text-sm font-medium text-gray-700 mb-2 block">Select Date</Label>
-            <div className="flex gap-3 items-center">
-              <div className="relative flex-1">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Button
-                onClick={fetchEmisByDate}
-                className="bg-emerald-500 hover:bg-emerald-600"
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-sm font-medium text-gray-700">
+                {dateRangeMode ? 'Date Range' : 'Select Date'}
+              </Label>
+              <button
+                onClick={() => setDateRangeMode(p => !p)}
+                className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
+                  dateRangeMode
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                    : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+                }`}
               >
-                <Search className="h-4 w-4 mr-1" />
-                Search
-              </Button>
+                {dateRangeMode ? '📅 Range Mode (click to switch)' : '📅 Single Date (click for range)'}
+              </button>
             </div>
+            {dateRangeMode ? (
+              <div className="flex gap-2 items-center flex-wrap">
+                <div className="relative flex-1 min-w-[140px]">
+                  <span className="text-xs text-gray-400 mb-1 block">From</span>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => { setStartDate(e.target.value); }}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                <div className="relative flex-1 min-w-[140px]">
+                  <span className="text-xs text-gray-400 mb-1 block">To</span>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      type="date"
+                      value={endDate}
+                      min={startDate}
+                      onChange={(e) => { setEndDate(e.target.value); }}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                <div className="mt-5">
+                  <Button onClick={fetchEmisByDate} className="bg-emerald-500 hover:bg-emerald-600">
+                    <Search className="h-4 w-4 mr-1" /> Search
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3 items-center">
+                <div className="relative flex-1">
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button onClick={fetchEmisByDate} className="bg-emerald-500 hover:bg-emerald-600">
+                  <Search className="h-4 w-4 mr-1" /> Search
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Summary Cards */}
@@ -510,7 +565,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
             <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-emerald-600 font-medium">Total Collection for {formatDate(selectedDate)}</p>
+                  <p className="text-sm text-emerald-600 font-medium">
+                    {dateRangeMode
+                      ? `EMI Collection: ${startDate} → ${endDate}`
+                      : `Total Collection for ${formatDate(selectedDate)}`}
+                  </p>
                   <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.combined.totalAmount)}</p>
                   <p className="text-xs text-emerald-500 mt-1">{summary.combined.count} EMIs</p>
                 </div>
