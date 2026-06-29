@@ -332,7 +332,8 @@ const DocumentsSection = memo(function DocumentsSection({ loanDetails, onRefresh
   return (
     <div className="space-y-4">
       {/* ──────────── GOLD LOAN RECEIPT ──────────── */}
-      {isGoldLoan && goldDetail && (
+      {/* Show Gold/Vehicle receipt if data exists, regardless of loan type */}
+      {goldDetail && (
         <Card className="border-0 shadow-sm border-l-4 border-l-amber-500">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -391,7 +392,7 @@ const DocumentsSection = memo(function DocumentsSection({ loanDetails, onRefresh
       )}
 
       {/* ──────────── VEHICLE LOAN RECEIPT ──────────── */}
-      {isVehicleLoan && vehicleDetail && (
+      {vehicleDetail && (
         <Card className="border-0 shadow-sm border-l-4 border-l-blue-500">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">

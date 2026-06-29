@@ -713,6 +713,11 @@ export default function LoanFormStepContent({
       );
 
     case 8:
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const [showOptGold, setShowOptGold] = useState(false);
+      // eslint-disable-next-line react-hooks/rules-of-hooks
+      const [showOptVehicle, setShowOptVehicle] = useState(false);
+      const canShowOptReceipt = !isGoldLoan(selectedLoan?.loanType || '') && !isVehicleLoan(selectedLoan?.loanType || '');
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
@@ -797,6 +802,46 @@ export default function LoanFormStepContent({
               <p className="text-sm text-gray-600">
                 <strong>{Object.keys(uploadedDocs).length}</strong> of {DOCUMENT_TYPES.filter(d => d.required).length} required documents uploaded
               </p>
+            </div>
+          )}
+
+          {/* ── Optional Collateral Receipts for any loan type ── */}
+          {canShowOptReceipt && (
+            <div className="pt-4 border-t">
+              <p className="text-sm font-semibold text-gray-700 mb-1">Optional Collateral Receipts</p>
+              <p className="text-xs text-gray-400 mb-3">Not required — attach only if collateral was taken</p>
+              <div className="flex gap-3 flex-wrap mb-4">
+                <button
+                  type="button"
+                  onClick={() => { setShowOptGold(p => !p); setShowOptVehicle(false); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    showOptGold ? 'bg-amber-100 border-amber-400 text-amber-800' : 'bg-white border-gray-300 text-gray-600 hover:border-amber-400 hover:bg-amber-50'
+                  }`}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {showOptGold ? '✓ Gold Receipt Added' : '+ Add Gold Receipt'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowOptVehicle(p => !p); setShowOptGold(false); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    showOptVehicle ? 'bg-blue-100 border-blue-400 text-blue-800' : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  <Car className="h-4 w-4" />
+                  {showOptVehicle ? '✓ Vehicle Receipt Added' : '+ Add Vehicle Receipt'}
+                </button>
+              </div>
+              {showOptGold && (
+                <div className="border-l-4 border-amber-400 pl-4">
+                  <GoldLoanReceipt data={goldLoanData} onChange={setGoldLoanData} />
+                </div>
+              )}
+              {showOptVehicle && (
+                <div className="border-l-4 border-blue-400 pl-4">
+                  <VehicleLoanReceipt data={vehicleLoanData} onChange={setVehicleLoanData} />
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1040,10 +1085,10 @@ export default function LoanFormStepContent({
             </div>
           </div>
           
-          {/* Gold/Vehicle Loan Summary */}
-          {selectedLoan?.loanType === 'GOLD' && goldLoanData.loanAmount && (
+          {/* Gold/Vehicle Loan Summary — show if data was filled (any loan type) */}
+          {goldLoanData.loanAmount && (
             <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-              <h5 className="font-medium mb-2 text-amber-800">Gold Loan Summary</h5>
+              <h5 className="font-medium mb-2 text-amber-800">🏅 Gold Receipt Summary</h5>
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
                   <p className="text-gray-500">Net Weight</p>
@@ -1061,9 +1106,9 @@ export default function LoanFormStepContent({
             </div>
           )}
           
-          {selectedLoan?.loanType === 'VEHICLE' && vehicleLoanData.loanAmount && (
+          {vehicleLoanData.loanAmount && (
             <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-              <h5 className="font-medium mb-2 text-blue-800">Vehicle Loan Summary</h5>
+              <h5 className="font-medium mb-2 text-blue-800">🚗 Vehicle Receipt Summary</h5>
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
                   <p className="text-gray-500">Vehicle</p>

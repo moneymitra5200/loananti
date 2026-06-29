@@ -1607,7 +1607,7 @@ export default function OfflineLoanDetailPanel({
                       <div className="space-y-4">
 
                       {/* ── GOLD LOAN RECEIPT ── */}
-                      {(loan.loanType === 'GOLD' || loan.loanType?.includes('GOLD')) && loan.goldLoanDetail && (() => {
+                      {loan.goldLoanDetail && (() => {
                         const g = loan.goldLoanDetail!;
                         const openGoldReceipt = () => {
                           const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
@@ -1661,7 +1661,7 @@ export default function OfflineLoanDetailPanel({
                       })()}
 
                       {/* ── VEHICLE LOAN RECEIPT ── */}
-                      {(loan.loanType === 'VEHICLE' || loan.loanType?.includes('VEHICLE')) && loan.vehicleLoanDetail && (() => {
+                      {loan.vehicleLoanDetail && (() => {
                         const v = loan.vehicleLoanDetail!;
                         const openVehicleReceipt = () => {
                           const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });

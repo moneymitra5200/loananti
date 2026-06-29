@@ -140,6 +140,9 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [mirrorInterestRate, setMirrorInterestRate] = useState('15'); // User-entered rate
   const [mirrorInterestType, setMirrorInterestType] = useState('REDUCING'); // User-selected type
   const [showMirrorDialog, setShowMirrorDialog] = useState(false);
+  // Optional receipt toggles — not compulsory, works for ANY loan type including IO
+  const [showGoldReceipt, setShowGoldReceipt] = useState(false);
+  const [showVehicleReceipt, setShowVehicleReceipt] = useState(false);
   
   // Cashbook balance for ALL companies (not just Company 3)
   const [cashbookBalance, setCashbookBalance] = useState<number | null>(null);
@@ -824,8 +827,9 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       return;
     }
 
-    // 6. Gold Loan Receipt Validation
-    if (formData.loanType === 'GOLD') {
+    // 6. Gold Loan Receipt — only validate if user chose to add it (any loan type)
+    const hasGoldReceipt = showGoldReceipt || formData.loanType === 'GOLD';
+    if (hasGoldReceipt) {
       const calcValuation = (parseFloat(goldLoanData.netWeight as any) || 0) * (parseFloat(goldLoanData.goldRate as any) || 0);
       const effectiveValuation = goldLoanData.valuationAmount > 0 ? goldLoanData.valuationAmount : calcValuation;
       const calcLoan = Math.round(effectiveValuation * 0.75);
@@ -897,8 +901,9 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       }
     }
 
-    // 7. Vehicle Loan Receipt Validation
-    if (formData.loanType === 'VEHICLE') {
+    // 7. Vehicle Loan Receipt — only validate if user chose to add it (any loan type)
+    const hasVehicleReceipt = showVehicleReceipt || formData.loanType === 'VEHICLE';
+    if (hasVehicleReceipt) {
       const effectiveOwnerName = vehicleLoanData.ownerName && vehicleLoanData.ownerName.trim()
         ? vehicleLoanData.ownerName
         : formData.customerName;
@@ -1145,12 +1150,12 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       };
 
       // Add Gold Loan Receipt Data
-      if (formData.loanType === 'GOLD') {
+      if (formData.loanType === 'GOLD' || showGoldReceipt) {
         requestBody.goldLoanDetail = finalGoldLoanDetail;
       }
 
       // Add Vehicle Loan Receipt Data
-      if (formData.loanType === 'VEHICLE') {
+      if (formData.loanType === 'VEHICLE' || showVehicleReceipt) {
         requestBody.vehicleLoanDetail = finalVehicleLoanDetail;
       }
       
@@ -1797,8 +1802,43 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               );
             })()}
 
-            {/* Gold Loan Receipt - Shows when loan type is GOLD */}
-            {formData.loanType === 'GOLD' && (
+            {/* ── Optional Receipt Attachments (any loan type, including IO) ── */}
+            <div className="pt-4 border-t">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-4 w-4 text-gray-500" />
+                <h3 className="font-semibold text-gray-700 text-sm">Optional Collateral Receipts</h3>
+                <span className="text-xs text-gray-400">(Not required — attach if applicable)</span>
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => { setShowGoldReceipt(p => !p); if (showVehicleReceipt) setShowVehicleReceipt(false); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    showGoldReceipt || formData.loanType === 'GOLD'
+                      ? 'bg-amber-100 border-amber-400 text-amber-800'
+                      : 'bg-white border-gray-300 text-gray-600 hover:border-amber-400 hover:bg-amber-50'
+                  }`}
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {showGoldReceipt || formData.loanType === 'GOLD' ? '✓ Gold Receipt Added' : '+ Add Gold Receipt'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowVehicleReceipt(p => !p); if (showGoldReceipt) setShowGoldReceipt(false); }}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    showVehicleReceipt || formData.loanType === 'VEHICLE'
+                      ? 'bg-blue-100 border-blue-400 text-blue-800'
+                      : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
+                  }`}
+                >
+                  <Car className="h-4 w-4" />
+                  {showVehicleReceipt || formData.loanType === 'VEHICLE' ? '✓ Vehicle Receipt Added' : '+ Add Vehicle Receipt'}
+                </button>
+              </div>
+            </div>
+
+            {/* Gold Loan Receipt - Shows when loan type is GOLD or user toggled it */}
+            {(formData.loanType === 'GOLD' || showGoldReceipt) && (
               <div className="pt-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles className="h-5 w-5 text-amber-600" />
@@ -1818,8 +1858,8 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               </div>
             )}
 
-            {/* Vehicle Loan Receipt - Shows when loan type is VEHICLE */}
-            {formData.loanType === 'VEHICLE' && (
+            {/* Vehicle Loan Receipt - Shows when loan type is VEHICLE or user toggled it */}
+            {(formData.loanType === 'VEHICLE' || showVehicleReceipt) && (
               <div className="pt-4">
                 <div className="flex items-center gap-2 mb-3">
                   <Car className="h-5 w-5 text-blue-600" />
