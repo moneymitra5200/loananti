@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,7 +17,7 @@ import {
   User, Phone, MapPin, IndianRupee, Percent, CheckCircle, Clock, Trash2, Eye,
   Upload, FileCheck, Lock, CalendarClock, History, Info, Banknote, Landmark,
   Printer, Trophy, Car, Weight, Scale, AlertTriangle, XCircle, Calendar, RotateCcw,
-  Pencil, Save
+  Pencil, Save, Plus
 } from 'lucide-react';
 import { EMIDateChangeDialog } from '../loan/sections';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -215,6 +215,69 @@ export default function OfflineLoanDetailPanel({
   const [activeTab, setActiveTab] = useState('overview');
   const [actionLogs, setActionLogs] = useState<any[]>([]);
   const [undoingLogId, setUndoingLogId] = useState<string | null>(null);
+
+  const [uploading, setUploading] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedDocType || !loan?.id) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File Too Large', description: 'Maximum size is 10MB', variant: 'destructive' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        
+        // 1. Upload to S3/local
+        const uploadRes = await fetch('/api/upload/document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            file: base64,
+            filename: file.name,
+            documentType: selectedDocType,
+            fileType: file.type
+          })
+        });
+
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
+
+        // 2. Save document URL to OfflineLoan
+        const saveRes = await fetch('/api/loan/document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            loanId: loan.id,
+            documentField: selectedDocType,
+            documentUrl: uploadData.url
+          })
+        });
+
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save document link');
+
+        toast({ title: 'Success', description: 'Document uploaded successfully' });
+        await fetchLoanDetails();
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error('Upload error:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to upload document', variant: 'destructive' });
+    } finally {
+      setUploading(false);
+      setSelectedDocType('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleUndo = async (logId: string) => {
     setUndoingLogId(logId);
@@ -1660,132 +1723,6 @@ export default function OfflineLoanDetailPanel({
                     <TabsContent value="documents" className="m-0">
                       <div className="space-y-4">
 
-                      {/* ── GOLD LOAN RECEIPT ── */}
-                      {loan.goldLoanDetail && (() => {
-                        const g = loan.goldLoanDetail!;
-                        const openGoldReceipt = () => {
-                          const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-                          const photoHtml = g.goldItemPhoto ? `<div style="text-align:center;margin:20px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">GOLD ITEM PHOTOGRAPH</p><img src="${g.goldItemPhoto}" style="max-width:300px;max-height:300px;object-fit:contain;border:2px solid #d97706;border-radius:8px;padding:4px" alt="Gold Item"/></div>` : '';
-                          const w = window.open('', '_blank');
-                          if (!w) return;
-                          w.document.write(`<!DOCTYPE html><html><head><title>Gold Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#b45309,#d97706);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#b45309;text-transform:uppercase;border-bottom:2px solid #fde68a;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.f{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f.bl{background:#eff6ff;border-color:#93c5fd}.f label{font-size:11px;color:#92400e;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:140px}.footer{background:#fffbeb;border-top:2px dashed #fde68a;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🏅 GOLD LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="g2"><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="ir"><span>Address</span><strong>${loan.customerAddress || 'N/A'}</strong></div></div><div class="st">Loan Details</div><div class="grid"><div class="f bl"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f bl"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Gold Collateral</div><div class="grid"><div class="f"><label>Gross Weight</label><p>${g.grossWeight}g</p></div><div class="f"><label>Net Weight</label><p>${g.netWeight}g</p></div><div class="f"><label>Purity</label><p>${g.karat || 22}K</p></div><div class="f"><label>Gold Rate/g</label><p>₹${g.goldRate.toLocaleString('en-IN')}</p></div><div class="f gr"><label>Valuation</label><p>₹${g.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Loan Approved</label><p>₹${g.loanAmount.toLocaleString('en-IN')}</p></div></div>${g.ownerName ? `<div class="st">Additional</div><div><div class="ir"><span>Gold Owner</span><strong>${g.ownerName}</strong></div>${g.numberOfItems ? `<div class="ir"><span>No. of Items</span><strong>${g.numberOfItems}</strong></div>` : ''}${g.itemDescription ? `<div class="ir"><span>Description</span><strong>${g.itemDescription}</strong></div>` : ''}${g.remarks ? `<div class="ir"><span>Remarks</span><strong>${g.remarks}</strong></div>` : ''}</div>` : ''}${photoHtml}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#92400e"><p style="font-weight:700">GOLD HELD AS COLLATERAL</p><p>To be returned upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#b45309;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
-                          w.document.close();
-                        };
-                        const openDocInner = openDoc;
-                        return (
-                          <Card key="gold" className="border-0 shadow-sm border-l-4 border-l-amber-500">
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm flex items-center gap-2">
-                                <Trophy className="h-4 w-4 text-amber-600" /> Gold Loan Receipt
-                                <button type="button" onClick={openGoldReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700 transition-colors font-medium">
-                                  <Printer className="h-3 w-3" /> View Full Receipt
-                                </button>
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="grid grid-cols-2 gap-3 text-sm">
-                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gross Weight</div><div className="font-bold">{g.grossWeight}g</div></div>
-                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Net Weight</div><div className="font-bold">{g.netWeight}g</div></div>
-                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gold Rate/g</div><div className="font-bold">₹{g.goldRate}</div></div>
-                                <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Purity</div><div className="font-bold">{g.karat || 22}K</div></div>
-                                <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{g.valuationAmount.toLocaleString('en-IN')}</div></div>
-                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{g.loanAmount.toLocaleString('en-IN')}</div></div>
-                              </div>
-                              {g.goldItemPhoto && (
-                                <div className="mt-3 flex items-start gap-3 p-3 border border-amber-200 rounded-lg bg-amber-50/40">
-                                  <button type="button" onClick={() => openDocInner(g.goldItemPhoto!)} className="shrink-0">
-                                    <img src={g.goldItemPhoto} alt="Gold Item" className="w-20 h-20 object-cover rounded-lg border-2 border-amber-300 hover:opacity-90 transition-opacity" />
-                                  </button>
-                                  <div className="flex flex-col gap-2">
-                                    <p className="text-xs font-medium text-gray-700">Gold Item Photo</p>
-                                    <button type="button" onClick={() => openDocInner(g.goldItemPhoto!)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-700 text-xs rounded-lg hover:bg-amber-200">
-                                      <Eye className="h-3 w-3" /> View Photo
-                                    </button>
-                                    <button type="button" onClick={openGoldReceipt} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700">
-                                      <Printer className="h-3 w-3" /> Print Receipt
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                              {g.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{g.ownerName}</strong></p>}
-                              {g.remarks && <p className="mt-1 text-xs text-gray-400 italic">{g.remarks}</p>}
-                            </CardContent>
-                          </Card>
-                        );
-                      })()}
-
-                      {/* ── VEHICLE LOAN RECEIPT ── */}
-                      {loan.vehicleLoanDetail && (() => {
-                        const v = loan.vehicleLoanDetail!;
-                        const openVehicleReceipt = () => {
-                          const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-                          const vPhotoHtml = v.vehiclePhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">VEHICLE PHOTOGRAPH</p><img src="${v.vehiclePhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #3b82f6;border-radius:8px;padding:4px" alt="Vehicle"/></div>` : '';
-                          const rcPhotoHtml = v.rcBookPhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">RC BOOK</p><img src="${v.rcBookPhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #10b981;border-radius:8px;padding:4px" alt="RC Book"/></div>` : '';
-                          const w = window.open('', '_blank');
-                          if (!w) return;
-                          w.document.write(`<!DOCTYPE html><html><head><title>Vehicle Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#1e40af;text-transform:uppercase;border-bottom:2px solid #bfdbfe;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.f{background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f label{font-size:11px;color:#1e40af;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:160px}.footer{background:#eff6ff;border-top:2px dashed #93c5fd;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🚗 VEHICLE LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="st">Loan Details</div><div class="grid"><div class="f"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Vehicle Details</div><div class="grid"><div class="f"><label>Vehicle Type</label><p>${v.vehicleType}</p></div><div class="f"><label>Reg. Number</label><p>${v.vehicleNumber || 'N/A'}</p></div><div class="f"><label>Manufacturer</label><p>${v.manufacturer || 'N/A'}</p></div><div class="f"><label>Model</label><p>${v.model || 'N/A'}</p></div><div class="f"><label>Year</label><p>${v.yearOfManufacture || 'N/A'}</p></div>${v.fuelType ? `<div class="f"><label>Fuel Type</label><p>${v.fuelType}</p></div>` : ''}<div class="f gr"><label>Valuation</label><p>₹${v.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Approved Loan</label><p>₹${v.loanAmount.toLocaleString('en-IN')}</p></div></div>${v.chassisNumber || v.engineNumber || v.ownerName ? `<div class="st">ID Numbers</div><div>${v.ownerName ? `<div class="ir"><span>Registered Owner</span><strong>${v.ownerName}</strong></div>` : ''}${v.chassisNumber ? `<div class="ir"><span>Chassis No</span><strong>${v.chassisNumber}</strong></div>` : ''}${v.engineNumber ? `<div class="ir"><span>Engine No</span><strong>${v.engineNumber}</strong></div>` : ''}</div>` : ''}${vPhotoHtml || rcPhotoHtml ? `<div class="st">Photos</div><div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap">${vPhotoHtml}${rcPhotoHtml}</div>` : ''}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#1e40af"><p style="font-weight:700">VEHICLE HYPOTHECATED TO LENDER</p><p>To be released upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
-                          w.document.close();
-                        };
-                        const openDocInner = openDoc;
-                        return (
-                          <Card key="vehicle" className="border-0 shadow-sm border-l-4 border-l-blue-500">
-                            <CardHeader className="pb-2">
-                              <CardTitle className="text-sm flex items-center gap-2">
-                                <Car className="h-4 w-4 text-blue-600" /> Vehicle Loan Receipt
-                                <button type="button" onClick={openVehicleReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors font-medium">
-                                  <Printer className="h-3 w-3" /> View Full Receipt
-                                </button>
-                              </CardTitle>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="grid grid-cols-2 gap-3 text-sm">
-                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Vehicle Type</div><div className="font-bold">{v.vehicleType}</div></div>
-                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Reg. Number</div><div className="font-bold">{v.vehicleNumber || 'N/A'}</div></div>
-                                <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Manufacturer</div><div className="font-bold">{v.manufacturer || 'N/A'}</div></div>
-                                <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Model</div><div className="font-bold">{v.model || 'N/A'}</div></div>
-                                <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{v.valuationAmount.toLocaleString('en-IN')}</div></div>
-                                <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{v.loanAmount.toLocaleString('en-IN')}</div></div>
-                              </div>
-                              {(v.vehiclePhoto || v.rcBookPhoto) && (
-                                <div className="mt-3 flex flex-wrap gap-3">
-                                  {v.vehiclePhoto && (
-                                    <div className="flex items-start gap-2 p-2.5 border border-blue-200 rounded-lg bg-blue-50/40">
-                                      <button type="button" onClick={() => openDocInner(v.vehiclePhoto!)} className="shrink-0">
-                                        <img src={v.vehiclePhoto} alt="Vehicle" className="w-20 h-20 object-cover rounded-lg border-2 border-blue-300 hover:opacity-90 transition-opacity" />
-                                      </button>
-                                      <div className="flex flex-col gap-1.5">
-                                        <p className="text-xs font-medium text-gray-700">Vehicle Photo</p>
-                                        <button type="button" onClick={() => openDocInner(v.vehiclePhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg hover:bg-blue-200">
-                                          <Eye className="h-3 w-3" /> View
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                  {v.rcBookPhoto && (
-                                    <div className="flex items-start gap-2 p-2.5 border border-emerald-200 rounded-lg bg-emerald-50/40">
-                                      <button type="button" onClick={() => openDocInner(v.rcBookPhoto!)} className="shrink-0">
-                                        <img src={v.rcBookPhoto} alt="RC Book" className="w-20 h-20 object-cover rounded-lg border-2 border-emerald-300 hover:opacity-90 transition-opacity" />
-                                      </button>
-                                      <div className="flex flex-col gap-1.5">
-                                        <p className="text-xs font-medium text-gray-700">RC Book</p>
-                                        <button type="button" onClick={() => openDocInner(v.rcBookPhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-lg hover:bg-emerald-200">
-                                          <Eye className="h-3 w-3" /> View
-                                        </button>
-                                      </div>
-                                    </div>
-                                  )}
-                                  <button type="button" onClick={openVehicleReceipt} className="self-center inline-flex items-center gap-1 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
-                                    <Printer className="h-3 w-3" /> Print Full Receipt
-                                  </button>
-                                </div>
-                              )}
-                              {v.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{v.ownerName}</strong></p>}
-                              {v.remarks && <p className="mt-1 text-xs text-gray-400 italic">{v.remarks}</p>}
-                            </CardContent>
-                          </Card>
-                        );
-                      })()}
-
                       {/* ── KYC Documents ── */}
                       <Card>
                         <CardHeader className="pb-2">
@@ -1851,6 +1788,53 @@ export default function OfflineLoanDetailPanel({
                           </div>
                         </CardContent>
                       </Card>
+
+                      {/* Missing Document Upload */}
+                      {loan.id && (
+                        <div className="mt-6 pt-6 border-t border-gray-100">
+                          <h4 className="text-sm font-medium text-gray-800 mb-3 flex items-center gap-2">
+                            <Plus className="h-4 w-4 text-emerald-600" /> Add Missing Document
+                          </h4>
+                          <div className="flex gap-3 items-end">
+                            <div className="flex-1 space-y-1">
+                              <Select value={selectedDocType} onValueChange={setSelectedDocType}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Document Type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="panCardDoc">PAN Card</SelectItem>
+                                  <SelectItem value="aadhaarFrontDoc">Aadhaar Front</SelectItem>
+                                  <SelectItem value="aadhaarBackDoc">Aadhaar Back</SelectItem>
+                                  <SelectItem value="incomeProofDoc">Income Proof</SelectItem>
+                                  <SelectItem value="addressProofDoc">Address Proof</SelectItem>
+                                  <SelectItem value="photoDoc">Photo</SelectItem>
+                                  <SelectItem value="electionCardDoc">Election Card</SelectItem>
+                                  <SelectItem value="housePhotoDoc">House Photo</SelectItem>
+                                  <SelectItem value="guarantorPhotoDoc">Guarantor Photo</SelectItem>
+                                  <SelectItem value="passbookPhotoDoc">Passbook</SelectItem>
+                                  <SelectItem value="otherDocs">Other Documents</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              className="hidden"
+                              onChange={handleFileUpload}
+                              accept=".pdf,.jpg,.jpeg,.png"
+                            />
+                            <Button 
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={!selectedDocType || uploading}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white w-[120px]"
+                            >
+                              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Upload className="h-4 w-4 mr-2" /> Upload</>}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-2">Only select documents that are missing or need updating.</p>
+                        </div>
+                      )}
+
                       </div>
                     </TabsContent>
 
@@ -2313,48 +2297,182 @@ export default function OfflineLoanDetailPanel({
                       )}
                     </TabsContent>
 
-                    {/* Receipt Tab — mirror loans only (original loan receipts go to mirror's tab) */}
-                    {loan.isMirrorLoan && (
+                    {/* Receipt Tab */}
                     <TabsContent value="receipt" className="m-0">
-                      <ReceiptSection
-                        loanDetails={{
-                          ...loan,
-                          loanId: loan.id,
-                          isOffline: true,
-                          applicationNo: loan.loanNumber,
-                          requestedAmount: loan.loanAmount,
-                          sessionForm: {
-                            approvedAmount: loan.loanAmount,
-                            interestRate: loan.interestRate,
-                            tenure: loan.tenure,
-                            emiAmount: loan.emiAmount
-                          },
-                          customer: {
-                            name: loan.customerName,
-                            phone: loan.customerPhone,
-                            email: loan.customerEmail
-                          }
-                        }}
-                        emiSchedules={loan.emis.map(e => ({
-                          id: e.id,
-                          emiNumber: e.installmentNumber,
-                          dueDate: e.dueDate,
-                          emiAmount: e.totalAmount,
-                          principalAmount: e.principalAmount,
-                          interestAmount: e.interestAmount,
-                          outstandingPrincipal: e.outstandingPrincipal,
-                          status: e.paymentStatus,
-                          paymentStatus: e.paymentStatus,
-                          paidAmount: e.paidAmount,
-                          paidPrincipal: e.paidPrincipal,
-                          paidInterest: e.paidInterest,
-                          paidDate: e.paidDate,
-                          paymentMode: e.paymentMode,
-                          paymentRef: e.paymentReference
-                        }))}
-                      />
-                     </TabsContent>
-                    )} {/* end loan.isMirrorLoan receipt guard */}
+                      {loan.isMirrorLoan ? (
+                        <ReceiptSection
+                          loanDetails={{
+                            ...loan,
+                            loanId: loan.id,
+                            isOffline: true,
+                            applicationNo: loan.loanNumber,
+                            requestedAmount: loan.loanAmount,
+                            sessionForm: {
+                              approvedAmount: loan.loanAmount,
+                              interestRate: loan.interestRate,
+                              tenure: loan.tenure,
+                              emiAmount: loan.emiAmount
+                            },
+                            customer: {
+                              name: loan.customerName,
+                              phone: loan.customerPhone,
+                              email: loan.customerEmail
+                            }
+                          }}
+                          emiSchedules={loan.emis.map(e => ({
+                            id: e.id,
+                            emiNumber: e.installmentNumber,
+                            dueDate: e.dueDate,
+                            emiAmount: e.totalAmount,
+                            principalAmount: e.principalAmount,
+                            interestAmount: e.interestAmount,
+                            outstandingPrincipal: e.outstandingPrincipal,
+                            status: e.paymentStatus,
+                            paymentStatus: e.paymentStatus,
+                            paidAmount: e.paidAmount,
+                            paidPrincipal: e.paidPrincipal,
+                            paidInterest: e.paidInterest,
+                            paidDate: e.paidDate,
+                            paymentMode: e.paymentMode,
+                            paymentRef: e.paymentReference
+                          }))}
+                        />
+                      ) : (
+                        <div className="space-y-4">
+                          {/* Render Gold Receipt if present */}
+                          {loan.goldLoanDetail && (() => {
+                            const g = loan.goldLoanDetail!;
+                            const openGoldReceipt = () => {
+                              const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+                              const photoHtml = g.goldItemPhoto ? `<div style="text-align:center;margin:20px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">GOLD ITEM PHOTOGRAPH</p><img src="${g.goldItemPhoto}" style="max-width:300px;max-height:300px;object-fit:contain;border:2px solid #d97706;border-radius:8px;padding:4px" alt="Gold Item"/></div>` : '';
+                              const w = window.open('', '_blank');
+                              if (!w) return;
+                              w.document.write(`<!DOCTYPE html><html><head><title>Gold Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#b45309,#d97706);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#b45309;text-transform:uppercase;border-bottom:2px solid #fde68a;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.g2{display:grid;grid-template-columns:1fr 1fr;gap:14px}.f{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f.bl{background:#eff6ff;border-color:#93c5fd}.f label{font-size:11px;color:#92400e;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:140px}.footer{background:#fffbeb;border-top:2px dashed #fde68a;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🏅 GOLD LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="g2"><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="ir"><span>Address</span><strong>${loan.customerAddress || 'N/A'}</strong></div></div><div class="st">Loan Details</div><div class="grid"><div class="f bl"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f bl"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Gold Collateral</div><div class="grid"><div class="f"><label>Gross Weight</label><p>${g.grossWeight}g</p></div><div class="f"><label>Net Weight</label><p>${g.netWeight}g</p></div><div class="f"><label>Purity</label><p>${g.karat || 22}K</p></div><div class="f"><label>Gold Rate/g</label><p>₹${g.goldRate.toLocaleString('en-IN')}</p></div><div class="f gr"><label>Valuation</label><p>₹${g.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f bl"><label>Loan Approved</label><p>₹${g.loanAmount.toLocaleString('en-IN')}</p></div></div>${g.ownerName ? `<div class="st">Additional</div><div><div class="ir"><span>Gold Owner</span><strong>${g.ownerName}</strong></div>${g.numberOfItems ? `<div class="ir"><span>No. of Items</span><strong>${g.numberOfItems}</strong></div>` : ''}${g.itemDescription ? `<div class="ir"><span>Description</span><strong>${g.itemDescription}</strong></div>` : ''}${g.remarks ? `<div class="ir"><span>Remarks</span><strong>${g.remarks}</strong></div>` : ''}</div>` : ''}${photoHtml}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#92400e"><p style="font-weight:700">GOLD HELD AS COLLATERAL</p><p>To be returned upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#b45309;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
+                              w.document.close();
+                            };
+                            return (
+                              <Card key="gold" className="border-0 shadow-sm border-l-4 border-l-amber-500">
+                                <CardHeader className="pb-2">
+                                  <CardTitle className="text-sm flex items-center gap-2">
+                                    <Trophy className="h-4 w-4 text-amber-600" /> Gold Loan Receipt
+                                    <button type="button" onClick={openGoldReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700 transition-colors font-medium">
+                                      <Printer className="h-3 w-3" /> View Full Receipt
+                                    </button>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gross Weight</div><div className="font-bold">{g.grossWeight}g</div></div>
+                                    <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Net Weight</div><div className="font-bold">{g.netWeight}g</div></div>
+                                    <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Gold Rate/g</div><div className="font-bold">₹{g.goldRate}</div></div>
+                                    <div className="p-2.5 bg-amber-50 rounded-lg"><div className="text-xs text-amber-700 font-medium mb-0.5">Purity</div><div className="font-bold">{g.karat || 22}K</div></div>
+                                    <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{g.valuationAmount.toLocaleString('en-IN')}</div></div>
+                                    <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{g.loanAmount.toLocaleString('en-IN')}</div></div>
+                                  </div>
+                                  {g.goldItemPhoto && (
+                                    <div className="mt-3 flex items-start gap-3 p-3 border border-amber-200 rounded-lg bg-amber-50/40">
+                                      <button type="button" onClick={() => openDoc(g.goldItemPhoto!)} className="shrink-0">
+                                        <img src={g.goldItemPhoto} alt="Gold Item" className="w-20 h-20 object-cover rounded-lg border-2 border-amber-300 hover:opacity-90 transition-opacity" />
+                                      </button>
+                                      <div className="flex flex-col gap-2">
+                                        <p className="text-xs font-medium text-gray-700">Gold Item Photo</p>
+                                        <button type="button" onClick={() => openDoc(g.goldItemPhoto!)} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-100 text-amber-700 text-xs rounded-lg hover:bg-amber-200">
+                                          <Eye className="h-3 w-3" /> View Photo
+                                        </button>
+                                        <button type="button" onClick={openGoldReceipt} className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-600 text-white text-xs rounded-lg hover:bg-amber-700">
+                                          <Printer className="h-3 w-3" /> Print Receipt
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {g.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{g.ownerName}</strong></p>}
+                                  {g.remarks && <p className="mt-1 text-xs text-gray-400 italic">{g.remarks}</p>}
+                                </CardContent>
+                              </Card>
+                            );
+                          })()}
+
+                          {/* Render Vehicle Receipt if present */}
+                          {loan.vehicleLoanDetail && (() => {
+                            const v = loan.vehicleLoanDetail!;
+                            const openVehicleReceipt = () => {
+                              const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+                              const vPhotoHtml = v.vehiclePhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">VEHICLE PHOTOGRAPH</p><img src="${v.vehiclePhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #3b82f6;border-radius:8px;padding:4px" alt="Vehicle"/></div>` : '';
+                              const rcPhotoHtml = v.rcBookPhoto ? `<div style="text-align:center;margin:16px 0"><p style="font-size:13px;color:#666;margin-bottom:8px;font-weight:600">RC BOOK</p><img src="${v.rcBookPhoto}" style="max-width:320px;max-height:240px;object-fit:contain;border:2px solid #10b981;border-radius:8px;padding:4px" alt="RC Book"/></div>` : '';
+                              const w = window.open('', '_blank');
+                              if (!w) return;
+                              w.document.write(`<!DOCTYPE html><html><head><title>Vehicle Loan Receipt - ${loan.loanNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',Arial,sans-serif;background:#f9f9f9;color:#222}.page{max-width:800px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.12)}.header{background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:28px 32px}.header h1{font-size:24px;font-weight:700}.body{padding:28px 32px}.st{font-size:14px;font-weight:700;color:#1e40af;text-transform:uppercase;border-bottom:2px solid #bfdbfe;padding-bottom:6px;margin:20px 0 12px}.grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}.f{background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:10px 14px}.f.gr{background:#f0fdf4;border-color:#86efac}.f label{font-size:11px;color:#1e40af;font-weight:600;text-transform:uppercase}.f p{font-size:16px;font-weight:700;color:#1e293b;margin-top:3px}.ir{display:flex;gap:8px;align-items:center;font-size:13px;padding:4px 0}.ir span:first-child{color:#64748b;width:160px}.footer{background:#eff6ff;border-top:2px dashed #93c5fd;padding:20px 32px;display:flex;justify-content:space-between;align-items:flex-end}.sb{text-align:center}.sl{width:160px;border-bottom:1px solid #999;margin-bottom:6px;height:40px}.sl-label{font-size:11px;color:#64748b}@media print{body{background:#fff}.page{box-shadow:none;margin:0;border-radius:0}}</style></head><body><div class="page"><div class="header"><h1>🚗 VEHICLE LOAN RECEIPT</h1><p>Loan No: <strong>${loan.loanNumber}</strong> &nbsp;|&nbsp; Date: ${today}</p></div><div class="body"><div class="st">Customer</div><div class="ir"><span>Customer Name</span><strong>${loan.customerName}</strong></div><div class="ir"><span>Phone</span><strong>${loan.customerPhone || 'N/A'}</strong></div><div class="st">Loan Details</div><div class="grid"><div class="f"><label>Loan Amount</label><p>₹${loan.loanAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Interest Rate</label><p>${loan.interestRate}% p.a.</p></div><div class="f"><label>Tenure</label><p>${loan.tenure} months</p></div><div class="f gr"><label>EMI</label><p>₹${loan.emiAmount.toLocaleString('en-IN')}</p></div></div><div class="st">Vehicle Details</div><div class="grid"><div class="f"><label>Vehicle Type</label><p>${v.vehicleType}</p></div><div class="f"><label>Reg. Number</label><p>${v.vehicleNumber || 'N/A'}</p></div><div class="f"><label>Manufacturer</label><p>${v.manufacturer || 'N/A'}</p></div><div class="f"><label>Model</label><p>${v.model || 'N/A'}</p></div><div class="f"><label>Year</label><p>${v.yearOfManufacture || 'N/A'}</p></div>${v.fuelType ? `<div class="f"><label>Fuel Type</label><p>${v.fuelType}</p></div>` : ''}<div class="f gr"><label>Valuation</label><p>₹${v.valuationAmount.toLocaleString('en-IN')}</p></div><div class="f"><label>Approved Loan</label><p>₹${v.loanAmount.toLocaleString('en-IN')}</p></div></div>${v.chassisNumber || v.engineNumber || v.ownerName ? `<div class="st">ID Numbers</div><div>${v.ownerName ? `<div class="ir"><span>Registered Owner</span><strong>${v.ownerName}</strong></div>` : ''}${v.chassisNumber ? `<div class="ir"><span>Chassis No</span><strong>${v.chassisNumber}</strong></div>` : ''}${v.engineNumber ? `<div class="ir"><span>Engine No</span><strong>${v.engineNumber}</strong></div>` : ''}</div>` : ''}${vPhotoHtml || rcPhotoHtml ? `<div class="st">Photos</div><div style="display:flex;gap:20px;justify-content:center;flex-wrap:wrap">${vPhotoHtml}${rcPhotoHtml}</div>` : ''}</div><div class="footer"><div class="sb"><div class="sl"></div><div class="sl-label">Borrower Signature</div></div><div style="text-align:center;font-size:12px;color:#1e40af"><p style="font-weight:700">VEHICLE HYPOTHECATED TO LENDER</p><p>To be released upon full repayment</p></div><div class="sb"><div class="sl"></div><div class="sl-label">Authorized Signatory</div></div></div></div><div style="text-align:center;padding:16px"><button onclick="window.print()" style="padding:10px 28px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600">🖨 Print Receipt</button></div></body></html>`);
+                              w.document.close();
+                            };
+                            return (
+                              <Card key="vehicle" className="border-0 shadow-sm border-l-4 border-l-blue-500">
+                                <CardHeader className="pb-2">
+                                  <CardTitle className="text-sm flex items-center gap-2">
+                                    <Car className="h-4 w-4 text-blue-600" /> Vehicle Loan Receipt
+                                    <button type="button" onClick={openVehicleReceipt} className="ml-auto flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                                      <Printer className="h-3 w-3" /> View Full Receipt
+                                    </button>
+                                  </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Vehicle Type</div><div className="font-bold">{v.vehicleType}</div></div>
+                                    <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Reg. Number</div><div className="font-bold">{v.vehicleNumber || 'N/A'}</div></div>
+                                    <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Manufacturer</div><div className="font-bold">{v.manufacturer || 'N/A'}</div></div>
+                                    <div className="p-2.5 bg-gray-50 rounded-lg"><div className="text-xs text-gray-600 font-medium mb-0.5">Model</div><div className="font-bold">{v.model || 'N/A'}</div></div>
+                                    <div className="p-2.5 bg-emerald-50 rounded-lg"><div className="text-xs text-emerald-700 font-medium mb-0.5">Valuation</div><div className="font-bold text-emerald-700">₹{v.valuationAmount.toLocaleString('en-IN')}</div></div>
+                                    <div className="p-2.5 bg-blue-50 rounded-lg"><div className="text-xs text-blue-700 font-medium mb-0.5">Approved Loan</div><div className="font-bold text-blue-700">₹{v.loanAmount.toLocaleString('en-IN')}</div></div>
+                                  </div>
+                                  {(v.vehiclePhoto || v.rcBookPhoto) && (
+                                    <div className="mt-3 flex flex-wrap gap-3">
+                                      {v.vehiclePhoto && (
+                                        <div className="flex items-start gap-2 p-2.5 border border-blue-200 rounded-lg bg-blue-50/40">
+                                          <button type="button" onClick={() => openDoc(v.vehiclePhoto!)} className="shrink-0">
+                                            <img src={v.vehiclePhoto} alt="Vehicle" className="w-20 h-20 object-cover rounded-lg border-2 border-blue-300 hover:opacity-90 transition-opacity" />
+                                          </button>
+                                          <div className="flex flex-col gap-1.5">
+                                            <p className="text-xs font-medium text-gray-700">Vehicle Photo</p>
+                                            <button type="button" onClick={() => openDoc(v.vehiclePhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-lg hover:bg-blue-200">
+                                              <Eye className="h-3 w-3" /> View
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {v.rcBookPhoto && (
+                                        <div className="flex items-start gap-2 p-2.5 border border-emerald-200 rounded-lg bg-emerald-50/40">
+                                          <button type="button" onClick={() => openDoc(v.rcBookPhoto!)} className="shrink-0">
+                                            <img src={v.rcBookPhoto} alt="RC Book" className="w-20 h-20 object-cover rounded-lg border-2 border-emerald-300 hover:opacity-90 transition-opacity" />
+                                          </button>
+                                          <div className="flex flex-col gap-1.5">
+                                            <p className="text-xs font-medium text-gray-700">RC Book</p>
+                                            <button type="button" onClick={() => openDoc(v.rcBookPhoto!)} className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-100 text-emerald-700 text-xs rounded-lg hover:bg-emerald-200">
+                                              <Eye className="h-3 w-3" /> View
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                      <button type="button" onClick={openVehicleReceipt} className="self-center inline-flex items-center gap-1 px-3 py-2 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-700">
+                                        <Printer className="h-3 w-3" /> Print Full Receipt
+                                      </button>
+                                    </div>
+                                  )}
+                                  {v.ownerName && <p className="mt-2 text-xs text-gray-500">Owner: <strong>{v.ownerName}</strong></p>}
+                                  {v.remarks && <p className="mt-1 text-xs text-gray-400 italic">{v.remarks}</p>}
+                                </CardContent>
+                              </Card>
+                            );
+                          })()}
+
+                          {!loan.goldLoanDetail && !loan.vehicleLoanDetail && (
+                            <div className="text-center py-12 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
+                              <Printer className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                              <p className="text-sm font-medium">No Collateral Receipt Available</p>
+                              <p className="text-xs text-gray-400 mt-1">This loan does not have gold or vehicle collateral pledged.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </TabsContent>
 
                     {/* History Tab */}
                     <TabsContent value="history" className="m-0">

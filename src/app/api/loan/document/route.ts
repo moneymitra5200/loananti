@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Allowed document fields on LoanApplication
+    // Allowed document fields on both LoanApplication and OfflineLoan
     const allowedFields = [
       'panCardDoc',
       'aadhaarFrontDoc',
@@ -19,9 +19,11 @@ export async function POST(request: NextRequest) {
       'photoDoc',
       'bankStatementDoc',
       'passbookDoc',
+      'passbookPhotoDoc',
       'salarySlipDoc',
       'electionCardDoc',
       'housePhotoDoc',
+      'guarantorPhotoDoc',
       'otherDocs',
       'disbursementProof'
     ];
@@ -30,18 +32,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid document field' }, { status: 400 });
     }
 
-    const updatedLoan = await db.loanApplication.update({
+    // Check if the loan exists in loanApplication first
+    const onlineLoanExists = await db.loanApplication.findUnique({
       where: { id: loanId },
-      data: {
-        [documentField]: documentUrl
-      }
+      select: { id: true }
     });
 
-    return NextResponse.json({
-      success: true,
-      message: 'Document updated successfully',
-      loan: updatedLoan
+    if (onlineLoanExists) {
+      const updatedLoan = await db.loanApplication.update({
+        where: { id: loanId },
+        data: {
+          [documentField]: documentUrl
+        }
+      });
+      return NextResponse.json({
+        success: true,
+        message: 'Document updated successfully',
+        loan: updatedLoan
+      });
+    }
+
+    // Otherwise, check if the loan exists in offlineLoan
+    const offlineLoanExists = await db.offlineLoan.findUnique({
+      where: { id: loanId },
+      select: { id: true }
     });
+
+    if (offlineLoanExists) {
+      // Map passbookDoc to passbookPhotoDoc for OfflineLoan model schema compatibility
+      let fieldToUpdate = documentField;
+      if (fieldToUpdate === 'passbookDoc') {
+        fieldToUpdate = 'passbookPhotoDoc';
+      }
+
+      const updatedLoan = await db.offlineLoan.update({
+        where: { id: loanId },
+        data: {
+          [fieldToUpdate]: documentUrl
+        }
+      });
+      return NextResponse.json({
+        success: true,
+        message: 'Document updated successfully',
+        loan: updatedLoan
+      });
+    }
+
+    return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
 
   } catch (error: any) {
     console.error('Update document error:', error);
