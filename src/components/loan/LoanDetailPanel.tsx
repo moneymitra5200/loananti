@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2, Calendar, IndianRupee
+  X, FileText, Wallet, Building, Loader2, Lock, Receipt, PlayCircle, Calculator, AlertCircle, Trash2, Calendar, IndianRupee,
+  Pencil, Save
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
@@ -22,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
 
 // Import modular components
 import {
@@ -128,6 +130,55 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [startingLoan, setStartingLoan] = useState(false);
+
+  // ── Edit Loan Details (customer info) ─────────────────────────────
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    firstName: '', lastName: '', phone: '', address: '', remarks: ''
+  });
+
+  const openEditDialog = () => {
+    if (!loanDetails) return;
+    setEditForm({
+      firstName: loanDetails.firstName || '',
+      lastName:  loanDetails.lastName  || '',
+      phone:     loanDetails.phone     || loanDetails.customer?.phone || '',
+      address:   loanDetails.address   || '',
+      remarks:   (loanDetails as any).remarks || '',
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!loanDetails?.id) return;
+    setEditSaving(true);
+    try {
+      const res = await fetch('/api/loan/details', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update-basic-details',
+          loanId: loanDetails.id,
+          userId: currentUserId,
+          userRole: currentUserRole,
+          ...editForm
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Loan Updated', description: 'Customer details saved.' });
+        setShowEditDialog(false);
+        fetchLoanDetails();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed to update', variant: 'destructive' });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   // Handle Delete Loan
   const handleDeleteLoan = async () => {
@@ -931,6 +982,12 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 )}
               </>
             )}
+            {/* Edit button — hidden for mirror loans */}
+            {!isMirrorLoan && loanDetails && (currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'CASHIER' || currentUserRole === 'STAFF') && (
+              <Button size="sm" variant="ghost" className="text-white hover:bg-white/20 shrink-0" onClick={openEditDialog} title="Edit loan details">
+                <Pencil className="h-4 w-4" />
+              </Button>
+            )}
             {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
             {currentUserRole === 'SUPER_ADMIN' && !isMirrorLoan && loanDetails && (
               <Button
@@ -1432,7 +1489,55 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
         }}
       />
     )}
+
+    {/* ── Edit Loan Details Dialog (Online Loans) ───────────────── */}
+    <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-5 w-5 text-indigo-600" /> Edit Customer Details
+          </DialogTitle>
+          <DialogDescription>Update contact information for this loan application. Changes are audit-logged.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">First Name *</Label>
+              <Input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} placeholder="First name" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Last Name *</Label>
+              <Input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} placeholder="Last name" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Phone *</Label>
+              <Input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone number" />
+            </div>
+            <div className="space-y-1 col-span-2">
+              <Label className="text-xs">Address</Label>
+              <Textarea rows={2} value={editForm.address} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} placeholder="Full address" />
+            </div>
+            <div className="space-y-1 col-span-2">
+              <Label className="text-xs">Remarks / Notes</Label>
+              <Textarea rows={2} value={editForm.remarks} onChange={e => setEditForm(f => ({ ...f, remarks: e.target.value }))} placeholder="Internal notes" />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+          <Button
+            disabled={editSaving || !editForm.firstName || !editForm.phone}
+            onClick={handleSaveEdit}
+            className="bg-indigo-600 hover:bg-indigo-700"
+          >
+            {editSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </>
   );
 }
-

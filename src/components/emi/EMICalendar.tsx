@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChevronLeft, ChevronRight, Calendar, IndianRupee, CheckCircle,
-  Clock, AlertTriangle, User, Phone, Wallet, Building2
+  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter
 } from 'lucide-react';
 import EMIPaymentDialog from './EMIPaymentDialog';
 
@@ -130,6 +130,20 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
   const goToToday = () => {
     setCurrentDate(new Date());
   };
+
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+
+  const jumpToMonth = (monthIndex: number) => {
+    setCurrentDate(new Date(currentDate.getFullYear(), monthIndex, 1));
+  };
+
+  const jumpToYear = (year: number) => {
+    setCurrentDate(new Date(year, currentDate.getMonth(), 1));
+  };
+
+  const currentYear = currentDate.getFullYear();
+  const yearOptions = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
 
   // Generate calendar grid
   const generateCalendarGrid = () => {
@@ -313,12 +327,33 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
         </CardHeader>
 
         <CardContent className="p-4">
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between mb-4">
+          {/* Month Navigation with jump selectors */}
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <Button variant="ghost" size="icon" onClick={prevMonth}>
               <ChevronLeft className="h-5 w-5" />
             </Button>
-            <h3 className="text-lg font-semibold">{getMonthName(currentDate)}</h3>
+            <div className="flex items-center gap-2 flex-1 justify-center flex-wrap">
+              {/* Month dropdown */}
+              <select
+                value={currentDate.getMonth()}
+                onChange={e => jumpToMonth(parseInt(e.target.value))}
+                className="text-sm font-semibold border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
+              >
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i}>{m}</option>
+                ))}
+              </select>
+              {/* Year dropdown */}
+              <select
+                value={currentDate.getFullYear()}
+                onChange={e => jumpToYear(parseInt(e.target.value))}
+                className="text-sm font-semibold border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-2 focus:ring-purple-400"
+              >
+                {yearOptions.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
             <Button variant="ghost" size="icon" onClick={nextMonth}>
               <ChevronRight className="h-5 w-5" />
             </Button>

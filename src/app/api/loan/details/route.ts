@@ -370,3 +370,61 @@ function buildWorkflowPipeline(workflowLogs: any[], loan: any) {
     };
   });
 }
+
+// PUT - Update basic loan / customer details
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { action, loanId, userId, userRole } = body;
+
+    if (action !== 'update-basic-details' || !loanId || !userId) {
+      return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    }
+
+    const allowed = ['SUPER_ADMIN', 'CASHIER', 'STAFF', 'AGENT', 'COMPANY'];
+    if (!allowed.includes(userRole)) {
+      return NextResponse.json({ error: 'Not authorised' }, { status: 403 });
+    }
+
+    const { firstName, lastName, phone, address } = body;
+
+    if (!firstName || !phone) {
+      return NextResponse.json({ error: 'firstName and phone are required' }, { status: 400 });
+    }
+
+    const existing = await db.loanApplication.findUnique({
+      where: { id: loanId },
+      select: { id: true, applicationNo: true, firstName: true, lastName: true, phone: true, address: true }
+    });
+    if (!existing) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
+
+    const updated = await db.loanApplication.update({
+      where: { id: loanId },
+      data: {
+        firstName,
+        lastName:  lastName  ?? existing.lastName,
+        phone,
+        ...(address !== undefined ? { address } : {}),
+      }
+    });
+
+    await db.actionLog.create({
+      data: {
+        userId, userRole,
+        actionType: 'UPDATE',
+        module: 'ONLINE_LOAN',
+        recordId: loanId,
+        recordType: 'LoanApplication',
+        previousData: JSON.stringify({ firstName: existing.firstName, lastName: existing.lastName, phone: existing.phone }),
+        newData:      JSON.stringify({ firstName, lastName, phone }),
+        description:  `Updated customer details for loan ${existing.applicationNo}`,
+        canUndo: false
+      }
+    });
+
+    return NextResponse.json({ success: true, loan: updated });
+  } catch (error) {
+    console.error('Loan update error:', error);
+    return NextResponse.json({ error: 'Failed to update loan details' }, { status: 500 });
+  }
+}
