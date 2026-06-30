@@ -1599,7 +1599,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create Gold Loan Detail if applicable
-    if (loanType === 'GOLD' && goldLoanDetail) {
+    if (goldLoanDetail) {
       await db.goldLoanDetail.create({
         data: {
           offlineLoanId: loan.id,
@@ -1618,10 +1618,32 @@ export async function POST(request: NextRequest) {
           remarks: goldLoanDetail.remarks || null
         }
       });
+
+      // Also create for mirror loan if it exists
+      if (mirrorLoanCreatedId) {
+        await db.goldLoanDetail.create({
+          data: {
+            offlineLoanId: mirrorLoanCreatedId,
+            grossWeight: goldLoanDetail.grossWeight,
+            netWeight: goldLoanDetail.netWeight,
+            goldRate: goldLoanDetail.goldRate,
+            valuationAmount: goldLoanDetail.valuationAmount,
+            loanAmount: goldLoanDetail.loanAmount,
+            ownerName: goldLoanDetail.ownerName,
+            goldItemPhoto: goldLoanDetail.goldItemPhoto || null,
+            karat: goldLoanDetail.karat || 22,
+            numberOfItems: goldLoanDetail.numberOfItems || 1,
+            itemDescription: goldLoanDetail.itemDescription || null,
+            verificationDate: goldLoanDetail.verificationDate ? new Date(goldLoanDetail.verificationDate) : new Date(),
+            verifiedBy: goldLoanDetail.verifiedBy || createdById,
+            remarks: goldLoanDetail.remarks || null
+          }
+        });
+      }
     }
 
     // Create Vehicle Loan Detail if applicable
-    if (loanType === 'VEHICLE' && vehicleLoanDetail) {
+    if (vehicleLoanDetail) {
       await db.vehicleLoanDetail.create({
         data: {
           offlineLoanId: loan.id,
@@ -1644,6 +1666,32 @@ export async function POST(request: NextRequest) {
           remarks: vehicleLoanDetail.remarks || null
         }
       });
+
+      // Also create for mirror loan if it exists
+      if (mirrorLoanCreatedId) {
+        await db.vehicleLoanDetail.create({
+          data: {
+            offlineLoanId: mirrorLoanCreatedId,
+            vehicleType: vehicleLoanDetail.vehicleType,
+            vehicleNumber: vehicleLoanDetail.vehicleNumber || null,
+            manufacturer: vehicleLoanDetail.manufacturer,
+            model: vehicleLoanDetail.model || null,
+            yearOfManufacture: vehicleLoanDetail.yearOfManufacture || new Date().getFullYear(),
+            valuationAmount: vehicleLoanDetail.valuationAmount,
+            loanAmount: vehicleLoanDetail.loanAmount,
+            ownerName: vehicleLoanDetail.ownerName,
+            rcBookPhoto: vehicleLoanDetail.rcBookPhoto || null,
+            vehiclePhoto: vehicleLoanDetail.vehiclePhoto || null,
+            chassisNumber: vehicleLoanDetail.chassisNumber || null,
+            engineNumber: vehicleLoanDetail.engineNumber || null,
+            fuelType: vehicleLoanDetail.fuelType || 'PETROL',
+            color: vehicleLoanDetail.color || null,
+            verificationDate: vehicleLoanDetail.verificationDate ? new Date(vehicleLoanDetail.verificationDate) : new Date(),
+            verifiedBy: vehicleLoanDetail.verifiedBy || createdById,
+            remarks: vehicleLoanDetail.remarks || null
+          }
+        });
+      }
     }
 
     // ============================================
@@ -2129,6 +2177,16 @@ export async function POST(request: NextRequest) {
         await db.vehicleLoanDetail.deleteMany({ where: { offlineLoanId: loanCreatedId } }).catch(() => {});
         await db.offlineLoan.delete({ where: { id: loanCreatedId } }).catch(() => {});
         console.log(`[Offline Loan Cleanup] Cleaned up loan ${loanCreatedId} successfully.`);
+
+        // Revert global sequence number if it was the last generated sequence
+        const seqRecord = await db.loanSequence.findFirst();
+        if (seqRecord && seqRecord.currentSequence === sequence) {
+          await db.loanSequence.update({
+            where: { id: seqRecord.id },
+            data: { currentSequence: { decrement: 1 } }
+          });
+          console.log(`[Offline Loan Cleanup] Reverted global sequence from ${sequence} to ${sequence - 1} due to request failure`);
+        }
       } catch (cleanupError) {
         console.error(`[Offline Loan Cleanup] Cleanup error:`, cleanupError);
       }
@@ -4344,6 +4402,20 @@ export async function DELETE(request: NextRequest) {
     await db.offlineLoan.delete({
       where: { id: loanId }
     });
+
+    // Revert global sequence number if it was the last generated sequence
+    const seqMatch = loan.loanNumber.match(/-(\d+)$/);
+    if (seqMatch) {
+      const loanSeq = parseInt(seqMatch[1], 10);
+      const seqRecord = await db.loanSequence.findFirst();
+      if (seqRecord && seqRecord.currentSequence === loanSeq) {
+        await db.loanSequence.update({
+          where: { id: seqRecord.id },
+          data: { currentSequence: { decrement: 1 } }
+        });
+        console.log(`[DELETE OFFLINE LOAN] Reverted global loan sequence to ${seqRecord.currentSequence - 1} because loan ${loan.loanNumber} (sequence: ${loanSeq}) was deleted`);
+      }
+    }
 
     const deletePayload = {
       loan: {

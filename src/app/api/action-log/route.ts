@@ -471,6 +471,20 @@ export async function PUT(request: NextRequest) {
             await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
             await tx.offlineLoan.delete({ where: { id: actionLog.recordId } });
 
+            // Revert global sequence number if it was the last generated sequence
+            const seqMatch = loan.loanNumber.match(/-(\d+)$/);
+            if (seqMatch) {
+              const loanSeq = parseInt(seqMatch[1], 10);
+              const seqRecord = await tx.loanSequence.findFirst();
+              if (seqRecord && seqRecord.currentSequence === loanSeq) {
+                await tx.loanSequence.update({
+                  where: { id: seqRecord.id },
+                  data: { currentSequence: { decrement: 1 } }
+                });
+                console.log(`[Undo Sequence] Reverted global loan sequence to ${seqRecord.currentSequence - 1} because loan ${loan.loanNumber} (sequence: ${loanSeq}) was deleted via undo`);
+              }
+            }
+
             localUndoResult = { type: 'loan_creation_deleted', recordId: actionLog.recordId, detail: `Loan ${loan.loanNumber} and all its accounting entries (including accruals) were completely deleted` };
           }
 

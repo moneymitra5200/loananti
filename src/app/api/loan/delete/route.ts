@@ -415,6 +415,20 @@ export async function DELETE(request: NextRequest) {
         where: { id: loanId } 
       });
 
+      // Revert global sequence number if it was the last generated sequence
+      const seqMatch = loanDetails.loanNumber.match(/-(\d+)$/);
+      if (seqMatch) {
+        const loanSeq = parseInt(seqMatch[1], 10);
+        const seqRecord = await db.loanSequence.findFirst();
+        if (seqRecord && seqRecord.currentSequence === loanSeq) {
+          await db.loanSequence.update({
+            where: { id: seqRecord.id },
+            data: { currentSequence: { decrement: 1 } }
+          });
+          console.log(`[DELETE OFFLINE LOAN] Reverted global loan sequence to ${seqRecord.currentSequence - 1} because loan ${loanDetails.loanNumber} (sequence: ${loanSeq}) was deleted`);
+        }
+      }
+
       // Create audit log
       if (auditUserId) {
         try {
