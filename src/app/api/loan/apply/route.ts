@@ -489,7 +489,7 @@ export async function PUT(request: NextRequest) {
     });
 
     // Handle Gold Loan Details
-    if (updateData.goldLoanDetails && isGoldLoan(loan.loanType)) {
+    if (updateData.goldLoanDetails && (isGoldLoan(loan.loanType) || loan.isInterestOnlyLoan || loan.loanType === 'INTEREST_ONLY')) {
       const goldData = updateData.goldLoanDetails as Record<string, unknown>;
       
       // Check if gold loan detail already exists
@@ -539,7 +539,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Handle Vehicle Loan Details
-    if (updateData.vehicleLoanDetails && isVehicleLoan(loan.loanType)) {
+    if (updateData.vehicleLoanDetails && (isVehicleLoan(loan.loanType) || loan.isInterestOnlyLoan || loan.loanType === 'INTEREST_ONLY')) {
       const vehicleData = updateData.vehicleLoanDetails as Record<string, unknown>;
       
       // Check if vehicle loan detail already exists

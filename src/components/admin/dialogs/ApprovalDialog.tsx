@@ -1055,7 +1055,7 @@ export default function ApprovalDialog({
                     {fullLoanDetails ? (
                       <div className="space-y-4">
                         {/* Asset Specific Details: Gold Loan */}
-                        {(fullLoanDetails.loanType === 'GOLD' || fullLoanDetails.loanType?.includes('GOLD')) && fullLoanDetails.goldLoanDetail && (
+                        {fullLoanDetails.goldLoanDetail && (
                           <Card className="border border-amber-200 bg-amber-50/20 shadow-sm rounded-xl">
                             <CardHeader className="pb-2 border-b border-amber-100 bg-amber-50/40">
                               <CardTitle className="text-xs font-bold flex items-center gap-1.5 uppercase text-amber-700 tracking-wider">
@@ -1118,7 +1118,7 @@ export default function ApprovalDialog({
                         )}
 
                         {/* Asset Specific Details: Vehicle Loan */}
-                        {(fullLoanDetails.loanType === 'VEHICLE' || fullLoanDetails.loanType?.includes('VEHICLE')) && fullLoanDetails.vehicleLoanDetail && (
+                        {fullLoanDetails.vehicleLoanDetail && (
                           <Card className="border border-blue-200 bg-blue-50/20 shadow-sm rounded-xl">
                             <CardHeader className="pb-2 border-b border-blue-100 bg-blue-50/40">
                               <CardTitle className="text-xs font-bold flex items-center gap-1.5 uppercase text-blue-700 tracking-wider">

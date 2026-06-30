@@ -1802,40 +1802,42 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               );
             })()}
 
-            {/* ── Optional Receipt Attachments (any loan type, including IO) ── */}
-            <div className="pt-4 border-t">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="h-4 w-4 text-gray-500" />
-                <h3 className="font-semibold text-gray-700 text-sm">Optional Collateral Receipts</h3>
-                <span className="text-xs text-gray-400">(Not required — attach if applicable)</span>
+            {/* ── Optional Receipt Attachments (only when it is an Interest Only loan) ── */}
+            {isInterestOnly && (
+              <div className="pt-4 border-t">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-4 w-4 text-gray-500" />
+                  <h3 className="font-semibold text-gray-700 text-sm">Optional Collateral Receipts</h3>
+                  <span className="text-xs text-gray-400">(Not required — attach if applicable)</span>
+                </div>
+                <div className="flex gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => { setShowGoldReceipt(p => !p); if (showVehicleReceipt) setShowVehicleReceipt(false); }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      showGoldReceipt || formData.loanType === 'GOLD'
+                        ? 'bg-amber-100 border-amber-400 text-amber-800'
+                        : 'bg-white border-gray-300 text-gray-600 hover:border-amber-400 hover:bg-amber-50'
+                    }`}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {showGoldReceipt || formData.loanType === 'GOLD' ? '✓ Gold Receipt Added' : '+ Add Gold Receipt'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowVehicleReceipt(p => !p); if (showGoldReceipt) setShowGoldReceipt(false); }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      showVehicleReceipt || formData.loanType === 'VEHICLE'
+                        ? 'bg-blue-100 border-blue-400 text-blue-800'
+                        : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
+                    }`}
+                  >
+                    <Car className="h-4 w-4" />
+                    {showVehicleReceipt || formData.loanType === 'VEHICLE' ? '✓ Vehicle Receipt Added' : '+ Add Vehicle Receipt'}
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-3 flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => { setShowGoldReceipt(p => !p); if (showVehicleReceipt) setShowVehicleReceipt(false); }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                    showGoldReceipt || formData.loanType === 'GOLD'
-                      ? 'bg-amber-100 border-amber-400 text-amber-800'
-                      : 'bg-white border-gray-300 text-gray-600 hover:border-amber-400 hover:bg-amber-50'
-                  }`}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {showGoldReceipt || formData.loanType === 'GOLD' ? '✓ Gold Receipt Added' : '+ Add Gold Receipt'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowVehicleReceipt(p => !p); if (showGoldReceipt) setShowGoldReceipt(false); }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors ${
-                    showVehicleReceipt || formData.loanType === 'VEHICLE'
-                      ? 'bg-blue-100 border-blue-400 text-blue-800'
-                      : 'bg-white border-gray-300 text-gray-600 hover:border-blue-400 hover:bg-blue-50'
-                  }`}
-                >
-                  <Car className="h-4 w-4" />
-                  {showVehicleReceipt || formData.loanType === 'VEHICLE' ? '✓ Vehicle Receipt Added' : '+ Add Vehicle Receipt'}
-                </button>
-              </div>
-            </div>
+            )}
 
             {/* Gold Loan Receipt - Shows when loan type is GOLD or user toggled it */}
             {(formData.loanType === 'GOLD' || showGoldReceipt) && (

@@ -38,6 +38,7 @@ interface Loan {
   employmentType?: string; employerName?: string; monthlyIncome?: number;
   bankAccountNumber?: string; bankIfsc?: string; bankName?: string;
   address?: string; city?: string; state?: string; pincode?: string;
+  isInterestOnlyLoan?: boolean;
 }
 
 // Helper function to check if loan type is Gold Loan
@@ -637,9 +638,9 @@ export default function StaffDashboard() {
           ...docFields,           // ← document URLs mapped to proper DB field names
           status: 'LOAN_FORM_COMPLETED',
           userId: user?.id,
-          // Include gold/vehicle loan details based on loan type
-          ...(isGoldLoan(selectedLoan.loanType) && { goldLoanDetails: goldLoanData }),
-          ...(isVehicleLoan(selectedLoan.loanType) && { vehicleLoanDetails: vehicleLoanData }),
+          // Include gold/vehicle loan details based on loan type or if it is interest-only
+          ...((isGoldLoan(selectedLoan.loanType) || ((selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY') && goldLoanData && Object.keys(goldLoanData).length > 0)) && { goldLoanDetails: goldLoanData }),
+          ...((isVehicleLoan(selectedLoan.loanType) || ((selectedLoan.isInterestOnlyLoan || selectedLoan.loanType === 'INTEREST_ONLY') && vehicleLoanData && Object.keys(vehicleLoanData).length > 0)) && { vehicleLoanDetails: vehicleLoanData }),
           familyDetails: {
             numberOfPeopleInHouse: loanForm.numberOfPeopleInHouse,
             numberOfEarningMembers: loanForm.numberOfEarningMembers,

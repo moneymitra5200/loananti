@@ -29,6 +29,7 @@ interface Loan {
   employmentType?: string; employerName?: string; monthlyIncome?: number;
   bankAccountNumber?: string; bankIfsc?: string; bankName?: string;
   address?: string; city?: string; state?: string; pincode?: string;
+  isInterestOnlyLoan?: boolean;
 }
 
 interface FormErrors {
@@ -717,7 +718,8 @@ export default function LoanFormStepContent({
       const [showOptGold, setShowOptGold] = useState(false);
       // eslint-disable-next-line react-hooks/rules-of-hooks
       const [showOptVehicle, setShowOptVehicle] = useState(false);
-      const canShowOptReceipt = !isGoldLoan(selectedLoan?.loanType || '') && !isVehicleLoan(selectedLoan?.loanType || '');
+      const isIO = selectedLoan?.isInterestOnlyLoan === true || selectedLoan?.loanType === 'INTEREST_ONLY';
+      const canShowOptReceipt = isIO && !isGoldLoan(selectedLoan?.loanType || '') && !isVehicleLoan(selectedLoan?.loanType || '');
       return (
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-4">
