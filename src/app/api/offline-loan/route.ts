@@ -605,6 +605,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   let loanCreatedId: string | null = null;
   let mirrorLoanCreatedId: string | null = null;
+  let sequenceNumberGenerated: number | null = null;
   try {
     const body = await request.json();
     const {
@@ -744,6 +745,7 @@ export async function POST(request: NextRequest) {
 
     // Generate loan number using the global sequence number
     const sequence = await getNextLoanSequence();
+    sequenceNumberGenerated = sequence;
     const sequenceStr = sequence.toString().padStart(5, '0');
     const loanNumber = `${company.code}-${(loanType || 'PERSONAL').toUpperCase()}-${sequenceStr}`;
 
@@ -2179,13 +2181,15 @@ export async function POST(request: NextRequest) {
         console.log(`[Offline Loan Cleanup] Cleaned up loan ${loanCreatedId} successfully.`);
 
         // Revert global sequence number if it was the last generated sequence
-        const seqRecord = await db.loanSequence.findFirst();
-        if (seqRecord && seqRecord.currentSequence === sequence) {
-          await db.loanSequence.update({
-            where: { id: seqRecord.id },
-            data: { currentSequence: { decrement: 1 } }
-          });
-          console.log(`[Offline Loan Cleanup] Reverted global sequence from ${sequence} to ${sequence - 1} due to request failure`);
+        if (sequenceNumberGenerated !== null) {
+          const seqRecord = await db.loanSequence.findFirst();
+          if (seqRecord && seqRecord.currentSequence === sequenceNumberGenerated) {
+            await db.loanSequence.update({
+              where: { id: seqRecord.id },
+              data: { currentSequence: { decrement: 1 } }
+            });
+            console.log(`[Offline Loan Cleanup] Reverted global sequence from ${sequenceNumberGenerated} to ${sequenceNumberGenerated - 1} due to request failure`);
+          }
         }
       } catch (cleanupError) {
         console.error(`[Offline Loan Cleanup] Cleanup error:`, cleanupError);
