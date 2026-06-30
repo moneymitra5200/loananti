@@ -14,6 +14,13 @@ export async function GET(request: NextRequest) {
     const tmrStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
     const tmrEnd   = new Date(dayEnd.getTime()   + 24 * 60 * 60 * 1000);
 
+    // Get all online mirror loan IDs to exclude them
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorLoanId: { not: null } },
+      select: { mirrorLoanId: true }
+    });
+    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+
     // Optionally scope EMI / loan queries to a specific agent
     const onlineLoanWhere: any = agentId ? { 
       OR: [
@@ -22,7 +29,13 @@ export async function GET(request: NextRequest) {
       ]
     } : {};
 
-    const offlineLoanWhere: any = agentId ? { createdById: agentId } : {};
+    if (mirrorLoanIds.length > 0) {
+      onlineLoanWhere.id = { notIn: mirrorLoanIds };
+    }
+
+    const offlineLoanWhere: any = agentId
+      ? { createdById: agentId, isMirrorLoan: false }
+      : { isMirrorLoan: false };
 
     // Run all queries SEQUENTIALLY — prevents connection starvation on connection_limit=3
     // Each query has its own try-catch for fault tolerance (same as Promise.allSettled)

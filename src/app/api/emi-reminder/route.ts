@@ -48,6 +48,13 @@ export async function GET(request: NextRequest) {
     let settings: any = await (db as any).systemSettings.findFirst();
     const graceDays = settings?.penaltyGraceDays || 0;
 
+    // Get all online mirror loan IDs to exclude them from calculations / alerts / collection
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorLoanId: { not: null } },
+      select: { mirrorLoanId: true }
+    });
+    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+
     // Get today's and tomorrow's EMIs (both online and offline)
     if (action === 'today-tomorrow') {
       const today = new Date();
@@ -63,6 +70,9 @@ export async function GET(request: NextRequest) {
       const onlineEmiWhere: Record<string, unknown> = {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] }
       };
+      if (mirrorLoanIds.length > 0) {
+        onlineEmiWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
 
       // For agents, filter by their loans
       if (userRole === 'AGENT') {
@@ -222,6 +232,9 @@ export async function GET(request: NextRequest) {
       const onlineEmiWhere: Record<string, unknown> = {
         dueDate: { gte: startDate, lte: endDate }
       };
+      if (mirrorLoanIds.length > 0) {
+        onlineEmiWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
 
       if (userRole === 'AGENT') {
         onlineEmiWhere.loanApplication = {
@@ -245,11 +258,12 @@ export async function GET(request: NextRequest) {
 
       // Get offline EMIs
       const offlineEmiWhere: Record<string, unknown> = {
-        dueDate: { gte: startDate, lte: endDate }
+        dueDate: { gte: startDate, lte: endDate },
+        offlineLoan: { isMirrorLoan: false }
       };
 
       if (userRole === 'AGENT') {
-        offlineEmiWhere.offlineLoan = { createdById: userId };
+        offlineEmiWhere.offlineLoan = { isMirrorLoan: false, createdById: userId };
       }
 
       const offlineEmis = await db.offlineLoanEMI.findMany({
@@ -354,6 +368,9 @@ export async function GET(request: NextRequest) {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: rangeStart, lte: rangeEnd }
       };
+      if (mirrorLoanIds.length > 0) {
+        onlineEmiWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
       if (userRole === 'AGENT') {
         onlineEmiWhere.loanApplication = { sessionForm: { agentId: userId } };
       }
@@ -421,6 +438,9 @@ export async function GET(request: NextRequest) {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: selectedDate, lt: nextDay }
       };
+      if (mirrorLoanIds.length > 0) {
+        onlineEmiWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
 
       if (userRole === 'AGENT') {
         onlineEmiWhere.loanApplication = {
@@ -517,12 +537,17 @@ export async function GET(request: NextRequest) {
       dayAfter.setDate(dayAfter.getDate() + 1);
 
       // Get all pending/overdue EMIs
+      const onlineWhere: Record<string, any> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { lt: dayAfter }
+      };
+      if (mirrorLoanIds.length > 0) {
+        onlineWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
+
       const [onlineEmis, offlineEmis] = await Promise.all([
         db.eMISchedule.findMany({
-          where: {
-            paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-            dueDate: { lt: dayAfter }
-          },
+          where: onlineWhere,
           include: {
             loanApplication: {
               select: {
@@ -595,6 +620,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { action, userId } = body;
 
+    // Get all online mirror loan IDs to exclude them
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorLoanId: { not: null } },
+      select: { mirrorLoanId: true }
+    });
+    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+
     // Send daily reminders to all roles + customers
     if (action === 'send-daily-reminders') {
       const today = new Date();
@@ -620,11 +652,16 @@ export async function POST(request: NextRequest) {
         let onlineEmis: typeof onlineEmisInner = [];
         let offlineEmis: typeof offlineEmisInner = [];
 
+        const onlineWhere: Record<string, any> = {
+          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+          dueDate: { gte: today, lt: tomorrow }
+        };
+        if (mirrorLoanIds.length > 0) {
+          onlineWhere.loanApplicationId = { notIn: mirrorLoanIds };
+        }
+
         const onlineEmisInner = await db.eMISchedule.findMany({
-          where: {
-            paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-            dueDate: { gte: today, lt: tomorrow }
-          },
+          where: onlineWhere,
           include: {
             loanApplication: {
               select: { applicationNo: true, firstName: true, lastName: true }
@@ -676,11 +713,16 @@ export async function POST(request: NextRequest) {
 
       // ── 2. Customer notifications — Due Today ────────────────────────────────
       // Online loans: find EMIs due today where the loanApplication has a customerId
+      const onlineTodayWhere: Record<string, any> = {
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        dueDate: { gte: today, lt: tomorrow }
+      };
+      if (mirrorLoanIds.length > 0) {
+        onlineTodayWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
+
       const onlineTodayEmis = await db.eMISchedule.findMany({
-        where: {
-          paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-          dueDate: { gte: today, lt: tomorrow }
-        },
+        where: onlineTodayWhere,
         include: {
           loanApplication: {
             select: { id: true, applicationNo: true, customerId: true, firstName: true, lastName: true }
@@ -705,11 +747,16 @@ export async function POST(request: NextRequest) {
       }
 
       // ── 3. Customer notifications — Due Tomorrow ─────────────────────────────
+      const onlineTomorrowWhere: Record<string, any> = {
+        paymentStatus: { in: ['PENDING'] },
+        dueDate: { gte: tomorrow, lt: dayAfterTomorrow }
+      };
+      if (mirrorLoanIds.length > 0) {
+        onlineTomorrowWhere.loanApplicationId = { notIn: mirrorLoanIds };
+      }
+
       const onlineTomorrowEmis = await db.eMISchedule.findMany({
-        where: {
-          paymentStatus: { in: ['PENDING'] },
-          dueDate: { gte: tomorrow, lt: dayAfterTomorrow }
-        },
+        where: onlineTomorrowWhere,
         include: {
           loanApplication: {
             select: { id: true, applicationNo: true, customerId: true }

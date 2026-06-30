@@ -28,6 +28,13 @@ import { performOnDemandAccrual } from '@/lib/accrual-helper';
 // Loans Receivable and Interest Receivable account codes
 const LR_CODES = ['1200', '1201', '1210', '1301', '1305', '1302'];
 
+function isInitialSetup(entryType: string, entryDate: Date | string, disbursementDate: Date | string | null | undefined): boolean {
+  if (!disbursementDate) return true;
+  const diffTime = Math.abs(new Date(entryDate).getTime() - new Date(disbursementDate).getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays <= 3;
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -1727,8 +1734,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       if (isDisbursement && meta.disbursementDate) {
         entryDisplayDate = meta.disbursementDate;
       } else if (isPFAccrual && meta.disbursementDate) {
-        // PF accrual should sit on the same day as disbursement
-        entryDisplayDate = meta.disbursementDate;
+        // PF accrual should sit on the same day as disbursement only if part of the initial setup
+        if (isInitialSetup(je.referenceType, je.entryDate, meta.disbursementDate)) {
+          entryDisplayDate = meta.disbursementDate;
+        }
       }
 
       allEntries.push({
@@ -1905,8 +1914,15 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       const oA = ENTRY_TYPE_ORDER[a.referenceType] ?? 9;
       const oB = ENTRY_TYPE_ORDER[b.referenceType] ?? 9;
       // Disbursement (0) must always be first; PF accrual (1) always second.
-      if (oA <= 1 || oB <= 1) {
-        if (oA !== oB) return oA - oB;
+      const disbDate = loanDataMap.get(a.loanId)?.disbursementDate;
+      const isInitialA = oA <= 1 && (oA === 0 || isInitialSetup(a.referenceType, a.createdAt || a.date, disbDate));
+      const isInitialB = oB <= 1 && (oB === 0 || isInitialSetup(b.referenceType, b.createdAt || b.date, disbDate));
+      if (isInitialA || isInitialB) {
+        if (isInitialA && isInitialB) {
+          if (oA !== oB) return oA - oB;
+        } else {
+          return isInitialA ? -1 : 1;
+        }
       }
     }
 
@@ -2181,9 +2197,9 @@ async function getPersonalLedgerFallback(customerId: string, companyId: string |
 
   allEntries.sort((a, b) => {
     const ORDER: Record<string, number> = {
+      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
       PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-      LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
       INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
       EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
       PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7
@@ -2432,9 +2448,9 @@ async function getSingleLoanLedger(loanId: string, companyId: string | null) {
 
   mappedEntries.sort((a: any, b: any) => {
     const ORDER: Record<string, number> = {
+      LOAN_DISBURSEMENT: 0, MIRROR_LOAN_DISBURSEMENT: 0,
       PROCESSING_FEE_ACCRUAL: 1,
       PROCESSING_FEE_COLLECTION: 2, PROCESSING_FEE: 2,
-      LOAN_DISBURSEMENT: 3, MIRROR_LOAN_DISBURSEMENT: 3,
       INTEREST_ACCRUAL: 4, INTEREST_RECLASSIFICATION: 4,
       EMI_PAYMENT: 5, MIRROR_EMI_PAYMENT: 5, INTEREST_ONLY_PAYMENT: 5, PARTIAL_EMI_PAYMENT: 5,
       PRINCIPAL_ONLY_PAYMENT: 6, OFFLINE_LOAN_FORECLOSURE: 7, LOAN_FORECLOSURE: 7, LOSS_WRITE_OFF: 7

@@ -1,9 +1,8 @@
 const fs = require('fs');
-const lines = fs.readFileSync('prisma/schema.prisma', 'utf8').split('\n');
-const query = process.argv[2] || 'OfflineLoan';
-console.log(`Searching for "${query}":`);
+const content = fs.readFileSync('prisma/schema.prisma', 'utf8');
+const lines = content.split('\n');
 lines.forEach((line, idx) => {
-  if (line.toLowerCase().includes(query.toLowerCase())) {
+  if (line.toLowerCase().includes('mirror')) {
     console.log(`${idx + 1}: ${line.trim()}`);
   }
 });
