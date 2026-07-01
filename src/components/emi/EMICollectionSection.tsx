@@ -82,9 +82,9 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
   const [endDate, setEndDate] = useState<string>(todayIST);
   const [emis, setEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
   const [summary, setSummary] = useState({
-    online: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 },
-    offline: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 },
-    combined: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0 }
+    online: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0, totalCollected: 0, totalPending: 0 },
+    offline: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0, totalCollected: 0, totalPending: 0 },
+    combined: { count: 0, totalAmount: 0, totalPrincipal: 0, totalInterest: 0, totalCollected: 0, totalPending: 0 }
   });
 
   // Payment dialog
@@ -390,12 +390,32 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
     const daysToDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
     let alertClass = "border border-gray-100 bg-white hover:shadow-md transition-shadow";
-    if (daysToDue <= settings.colorRedDaysOverdue) {
+    if (emi.paymentStatus === 'PAID') {
+      alertClass = "border border-emerald-200 bg-emerald-50/30 hover:shadow-md transition-shadow";
+    } else if (emi.paymentStatus === 'WAIVED') {
+      alertClass = "border border-gray-200 bg-gray-50/50 hover:shadow-md transition-shadow";
+    } else if (daysToDue <= settings.colorRedDaysOverdue) {
       alertClass = "border-2 border-red-500 bg-red-50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse";
     } else if (daysToDue <= settings.colorYellowDays) {
       alertClass = "border-2 border-yellow-500 bg-yellow-50 shadow-[0_0_15px_rgba(234,179,8,0.4)] animate-pulse";
     } else if (daysToDue <= settings.colorGreenDays) {
       alertClass = "border-2 border-green-500 bg-green-50 shadow-[0_0_15px_rgba(34,197,94,0.4)] animate-pulse";
+    }
+
+    const status = emi.paymentStatus;
+    let statusBadge: React.ReactNode = null;
+    if (status === 'PAID') {
+      statusBadge = <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-100">Paid</Badge>;
+    } else if (status === 'PARTIALLY_PAID') {
+      statusBadge = <Badge className="bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100">Partially Paid</Badge>;
+    } else if (status === 'INTEREST_ONLY_PAID') {
+      statusBadge = <Badge className="bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-100">Interest Paid</Badge>;
+    } else if (status === 'WAIVED') {
+      statusBadge = <Badge className="bg-gray-100 text-gray-800 border-gray-200 hover:bg-gray-100">Waived</Badge>;
+    } else if (status === 'OVERDUE') {
+      statusBadge = <Badge className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">Overdue</Badge>;
+    } else {
+      statusBadge = <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">Pending</Badge>;
     }
 
     return (
@@ -412,6 +432,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 {type === 'offline' ? 'Offline' : 'Online'}
               </Badge>
               <span className="text-sm font-medium text-gray-600">EMI #{emi.installmentNumber}</span>
+              {statusBadge}
             </div>
 
             <div className="flex items-center gap-2 mb-1">
@@ -460,14 +481,21 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   userId={userId}
                 />
               )}
-              <Button
-                size="sm"
-                className="bg-emerald-500 hover:bg-emerald-600"
-                onClick={() => openPaymentDialog(emi, type)}
-              >
-                <IndianRupee className="h-4 w-4 mr-1" />
-                Pay
-              </Button>
+              {['PAID', 'WAIVED'].includes(emi.paymentStatus) ? (
+                <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1 py-1.5 px-2 bg-emerald-50 border border-emerald-200 rounded">
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Collected
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  className="bg-emerald-500 hover:bg-emerald-600"
+                  onClick={() => openPaymentDialog(emi, type)}
+                >
+                  <IndianRupee className="h-4 w-4 mr-1" />
+                  Pay
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -576,12 +604,12 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 <div className="text-right">
                   <div className="text-xs text-gray-500 space-y-1">
                     <div className="flex items-center gap-2">
-                      <Calculator className="h-3 w-3" />
-                      <span>Principal: <span className="font-medium text-gray-700">{formatCurrency(summary.combined.totalPrincipal)}</span></span>
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                      <span>Collected: <span className="font-semibold text-emerald-700">{formatCurrency(summary.combined.totalCollected || 0)}</span></span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <IndianRupee className="h-3 w-3" />
-                      <span>Interest: <span className="font-medium text-gray-700">{formatCurrency(summary.combined.totalInterest)}</span></span>
+                      <Clock className="h-3.5 w-3.5 text-amber-600" />
+                      <span>Pending: <span className="font-semibold text-amber-700">{formatCurrency(summary.combined.totalPending || 0)}</span></span>
                     </div>
                   </div>
                 </div>
@@ -595,16 +623,18 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   <p className="text-xs text-blue-600 font-medium">Online Loans</p>
                   <p className="text-lg font-bold text-blue-700">{formatCurrency(summary.online.totalAmount)}</p>
                   <p className="text-xs text-blue-500">{summary.online.count} EMIs</p>
-                  <div className="text-xs text-gray-500 mt-1">
-                    P: {formatCurrency(summary.online.totalPrincipal)} | I: {formatCurrency(summary.online.totalInterest)}
+                  <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-blue-100 space-y-0.5">
+                    <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.online.totalCollected || 0)}</span></div>
+                    <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.online.totalPending || 0)}</span></div>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-purple-50 border border-purple-100">
                   <p className="text-xs text-purple-600 font-medium">Offline Loans</p>
                   <p className="text-lg font-bold text-purple-700">{formatCurrency(summary.offline.totalAmount)}</p>
                   <p className="text-xs text-purple-500">{summary.offline.count} EMIs</p>
-                  <div className="text-xs text-gray-500 mt-1">
-                    P: {formatCurrency(summary.offline.totalPrincipal)} | I: {formatCurrency(summary.offline.totalInterest)}
+                  <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-purple-100 space-y-0.5">
+                    <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.offline.totalCollected || 0)}</span></div>
+                    <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.offline.totalPending || 0)}</span></div>
                   </div>
                 </div>
               </div>

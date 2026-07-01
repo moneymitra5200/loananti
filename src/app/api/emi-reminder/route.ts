@@ -365,7 +365,6 @@ export async function GET(request: NextRequest) {
       rangeEnd.setHours(23, 59, 59, 999);
 
       const onlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: rangeStart, lte: rangeEnd }
       };
       if (mirrorLoanIds.length > 0) {
@@ -376,7 +375,6 @@ export async function GET(request: NextRequest) {
       }
 
       const offlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: rangeStart, lte: rangeEnd },
         offlineLoan: { isMirrorLoan: false }
       };
@@ -389,7 +387,16 @@ export async function GET(request: NextRequest) {
           where: onlineEmiWhere,
           include: {
             loanApplication: {
-              select: { id: true, applicationNo: true, firstName: true, lastName: true, phone: true, address: true, companyId: true }
+              select: {
+                id: true,
+                applicationNo: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                address: true,
+                companyId: true,
+                sessionForm: { select: { approvedAmount: true } }
+              }
             }
           },
           orderBy: { dueDate: 'asc' }
@@ -398,25 +405,97 @@ export async function GET(request: NextRequest) {
           where: offlineEmiWhere,
           include: {
             offlineLoan: {
-              select: { id: true, loanNumber: true, customerName: true, customerPhone: true, customerAddress: true, companyId: true }
+              select: {
+                id: true,
+                loanNumber: true,
+                customerName: true,
+                customerPhone: true,
+                customerAddress: true,
+                companyId: true,
+                loanAmount: true,
+                isMirrorLoan: true
+              }
             }
           },
           orderBy: { dueDate: 'asc' }
         })
       ]);
 
+      const onlineEmisWithPenalty = onlineEmis.map(e => {
+        const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
+          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
+          : calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
+      const offlineEmisWithPenalty = offlineEmis.map(e => {
+        const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
+          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
+          : calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
+      const onlinePaid = onlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
+      const onlinePending = onlineEmisWithPenalty.reduce((s, e) => {
+        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
+      }, 0);
+
+      const offlinePaid = offlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
+      const offlinePending = offlineEmisWithPenalty.reduce((s, e) => {
+        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
+      }, 0);
+
       const summary = {
-        online:   { count: onlineEmis.length,  totalAmount: onlineEmis.reduce((s,e)=>s+e.totalAmount,0),  totalPrincipal: onlineEmis.reduce((s,e)=>s+e.principalAmount,0),  totalInterest: onlineEmis.reduce((s,e)=>s+e.interestAmount,0) },
-        offline:  { count: offlineEmis.length, totalAmount: offlineEmis.reduce((s,e)=>s+e.totalAmount,0), totalPrincipal: offlineEmis.reduce((s,e)=>s+e.principalAmount,0), totalInterest: offlineEmis.reduce((s,e)=>s+e.interestAmount,0) },
+        online: {
+          count: onlineEmisWithPenalty.length,
+          totalAmount: onlineEmisWithPenalty.reduce((s, e) => s + e.totalAmount, 0),
+          totalPrincipal: onlineEmisWithPenalty.reduce((s, e) => s + e.principalAmount, 0),
+          totalInterest: onlineEmisWithPenalty.reduce((s, e) => s + e.interestAmount, 0),
+          totalCollected: onlinePaid,
+          totalPending: onlinePending
+        },
+        offline: {
+          count: offlineEmisWithPenalty.length,
+          totalAmount: offlineEmisWithPenalty.reduce((s, e) => s + e.totalAmount, 0),
+          totalPrincipal: offlineEmisWithPenalty.reduce((s, e) => s + e.principalAmount, 0),
+          totalInterest: offlineEmisWithPenalty.reduce((s, e) => s + e.interestAmount, 0),
+          totalCollected: offlinePaid,
+          totalPending: offlinePending
+        },
         combined: {
-          count: onlineEmis.length + offlineEmis.length,
-          totalAmount:   onlineEmis.reduce((s,e)=>s+e.totalAmount,0)    + offlineEmis.reduce((s,e)=>s+e.totalAmount,0),
-          totalPrincipal: onlineEmis.reduce((s,e)=>s+e.principalAmount,0) + offlineEmis.reduce((s,e)=>s+e.principalAmount,0),
-          totalInterest: onlineEmis.reduce((s,e)=>s+e.interestAmount,0)  + offlineEmis.reduce((s,e)=>s+e.interestAmount,0),
+          count: onlineEmisWithPenalty.length + offlineEmisWithPenalty.length,
+          totalAmount: onlineEmisWithPenalty.reduce((s, e) => s + e.totalAmount, 0) + offlineEmisWithPenalty.reduce((s, e) => s + e.totalAmount, 0),
+          totalPrincipal: onlineEmisWithPenalty.reduce((s, e) => s + e.principalAmount, 0) + offlineEmisWithPenalty.reduce((s, e) => s + e.principalAmount, 0),
+          totalInterest: onlineEmisWithPenalty.reduce((s, e) => s + e.interestAmount, 0) + offlineEmisWithPenalty.reduce((s, e) => s + e.interestAmount, 0),
+          totalCollected: onlinePaid + offlinePaid,
+          totalPending: onlinePending + offlinePending
         }
       };
 
-      return NextResponse.json({ success: true, startDate: startDateStr, endDate: endDateStr, onlineEmis, offlineEmis, summary });
+      return NextResponse.json({
+        success: true,
+        startDate: startDateStr,
+        endDate: endDateStr,
+        onlineEmis: onlineEmisWithPenalty,
+        offlineEmis: offlineEmisWithPenalty,
+        summary
+      });
     }
 
     // Get EMIs by specific date
@@ -435,7 +514,6 @@ export async function GET(request: NextRequest) {
 
       // Get online EMIs for the selected date
       const onlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: selectedDate, lt: nextDay }
       };
       if (mirrorLoanIds.length > 0) {
@@ -459,7 +537,8 @@ export async function GET(request: NextRequest) {
               lastName: true,
               phone: true,
               address: true,
-              companyId: true
+              companyId: true,
+              sessionForm: { select: { approvedAmount: true } }
             }
           }
         },
@@ -468,7 +547,6 @@ export async function GET(request: NextRequest) {
 
       // Get offline EMIs for the selected date (exclude mirror loans)
       const offlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
         dueDate: { gte: selectedDate, lt: nextDay },
         offlineLoan: { isMirrorLoan: false }
       };
@@ -487,40 +565,88 @@ export async function GET(request: NextRequest) {
               customerName: true,
               customerPhone: true,
               customerAddress: true,
-              companyId: true
+              companyId: true,
+              loanAmount: true,
+              isMirrorLoan: true
             }
           }
         },
         orderBy: { dueDate: 'asc' }
       });
 
+      const onlineEmisWithPenalty = onlineEmis.map(e => {
+        const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
+          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
+          : calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
+      const offlineEmisWithPenalty = offlineEmis.map(e => {
+        const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
+        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
+          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
+          : calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return {
+          ...e,
+          loanAmount,
+          daysOverdue,
+          penaltyAmount: e.penaltyAmount || penaltyAmount,
+          ratePerDay
+        };
+      });
+
+      const onlinePaid = onlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
+      const onlinePending = onlineEmisWithPenalty.reduce((s, e) => {
+        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
+      }, 0);
+
+      const offlinePaid = offlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
+      const offlinePending = offlineEmisWithPenalty.reduce((s, e) => {
+        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
+      }, 0);
+
       // Calculate totals with principal and interest breakdown
       const summary = {
         online: {
-          count: onlineEmis.length,
-          totalAmount: onlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
-          totalPrincipal: onlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
-          totalInterest: onlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+          count: onlineEmisWithPenalty.length,
+          totalAmount: onlineEmisWithPenalty.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: onlineEmisWithPenalty.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: onlineEmisWithPenalty.reduce((sum, e) => sum + e.interestAmount, 0),
+          totalCollected: onlinePaid,
+          totalPending: onlinePending
         },
         offline: {
-          count: offlineEmis.length,
-          totalAmount: offlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
-          totalPrincipal: offlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
-          totalInterest: offlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+          count: offlineEmisWithPenalty.length,
+          totalAmount: offlineEmisWithPenalty.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: offlineEmisWithPenalty.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: offlineEmisWithPenalty.reduce((sum, e) => sum + e.interestAmount, 0),
+          totalCollected: offlinePaid,
+          totalPending: offlinePending
         },
         combined: {
-          count: onlineEmis.length + offlineEmis.length,
-          totalAmount: onlineEmis.reduce((sum, e) => sum + e.totalAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.totalAmount, 0),
-          totalPrincipal: onlineEmis.reduce((sum, e) => sum + e.principalAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.principalAmount, 0),
-          totalInterest: onlineEmis.reduce((sum, e) => sum + e.interestAmount, 0) + offlineEmis.reduce((sum, e) => sum + e.interestAmount, 0)
+          count: onlineEmisWithPenalty.length + offlineEmisWithPenalty.length,
+          totalAmount: onlineEmisWithPenalty.reduce((sum, e) => sum + e.totalAmount, 0) + offlineEmisWithPenalty.reduce((sum, e) => sum + e.totalAmount, 0),
+          totalPrincipal: onlineEmisWithPenalty.reduce((sum, e) => sum + e.principalAmount, 0) + offlineEmisWithPenalty.reduce((sum, e) => sum + e.principalAmount, 0),
+          totalInterest: onlineEmisWithPenalty.reduce((sum, e) => sum + e.interestAmount, 0) + offlineEmisWithPenalty.reduce((sum, e) => sum + e.interestAmount, 0),
+          totalCollected: onlinePaid + offlinePaid,
+          totalPending: onlinePending + offlinePending
         }
       };
 
       return NextResponse.json({
         success: true,
         date: dateStr,
-        onlineEmis,
-        offlineEmis,
+        onlineEmis: onlineEmisWithPenalty,
+        offlineEmis: offlineEmisWithPenalty,
         summary
       });
     }

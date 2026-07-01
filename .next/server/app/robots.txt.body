@@ -1,0 +1,12 @@
+User-Agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /company/
+Disallow: /agent/
+Disallow: /staff/
+Disallow: /cashier/
+Disallow: /customer/
+Disallow: /accountant/
+
+Sitemap: https://moneymitra.com/sitemap.xml
