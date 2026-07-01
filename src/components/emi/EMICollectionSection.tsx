@@ -39,6 +39,7 @@ interface EMIItem {
   paymentStatus: string;
   paidAmount: number;
   penaltyAmount?: number;
+  penaltyPaid?: number;
   daysOverdue?: number;
   loanApplicationId?: string;
   loanApplication?: {
@@ -472,7 +473,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 ? formatCurrency(emi.paidAmount || emi.totalAmount)
                 : formatCurrency((emi.totalAmount + (emi.penaltyAmount || 0)) - (emi.paidAmount || 0))}
             </p>
-            {emi.penaltyAmount ? (
+            {['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(emi.paymentStatus) ? (
+              <p className="text-xs text-red-500 font-medium">
+                + {formatCurrency(emi.penaltyPaid || 0)} Penalty
+              </p>
+            ) : emi.penaltyAmount ? (
               <p className="text-xs text-red-500 font-medium">+ {formatCurrency(emi.penaltyAmount)} Penalty</p>
             ) : null}
             <p className="text-xs text-gray-500">Due: {formatDate(emi.dueDate)}</p>
