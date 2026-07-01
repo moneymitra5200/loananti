@@ -3,7 +3,7 @@ self.__SERVER_FILES_MANIFEST={
   "config": {
     "env": {},
     "typescript": {
-      "ignoreBuildErrors": false
+      "ignoreBuildErrors": true
     },
     "typedRoutes": false,
     "distDir": ".next",

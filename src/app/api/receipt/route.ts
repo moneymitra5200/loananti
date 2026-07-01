@@ -47,8 +47,33 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'EMI not paid yet' }, { status: 400 });
       }
 
-      const loan = offlineEmi.offlineLoan;
-      const company = loan.company;
+      let loan = offlineEmi.offlineLoan;
+      let company = loan.company;
+
+      // Check for mirror loan mapping
+      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
+        where: { 
+          OR: [
+            { originalLoanId: loan.id },
+            { mirrorLoanId: loan.id }
+          ]
+        }
+      });
+
+      // Determine if this is a mirror loan (either directly, via mapping, or via mirror context ID)
+      const isMirrorLoan = loan.isMirrorLoan || mirrorMapping?.mirrorLoanId === loan.id || (offlineLoanId && offlineLoanId !== loan.id);
+
+      // If offlineLoanId is passed and matches the mirror loan, use the mirror company branding
+      if (offlineLoanId && offlineLoanId !== loan.id) {
+        const potentialMirrorLoan = await db.offlineLoan.findUnique({
+          where: { id: offlineLoanId },
+          include: { company: true }
+        });
+        if (potentialMirrorLoan && potentialMirrorLoan.isMirrorLoan && potentialMirrorLoan.originalLoanId === loan.id) {
+          company = potentialMirrorLoan.company;
+        }
+      }
+
       const companyCode = company?.code || 'MM';
 
       // Get all EMIs for this loan to calculate totals
@@ -62,18 +87,6 @@ export async function GET(request: NextRequest) {
       const balanceDue = totalLoanAmount - totalPaidAmount;
       const totalEmis = allEmis.length;
 
-      // Check for mirror loan mapping
-      const mirrorMapping = await db.mirrorLoanMapping.findFirst({
-        where: { 
-          OR: [
-            { originalLoanId: loan.id },
-            { mirrorLoanId: loan.id }
-          ]
-        }
-      });
-
-      // Determine if this is a mirror loan
-      const isMirrorLoan = loan.isMirrorLoan || mirrorMapping?.mirrorLoanId === loan.id;
       const effectiveInterestRate = mirrorMapping?.mirrorInterestRate || loan.interestRate;
 
       // Generate receipt number

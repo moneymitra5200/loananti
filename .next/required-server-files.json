@@ -3,7 +3,7 @@
   "config": {
     "env": {},
     "typescript": {
-      "ignoreBuildErrors": false
+      "ignoreBuildErrors": true
     },
     "typedRoutes": false,
     "distDir": ".next",

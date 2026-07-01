@@ -218,17 +218,36 @@ export async function GET(request: NextRequest) {
       // Fetch original loan details if this is a mirror loan
       let originalLoanStatus: string | null = null;
       let originalLoanNumber: string | null = null;
+      let originalLoanEmis: any[] = [];
+      let originalLoanEmiAmount: number | null = null;
       if (isMirrorLoan) {
         const origId = mirrorMappingAsMirror?.originalLoanId || loan.originalLoanId;
         if (origId) {
           const origLoan = await db.offlineLoan.findUnique({
             where: { id: origId },
-            select: { status: true, loanNumber: true }
+            include: {
+              emis: {
+                orderBy: { installmentNumber: 'asc' }
+              }
+            }
           });
           if (origLoan) {
             originalLoanStatus = origLoan.status;
             originalLoanNumber = origLoan.loanNumber;
+            originalLoanEmis = origLoan.emis;
+            originalLoanEmiAmount = origLoan.emiAmount;
           }
+        }
+      }
+
+      // If this is a mirror loan and we have original loan EMIs, overwrite:
+      // - loan.emis with original loan's EMIs
+      // - loan.emiAmount with original loan's emiAmount
+      // This ensures the EMI tab displays the original loan's EMIs (the proper real amounts)
+      if (isMirrorLoan && originalLoanEmis.length > 0) {
+        loan.emis = originalLoanEmis;
+        if (originalLoanEmiAmount !== null) {
+          loan.emiAmount = originalLoanEmiAmount;
         }
       }
 
