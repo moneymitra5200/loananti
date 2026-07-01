@@ -29,6 +29,7 @@ interface SettingsData {
   weekdayHours: string;
   saturdayHours: string;
   sundayClosed: boolean;
+  landingPageLocation?: string;
 }
 
 interface Props {
@@ -134,6 +135,14 @@ function WebsiteSection({
               onChange={(e) => setSettings({ ...settings, companyAddress: e.target.value })}
               placeholder="Enter complete address"
               rows={3}
+            />
+          </div>
+          <div>
+            <Label>Landing Page Map Location</Label>
+            <Input
+              value={settings.landingPageLocation || ''}
+              onChange={(e) => setSettings({ ...settings, landingPageLocation: e.target.value })}
+              placeholder="Address or coordinates for Google Maps (e.g. Bhavnagar, Gujarat, India)"
             />
           </div>
         </CardContent>

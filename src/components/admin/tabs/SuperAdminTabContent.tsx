@@ -785,6 +785,10 @@ export function SettingsTab({
               <Label>Address</Label>
               <Input value={settings.companyAddress} onChange={(e) => setSettings({ ...settings, companyAddress: e.target.value })} />
             </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Landing Page Map Location</Label>
+              <Input value={settings.landingPageLocation || ''} onChange={(e) => setSettings({ ...settings, landingPageLocation: e.target.value })} placeholder="Address or coordinates for Google Maps (e.g. Bhavnagar, Gujarat, India)" />
+            </div>
           </div>
           
           {/* Logo Upload */}

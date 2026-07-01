@@ -17,6 +17,7 @@ interface SettingsData {
   companyPhone: string;
   companyAddress: string;
   defaultInterestRate: number;
+  landingPageLocation?: string;
 }
 
 interface Stats {
@@ -98,6 +99,14 @@ function SettingsSection({
                   <Textarea
                     value={settings.companyAddress}
                     onChange={(e) => setSettings({ ...settings, companyAddress: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Landing Page Map Location</Label>
+                  <Input
+                    value={settings.landingPageLocation || ''}
+                    placeholder="Address or coordinates for Google Maps (e.g. Bhavnagar, Gujarat, India)"
+                    onChange={(e) => setSettings({ ...settings, landingPageLocation: e.target.value })}
                   />
                 </div>
               </div>

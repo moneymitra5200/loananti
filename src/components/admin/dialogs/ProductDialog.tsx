@@ -79,7 +79,6 @@ export default function ProductDialog({
                     <SelectItem value="PERSONAL">Personal Loan</SelectItem>
                     <SelectItem value="BUSINESS">Business Loan</SelectItem>
                     <SelectItem value="HOME">Home Loan</SelectItem>
-                    <SelectItem value="EDUCATION">Education Loan</SelectItem>
                     <SelectItem value="VEHICLE">Vehicle Loan</SelectItem>
                     <SelectItem value="GOLD">Gold Loan</SelectItem>
                   </SelectContent>

@@ -145,34 +145,6 @@ const PERMANENT_PRODUCTS = [
     order: 4,
   },
   {
-    title: 'Education Loan',
-    description: 'Invest in your future with education loans for higher studies. Competitive rates for students and parents.',
-    icon: '🎓',
-    code: 'EL',
-    loanType: 'EDUCATION',
-    minInterestRate: 8,
-    maxInterestRate: 14,
-    defaultInterestRate: 10,
-    minTenure: 36,
-    maxTenure: 120,
-    defaultTenure: 60,
-    minAmount: 100000,
-    maxAmount: 5000000,
-    processingFeePercent: 0.5,
-    processingFeeMin: 500,
-    processingFeeMax: 5000,
-    latePaymentPenaltyPercent: 1,
-    gracePeriodDays: 30,
-    bounceCharges: 250,
-    allowMoratorium: true,
-    maxMoratoriumMonths: 48,
-    allowPrepayment: true,
-    prepaymentCharges: 0,
-    isPermanent: true,
-    isActive: true,
-    order: 5,
-  },
-  {
     title: 'Interest Only Loan',
     description: 'Pay only interest during the initial period, then start principal repayment. Ideal for borrowers expecting future income growth.',
     icon: '💰',
@@ -199,7 +171,7 @@ const PERMANENT_PRODUCTS = [
     prepaymentCharges: 0,
     isPermanent: true,
     isActive: true,
-    order: 6,
+    order: 5,
   }
 ];
 
@@ -211,6 +183,16 @@ async function ensurePermanentProducts() {
   if (permanentProductsChecked) return;
   permanentProductsChecked = true; // set optimistically to avoid parallel runs
   try {
+    // Force delete any existing Education Loan products from the DB so it is completely removed
+    await db.cMSService.deleteMany({
+      where: {
+        OR: [
+          { loanType: 'EDUCATION' },
+          { title: 'Education Loan' }
+        ]
+      }
+    }).catch(err => console.error('[CMS] Failed to delete EDUCATION products:', err.message));
+
     // 5s timeout — don't block the request for this housekeeping task
     const existingProducts = await dbWithTimeout(
       () => db.cMSService.findMany({ where: { isPermanent: true }, select: { loanType: true } }),

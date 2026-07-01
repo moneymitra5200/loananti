@@ -22,7 +22,6 @@ export const LOAN_TYPE_OPTIONS = [
   { value: 'BUSINESS', label: 'Business Loan' },
   { value: 'HOME', label: 'Home Loan' },
   { value: 'VEHICLE', label: 'Vehicle Loan' },
-  { value: 'EDUCATION', label: 'Education Loan' },
   { value: 'GOLD', label: 'Gold Loan' },
   { value: 'OTHER', label: 'Other' },
 ];

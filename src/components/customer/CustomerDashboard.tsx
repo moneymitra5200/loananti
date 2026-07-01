@@ -1322,7 +1322,6 @@ export default function CustomerDashboard() {
                     { id: '1', title: 'Personal Loan', icon: '👤', minInterestRate: 10 },
                     { id: '2', title: 'Business Loan', icon: '🏢', minInterestRate: 12 },
                     { id: '3', title: 'Home Loan', icon: '🏠', minInterestRate: 8 },
-                    { id: '4', title: 'Education Loan', icon: '📚', minInterestRate: 8 },
                   ]).map((service) => (
                     <div key={service.id} className="bg-gray-50 p-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-all" onClick={() => setShowLoanApply(true)}>
                       <div className="text-2xl mb-1">{service.icon || '💰'}</div>
@@ -1411,7 +1410,6 @@ export default function CustomerDashboard() {
                 { id: '1', title: 'Personal Loan', description: 'Quick approval for personal needs', icon: '👤', minInterestRate: 10, maxInterestRate: 18, minAmount: 50000, maxAmount: 5000000 },
                 { id: '2', title: 'Business Loan', description: 'Grow your business', icon: '🏢', minInterestRate: 12, maxInterestRate: 20, minAmount: 100000, maxAmount: 10000000 },
                 { id: '3', title: 'Home Loan', description: 'Make your dream home a reality', icon: '🏠', minInterestRate: 8, maxInterestRate: 12, minAmount: 500000, maxAmount: 50000000 },
-                { id: '4', title: 'Education Loan', description: 'Invest in education', icon: '📚', minInterestRate: 8, maxInterestRate: 14, minAmount: 100000, maxAmount: 5000000 },
               ]).map((service) => (
                 <Card key={service.id} className="cursor-pointer hover:shadow-md transition-all border-0 shadow-sm" onClick={() => setShowLoanApply(true)}>
                   <CardContent className="p-4">
@@ -2029,7 +2027,6 @@ export default function CustomerDashboard() {
                       <SelectItem value="HOME">Home Loan</SelectItem>
                       <SelectItem value="GOLD">Gold Loan</SelectItem>
                       <SelectItem value="VEHICLE">Vehicle Loan</SelectItem>
-                      <SelectItem value="EDUCATION">Education Loan</SelectItem>
                       <SelectItem value="INTEREST_ONLY">Interest Only Loan</SelectItem>
                     </>
                   )}

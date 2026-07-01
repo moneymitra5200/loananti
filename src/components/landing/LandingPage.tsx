@@ -137,7 +137,7 @@ function StaffCarousel({ staffList }: { staffList: any[] }) {
   if (staffList.length === 0) return null;
 
   return (
-    <div className="overflow-hidden py-8">
+    <div className="overflow-hidden py-4">
       <div
         className="flex w-max animate-scroll hover:[animation-play-state:paused]"
         style={{
@@ -210,12 +210,12 @@ export default function LandingPage() {
   const [formLoading, setFormLoading] = useState(false);
   const [logoError, setLogoError] = useState(false);
 
-  // Generate Google Maps URL from company address
+  // Generate Google Maps URL from company address or landing page location setting
   const mapUrl = useMemo(() => {
-    const address = settings.companyAddress || 'Bhavnagar, Gujarat, India';
+    const address = settings.landingPageLocation || settings.companyAddress || 'Bhavnagar, Gujarat, India';
     const encodedAddress = encodeURIComponent(address);
     return `https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodedAddress}`;
-  }, [settings.companyAddress]);
+  }, [settings.landingPageLocation, settings.companyAddress]);
 
   // Fetch CMS data
   useEffect(() => {
@@ -674,16 +674,24 @@ export default function LandingPage() {
               <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Stay updated with the latest financial insights and news</p>
             </div>
 
-            <div className="flex justify-center">
-              <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white overflow-hidden group max-w-md w-full">
-                <div className="h-48 overflow-hidden">
-                  <img src={settings.landingBlogImage || 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80'} alt={settings.landingBlogTitle || 'Blog Image'} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+            <div className="flex justify-center max-w-4xl mx-auto px-4">
+              <Card className="border-0 shadow-lg hover:shadow-xl transition-all duration-300 bg-white overflow-hidden group w-full grid md:grid-cols-2 gap-0">
+                <div className="h-48 md:h-auto min-h-[200px] overflow-hidden relative">
+                  <img 
+                    src={settings.landingBlogImage || 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80'} 
+                    alt={settings.landingBlogTitle || 'Blog Image'} 
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                  />
                 </div>
-                <CardContent className="p-6">
-                  <p className="text-xs text-emerald-600 font-semibold mb-2">{settings.landingBlogDate || 'Oct 12, 2023'}</p>
-                  <h3 className="font-bold text-lg text-gray-800 mb-3 hover:text-emerald-600 cursor-pointer transition-colors">{settings.landingBlogTitle || 'Top 5 Tips for Quick Loan Approval'}</h3>
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-3">{settings.landingBlogExcerpt || 'Discover the essential factors that lenders look for when approving personal and business loans.'}</p>
-                  <Button variant="link" className="text-emerald-600 p-0 h-auto font-medium group-hover:underline">Read More <ArrowRight className="ml-1 h-3 w-3" /></Button>
+                <CardContent className="p-6 sm:p-8 flex flex-col justify-center">
+                  <div>
+                    <p className="text-xs text-emerald-600 font-semibold mb-2">{settings.landingBlogDate || 'Oct 12, 2023'}</p>
+                    <h3 className="font-bold text-lg sm:text-xl md:text-2xl text-gray-800 mb-3 hover:text-emerald-600 cursor-pointer transition-colors leading-tight">{settings.landingBlogTitle || 'Top 5 Tips for Quick Loan Approval'}</h3>
+                    <p className="text-sm text-gray-600 mb-4 line-clamp-4 leading-relaxed">{settings.landingBlogExcerpt || 'Discover the essential factors that lenders look for when approving personal and business loans.'}</p>
+                  </div>
+                  <div className="mt-2">
+                    <Button variant="link" className="text-emerald-600 p-0 h-auto font-medium group-hover:underline">Read More <ArrowRight className="ml-1 h-3 w-3" /></Button>
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -691,12 +699,12 @@ export default function LandingPage() {
         </section>
 
         {/* Our Staff */}
-        <section id="staff" className="py-10 sm:py-12 md:py-16 lg:py-20 bg-gradient-to-br from-gray-50 to-emerald-50">
+        <section id="staff" className="py-2 bg-gradient-to-br from-gray-50 to-emerald-50">
           <div className="w-full px-4 sm:px-6 md:px-8 lg:px-12 xl:px-16">
-            <div className="text-center mb-8 sm:mb-10 md:mb-12">
-              <Badge className="bg-emerald-100 text-emerald-700 mb-3 sm:mb-4 text-xs sm:text-sm">Our Team</Badge>
-              <h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Meet Our Expert Team</h2>
-              <p className="text-gray-600 max-w-2xl mx-auto text-xs sm:text-sm md:text-base">Our dedicated professionals are here to help you</p>
+            <div className="text-center mb-2">
+              <Badge className="bg-emerald-100 text-emerald-700 mb-1 text-xs">Our Team</Badge>
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">Meet Our Expert Team</h2>
+              <p className="text-gray-600 max-w-2xl mx-auto text-xs">Our dedicated professionals are here to help you</p>
             </div>
 
             {staffList.length > 0 ? (
@@ -723,7 +731,7 @@ export default function LandingPage() {
               <Card className="border-0 shadow-lg overflow-hidden order-2 lg:order-1">
                 <div className="h-64 sm:h-72 md:h-80 bg-gray-200">
                   <iframe
-                    src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&q=${encodeURIComponent(settings.companyAddress || 'Bhavnagar, Gujarat, India')}`}
+                    src={mapUrl}
                     width="100%"
                     height="100%"
                     style={{ border: 0 }}
@@ -953,7 +961,7 @@ export default function LandingPage() {
             <div>
               <h4 className="font-semibold text-base sm:text-lg mb-4 sm:mb-6">Loan Products</h4>
               <ul className="space-y-2 sm:space-y-3">
-                {['Personal Loan', 'Business Loan', 'Home Loan', 'Education Loan', 'Gold Loan', 'Vehicle Loan'].map((product) => (
+                {['Personal Loan', 'Business Loan', 'Home Loan', 'Gold Loan', 'Vehicle Loan'].map((product) => (
                   <li key={product}>
                     <a href="#products" className="text-gray-400 hover:text-emerald-400 transition-colors text-xs sm:text-sm">
                       {product}

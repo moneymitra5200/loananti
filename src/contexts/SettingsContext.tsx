@@ -50,6 +50,9 @@ export interface AppSettings {
   landingBlogDate: string;
   landingBlogExcerpt: string;
   landingBlogImage: string;
+
+  // Location settings
+  landingPageLocation: string;
 }
 
 // Default settings with sensible defaults
@@ -78,6 +81,7 @@ const defaultSettings: AppSettings = {
   landingBlogDate: 'Oct 12, 2023',
   landingBlogExcerpt: 'Discover the essential factors that lenders look for when approving personal and business loans.',
   landingBlogImage: 'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=800&q=80',
+  landingPageLocation: 'Bhavnagar, Gujarat, India',
 };
 
 // Local storage key for caching
