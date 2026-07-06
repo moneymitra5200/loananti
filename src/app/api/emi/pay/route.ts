@@ -1831,37 +1831,37 @@ export async function POST(request: NextRequest) {
             }
             
           }
-        }
-
-        // ── ORIGINAL LOAN: Record in original company ───────────────────────────────
-        // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
-        if (paidPrincipal <= 0) {
-          onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal skipped: paidPrincipal=0`);
-          console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Skipped — paidPrincipal=₹${paidPrincipal}.`);
         } else {
-          const poJournalResult = await poPrincipalJournal({
-            companyId:            loanCompanyId,
-            company3Id:           company3Id || undefined,
-            creditType:           effectiveCreditType as 'PERSONAL' | 'COMPANY',
-            loanId,
-            paymentId:            payment.id,
-            principalAmount:      paidPrincipal,
-            interestWrittenOff:   isAdv ? 0 : remainingInterest, // No interest written off for ADVANCE!
-            paymentDate:          new Date(),
-            createdById:          paidBy || 'SYSTEM',
-            paymentMode:          paymentMode as string,
-            loanNumber:           emi.loanApplication?.applicationNo || loanId,
-            installmentNumber:    emi.installmentNumber,
-            isInterestAccrued:    !!(emi as any).interestAccrued,
-            isInterestReclassified: emi.paymentStatus === 'OVERDUE',
-            customerId:           emi.loanApplication?.customerId || undefined,
-          });
-          if (!poJournalResult.success) {
-            onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);
-            console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+          // ── ORIGINAL LOAN: Record in original company ───────────────────────────────
+          // Guard: paidPrincipal must be > 0 (PRINCIPAL_ONLY = remainingPrincipal)
+          if (paidPrincipal <= 0) {
+            onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal skipped: paidPrincipal=0`);
+            console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Skipped — paidPrincipal=₹${paidPrincipal}.`);
           } else {
-            onlineJournalCreated = true; // ✅ journal created successfully
-            console.log(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${paidPrincipal} collected, I:₹${isAdv ? 0 : remainingInterest} → Journal registered (${loanCompanyId})`);
+            const poJournalResult = await poPrincipalJournal({
+              companyId:            loanCompanyId,
+              company3Id:           company3Id || undefined,
+              creditType:           effectiveCreditType as 'PERSONAL' | 'COMPANY',
+              loanId,
+              paymentId:            payment.id,
+              principalAmount:      paidPrincipal,
+              interestWrittenOff:   isAdv ? 0 : remainingInterest, // No interest written off for ADVANCE!
+              paymentDate:          new Date(),
+              createdById:          paidBy || 'SYSTEM',
+              paymentMode:          paymentMode as string,
+              loanNumber:           emi.loanApplication?.applicationNo || loanId,
+              installmentNumber:    emi.installmentNumber,
+              isInterestAccrued:    !!(emi as any).interestAccrued,
+              isInterestReclassified: emi.paymentStatus === 'OVERDUE',
+              customerId:           emi.loanApplication?.customerId || undefined,
+            });
+            if (!poJournalResult.success) {
+              onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);
+              console.error(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ❌ Journal FAILED (${loanCompanyId}):`, poJournalResult.error);
+            } else {
+              onlineJournalCreated = true; // ✅ journal created successfully
+              console.log(`[Accounting] PRINCIPAL_ONLY/ADVANCE: ✅ P:₹${paidPrincipal} collected, I:₹${isAdv ? 0 : remainingInterest} → Journal registered (${loanCompanyId})`);
+            }
           }
         }
 
@@ -1929,17 +1929,20 @@ export async function POST(request: NextRequest) {
             const effectiveP = mirrorPrincipalForAccounting ?? paidPrincipal;
             const effectiveI = mirrorInterestForAccounting ?? paidInterest;
             const effectiveTotal = effectiveP + effectiveI;
+            const fbLoanId = mirrorMappingForAccounting.mirrorLoanId || loanId;
             const fbLines: any[] = [
-              { accountCode: isOnlinePM ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND, debitAmount: effectiveTotal, creditAmount: 0, loanId, narration: `${isOnlinePM ? 'Bank' : 'Cash'} received - Mirror EMI #${emi.installmentNumber}` },
-              { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId, narration: `Mirror interest income` },
+              { accountCode: isOnlinePM ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND, debitAmount: effectiveTotal, creditAmount: 0, loanId: fbLoanId, narration: `${isOnlinePM ? 'Bank' : 'Cash'} received - Mirror EMI #${emi.installmentNumber}` },
+              { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: fbLoanId, narration: `Mirror interest income` },
             ];
-            if (effectiveP > 0) fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId, narration: `Mirror principal repayment` });
-            await fbSvc.createJournalEntry({
+            if (effectiveP > 0) fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: fbLoanId, narration: `Mirror principal repayment` });
+            const fbJournalId = await fbSvc.createJournalEntry({
               entryDate: new Date(), referenceType: 'MIRROR_EMI_PAYMENT', referenceId: `${payment.id}-FB`,
               narration: `[FALLBACK] Mirror EMI #${emi.installmentNumber} - ${emi.loanApplication?.applicationNo}`,
               lines: fbLines, createdById: paidBy || 'SYSTEM', paymentMode: paymentMode || 'CASH', isAutoEntry: true,
             });
-            console.log(`[Accounting] ✅ FALLBACK journal created for mirror company`);
+            accountingResult.journalEntryId = fbJournalId;
+            onlineJournalCreated = true;
+            console.log(`[Accounting] ✅ FALLBACK journal created for mirror company: ${fbJournalId}`);
           } catch (fbErr: any) {
             console.error('[Accounting] ❌ FALLBACK journal also FAILED:', fbErr?.message);
           }
@@ -1952,7 +1955,7 @@ export async function POST(request: NextRequest) {
         //   (lines 381-414 in simple-accounting.ts) using the isSplitPayment params we now pass.
         //   Do NOT add extra bank entry here for mirror loans — it would double-count the online portion.
         // This matches offline route line 3226: if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan)
-        if (isSplitPayment && splitOnlineAmount > 0) {
+        if (isSplitPayment && splitOnlineAmount > 0 && !isMirrorPayment) {
           try {
             await recordBankTransaction({
               companyId: loanCompanyId,

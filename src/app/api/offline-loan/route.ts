@@ -240,16 +240,10 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // If this is a mirror loan and we have original loan EMIs, overwrite:
-      // - loan.emis with original loan's EMIs
-      // - loan.emiAmount with original loan's emiAmount
-      // This ensures the EMI tab displays the original loan's EMIs (the proper real amounts)
-      if (isMirrorLoan && originalLoanEmis.length > 0) {
-        loan.emis = originalLoanEmis;
-        if (originalLoanEmiAmount !== null) {
-          loan.emiAmount = originalLoanEmiAmount;
-        }
-      }
+      // NOTE: We do NOT overwrite the mirror loan's EMIs or emiAmount with the original loan's.
+      // The mirror loan has its own calculated shifted schedule (reducing balance), and its first EMI
+      // must show its own smaller (shifted) amount rather than the original loan's EMI #1.
+
 
       // Calculate summary
       const summary = {
@@ -3807,67 +3801,69 @@ export async function PUT(request: NextRequest) {
                   console.error(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE ❌:`, mirrorJournalResult.error);
                 } else {
                   console.log(`[Accounting] MIRROR PRINCIPAL_ONLY/ADVANCE ✅: P:₹${mirrorPrincipal} collected, I:₹${isAdv ? 0 : mirrorInterest} → Journal registered (MIRROR company)`);
+                  accountingResult.journalEntryId = mirrorJournalResult.journalEntryId;
                 }
               }
-            }
-
-            // ── ORIGINAL LOAN: Record in original company ─────────────────────────────
-            const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true);
-            const principalToCollect = sessionPrincipal > 0
-              ? sessionPrincipal
-              : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
-            const interestToWriteOff = isAdv ? 0 : (sessionInterestWrittenOff > 0
-              ? sessionInterestWrittenOff
-              : Math.max(0, Number(emi.interestAmount ?? 0) - Number(previousState.paidInterest ?? 0)));
-            console.log(`[Principal-Only/Advance] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (sessionP=${sessionPrincipal}, emi.P=${emi.principalAmount}, prev.paidP=${previousState.paidPrincipal})`);
-
-            if (principalToCollect <= 0) {
-              console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
             } else {
-              const existingAccrual = await db.journalEntry.findFirst({
-                where: {
-                  companyId: loanCompanyId,
-                  referenceType: 'INTEREST_ACCRUAL',
-                  referenceId: emi.id,
-                  isReversed: false
-                },
-                select: { id: true }
-              });
-              const isAccrued = !!existingAccrual;
+              // ── ORIGINAL LOAN: Record in original company ─────────────────────────────
+              const isAdv = paymentType === 'ADVANCE' || (paymentType === 'FULL' && isAdvancePayment === true);
+              const principalToCollect = sessionPrincipal > 0
+                ? sessionPrincipal
+                : Math.max(0, Number(emi.principalAmount ?? 0) - Number(previousState.paidPrincipal ?? 0));
+              const interestToWriteOff = isAdv ? 0 : (sessionInterestWrittenOff > 0
+                ? sessionInterestWrittenOff
+                : Math.max(0, Number(emi.interestAmount ?? 0) - Number(previousState.paidInterest ?? 0)));
+              console.log(`[Principal-Only/Advance] principalToCollect=₹${principalToCollect}, interestToWriteOff=₹${interestToWriteOff} (sessionP=${sessionPrincipal}, emi.P=${emi.principalAmount}, prev.paidP=${previousState.paidPrincipal})`);
 
-              const existingReclass = await db.journalEntry.findFirst({
-                where: {
-                  companyId: loanCompanyId,
-                  referenceType: 'INTEREST_RECLASSIFICATION',
-                  referenceId: emi.id,
-                  isReversed: false
-                },
-                select: { id: true }
-              });
-              const isReclass = !!existingReclass;
-
-              const journalResult = await recordPrincipalOnlyJournal({
-                companyId:          loanCompanyId,
-                company3Id:         company3Id || undefined,
-                creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
-                loanId:             emi.offlineLoanId,
-                paymentId:          uniquePaymentId,
-                principalAmount:    principalToCollect,
-                interestWrittenOff: interestToWriteOff,
-                paymentDate:        new Date(),
-                createdById:        userId,
-                paymentMode:        effectivePaymentMode || 'CASH',
-                loanNumber:         emi.offlineLoan.loanNumber,
-                installmentNumber:  emi.installmentNumber,
-                isInterestAccrued:  isAccrued,
-                isInterestReclassified: isReclass,
-                customerId:         emi.offlineLoan.customerId || undefined,
-              });
-              if (!journalResult.success) {
-                accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
-                console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
+              if (principalToCollect <= 0) {
+                console.warn(`[Principal-Only] ⚠️ principalToCollect=0 — skipping journal. EMI may already be principal-paid or principalAmount is missing.`);
               } else {
-                console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect} collected, I:₹${interestToWriteOff}→Irrecoverable Debt (Original Company)`);
+                const existingAccrual = await db.journalEntry.findFirst({
+                  where: {
+                    companyId: loanCompanyId,
+                    referenceType: 'INTEREST_ACCRUAL',
+                    referenceId: emi.id,
+                    isReversed: false
+                  },
+                  select: { id: true }
+                });
+                const isAccrued = !!existingAccrual;
+
+                const existingReclass = await db.journalEntry.findFirst({
+                  where: {
+                    companyId: loanCompanyId,
+                    referenceType: 'INTEREST_RECLASSIFICATION',
+                    referenceId: emi.id,
+                    isReversed: false
+                  },
+                  select: { id: true }
+                });
+                const isReclass = !!existingReclass;
+
+                const journalResult = await recordPrincipalOnlyJournal({
+                  companyId:          loanCompanyId,
+                  company3Id:         company3Id || undefined,
+                  creditType:         creditTypeUsed as 'PERSONAL' | 'COMPANY',
+                  loanId:             emi.offlineLoanId,
+                  paymentId:          uniquePaymentId,
+                  principalAmount:    principalToCollect,
+                  interestWrittenOff: interestToWriteOff,
+                  paymentDate:        new Date(),
+                  createdById:        userId,
+                  paymentMode:        effectivePaymentMode || 'CASH',
+                  loanNumber:         emi.offlineLoan.loanNumber,
+                  installmentNumber:  emi.installmentNumber,
+                  isInterestAccrued:  isAccrued,
+                  isInterestReclassified: isReclass,
+                  customerId:         emi.offlineLoan.customerId || undefined,
+                });
+                if (!journalResult.success) {
+                  accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
+                  console.error(`[Principal-Only] ❌ Journal FAILED:`, journalResult.error);
+                } else {
+                  console.log(`[Principal-Only] ✅ Journal ${journalResult.journalEntryId}: P:₹${principalToCollect} collected, I:₹${interestToWriteOff}→Irrecoverable Debt (Original Company)`);
+                  accountingResult.journalEntryId = journalResult.journalEntryId;
+                }
               }
             }
             console.log(`[Accounting] PRINCIPAL_ONLY: P:₹${sessionPrincipal} collected, I:₹${sessionInterestWrittenOff} written off`);
@@ -3909,7 +3905,7 @@ export async function PUT(request: NextRequest) {
             // For NON-MIRROR loans: recordEMIPaymentAccounting recorded cashbook (CASH mode).
             // Now we credit the online portion to the Bank Account.
             // For MIRROR loans: the split is handled internally in recordEMIPaymentAccounting.
-            if (isSplitPayment && splitOnlineAmt > 0) {
+            if (isSplitPayment && splitOnlineAmt > 0 && !isMirrorLoan) {
               try {
                 await recordBankTransaction({
                   companyId: loanCompanyId,
@@ -3926,7 +3922,7 @@ export async function PUT(request: NextRequest) {
               }
             }
           } // end else (non-PRINCIPAL_ONLY)
-
+ 
           console.log(`[Accounting] EMI Payment recorded:`);
           console.log(`  - Type: ${isMirrorLoan ? 'MIRROR' : (isExtraEMI ? 'EXTRA' : 'REGULAR')}`);
           console.log(`  - Credit: ${creditTypeUsed}`);
@@ -3940,7 +3936,7 @@ export async function PUT(request: NextRequest) {
             console.log(`  - Cashbook Entry: ${accountingResult.cashBookEntry ? 'Yes' : 'No'}`);
             console.log(`  - Journal Entry: ${accountingResult.journalEntryId ? 'Yes (' + accountingResult.journalEntryId + ')' : 'MISSING ❌'}`);
           }
-
+ 
           // ── FALLBACK: If journal wasn't created, try directly ──────────────────
           if (isMirrorLoan && paymentType !== 'PRINCIPAL_ONLY' && !accountingResult.journalEntryId && mirrorLoanMapping?.mirrorCompanyId) {
             console.warn('[Accounting] ⚠️ Journal missing — attempting inline fallback');
@@ -3948,21 +3944,22 @@ export async function PUT(request: NextRequest) {
               const { AccountingService: FbAccSvc, ACCOUNT_CODES: FbCodes } = await import('@/lib/accounting-service');
               const fbSvc = new FbAccSvc(mirrorLoanMapping.mirrorCompanyId);
               await fbSvc.initializeChartOfAccounts();
-
+ 
               const effectiveP = isMirrorLoan ? mirrorPrincipalAmount : paidPrincipal;
               const effectiveI = isMirrorLoan ? mirrorInterestAmount : paidInterest;
               const effectiveTotal = effectiveP + effectiveI;
               const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI';
               const debitCode = isOnlineMode ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND;
-
+              const fbLoanId = isMirrorLoan ? (mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId) : emi.offlineLoanId;
+ 
               const fbLines: any[] = [
-                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: emi.offlineLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - EMI #${emi.installmentNumber}` },
-                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: emi.offlineLoanId, narration: `Interest income - EMI #${emi.installmentNumber}` },
+                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: fbLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - EMI #${emi.installmentNumber}` },
+                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: fbLoanId, narration: `Interest income - EMI #${emi.installmentNumber}` },
               ];
               if (effectiveP > 0) {
-                fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: emi.offlineLoanId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
+                fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: fbLoanId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
               }
-
+ 
               const fbJournalId = await fbSvc.createJournalEntry({
                 entryDate: new Date(),
                 referenceType: 'MIRROR_EMI_PAYMENT',
