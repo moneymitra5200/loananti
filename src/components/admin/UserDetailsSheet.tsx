@@ -35,6 +35,7 @@ interface UserDetails {
   createdAt: string;
   lastLoginAt?: string;
   lastActivityAt?: string;
+  isOffline?: boolean;
   
   // Codes
   agentCode?: string;
@@ -234,6 +235,9 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                 <TabsList className="h-12 bg-transparent">
                   <TabsTrigger value="overview" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Overview</TabsTrigger>
                   <TabsTrigger value="analytics" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Analytics</TabsTrigger>
+                  {user.isOffline && (
+                    <TabsTrigger value="offline-loans" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Offline Loans</TabsTrigger>
+                  )}
                   <TabsTrigger value="activity" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Activity</TabsTrigger>
                   <TabsTrigger value="credits" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Credits</TabsTrigger>
                 </TabsList>
@@ -657,7 +661,7 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                                       <p className="text-xs text-gray-500">{payment.paymentMode || 'N/A'}</p>
                                     </div>
                                     <div className="text-right">
-                                      <Badge className={payment.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
+                                      <Badge className={['COMPLETED', 'PAID', 'INTEREST_ONLY_PAID'].includes(payment.status) ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}>
                                         {payment.status}
                                       </Badge>
                                       <p className="text-xs text-gray-400 mt-1">{formatDate(payment.createdAt)}</p>
@@ -793,6 +797,105 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                       </div>
                     )}
                   </TabsContent>
+
+                  {/* Offline Loans Tab */}
+                  {user.isOffline && (
+                    <TabsContent value="offline-loans" className="mt-0 space-y-6">
+                      {user.roleSpecificData?.offlineLoans?.map((loan: any) => (
+                        <Card key={loan.id} className="border border-gray-100 shadow-sm overflow-hidden bg-white">
+                          <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50/50 pb-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div>
+                                <CardTitle className="text-base font-bold text-gray-900">{loan.loanNumber}</CardTitle>
+                                <p className="text-xs text-gray-500 mt-0.5">Disbursed on {formatDate(loan.disbursementDate)}</p>
+                              </div>
+                              <Badge className={
+                                loan.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                                loan.status === 'INTEREST_ONLY' ? 'bg-amber-100 text-amber-700' :
+                                loan.status === 'CLOSED' ? 'bg-gray-100 text-gray-700' :
+                                'bg-red-100 text-red-700'
+                              }>
+                                {loan.status}
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="p-4 space-y-4">
+                            {/* Loan Details Grid */}
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                              <div>
+                                <p className="text-xs text-gray-400">Loan Amount</p>
+                                <p className="font-semibold text-gray-900">{formatCurrency(loan.loanAmount)}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-400">Interest Rate</p>
+                                <p className="font-semibold text-gray-900">{loan.interestRate}%</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-400">Tenure</p>
+                                <p className="font-semibold text-gray-900">{loan.tenure} Months</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-gray-400">EMI Amount</p>
+                                <p className="font-semibold text-emerald-600">{formatCurrency(loan.emiAmount)}</p>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Reference Contacts */}
+                            <div>
+                              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">References</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {loan.reference1Name && (
+                                  <div className="bg-gray-50 p-2 rounded text-xs space-y-1">
+                                    <p className="font-medium text-gray-700">Ref 1: {loan.reference1Name} ({loan.reference1Relation})</p>
+                                    <p className="text-gray-500 flex items-center gap-1"><Phone className="h-3 w-3" /> {loan.reference1Phone}</p>
+                                  </div>
+                                )}
+                                {loan.reference2Name && (
+                                  <div className="bg-gray-50 p-2 rounded text-xs space-y-1">
+                                    <p className="font-medium text-gray-700">Ref 2: {loan.reference2Name} ({loan.reference2Relation})</p>
+                                    <p className="text-gray-500 flex items-center gap-1"><Phone className="h-3 w-3" /> {loan.reference2Phone}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Documents */}
+                            {(loan.panCardDoc || loan.aadhaarFrontDoc || loan.aadhaarBackDoc || loan.incomeProofDoc || loan.addressProofDoc || loan.photoDoc) && (
+                              <>
+                                <Separator />
+                                <div>
+                                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Uploaded Documents</h4>
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {[
+                                      { label: 'PAN Card', path: loan.panCardDoc },
+                                      { label: 'Aadhaar Front', path: loan.aadhaarFrontDoc },
+                                      { label: 'Aadhaar Back', path: loan.aadhaarBackDoc },
+                                      { label: 'Income Proof', path: loan.incomeProofDoc },
+                                      { label: 'Address Proof', path: loan.addressProofDoc },
+                                      { label: 'Customer Photo', path: loan.photoDoc },
+                                    ].filter(d => d.path).map((doc, idx) => (
+                                      <a
+                                        key={idx}
+                                        href={doc.path}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 p-2 border border-gray-100 rounded hover:bg-gray-50 text-xs text-emerald-600 transition-colors"
+                                      >
+                                        <FileText className="h-4 w-4 shrink-0 text-gray-400" />
+                                        <span className="truncate font-medium">{doc.label}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </TabsContent>
+                  )}
                 </div>
               </ScrollArea>
             </Tabs>

@@ -470,7 +470,7 @@ export async function GET(request: NextRequest) {
 
         return {
           ...mapping,
-          mirrorSchedule: calculation.mirrorLoan.schedule,
+          mirrorSchedule: calculation.shiftedSchedule,
           originalSchedule: calculation.originalLoan.schedule
         };
       });

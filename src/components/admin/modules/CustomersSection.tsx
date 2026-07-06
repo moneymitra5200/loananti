@@ -61,11 +61,19 @@ function CustomersSection({
   const [loadingDetails, setLoadingDetails] = useState(false);
 
   const customerSearchQuery = searchQuery.toLowerCase();
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(customerSearchQuery) || 
-    c.email.toLowerCase().includes(customerSearchQuery) ||
-    (c.phone && c.phone.includes(customerSearchQuery))
-  );
+  const filteredCustomers = customers.filter(c => {
+    const matchesCustomerInfo = 
+      c.name.toLowerCase().includes(customerSearchQuery) || 
+      c.email.toLowerCase().includes(customerSearchQuery) ||
+      (c.phone && c.phone.includes(customerSearchQuery));
+
+    const customerLoans = loans.filter(l => l.customer?.id === c.id);
+    const matchesLoanNumber = customerLoans.some(l => 
+      l.applicationNo.toLowerCase().includes(customerSearchQuery)
+    );
+
+    return matchesCustomerInfo || matchesLoanNumber;
+  });
 
   // Count unique loans per customer (mirror loans should be grouped with original)
   const getUniqueLoanCount = (customerId: string) => {
@@ -281,7 +289,13 @@ function CustomersSection({
                             <Button 
                               size="sm" 
                               variant="outline" 
-                              onClick={() => handleViewDetails(customer)}
+                              onClick={() => {
+                                if (onViewCustomer) {
+                                  onViewCustomer(customer);
+                                } else {
+                                  handleViewDetails(customer);
+                                }
+                              }}
                             >
                               <Eye className="h-4 w-4 mr-1" />View
                             </Button>

@@ -137,23 +137,117 @@ function CashierCustomersPage({ companyId }: { companyId?: string }) {
     async function load() {
       setLoading(true);
       try {
-        const [usersRes, loansRes] = await Promise.all([
+        const [usersRes, loansRes, offlineLoansRes, offlineClosedLoansRes] = await Promise.all([
           fetch('/api/user?role=CUSTOMER&_t=' + Date.now()),
           fetch('/api/loan/list?role=CASHIER&_t=' + Date.now()),
+          fetch('/api/offline-loan?limit=1000&_t=' + Date.now()),
+          fetch('/api/offline-loan?status=CLOSED&limit=1000&_t=' + Date.now()),
         ]);
         
         let usersData = { users: [] };
         let loansData = { loans: [] };
+        let offlineLoansData = { loans: [] };
+        let offlineClosedLoansData = { loans: [] };
         
         if (usersRes.ok) usersData = await usersRes.json();
         else console.error('CashierCustomersPage users fetch failed', usersRes.status);
         
         if (loansRes.ok) loansData = await loansRes.json();
         else console.error('CashierCustomersPage loans fetch failed', loansRes.status);
+
+        if (offlineLoansRes.ok) offlineLoansData = await offlineLoansRes.json();
+        else console.error('CashierCustomersPage offline loans fetch failed', offlineLoansRes.status);
+
+        if (offlineClosedLoansRes.ok) offlineClosedLoansData = await offlineClosedLoansRes.json();
+        else console.error('CashierCustomersPage offline closed loans fetch failed', offlineClosedLoansRes.status);
         
         if (!cancelled) {
-          setCustomers(usersData.users || usersData || []);
-          setCustLoans((loansData.loans || loansData || []).filter((l: any) => !l.isMirrorLoan));
+          const onlineUsers = (usersData.users || usersData || []) as any[];
+          const onlineLoans = (loansData.loans || loansData || []) as any[];
+          const offlineLoans = [
+            ...(offlineLoansData.loans || []),
+            ...(offlineClosedLoansData.loans || [])
+          ].filter((l: any) => !l.isMirrorLoan);
+
+          const seenPhones = new Set(onlineUsers.map((u: any) => u.phone?.replace(/[^0-9]/g, '')).filter(Boolean));
+          const seenEmails = new Set(onlineUsers.map((u: any) => u.email?.toLowerCase()).filter(Boolean));
+          const seenPans = new Set(onlineUsers.map((u: any) => u.panNumber?.toLowerCase()).filter(Boolean));
+          const seenAadhaars = new Set(onlineUsers.map((u: any) => u.aadhaarNumber).filter(Boolean));
+
+          const mergedCustomers = [...onlineUsers];
+
+          offlineLoans.forEach((loan: any) => {
+            const cleanPhone = loan.customerPhone?.replace(/[^0-9]/g, '');
+            const cleanEmail = loan.customerEmail?.toLowerCase();
+            const cleanPan = loan.customerPan?.toLowerCase();
+            const cleanAadhaar = loan.customerAadhaar;
+
+            const isDuplicate = 
+              (cleanPhone && seenPhones.has(cleanPhone)) ||
+              (cleanEmail && seenEmails.has(cleanEmail)) ||
+              (cleanPan && seenPans.has(cleanPan)) ||
+              (cleanAadhaar && seenAadhaars.has(cleanAadhaar));
+
+            if (!isDuplicate) {
+              mergedCustomers.push({
+                id: `offline_${cleanPhone || loan.id}`,
+                name: loan.customerName,
+                email: loan.customerEmail || '(Offline Customer)',
+                phone: loan.customerPhone,
+                role: 'CUSTOMER',
+                isActive: loan.status !== 'CLOSED',
+                createdAt: loan.createdAt,
+                isOffline: true,
+                panNumber: loan.customerPan,
+                aadhaarNumber: loan.customerAadhaar,
+              });
+
+              if (cleanPhone) seenPhones.add(cleanPhone);
+              if (cleanEmail) seenEmails.add(cleanEmail);
+              if (cleanPan) seenPans.add(cleanPan);
+              if (cleanAadhaar) seenAadhaars.add(cleanAadhaar);
+            }
+          });
+
+          const mappedOfflineLoans = offlineLoans.map((loan: any) => {
+            const matchedOnline = onlineUsers.find((u: any) => {
+              const uPhone = u.phone?.replace(/[^0-9]/g, '');
+              const lPhone = loan.customerPhone?.replace(/[^0-9]/g, '');
+              const uEmail = u.email?.toLowerCase();
+              const lEmail = loan.customerEmail?.toLowerCase();
+              const uPan = u.panNumber?.toLowerCase();
+              const lPan = loan.customerPan?.toLowerCase();
+              return (
+                (uPhone && uPhone === lPhone) ||
+                (uEmail && uEmail === lEmail) ||
+                (uPan && uPan === lPan) ||
+                (u.aadhaarNumber && u.aadhaarNumber === loan.customerAadhaar)
+              );
+            });
+
+            const customerId = matchedOnline 
+              ? matchedOnline.id 
+              : `offline_${loan.customerPhone?.replace(/[^0-9]/g, '') || loan.id}`;
+
+            return {
+              id: loan.id,
+              applicationNo: loan.loanNumber,
+              status: loan.status,
+              requestedAmount: loan.loanAmount,
+              sessionForm: { approvedAmount: loan.loanAmount },
+              customer: { id: customerId, name: loan.customerName },
+              isMirrorLoan: loan.isMirrorLoan || false,
+              isOffline: true
+            };
+          });
+
+          const mergedLoans = [
+            ...onlineLoans.filter((l: any) => !l.isMirrorLoan),
+            ...mappedOfflineLoans
+          ];
+
+          setCustomers(mergedCustomers);
+          setCustLoans(mergedLoans);
         }
       } catch (error) { 
         console.error('CashierCustomersPage fetch error:', error);

@@ -455,7 +455,7 @@ export async function GET(request: NextRequest) {
       const paidEMIs = originalLoan.emis.filter(e => e.paymentStatus === 'PAID').length;
 
       // Build mirror schedule with due dates matching original loan
-      const mirrorSchedule = mirrorCalculation.mirrorLoan.schedule.map((item, index) => {
+      const mirrorSchedule = mirrorCalculation.shiftedSchedule.map((item, index) => {
         const originalEMI = originalLoan.emis[index];
         const dueDate = originalEMI ? originalEMI.dueDate : new Date(originalLoan.startDate);
 
@@ -679,6 +679,7 @@ export async function POST(request: NextRequest) {
       // Interest Only Loan
       isInterestOnly,
       allowInterestOnly = true,
+      allowPartialPayment = true,
       // Mirror Loan
       isMirrorLoan,
       mirrorCompanyId,
@@ -917,6 +918,7 @@ export async function POST(request: NextRequest) {
           bankAccountId: bankAccountIdUsed,
           secondaryPaymentPageId: secondaryPaymentPageId || null,
           allowInterestOnly: hasExtraEMIs ? false : (allowInterestOnly === true),
+          allowPartialPayment: allowPartialPayment === true,
           isInterestOnlyLoan,
           interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
           interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,

@@ -98,6 +98,133 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
+    if (userId.startsWith('offline_')) {
+      const phone = userId.replace('offline_', '');
+      let offlineLoans = await db.offlineLoan.findMany({
+        where: {
+          OR: [
+            { customerPhone: phone },
+            { customerPhone: { contains: phone } }
+          ],
+          isMirrorLoan: false
+        },
+        include: {
+          emis: true,
+          company: { select: { id: true, name: true, code: true } }
+        }
+      });
+      
+      if (offlineLoans.length === 0) {
+        // Fallback: search by clean phone
+        const allLoans = await db.offlineLoan.findMany({
+          where: { isMirrorLoan: false },
+          include: {
+            emis: true,
+            company: { select: { id: true, name: true, code: true } }
+          }
+        });
+        const targetClean = phone.replace(/[^0-9]/g, '');
+        offlineLoans = allLoans.filter(l => 
+          l.customerPhone.replace(/[^0-9]/g, '') === targetClean
+        );
+      }
+      
+      if (offlineLoans.length === 0) {
+        return NextResponse.json({ error: 'Offline customer not found' }, { status: 404 });
+      }
+      
+      const primaryLoan = offlineLoans[0];
+      const user = {
+        id: userId,
+        name: primaryLoan.customerName,
+        email: primaryLoan.customerEmail || `${primaryLoan.customerPhone}@offline.loan`,
+        phone: primaryLoan.customerPhone,
+        role: 'CUSTOMER',
+        isActive: offlineLoans.some(l => l.status !== 'CLOSED'),
+        isLocked: false,
+        createdAt: primaryLoan.createdAt.toISOString(),
+        lastLoginAt: null,
+        lastActivityAt: null,
+        panNumber: primaryLoan.customerPan || 'N/A',
+        aadhaarNumber: primaryLoan.customerAadhaar || 'N/A',
+        dateOfBirth: primaryLoan.customerDOB ? primaryLoan.customerDOB.toISOString() : null,
+        address: primaryLoan.customerAddress || 'N/A',
+        city: primaryLoan.customerCity || 'N/A',
+        state: primaryLoan.customerState || 'N/A',
+        pincode: primaryLoan.customerPincode || 'N/A',
+        employmentType: primaryLoan.customerOccupation || 'N/A',
+        monthlyIncome: primaryLoan.customerMonthlyIncome || 0,
+        bankName: 'N/A',
+        bankAccountNumber: 'N/A',
+        companyId: primaryLoan.companyId,
+        company: primaryLoan.company,
+        isOffline: true,
+        roleSpecificData: {
+          totalLoans: offlineLoans.length,
+          activeLoans: offlineLoans.filter(l => l.status !== 'CLOSED').length,
+          emiSchedules: offlineLoans.reduce((sum, l) => sum + l.emis.length, 0),
+          payments: offlineLoans.reduce((sum, l) => sum + l.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length, 0),
+          offlineLoans: offlineLoans.map(l => ({
+            id: l.id,
+            loanNumber: l.loanNumber,
+            loanAmount: l.loanAmount,
+            interestRate: l.interestRate,
+            tenure: l.tenure,
+            emiAmount: l.emiAmount,
+            status: l.status,
+            disbursementDate: l.disbursementDate.toISOString(),
+            createdAt: l.createdAt.toISOString(),
+            isInterestOnlyLoan: l.isInterestOnlyLoan,
+            interestOnlyMonthlyAmount: l.interestOnlyMonthlyAmount,
+            totalInterestPaid: l.totalInterestPaid,
+            reference1Name: l.reference1Name,
+            reference1Phone: l.reference1Phone,
+            reference1Relation: l.reference1Relation,
+            reference2Name: l.reference2Name,
+            reference2Phone: l.reference2Phone,
+            reference2Relation: l.reference2Relation,
+            panCardDoc: l.panCardDoc,
+            aadhaarFrontDoc: l.aadhaarFrontDoc,
+            aadhaarBackDoc: l.aadhaarBackDoc,
+            incomeProofDoc: l.incomeProofDoc,
+            addressProofDoc: l.addressProofDoc,
+            photoDoc: l.photoDoc,
+            electionCardDoc: l.electionCardDoc,
+            housePhotoDoc: l.housePhotoDoc,
+            guarantorPhotoDoc: l.guarantorPhotoDoc,
+            passbookPhotoDoc: l.passbookPhotoDoc,
+            otherDocs: l.otherDocs
+          }))
+        },
+        loanAnalytics: {
+          totalLoanAmount: offlineLoans.reduce((sum, l) => sum + l.loanAmount, 0),
+          disbursedLoanAmount: offlineLoans.reduce((sum, l) => sum + l.loanAmount, 0),
+          avgLoanAmount: offlineLoans.reduce((sum, l) => sum + l.loanAmount, 0) / offlineLoans.length,
+          approvalRate: '100',
+          totalPaidAmount: offlineLoans.reduce((sum, l) => sum + l.emis.reduce((s, e) => s + e.paidAmount, 0) + (l.totalInterestPaid || 0), 0),
+          outstandingAmount: offlineLoans.reduce((sum, l) => {
+            let outstanding = l.emis
+              .filter(e => e.paymentStatus !== 'PAID')
+              .reduce((s, e) => s + (e.totalAmount - e.paidAmount), 0);
+            if (l.isInterestOnlyLoan || l.status === 'INTEREST_ONLY') {
+              outstanding = l.loanAmount || 0;
+            }
+            return sum + outstanding;
+          }, 0),
+          overdueEMIs: offlineLoans.reduce((sum, l) => sum + l.emis.filter(e => e.paymentStatus === 'OVERDUE').length, 0),
+          loanStatusDistribution: offlineLoans.reduce((acc: any, l) => { acc[l.status] = (acc[l.status] || 0) + 1; return acc; }, {}),
+          recentPayments: offlineLoans.flatMap(l => l.emis.filter(e => e.paidAmount > 0).map(e => ({
+            amount: e.paidAmount,
+            paymentMode: e.paymentMode || 'N/A',
+            status: e.paymentStatus === 'PAID' ? 'COMPLETED' : e.paymentStatus,
+            createdAt: (e.paidDate || e.updatedAt).toISOString()
+          }))).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 10)
+        }
+      };
+      
+      return NextResponse.json({ success: true, user });
+    }
+
     // Fetch user with all related data
     const user = await db.user.findUnique({
       where: { id: userId },
