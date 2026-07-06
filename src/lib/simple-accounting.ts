@@ -266,6 +266,7 @@ export interface EMIPaymentAccountingParams {
   splitOnlineAmount?: number; // online portion (goes to Bank)
   isInterestAccrued?: boolean;
   isInterestReclassified?: boolean;
+  tx?: any;
 }
 
 /**
@@ -320,7 +321,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     splitOnlineAmount: splitOnline,
     isInterestAccrued,
     isInterestReclassified,
+    tx,
   } = params;
+
+  const client = tx || db;
 
   const result: {
     cashBookEntry?: { success: boolean; cashBookId: string; newBalance: number };
@@ -341,7 +345,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
   // For regular (non-mirror) loan payment:
   if (!isMirrorPayment) {
-    const accEntry = await db.journalEntry.findFirst({
+    const accEntry = await client.journalEntry.findFirst({
       where: {
         companyId: targetCompanyId,
         referenceType: 'INTEREST_ACCRUAL',
@@ -357,7 +361,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       let isEmiDue = false;
       let emiDueDate: Date = new Date(); // hoisted so it's accessible in accrual block below
 
-      const onlineEmi = await db.eMISchedule.findUnique({
+      const onlineEmi = await client.eMISchedule.findUnique({
         where: { id: emiId },
         include: { loanApplication: true }
       });
@@ -366,7 +370,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         isEmiDue = emiDueDate <= new Date();
         isPhase1InterestOnly = onlineEmi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
       } else {
-        const offlineEmi = await db.offlineLoanEMI.findUnique({
+        const offlineEmi = await client.offlineLoanEMI.findUnique({
           where: { id: emiId },
           include: { offlineLoan: true }
         });
@@ -381,7 +385,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
       if (shouldAccrue) {
         // Perform on-demand accrual if company has FULL accounting
-        const targetCompany = await db.company.findUnique({
+        const targetCompany = await client.company.findUnique({
           where: { id: targetCompanyId },
           select: { accountingType: true }
         });
@@ -397,10 +401,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               interestAmount: interestComponent,
               accrualDate: isEmiDue ? emiDueDate : new Date(Date.now() - 5000),
               createdById: userId || 'SYSTEM'
-            });
+            }, client);
 
             if (onlineEmi) {
-              await db.eMISchedule.update({
+              await client.eMISchedule.update({
                 where: { id: emiId },
                 data: {
                   interestAccrued: true,
@@ -417,7 +421,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       }
     }
 
-    const reclassEntry = await db.journalEntry.findFirst({
+    const reclassEntry = await client.journalEntry.findFirst({
       where: {
         companyId: targetCompanyId,
         referenceType: 'INTEREST_RECLASSIFICATION',
@@ -436,7 +440,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
   if (isMirrorPayment && mirrorLoanId) {
     // Look up the mirror EMI from online loan schedule first
-    const onlineMirrorEmi = await db.eMISchedule.findFirst({
+    const onlineMirrorEmi = await client.eMISchedule.findFirst({
       where: {
         loanApplicationId: mirrorLoanId,
         installmentNumber: installmentNumber
@@ -448,7 +452,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       mirrorEmiType = 'ONLINE';
     } else {
       // Look up from offline loan schedule
-      const offlineMirrorEmi = await db.offlineLoanEMI.findFirst({
+      const offlineMirrorEmi = await client.offlineLoanEMI.findFirst({
         where: {
           offlineLoanId: mirrorLoanId,
           installmentNumber: installmentNumber
@@ -461,7 +465,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     }
 
     if (mirrorEmiId) {
-      const accEntry = await db.journalEntry.findFirst({
+      const accEntry = await client.journalEntry.findFirst({
         where: {
           companyId: mirrorCompanyId!,
           referenceType: 'INTEREST_ACCRUAL',
@@ -476,7 +480,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         let isMirrorEmiDue = false;
 
         if (mirrorEmiType === 'ONLINE') {
-          const onlineMirrorEmi = await db.eMISchedule.findUnique({
+          const onlineMirrorEmi = await client.eMISchedule.findUnique({
             where: { id: mirrorEmiId },
             include: { loanApplication: true }
           });
@@ -485,7 +489,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             isMirrorPhase1InterestOnly = onlineMirrorEmi.loanApplication?.status === 'ACTIVE_INTEREST_ONLY';
           }
         } else {
-          const offlineMirrorEmi = await db.offlineLoanEMI.findUnique({
+          const offlineMirrorEmi = await client.offlineLoanEMI.findUnique({
             where: { id: mirrorEmiId },
             include: { offlineLoan: true }
           });
@@ -499,7 +503,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
         if (shouldAccrueMirror) {
           // Perform on-demand accrual for mirror loan if mirror company has FULL accounting
-          const mirrorCompany = await db.company.findUnique({
+          const mirrorCompany = await client.company.findUnique({
             where: { id: mirrorCompanyId! },
             select: { accountingType: true }
           });
@@ -508,8 +512,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
               const { AccountingService } = await import('@/lib/accounting-service');
               const accSvc = new AccountingService(mirrorCompanyId!);
               const mirrorEmiDueDate = mirrorEmiType === 'ONLINE'
-                ? (await db.eMISchedule.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date()
-                : (await db.offlineLoanEMI.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date();
+                ? (await client.eMISchedule.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date()
+                : (await client.offlineLoanEMI.findUnique({ where: { id: mirrorEmiId }, select: { dueDate: true } }))?.dueDate || new Date();
               const mirrorAccrualDate = isMirrorEmiDue ? mirrorEmiDueDate : new Date(Date.now() - 5000);
 
               await accSvc.recordInterestAccrual({
@@ -520,10 +524,10 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
                 interestAmount: mirrorInterest,
                 accrualDate: mirrorAccrualDate,
                 createdById: userId || 'SYSTEM'
-              });
+              }, client);
 
               if (mirrorEmiType === 'ONLINE') {
-                await db.eMISchedule.update({
+                await client.eMISchedule.update({
                   where: { id: mirrorEmiId },
                   data: {
                     interestAccrued: true,
@@ -540,7 +544,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         }
       }
 
-      const reclassEntry = await db.journalEntry.findFirst({
+      const reclassEntry = await client.journalEntry.findFirst({
         where: {
           companyId: mirrorCompanyId!,
           referenceType: 'INTEREST_RECLASSIFICATION',
@@ -666,7 +670,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       await accSvcInit.initializeChartOfAccounts();
 
       // Check for duplicate (idempotency)
-      const existingJE = await db.journalEntry.findFirst({
+      const existingJE = await client.journalEntry.findFirst({
         where: { companyId: mirrorCompanyId, referenceId: paymentId, referenceType: 'MIRROR_EMI_PAYMENT', isReversed: false },
         select: { id: true },
       });
@@ -683,7 +687,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
             : '4110';
 
         const accountCodes = [ACCOUNT_CODES.CASH_IN_HAND, ACCOUNT_CODES.BANK_ACCOUNT, mirrorInterestCreditCode, '1200'];
-        const accounts = await db.chartOfAccount.findMany({
+        const accounts = await client.chartOfAccount.findMany({
           where: { companyId: mirrorCompanyId, accountCode: { in: accountCodes } },
           select: { id: true, accountCode: true },
         });
@@ -699,7 +703,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         }
 
         // Dynamically find a unique entry number by scanning highest suffix
-        const lastEntry = await db.journalEntry.findFirst({
+        const lastEntry = await client.journalEntry.findFirst({
           where: { companyId: mirrorCompanyId },
           orderBy: { entryNumber: 'desc' },
           select: { entryNumber: true },
@@ -714,7 +718,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         let entryNumber = '';
         while (true) {
           const candidate = `JE${String(nextNum).padStart(6, '0')}`;
-          const existing = await db.journalEntry.findFirst({
+          const existing = await client.journalEntry.findFirst({
             where: { companyId: mirrorCompanyId, entryNumber: candidate },
             select: { id: true },
           });
@@ -729,9 +733,9 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         const now = new Date();
         const fyYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
         const fyName = `FY ${fyYear}-${fyYear + 1}`;
-        let fy = await db.financialYear.findFirst({ where: { companyId: mirrorCompanyId, name: fyName } });
+        let fy = await client.financialYear.findFirst({ where: { companyId: mirrorCompanyId, name: fyName } });
         if (!fy) {
-          fy = await db.financialYear.create({
+          fy = await client.financialYear.create({
             data: { companyId: mirrorCompanyId, name: fyName, startDate: new Date(fyYear, 3, 1), endDate: new Date(fyYear + 1, 2, 31), isClosed: false },
           });
         }
@@ -805,7 +809,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           ? `SPLIT: Cash ₹${rawSplitCash} + Online ₹${rawSplitOnline}`
           : paymentMode;
 
-        const je = await db.journalEntry.create({
+        const je = await client.journalEntry.create({
           data: {
             companyId: mirrorCompanyId,
             entryNumber,
@@ -831,17 +835,17 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           const mirrorCashPortion   = Math.round(recordAmount * (rawSplitCash   / splitTotal) * 100) / 100;
           const mirrorOnlinePortion = Math.round((recordAmount - mirrorCashPortion) * 100) / 100;
           if (mirrorCashPortion   > 0 && cashAccId)
-            await db.chartOfAccount.update({ where: { id: cashAccId },   data: { currentBalance: { increment: mirrorCashPortion   } } });
+            await client.chartOfAccount.update({ where: { id: cashAccId },   data: { currentBalance: { increment: mirrorCashPortion   } } });
           if (mirrorOnlinePortion > 0 && bankAccId)
-            await db.chartOfAccount.update({ where: { id: bankAccId },   data: { currentBalance: { increment: mirrorOnlinePortion } } });
+            await client.chartOfAccount.update({ where: { id: bankAccId },   data: { currentBalance: { increment: mirrorOnlinePortion } } });
         } else {
           const singleDebitAccId = accMap.get(debitAccountCode);
           if (singleDebitAccId)
-            await db.chartOfAccount.update({ where: { id: singleDebitAccId }, data: { currentBalance: { increment: recordAmount } } });
+            await client.chartOfAccount.update({ where: { id: singleDebitAccId }, data: { currentBalance: { increment: recordAmount } } });
         }
-        await db.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
+        await client.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
         if (recordPrincipal > 0 && loanAccId)
-          await db.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
+          await client.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
 
         console.log(`[Accounting] ✅ MIRROR: Journal ${je.id} (${entryNumber}) [${modeLabel}] — Dr ₹${recordAmount} total | Cr Interest ₹${recordInterest} | Cr Principal ₹${recordPrincipal}${partialSuffix}`);
       }
