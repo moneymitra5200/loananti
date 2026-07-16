@@ -1346,18 +1346,21 @@ export async function PUT(request: NextRequest) {
             }
 
             // Revert PaymentRequest if applicable
+            // ── FIX Bug-3: set to CANCELLED not PENDING so the customer sees it was reversed
+            //    and cannot re-submit the same request as if it never happened.
             const prId = newData?.paymentRequestId || newData?.paymentRequest?.id;
             if (prId) {
               await tx.paymentRequest.update({
                 where: { id: prId },
                 data: {
-                  status: 'PENDING',
+                  status: 'CANCELLED',
                   reviewedById: null,
                   reviewedAt: null,
-                  paymentConfirmedAt: null
+                  paymentConfirmedAt: null,
+                  reviewRemarks: '[UNDO] Payment reversed by admin/cashier'
                 }
               });
-              console.log(`[Undo] Reverted PaymentRequest ${prId} status back to PENDING`);
+              console.log(`[Undo] Reverted PaymentRequest ${prId} status to CANCELLED (undo)`);
             }
 
             const loanId = newData?.loanId || emi?.loanApplicationId;
@@ -1473,14 +1476,16 @@ export async function PUT(request: NextRequest) {
                       console.log(`[Undo] Shifted back ${subsequentMirrorEmis.length} mirror EMIs`);
 
                       // Decrement mirrorTenure
+                      // ── FIX Bug-2: Do NOT decrement mirrorTenure — it was set at loan-start
+                      //    and is used as the gate (emi.installmentNumber > mirrorTenure).
+                      //    Decrementing it would corrupt future extra-EMI detection.
                       await tx.mirrorLoanMapping.update({
                         where: { id: mirrorMapping.id },
                         data: {
-                          mirrorTenure: Math.max(0, (mirrorMapping.mirrorTenure || 0) - 1),
                           mirrorEMIsPaid: Math.max(0, (mirrorMapping.mirrorEMIsPaid || 0) - 1)
                         }
                       });
-                      console.log(`[Undo] Decremented mirrorTenure and mirrorEMIsPaid`);
+                      console.log(`[Undo] Decremented mirrorEMIsPaid (mirrorTenure preserved)`);
                     } else {
                       // Just decrement mirrorEMIsPaid
                       await tx.mirrorLoanMapping.update({
@@ -1532,13 +1537,36 @@ export async function PUT(request: NextRequest) {
                   }
                 });
 
-                // Delete processing fee cash/bank entries
+                // ── Delete bank/cash passbook entries ──────────────────────────
+                // Case A & C: original/self-mirror loan's PF bank entry
                 await deleteBankOrCashEntriesForRef(`${loanId}-PF`, tx);
+                // Case C: alternate refId for standard online loans
+                await deleteBankOrCashEntriesForRef(`${loanId}-PF-PR`, tx);
 
-                // Delete processing fee journal entries
-                await reverseJournalEntriesForRef(`${loanId}-PF-JE`, userId, tx);
-                await reverseJournalEntriesForRef(`${loanId}-PF-PR`, userId, tx);
+                // Case B: mirror loan's PF bank entry keyed on mirrorLoanId
+                const mirrorMappingForPF = await tx.mirrorLoanMapping.findFirst({
+                  where: { originalLoanId: loanId },
+                  select: { mirrorLoanId: true }
+                });
+                if (mirrorMappingForPF?.mirrorLoanId) {
+                  await deleteBankOrCashEntriesForRef(`${mirrorMappingForPF.mirrorLoanId}-PF`, tx);
+                }
+
+                // ── Reverse journal entries ─────────────────────────────────────
+                // AccountingService uses loanId / mirrorLoanId as the referenceId.
+                // Cases A & C: journals recorded against loanId
                 await reverseJournalEntriesForRef(loanId, userId, tx);
+                // Case B: journals recorded against mirrorLoanId
+                if (mirrorMappingForPF?.mirrorLoanId) {
+                  await reverseJournalEntriesForRef(mirrorMappingForPF.mirrorLoanId, userId, tx);
+                }
+
+                // Backward-compat: stale refIds from pre-refactor forward path
+                await reverseJournalEntriesForRef(`${loanId}-PF-JE`, userId, tx);
+                await reverseJournalEntriesForRef(`${loanId}-MIR-PF-JE`, userId, tx);
+                await deleteBankOrCashEntriesForRef(`${loanId}-MIR-PF`, tx);
+
+                console.log(`[Undo] ✅ Processing fee reversed for loan ${loanId} (installment #1 undo)`);
               }
             }
 
@@ -2037,10 +2065,19 @@ export async function PUT(request: NextRequest) {
 
             if (actionLog.module === 'ONLINE_LOAN' || actionLog.module === 'PAYMENT') {
               if (emiId) {
+                // ── FIX Bug-7: derive the correct EMI status from the original paymentType
+                //    REDO must restore the same status the forward payment set, not always 'PAID'
+                const redoPaymentType = (newData.paymentType || '').toUpperCase();
+                const redoEmiStatus = redoPaymentType === 'PARTIAL_PAYMENT'
+                  ? 'PARTIALLY_PAID'
+                  : redoPaymentType === 'INTEREST_ONLY'
+                    ? 'INTEREST_ONLY_PAID'
+                    : 'PAID';
+
                 await tx.eMISchedule.update({
                   where: { id: emiId },
                   data: {
-                    paymentStatus: 'PAID',
+                    paymentStatus: redoEmiStatus,
                     paidAmount:    newData.paidAmount || paymentAmount,
                     paidPrincipal: newData.paidPrincipal || 0,
                     paidInterest:  newData.paidInterest || 0,
