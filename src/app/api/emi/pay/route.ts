@@ -1670,7 +1670,7 @@ export async function POST(request: NextRequest) {
             console.log("[Accounting] ONLINE MIRROR IO Fallback: Using paidInterest (mirror EMI not found)");
           } else {
             const monthlyRate = mirrorRate / 100 / 12;
-            mirrorInterestForAccounting  = Math.round(Number(emi.outstandingPrincipal || 0) * monthlyRate * 100) / 100;
+            mirrorInterestForAccounting  = Math.round((Number(emi.outstandingPrincipal || 0) + Number(emi.principalAmount || 0)) * monthlyRate * 100) / 100;
             mirrorPrincipalForAccounting = Math.max(0, paidPrincipal);
             console.log("[Accounting] ONLINE MIRROR Fallback (mirror EMI not found)");
           }

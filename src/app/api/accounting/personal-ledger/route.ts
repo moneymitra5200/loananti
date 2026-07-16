@@ -958,7 +958,7 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
       select: { loanApplicationId: true, outstandingPrincipal: true, principalAmount: true }
     });
     for (const emi of firstMirrorEmis) {
-      const principal = Number(emi.outstandingPrincipal || emi.principalAmount || 0);
+      const principal = Number(emi.outstandingPrincipal || 0) + Number(emi.principalAmount || 0);
       if (principal > 0) mirrorLoanPrincipalMap.set(emi.loanApplicationId, principal);
     }
   }

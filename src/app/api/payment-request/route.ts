@@ -553,7 +553,7 @@ export async function PUT(request: NextRequest) {
             // FALLBACK: If stored interestAmount is null/0 (broken deferred chain),
             // recalculate from mirrorInterestRate × outstandingPrincipal
             if (remainingInterest <= 0 && ioMirrorMapping.mirrorInterestRate) {
-              const outstanding = Number(preTxMirrorEmi.outstandingPrincipal || preTxMirrorEmi.principalAmount || 0);
+              const outstanding = Number(preTxMirrorEmi.outstandingPrincipal || 0) + Number(preTxMirrorEmi.principalAmount || 0);
               const monthlyRate = Number(ioMirrorMapping.mirrorInterestRate) / 100 / 12;
               if (outstanding > 0 && monthlyRate > 0) {
                 remainingInterest = Math.round(outstanding * monthlyRate * 100) / 100;
@@ -890,7 +890,7 @@ export async function PUT(request: NextRequest) {
                 // recalculate from mirrorInterestRate × outstandingPrincipal.
                 // This prevents null/0 from propagating to future deferred EMIs.
                 if (mInterest <= 0 && ioMirrorMapping.mirrorInterestRate) {
-                  const outstanding = Number(mirrorEMI.outstandingPrincipal || mirrorEMI.principalAmount || 0);
+                  const outstanding = Number(mirrorEMI.outstandingPrincipal || 0) + Number(mirrorEMI.principalAmount || 0);
                   const monthlyRate = Number(ioMirrorMapping.mirrorInterestRate) / 100 / 12;
                   if (outstanding > 0 && monthlyRate > 0) {
                     mInterest = Math.round(outstanding * monthlyRate * 100) / 100;
@@ -1242,7 +1242,9 @@ export async function PUT(request: NextRequest) {
                   // Layer 2: if stored mI is also 0/null, use mirrorInterestRate × outstanding
                   let finalInterest = mirrorRemainingInterest;
                   if (finalInterest <= 0 && selfAsMirror?.mirrorInterestRate) {
-                    const outstanding  = Number(mirrorOwnEmi?.outstandingPrincipal || mirrorOwnEmi?.principalAmount || emi.outstandingPrincipal || 0);
+                    const outstanding  = mirrorOwnEmi 
+                      ? (Number(mirrorOwnEmi.outstandingPrincipal || 0) + Number(mirrorOwnEmi.principalAmount || 0)) 
+                      : (Number(emi.outstandingPrincipal || 0) + Number(emi.principalAmount || 0));
                     const monthlyRate  = Number(selfAsMirror.mirrorInterestRate) / 100 / 12;
                     if (outstanding > 0 && monthlyRate > 0) {
                       finalInterest = Math.round(outstanding * monthlyRate * 100) / 100;
@@ -1693,7 +1695,7 @@ export async function PUT(request: NextRequest) {
 
               // LAYER 2: If still 0 (null/0 interestAmount in DB), calculate from mirror rate
               if (ioMirrorInterest <= 0 && mirrorMapping.mirrorInterestRate) {
-                const outstanding = Number(mirrorEmi?.outstandingPrincipal || mirrorEmi?.principalAmount || 0);
+                const outstanding = Number(mirrorEmi?.outstandingPrincipal || 0) + Number(mirrorEmi?.principalAmount || 0);
                 const monthlyRate = Number(mirrorMapping.mirrorInterestRate) / 100 / 12;
                 if (outstanding > 0 && monthlyRate > 0) {
                   ioMirrorInterest = Math.round(outstanding * monthlyRate * 100) / 100;

@@ -454,7 +454,7 @@ export async function GET(request: NextRequest) {
     // If this is a mirror loan transaction, use mirror interest
     if (mirrorMapping && emi) {
       const mirrorMonthlyRate = mirrorMapping.mirrorInterestRate / 12 / 100;
-      displayInterestAmount = Math.round((emi.outstandingPrincipal || emi.principalAmount) * mirrorMonthlyRate * 100) / 100;
+      displayInterestAmount = Math.round((Number(emi.outstandingPrincipal || 0) + Number(emi.principalAmount || 0)) * mirrorMonthlyRate * 100) / 100;
     }
 
     // Penalty info from EMI schedule
