@@ -414,6 +414,7 @@ model LoanApplication {
   @@index([companyId])
   @@index([status, companyId]) // compound: dashboard filtered by company + status
   @@index([customerId, status]) // compound: customer loan list filtered by status
+  @@index([isMirrorLoan])
 }
 
 model LoanForm {
@@ -2211,6 +2212,7 @@ model OfflineLoan {
   @@index([disbursementDate])
   @@index([companyId, status]) // compound: admin list by company + status
   @@index([customerPhone]) // phone search
+  @@index([isMirrorLoan])
 }
 
 // Offline Loan EMI Schedule

@@ -40,13 +40,13 @@ const buildDatabaseUrl = () => {
   // socket_timeout=20  → kill any query that hasn't responded in 20s
   if (host && user && pass && name) {
     const encodedPass = encodeURIComponent(pass);
-    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=2&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
+    return `mysql://${user}:${encodedPass}@${host}:${port}/${name}?connection_limit=10&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
   }
 
   const base = process.env.DATABASE_URL || '';
   if (base.includes('connection_limit')) return base;
   const sep = base.includes('?') ? '&' : '?';
-  return `${base}${sep}connection_limit=2&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
+  return `${base}${sep}connection_limit=10&connect_timeout=8&pool_timeout=8&socket_timeout=20`;
 };
 
 const createPrismaClient = () => {
@@ -64,10 +64,15 @@ const createPrismaClient = () => {
           const timeoutErr = new Error(
             `DB_TIMEOUT: ${model}.${operation} exceeded ${GLOBAL_QUERY_TIMEOUT_MS}ms`
           );
-          const timeout = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(timeoutErr), GLOBAL_QUERY_TIMEOUT_MS)
-          );
-          return Promise.race([query(args), timeout]);
+          let timer: NodeJS.Timeout | undefined;
+          const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(timeoutErr), GLOBAL_QUERY_TIMEOUT_MS);
+          });
+          try {
+            return await Promise.race([query(args), timeout]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
         },
       },
     },
@@ -230,10 +235,15 @@ export async function dbWithTimeout<T>(
 ): Promise<T> {
   // Stagger the very first query to prevent multi-instance Prisma panic race
   await waitForStartupJitter();
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`DB_TIMEOUT: query exceeded ${ms}ms`)), ms)
-  );
-  return Promise.race([fn(), timeout]);
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`DB_TIMEOUT: query exceeded ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([fn(), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
