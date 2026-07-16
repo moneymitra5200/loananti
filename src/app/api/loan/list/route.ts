@@ -19,6 +19,7 @@ const LOAN_LIST_SELECT = {
   customerId: true,
   companyId: true,
   currentHandlerId: true,
+  isMirrorLoan: true,
   isInterestOnlyLoan: true,
   // Applicant personal details
   firstName: true, middleName: true, lastName: true,
@@ -119,26 +120,10 @@ export async function GET(request: NextRequest) {
     if (role === 'SUPER_ADMIN') {
       // Super admin sees all loans
     } else if (role === 'CUSTOMER' && customerId) {
-      // MIRROR RULE: If a loan has a mirror mapping, customer sees ONLY the MIRROR loan.
-      // The original loan is the internal company record; the mirror is the customer-facing loan.
-      // So: filter OUT original loans that have mirrors (customer should not see those)
-      //     and SHOW the mirror loans (they belong to the customer via same customerId)
-      try {
-        const mirrorMappings = await db.mirrorLoanMapping.findMany({
-          select: { originalLoanId: true, mirrorLoanId: true }
-        });
-        // Original loan IDs that have mirrors — these should NOT be shown to customer
-        const originalLoanIdsWithMirror = mirrorMappings
-          .map(m => m.originalLoanId)
-          .filter((id): id is string => Boolean(id));
-
-        if (originalLoanIdsWithMirror.length > 0) {
-          // Exclude originals that have mirrors; mirror loans (same customerId) will still appear
-          where.id = { notIn: originalLoanIdsWithMirror };
-        }
-      } catch (err) {
-        console.warn("Could not filter mirror loans", err);
-      }
+      // MIRROR RULE: Customers see the ORIGINAL loan only.
+      // Mirror loans are internal company accounting records — never shown to the customer.
+      // The isMirrorLoan flag is set on mirror LoanApplication records at disbursement.
+      where.isMirrorLoan = false;
     } else if (role === 'COMPANY') {
       if (companyId) where.companyId = companyId;
     } else if (role === 'AGENT' && agentId) {
@@ -160,8 +145,10 @@ export async function GET(request: NextRequest) {
       where.currentHandlerId = staffId;
     } else if (role === 'CASHIER') {
       where.status = { in: ['FINAL_APPROVED', 'ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] };
+      where.isMirrorLoan = false;
     } else if (role === 'ACCOUNTANT') {
       where.status = { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] };
+      where.isMirrorLoan = false;
     } else if (agentId) {
       where.currentHandlerId = agentId;
     }

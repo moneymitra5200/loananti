@@ -453,6 +453,8 @@ export async function PUT(request: NextRequest) {
           status: isIOLoan ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE',
           isInterestOnlyLoan: isIOLoan,
           interestOnlyMonthlyAmount: isIOLoan ? monthlyMirrorInterest : null,
+          // ─── CRITICAL: Tag this as a mirror loan so it is NEVER shown to customer ───
+          isMirrorLoan: true,
 
           // Copy customer details from original loan
           title: originalLoan.title,

@@ -10,24 +10,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, results: [] });
     }
 
-    // Fetch all mirror loan IDs to exclude them from online loan search
-    const mirrorMappings = await db.mirrorLoanMapping.findMany({
-      where: {
-        mirrorLoanId: { not: null }
-      },
-      select: {
-        mirrorLoanId: true
-      }
-    });
-    const mirrorLoanIds = mirrorMappings
-      .map((m) => m.mirrorLoanId)
-      .filter((id): id is string => !!id);
-
     // Run queries in parallel
     const [onlineLoans, offlineLoans, users] = await Promise.all([
       db.loanApplication.findMany({
         where: {
-          id: { notIn: mirrorLoanIds },
+          isMirrorLoan: false,
           OR: [
             { applicationNo: { contains: q } },
             { customer: { name: { contains: q } } },

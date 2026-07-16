@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
       }
 
       onlineLoans = await db.loanApplication.findMany({
-        where: { status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] } },
+        where: { status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }, isMirrorLoan: false },
         orderBy: { createdAt: 'desc' },
         include: onlineInclude,
         take: 300, // Hard cap — prevents loading 1000+ loans into RAM

@@ -363,6 +363,7 @@ model LoanApplication {
   closedAt                  DateTime?
   // Interest-Only Loan Fields
   isInterestOnlyLoan        Boolean                  @default(false) // True if this is an interest-only loan
+  isMirrorLoan              Boolean                  @default(false) // True if this is a mirror loan (internal, not customer-facing)
   interestOnlyStartDate     DateTime? // When interest-only phase started
   interestOnlyMonthlyAmount Float? // Monthly interest amount to collect during interest-only phase
   loanStartedAt             DateTime? // When loan was converted from interest-only to normal
