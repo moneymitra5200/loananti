@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     if (action === 'settings') {
       const loanApplicationId = searchParams.get('loanApplicationId');
       let companyId = searchParams.get('companyId');
-      
+
       // If companyId not provided, get it from the loan application
       if (loanApplicationId && !companyId) {
         const loan = await db.loanApplication.findUnique({
@@ -33,9 +33,9 @@ export async function GET(request: NextRequest) {
         });
         companyId = loan?.companyId || null;
       }
-      
+
       let settings: any = null;
-      
+
       // First check loan-specific settings
       if (loanApplicationId) {
         const loanSettings = await db.paymentOptionSettings.findFirst({
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
           settings = loanSettings;
         }
       }
-      
+
       // Then check company-specific settings
       if (!settings && companyId) {
         const companySettings = await db.companyPaymentSettings.findUnique({
@@ -55,13 +55,13 @@ export async function GET(request: NextRequest) {
           settings = companySettings;
         }
       }
-      
+
       // Return global default settings if no specific settings found
       if (!settings) {
         const globalSettings = await db.paymentOptionSettings.findFirst({
           where: { scope: 'GLOBAL' }
         });
-        
+
         if (globalSettings) {
           settings = globalSettings;
         } else {
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
           });
         }
       }
-      
+
       // Fetch company's default bank account details for payment
       let bankAccountDetails: {
         bankAccountId: string;
@@ -94,9 +94,9 @@ export async function GET(request: NextRequest) {
       } | null = null;
       if (companyId) {
         const defaultBankAccount = await db.bankAccount.findFirst({
-          where: { 
+          where: {
             companyId,
-            isDefault: true 
+            isDefault: true
           },
           select: {
             id: true,
@@ -109,7 +109,7 @@ export async function GET(request: NextRequest) {
             qrCodeUrl: true
           }
         });
-        
+
         if (defaultBankAccount) {
           bankAccountDetails = {
             bankAccountId: defaultBankAccount.id,
@@ -123,10 +123,10 @@ export async function GET(request: NextRequest) {
           };
         }
       }
-      
+
       const emiScheduleId = searchParams.get('emiScheduleId');
       let secondaryPaymentPage: any = null;
-      
+
       // Try loading from specific EMI payment setting first
       if (emiScheduleId) {
         const emiSetting = await db.eMIPaymentSetting.findUnique({
@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-      
+
       // Fallback to mirror mapping extraEMIPaymentPageId
       if (!secondaryPaymentPage && loanApplicationId) {
         const mirrorMapping = await db.mirrorLoanMapping.findFirst({
@@ -179,9 +179,9 @@ export async function GET(request: NextRequest) {
           }
         }
       }
-      
-      return NextResponse.json({ 
-        success: true, 
+
+      return NextResponse.json({
+        success: true,
         settings: {
           ...settings,
           ...bankAccountDetails,
@@ -193,11 +193,11 @@ export async function GET(request: NextRequest) {
     // Get EMI details for payment
     if (action === 'emi-details') {
       const emiScheduleId = searchParams.get('emiScheduleId');
-      
+
       if (!emiScheduleId) {
         return NextResponse.json({ error: 'EMI Schedule ID required' }, { status: 400 });
       }
-      
+
       const emi = await db.eMISchedule.findUnique({
         where: { id: emiScheduleId },
         include: {
@@ -209,11 +209,11 @@ export async function GET(request: NextRequest) {
           }
         }
       });
-      
+
       if (!emi) {
         return NextResponse.json({ error: 'EMI not found' }, { status: 404 });
       }
-      
+
       // Get payment settings for this loan
       const settings = await db.paymentOptionSettings.findFirst({
         where: {
@@ -225,9 +225,9 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { scope: 'desc' }  // LOAN > COMPANY > GLOBAL
       });
-      
-      return NextResponse.json({ 
-        success: true, 
+
+      return NextResponse.json({
+        success: true,
         emi,
         settings: settings || {
           enableFullPayment: true,
@@ -241,15 +241,15 @@ export async function GET(request: NextRequest) {
 
     // List payment requests
     let whereClause: any = {};
-    
+
     if (role === 'CUSTOMER' && userId) {
       whereClause.customerId = userId;
     }
-    
+
     if (status) {
       whereClause.status = status as PaymentRequestStatus;
     }
-    
+
     if (loanId) {
       whereClause.loanApplicationId = loanId;
     }
@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
     if (paymentType === 'PARTIAL_PAYMENT' && settings && !settings.enablePartialPayment) {
       return NextResponse.json({ error: 'Partial payment is not enabled for this loan' }, { status: 400 });
     }
-    
+
     if (paymentType === 'INTEREST_ONLY' && settings && !settings.enableInterestOnly) {
       return NextResponse.json({ error: 'Interest-only payment is not enabled for this loan' }, { status: 400 });
     }
@@ -342,47 +342,47 @@ export async function POST(request: NextRequest) {
     // Validate partial payment
     if (paymentType === 'PARTIAL_PAYMENT') {
       const maxPartial = settings?.maxPartialPayments || 2;
-      
+
       if (emi.partialPaymentCount >= maxPartial) {
-        return NextResponse.json({ 
-          error: `Maximum ${maxPartial} partial payments allowed for this EMI` 
+        return NextResponse.json({
+          error: `Maximum ${maxPartial} partial payments allowed for this EMI`
         }, { status: 400 });
       }
 
       // Partial amount is required
       if (!partialAmount || partialAmount <= 0) {
-        return NextResponse.json({ 
-          error: 'Partial amount is required and must be greater than 0' 
+        return NextResponse.json({
+          error: 'Partial amount is required and must be greater than 0'
         }, { status: 400 });
       }
 
       // Partial amount must be less than total EMI
       if (partialAmount >= emi.totalAmount) {
-        return NextResponse.json({ 
-          error: 'Partial amount must be less than total EMI amount (' + emi.totalAmount + ')' 
+        return NextResponse.json({
+          error: 'Partial amount must be less than total EMI amount (' + emi.totalAmount + ')'
         }, { status: 400 });
       }
 
       // New due date is required for partial payment
       if (!newDueDate) {
-        return NextResponse.json({ 
-          error: 'New due date is required for partial payment' 
+        return NextResponse.json({
+          error: 'New due date is required for partial payment'
         }, { status: 400 });
       }
 
       // Validate date - must be after original due date and before next EMI due date
       const newDate = new Date(newDueDate);
       const dueDate = new Date(emi.dueDate);
-      
+
       if (newDate <= dueDate) {
-        return NextResponse.json({ 
-          error: 'New due date must be after the original due date' 
+        return NextResponse.json({
+          error: 'New due date must be after the original due date'
         }, { status: 400 });
       }
 
       // Check if new date is before the next EMI's due date
       const nextEMI = await db.eMISchedule.findFirst({
-        where: { 
+        where: {
           loanApplicationId,
           installmentNumber: emi.installmentNumber + 1
         }
@@ -391,8 +391,8 @@ export async function POST(request: NextRequest) {
       if (nextEMI) {
         const nextDueDate = new Date(nextEMI.dueDate);
         if (newDate >= nextDueDate) {
-          return NextResponse.json({ 
-            error: 'New due date must be before the next EMI due date (' + nextDueDate.toLocaleDateString() + ')' 
+          return NextResponse.json({
+            error: 'New due date must be before the next EMI due date (' + nextDueDate.toLocaleDateString() + ')'
           }, { status: 400 });
         }
       }
@@ -409,10 +409,10 @@ export async function POST(request: NextRequest) {
     const requestNumber = `PR${Date.now().toString(36).toUpperCase()}`;
 
     // Get company payment settings for UPI/Bank details
-    const companySettings = emi.loanApplication.companyId 
+    const companySettings = emi.loanApplication.companyId
       ? await db.companyPaymentSettings.findUnique({
-          where: { companyId: emi.loanApplication.companyId }
-        })
+        where: { companyId: emi.loanApplication.companyId }
+      })
       : null;
 
     // Create payment request
@@ -436,9 +436,9 @@ export async function POST(request: NextRequest) {
         proofFileName,
         upiId: companySettings?.companyUpiId,
         qrCodeUrl: companySettings?.companyQrCodeUrl,
-        bankAccountDetails: secondaryPaymentPageId ? 
+        bankAccountDetails: secondaryPaymentPageId ?
           JSON.stringify({ secondaryPaymentPageId, secondaryPaymentPageName }) :
-          (companySettings?.collectionBankAccountId ? 
+          (companySettings?.collectionBankAccountId ?
             JSON.stringify({ bankAccountId: companySettings.collectionBankAccountId }) : null),
         status: 'PENDING'
       },
@@ -453,7 +453,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Notify SUPER_ADMIN + CASHIER that customer submitted a payment request
-    const notifyBody = secondaryPaymentPageName 
+    const notifyBody = secondaryPaymentPageName
       ? `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')} (Secondary Page: ${secondaryPaymentPageName})`
       : `${paymentRequest.loanApplication?.customer?.name || 'Customer'} submitted ${paymentType} of ₹${requestedAmount.toLocaleString('en-IN')}`;
 
@@ -465,10 +465,10 @@ export async function POST(request: NextRequest) {
       actionUrl: '/cashier/payments',
     });
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       message: 'Payment request submitted successfully. Awaiting approval.',
-      paymentRequest 
+      paymentRequest
     });
   } catch (error) {
     console.error('Error creating payment request:', error);
@@ -530,9 +530,9 @@ export async function PUT(request: NextRequest) {
       let preTxMirrorInterest: number = 0;
       let preTxMirrorPrincipal: number = 0;
       let preTxMirrorTotal: number = 0;
-      if (paymentRequest.paymentType === 'INTEREST_ONLY' || 
-          (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly) ||
-          loan.status === 'ACTIVE_INTEREST_ONLY') {
+      if (paymentRequest.paymentType === 'INTEREST_ONLY' ||
+        (paymentRequest.paymentType === 'FULL_EMI' && paymentRequest.emiSchedule?.isInterestOnly) ||
+        loan.status === 'ACTIVE_INTEREST_ONLY') {
         // Fetch mapping without isOfflineLoan filter to handle all mapping types
         ioMirrorMapping = await db.mirrorLoanMapping.findFirst({
           where: { originalLoanId: emi.loanApplicationId }
@@ -548,7 +548,7 @@ export async function PUT(request: NextRequest) {
           });
           if (preTxMirrorEmi) {
             const storedInterest = Number(preTxMirrorEmi.interestAmount || 0);
-            const alreadyPaid    = Number(preTxMirrorEmi.paidInterest  || 0);
+            const alreadyPaid = Number(preTxMirrorEmi.paidInterest || 0);
             let remainingInterest = Math.max(0, storedInterest - alreadyPaid);
 
             // FALLBACK: If stored interestAmount is null/0 (broken deferred chain),
@@ -562,9 +562,9 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            preTxMirrorInterest  = remainingInterest;
+            preTxMirrorInterest = remainingInterest;
             preTxMirrorPrincipal = Math.max(0, Number(preTxMirrorEmi.principalAmount || 0) - Number(preTxMirrorEmi.paidPrincipal || 0));
-            preTxMirrorTotal     = Math.round((preTxMirrorInterest + preTxMirrorPrincipal) * 100) / 100;
+            preTxMirrorTotal = Math.round((preTxMirrorInterest + preTxMirrorPrincipal) * 100) / 100;
             console.log(`[PR IO Pre-TX] Mirror EMI #${emi.installmentNumber}: I=₹${preTxMirrorInterest} P=₹${preTxMirrorPrincipal} T=₹${preTxMirrorTotal} storedInterest=₹${storedInterest}`);
           }
         }
@@ -588,10 +588,10 @@ export async function PUT(request: NextRequest) {
         if (paymentRequest.paymentType === 'FULL_EMI') {
           // When a partially-paid EMI is settled, only the remaining amounts are being paid now.
           // emi.paidInterest / emi.paidPrincipal track what was already collected in partial(s).
-          const alreadyPaidInterest  = emi.paidInterest  || 0;
+          const alreadyPaidInterest = emi.paidInterest || 0;
           const alreadyPaidPrincipal = emi.paidPrincipal || 0;
-          const remainingInterest    = Math.max(0, emi.interestAmount  - alreadyPaidInterest);
-          const remainingPrincipal   = Math.max(0, emi.principalAmount - alreadyPaidPrincipal);
+          const remainingInterest = Math.max(0, emi.interestAmount - alreadyPaidInterest);
+          const remainingPrincipal = Math.max(0, emi.principalAmount - alreadyPaidPrincipal);
 
           const newEmiStatus = 'PAID';
 
@@ -702,7 +702,7 @@ export async function PUT(request: NextRequest) {
               proofUrl: paymentRequest.proofUrl
             }
           });
-        } 
+        }
         else if (paymentRequest.paymentType === 'PARTIAL_PAYMENT') {
           const partialAmount = paymentRequest.partialAmount || 0;
           const remainingAmount = paymentRequest.remainingAmount || (emi.totalAmount - partialAmount);
@@ -714,14 +714,14 @@ export async function PUT(request: NextRequest) {
           // IMPORTANT: subtract already-paid interest (from a previous partial) so interest
           // is NEVER charged more than once across multiple partial payments on the same EMI.
           const interestAlreadyPaid = emi.paidInterest || 0;
-          const remainingInterest   = Math.max(0, emi.interestAmount - interestAlreadyPaid);
+          const remainingInterest = Math.max(0, emi.interestAmount - interestAlreadyPaid);
           let paidPrincipal: number;
           let paidInterest: number;
           if (partialAmount <= remainingInterest) {
-            paidInterest  = partialAmount;
+            paidInterest = partialAmount;
             paidPrincipal = 0;
           } else {
-            paidInterest  = remainingInterest;
+            paidInterest = remainingInterest;
             paidPrincipal = Math.round((partialAmount - remainingInterest) * 100) / 100;
           }
 
@@ -778,8 +778,8 @@ export async function PUT(request: NextRequest) {
           const requestedAmt = paymentRequest.requestedAmount || 0;
           // For original loan schedule update, use original EMI interest
           const remainingInterestIO = (emi.interestAmount || 0) - (emi.paidInterest || 0);
-          const interestToCollect   = Math.max(0, remainingInterestIO);
-          
+          const interestToCollect = Math.max(0, remainingInterestIO);
+
           // Mark current EMI as interest-only paid, principal deferred
           await tx.eMISchedule.update({
             where: { id: emi.id },
@@ -852,7 +852,7 @@ export async function PUT(request: NextRequest) {
             }
 
             const deferredPrincipal = Math.max(0, Number(emi.principalAmount || 0) - Number(emi.paidPrincipal || 0));
-            const deferredInterest  = Number(emi.interestAmount  || 0);
+            const deferredInterest = Number(emi.interestAmount || 0);
             await tx.eMISchedule.create({
               data: {
                 loanApplicationId: loanId, installmentNumber: emi.installmentNumber + 1, dueDate: newEmiDueDate, originalDueDate: newEmiDueDate,
@@ -861,7 +861,7 @@ export async function PUT(request: NextRequest) {
                 paymentStatus: 'PENDING', principalDeferred: true, originalEMIId: emi.id, duplicatedEMINumber: emi.installmentNumber,
                 isInterestOnly: true,
                 interestOnlyAmount: Math.round(deferredInterest * 100) / 100,
-                notes: `Deferred from Interest-Only on EMI #${emi.installmentNumber}. P:₹${deferredPrincipal}+I:₹${Math.round(deferredInterest*100)/100}. Due:${newEmiDueDate.toISOString().split('T')[0]}`
+                notes: `Deferred from Interest-Only on EMI #${emi.installmentNumber}. P:₹${deferredPrincipal}+I:₹${Math.round(deferredInterest * 100) / 100}. Due:${newEmiDueDate.toISOString().split('T')[0]}`
               }
             });
 
@@ -909,10 +909,10 @@ export async function PUT(request: NextRequest) {
                 await tx.eMISchedule.update({
                   where: { id: mirrorEMI.id },
                   data: {
-                    paymentStatus: 'INTEREST_ONLY_PAID', 
+                    paymentStatus: 'INTEREST_ONLY_PAID',
                     paidAmount: (mirrorEMI.paidAmount || 0) + mRemainingInterest,
-                    paidPrincipal: mirrorEMI.paidPrincipal || 0, 
-                    paidInterest: (mirrorEMI.paidInterest || 0) + mRemainingInterest, 
+                    paidPrincipal: mirrorEMI.paidPrincipal || 0,
+                    paidInterest: (mirrorEMI.paidInterest || 0) + mRemainingInterest,
                     paidDate: new Date(), isInterestOnly: true, principalDeferred: true,
                     interestOnlyAmount: mRemainingInterest,
                     notes: `Interest only synced from PR ${paymentRequest.requestNumber}`
@@ -1047,7 +1047,7 @@ export async function PUT(request: NextRequest) {
                 pageNameForDesc = ` (via ${spPage.name})`;
               }
             }
-          } catch(e) {}
+          } catch (e) { }
         }
 
         const reviewerUser = await db.user.findUnique({
@@ -1056,28 +1056,30 @@ export async function PUT(request: NextRequest) {
         });
         if (reviewerUser) {
           const newPersonal = (reviewerUser.personalCredit || 0) + paidAmtForNotif;
-          const newTotal    = (reviewerUser.credit         || 0) + paidAmtForNotif;
+          const newTotal = (reviewerUser.credit || 0) + paidAmtForNotif;
           await db.user.update({
             where: { id: creditUserId },
             data: { personalCredit: newPersonal, credit: newTotal }
           });
-          await db.creditTransaction.create({ data: {
-            // @ts-ignore
-            userId:               creditUserId,
-            transactionType:      'PERSONAL_COLLECTION',
-            amount:               paidAmtForNotif,
-            paymentMode:          'UPI',
-            creditType:           'PERSONAL',
-            sourceType:           'EMI_PAYMENT',
-            balanceAfter:         newTotal,
-            personalBalanceAfter: newPersonal,
-            companyBalanceAfter:  reviewerUser.companyCredit || 0,
-            loanApplicationId:    paymentRequest.loanApplicationId,
-            emiScheduleId:        emi?.id,
-            installmentNumber:    emi?.installmentNumber,
-            description:          `PR#${paymentRequest.requestNumber} approved — ${isExtraEmi ? '⭐ Extra EMI' : typeLabel} ₹${paidAmtForNotif.toFixed(2)} for ${appNo}${pageNameForDesc}`,
-            transactionDate:      new Date()
-          }});
+          await db.creditTransaction.create({
+            data: {
+              // @ts-ignore
+              userId: creditUserId,
+              transactionType: 'PERSONAL_COLLECTION',
+              amount: paidAmtForNotif,
+              paymentMode: 'UPI',
+              creditType: 'PERSONAL',
+              sourceType: 'EMI_PAYMENT',
+              balanceAfter: newTotal,
+              personalBalanceAfter: newPersonal,
+              companyBalanceAfter: reviewerUser.companyCredit || 0,
+              loanApplicationId: paymentRequest.loanApplicationId,
+              emiScheduleId: emi?.id,
+              installmentNumber: emi?.installmentNumber,
+              description: `PR#${paymentRequest.requestNumber} approved — ${isExtraEmi ? '⭐ Extra EMI' : typeLabel} ₹${paidAmtForNotif.toFixed(2)} for ${appNo}${pageNameForDesc}`,
+              transactionDate: new Date()
+            }
+          });
           console.log(`[PR Credit] +₹${paidAmtForNotif} personal credit → user ${creditUserId}`);
         }
       } catch (creditErr) {
@@ -1628,9 +1630,9 @@ export async function PUT(request: NextRequest) {
           await db.paymentRequest.update({
             where: { id: paymentRequestId },
             data: {
-              status:       'PENDING',
+              status: 'PENDING',
               reviewedById: null,
-              reviewedAt:   null,
+              reviewedAt: null,
               reviewRemarks: `[AUTO-REVERTED] Accounting failed: ${(accErr as Error)?.message?.slice(0, 200)}`
             }
           });
@@ -1652,10 +1654,10 @@ export async function PUT(request: NextRequest) {
             where: { id: emi.id },
             data: {
               paymentStatus: revertedStatus,
-              paidAmount:    revertedPaidAmount,
+              paidAmount: revertedPaidAmount,
               paidPrincipal: Math.max(0, (emi.paidPrincipal || 0) - (paymentRecord?.principalComponent || 0)),
-              paidInterest:  Math.max(0, (emi.paidInterest  || 0) - (paymentRecord?.interestComponent  || 0)),
-              paidDate:      revertedPaidAmount > 0 ? emi.paidDate : null,
+              paidInterest: Math.max(0, (emi.paidInterest || 0) - (paymentRecord?.interestComponent || 0)),
+              paidDate: revertedPaidAmount > 0 ? emi.paidDate : null,
             }
           });
 
@@ -1676,13 +1678,13 @@ export async function PUT(request: NextRequest) {
       }
 
 
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'Payment request approved successfully',
-        paymentRequest: result 
+        paymentRequest: result
       });
 
-    } 
+    }
     else if (action === 'reject') {
       const updated = await db.paymentRequest.update({
         where: { id: paymentRequestId },
@@ -1705,10 +1707,10 @@ export async function PUT(request: NextRequest) {
         }
       });
 
-      return NextResponse.json({ 
-        success: true, 
+      return NextResponse.json({
+        success: true,
         message: 'Payment request rejected',
-        paymentRequest: updated 
+        paymentRequest: updated
       });
     }
 

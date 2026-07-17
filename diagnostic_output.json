@@ -1,0 +1,1385 @@
+{
+  "companies": [
+    {
+      "id": "cmp4w8dx100021006f6e0c1il",
+      "name": "PD RANGANI",
+      "code": "C3",
+      "isMirrorCompany": false
+    },
+    {
+      "id": "cmp4w8dx70005100660bx4vh8",
+      "name": "MONEY MITRA FINANCIAL ADVISOR",
+      "code": "C1",
+      "isMirrorCompany": true
+    },
+    {
+      "id": "cmp4w8dxa0008100655jq7ywo",
+      "name": "KESARDEEP FINANCIAL ADVISOR",
+      "code": "C2",
+      "isMirrorCompany": true
+    }
+  ],
+  "loans": [
+    {
+      "id": "cmrnlqgtv000t6n6du5lulvln",
+      "applicationNo": "C3PL00001",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "customerId": "cmrnlph03000o6n6dxkifsvbh",
+      "status": "ACTIVE",
+      "requestedAmount": 100000,
+      "loanAmount": null,
+      "processingFee": null,
+      "disbursedAmount": 10000,
+      "disbursedAt": "2026-07-16T14:57:06.971Z",
+      "disbursementMode": "BANK_TRANSFER"
+    },
+    {
+      "id": "cmrnmufy0004x6n6d3bvgueq3",
+      "applicationNo": "C2PL00001",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "customerId": "cmrnlph03000o6n6dxkifsvbh",
+      "status": "ACTIVE",
+      "requestedAmount": 10000,
+      "loanAmount": null,
+      "processingFee": null,
+      "disbursedAmount": 10000,
+      "disbursedAt": "2026-07-16T14:57:07.127Z",
+      "disbursementMode": null
+    }
+  ],
+  "cashBooks": [
+    {
+      "id": "cmrnlp37n000l6n6d4giuapa0",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "openingBalance": 0,
+      "currentBalance": 500000,
+      "lastUpdatedById": null,
+      "lastUpdatedAt": null,
+      "createdAt": "2026-07-16T14:24:57.731Z",
+      "updatedAt": "2026-07-16T14:24:57.733Z"
+    }
+  ],
+  "bankAccounts": [
+    {
+      "id": "cmrnloojq00066n6dnze8hrq7",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "bankName": "BOB",
+      "accountNumber": "BOB",
+      "accountName": "BOB",
+      "ownerName": "BOB",
+      "branchName": "BOB",
+      "ifscCode": "BOB",
+      "accountType": "CURRENT",
+      "openingBalance": 0,
+      "currentBalance": 500000,
+      "isActive": true,
+      "isDefault": true,
+      "upiId": "BOB",
+      "qrCodeUrl": "data:image/webp;base64,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",
+      "createdAt": "2026-07-16T14:24:38.727Z",
+      "updatedAt": "2026-07-16T14:24:57.729Z"
+    }
+  ],
+  "journalEntries": [
+    {
+      "id": "cmrnlp37g000d6n6dqt5unrwn",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "entryNumber": "JE000001",
+      "entryDate": "2026-07-16T00:00:00.000Z",
+      "referenceType": "EQUITY_INVESTMENT",
+      "referenceId": "cmp4w8dxa0008100655jq7ywo-EQ-1784211897723",
+      "narration": "Owner's Capital Investment",
+      "totalDebit": 1000000,
+      "totalCredit": 1000000,
+      "isAutoEntry": true,
+      "isReversed": false,
+      "reversedById": null,
+      "reversedAt": null,
+      "isApproved": true,
+      "approvedById": null,
+      "approvedAt": null,
+      "createdById": "cmnom4wa50005dc78kqo9nvgf",
+      "createdAt": "2026-07-16T14:24:57.724Z",
+      "updatedAt": "2026-07-16T14:24:57.724Z",
+      "paymentMode": "BANK_TRANSFER",
+      "chequeNumber": null,
+      "chequeDate": null,
+      "bankRefNumber": null,
+      "bankAccountId": null,
+      "lines": [
+        {
+          "id": "cmrnlp37g000f6n6d8jkhnhh1",
+          "journalEntryId": "cmrnlp37g000d6n6dqt5unrwn",
+          "accountId": "cmp78ou1k001g108905xay89g",
+          "debitAmount": 500000,
+          "creditAmount": 0,
+          "narration": "Cash capital investment",
+          "loanId": null,
+          "customerId": null,
+          "runningBalance": 0,
+          "balanceType": null,
+          "createdAt": "2026-07-16T14:24:57.724Z",
+          "account": {
+            "accountCode": "1101",
+            "accountName": "Cash in Hand",
+            "accountType": "ASSET"
+          }
+        },
+        {
+          "id": "cmrnlp37g000g6n6d03kdafeu",
+          "journalEntryId": "cmrnlp37g000d6n6dqt5unrwn",
+          "accountId": "cmrnlp37b000a6n6dnn683fxs",
+          "debitAmount": 500000,
+          "creditAmount": 0,
+          "narration": "Bank capital investment",
+          "loanId": null,
+          "customerId": null,
+          "runningBalance": 0,
+          "balanceType": null,
+          "createdAt": "2026-07-16T14:24:57.724Z",
+          "account": {
+            "accountCode": "1401",
+            "accountName": "BOB - BOB",
+            "accountType": "ASSET"
+          }
+        },
+        {
+          "id": "cmrnlp37g000h6n6dd0bwp1wf",
+          "journalEntryId": "cmrnlp37g000d6n6dqt5unrwn",
+          "accountId": "cmp78ou1k002r10892f1z2xf2",
+          "debitAmount": 0,
+          "creditAmount": 1000000,
+          "narration": "Owner's Capital Investment",
+          "loanId": null,
+          "customerId": null,
+          "runningBalance": 0,
+          "balanceType": null,
+          "createdAt": "2026-07-16T14:24:57.724Z",
+          "account": {
+            "accountCode": "3002",
+            "accountName": "Owner's Capital",
+            "accountType": "EQUITY"
+          }
+        }
+      ]
+    }
+  ],
+  "chartOfAccounts": [
+    {
+      "id": "cmp78ou1d00021089xk7xm7l7",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1101",
+      "accountName": "Cash in Hand",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d00031089q6iswzfh",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1102",
+      "accountName": "Bank Account",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000410891szu4tkw",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1200",
+      "accountName": "Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d00051089xpah7oqs",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1201",
+      "accountName": "Online Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d00061089kpj0jv9e",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1210",
+      "accountName": "Offline Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d00071089wlxmao6w",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1301",
+      "accountName": "Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d00081089kkiamdjh",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1302",
+      "accountName": "Processing Fee Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000910898tlw9exg",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1303",
+      "accountName": "Penalty Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000a10890et9chpz",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1304",
+      "accountName": "Other Receivables",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000b1089f9chu4oc",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1500",
+      "accountName": "Fixed Assets",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000c10896pap3vpv",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1501",
+      "accountName": "Furniture & Fixtures",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000d1089dy4yxytq",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1502",
+      "accountName": "Office Equipment",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1d000e1089zp8g2nki",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2100",
+      "accountName": "Accounts Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000f1089vvl8yjlt",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2101",
+      "accountName": "Bank Loans",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000g1089x6z2c8o3",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2110",
+      "accountName": "Investor Capital",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000h1089rbnumsae",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2120",
+      "accountName": "Borrowed Funds",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000i1089twyusbg8",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2130",
+      "accountName": "Agent Commission Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000j1089prfror35",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2201",
+      "accountName": "GST Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000k1089hgg9bm0r",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "2202",
+      "accountName": "TDS Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1d000l1089ggro875a",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4100",
+      "accountName": "Interest Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000m1089e6datxdp",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4110",
+      "accountName": "Interest on Loans",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000n10899us2jykn",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4120",
+      "accountName": "Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000o1089zioqfbmb",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4121",
+      "accountName": "Processing Fees",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000p1089bm7h797k",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4122",
+      "accountName": "Late Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000q1089ek34c7pn",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4123",
+      "accountName": "Bounce Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000r1089tdj8bh2i",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4124",
+      "accountName": "Foreclosure Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000s108945ovxy8n",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4125",
+      "accountName": "Penalty Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000t1089820cmi12",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4300",
+      "accountName": "Other Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000u1089bow966y5",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "4301",
+      "accountName": "Commission Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1d000v1089hlp1nert",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5100",
+      "accountName": "Operating Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d000w1089ezfskgqh",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5101",
+      "accountName": "Salaries & Wages",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d000x10897uxjpu5h",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5102",
+      "accountName": "Rent Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d000y1089pnucn3z4",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5103",
+      "accountName": "Electricity & Utilities",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d000z1089e2h0rvb5",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5104",
+      "accountName": "Office Supplies",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00101089f3viau7n",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5105",
+      "accountName": "Communication Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00111089sg1ia6cb",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5106",
+      "accountName": "Travel & Conveyance",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00121089h9ho2alg",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5107",
+      "accountName": "Marketing Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d001310892wz99ur9",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5200",
+      "accountName": "Financial Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d0014108987ap946r",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5201",
+      "accountName": "Interest Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00151089j9ta3lhc",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5202",
+      "accountName": "Commission Paid",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00161089x7uvzikd",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5203",
+      "accountName": "Bank Charges",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00171089ou6dpou9",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5300",
+      "accountName": "Depreciation",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00181089nmihsd8y",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5301",
+      "accountName": "Depreciation - Furniture",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d00191089bamgoq61",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "5302",
+      "accountName": "Depreciation - Equipment",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1d001c1089yayi8x8w",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "3001",
+      "accountName": "Opening Balance Equity",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1d001d1089f5u3ntj9",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "3002",
+      "accountName": "Owner's Capital",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1d001e10890s3t6a1p",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "3003",
+      "accountName": "Retained Earnings",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1d001f1089yhrculmk",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "3004",
+      "accountName": "Current Year Profit/Loss",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1k001g108905xay89g",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1101",
+      "accountName": "Cash in Hand",
+      "currentBalance": 500000,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001h1089l7ao6zv1",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1102",
+      "accountName": "Bank Account",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001i1089k8kv153d",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1200",
+      "accountName": "Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001j1089ly1oi2iq",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1201",
+      "accountName": "Online Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001k1089fey8dl8j",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1210",
+      "accountName": "Offline Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001l10893iasi84t",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1301",
+      "accountName": "Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001m1089d3he3kks",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1302",
+      "accountName": "Processing Fee Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001n1089on3detws",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1303",
+      "accountName": "Penalty Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001o1089o69prq8h",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1304",
+      "accountName": "Other Receivables",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001p1089samo695i",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1500",
+      "accountName": "Fixed Assets",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001q10891qz47e1y",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1501",
+      "accountName": "Furniture & Fixtures",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001r1089g4j7b8qn",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1502",
+      "accountName": "Office Equipment",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1k001s1089ztq77bzk",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2100",
+      "accountName": "Accounts Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001t1089un6cfde4",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2101",
+      "accountName": "Bank Loans",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001u1089mk44o1dn",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2110",
+      "accountName": "Investor Capital",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001v1089tyfozn4m",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2120",
+      "accountName": "Borrowed Funds",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001w1089ma78ler5",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2130",
+      "accountName": "Agent Commission Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001x1089sj3nhzpx",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2201",
+      "accountName": "GST Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001y1089jd9goegu",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "2202",
+      "accountName": "TDS Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1k001z10895cwkc3u8",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4100",
+      "accountName": "Interest Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k002010891q9zy156",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4110",
+      "accountName": "Interest on Loans",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k002110899lz03dxp",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4120",
+      "accountName": "Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00221089xa14jp3m",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4121",
+      "accountName": "Processing Fees",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00231089hlcg6zt2",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4122",
+      "accountName": "Late Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k0024108947bov64n",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4123",
+      "accountName": "Bounce Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00251089dab6eycx",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4124",
+      "accountName": "Foreclosure Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00261089g8mxab8x",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4125",
+      "accountName": "Penalty Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00271089x36um4x4",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4300",
+      "accountName": "Other Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00281089wxbmum50",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "4301",
+      "accountName": "Commission Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1k00291089ti5k0ejk",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5100",
+      "accountName": "Operating Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002a1089ch83ww6v",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5101",
+      "accountName": "Salaries & Wages",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002b10895bu5ufxi",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5102",
+      "accountName": "Rent Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002c10899ruu83o2",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5103",
+      "accountName": "Electricity & Utilities",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002d10896c3piufe",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5104",
+      "accountName": "Office Supplies",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002e1089yqqkeskj",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5105",
+      "accountName": "Communication Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002f1089ies35ggu",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5106",
+      "accountName": "Travel & Conveyance",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002g1089abo940a2",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5107",
+      "accountName": "Marketing Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002h1089i43n8l1c",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5200",
+      "accountName": "Financial Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002i1089rmyj1fr3",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5201",
+      "accountName": "Interest Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002j1089ulrpnzj4",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5202",
+      "accountName": "Commission Paid",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002k1089cg0bn7rk",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5203",
+      "accountName": "Bank Charges",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002l1089g28l6hwh",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5300",
+      "accountName": "Depreciation",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002m108908uz6xhq",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5301",
+      "accountName": "Depreciation - Furniture",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002n1089952s3r72",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5302",
+      "accountName": "Depreciation - Equipment",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1k002q1089iasnnv8a",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "3001",
+      "accountName": "Opening Balance Equity",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1k002r10892f1z2xf2",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "3002",
+      "accountName": "Owner's Capital",
+      "currentBalance": 1000000,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1k002s10890dt3seqj",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "3003",
+      "accountName": "Retained Earnings",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1k002t1089b8ioh9a9",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "3004",
+      "accountName": "Current Year Profit/Loss",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1r002u1089reflub87",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1101",
+      "accountName": "Cash in Hand",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r002v1089kypszmsj",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1102",
+      "accountName": "Bank Account",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r002w1089iurlwwmw",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1200",
+      "accountName": "Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r002x1089ddqwac5i",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1201",
+      "accountName": "Online Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r002y1089peszb3fe",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1210",
+      "accountName": "Offline Loans Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r002z1089ibj276pa",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1301",
+      "accountName": "Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r00301089j1vag0cw",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1302",
+      "accountName": "Processing Fee Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r00311089hry2mmp2",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1303",
+      "accountName": "Penalty Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r003210893257ece3",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1304",
+      "accountName": "Other Receivables",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r00331089n53fknhy",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1500",
+      "accountName": "Fixed Assets",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r0034108929cpg26p",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1501",
+      "accountName": "Furniture & Fixtures",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r00351089tdk8enot",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1502",
+      "accountName": "Office Equipment",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmp78ou1r003610897f9j6pn1",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2100",
+      "accountName": "Accounts Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r00371089qnj43lj0",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2101",
+      "accountName": "Bank Loans",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r00381089kvjllple",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2110",
+      "accountName": "Investor Capital",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r00391089v2cmaz75",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2120",
+      "accountName": "Borrowed Funds",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r003a1089a85w6zvx",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2130",
+      "accountName": "Agent Commission Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r003b1089d2h5qf5x",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2201",
+      "accountName": "GST Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r003c1089xgpr4p2c",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "2202",
+      "accountName": "TDS Payable",
+      "currentBalance": 0,
+      "accountType": "LIABILITY"
+    },
+    {
+      "id": "cmp78ou1r003d1089whj1i1gr",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4100",
+      "accountName": "Interest Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003e108988hn93no",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4110",
+      "accountName": "Interest on Loans",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003f1089ocks2r8k",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4120",
+      "accountName": "Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003g10894qzzgtey",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4121",
+      "accountName": "Processing Fees",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003h1089jz7lhoh6",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4122",
+      "accountName": "Late Fee Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003i1089ixpsnlbx",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4123",
+      "accountName": "Bounce Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003j1089iiof0luw",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4124",
+      "accountName": "Foreclosure Charges Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003k10890157fyji",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4125",
+      "accountName": "Penalty Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003l10894s1efldb",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4300",
+      "accountName": "Other Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003m1089ni5jx29v",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "4301",
+      "accountName": "Commission Income",
+      "currentBalance": 0,
+      "accountType": "INCOME"
+    },
+    {
+      "id": "cmp78ou1r003n1089zkiywnji",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5100",
+      "accountName": "Operating Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003o1089tvidtrqc",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5101",
+      "accountName": "Salaries & Wages",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003p1089te2q2vh7",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5102",
+      "accountName": "Rent Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003q1089pgi29too",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5103",
+      "accountName": "Electricity & Utilities",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003r1089iht1dvti",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5104",
+      "accountName": "Office Supplies",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003s1089vrv5shy3",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5105",
+      "accountName": "Communication Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003t1089t8qca6bw",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5106",
+      "accountName": "Travel & Conveyance",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003u1089dky2ufjw",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5107",
+      "accountName": "Marketing Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003v1089mdsd43ed",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5200",
+      "accountName": "Financial Expenses",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003w1089o83httuy",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5201",
+      "accountName": "Interest Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003x1089mg6hb84t",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5202",
+      "accountName": "Commission Paid",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003y1089yfspw45h",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5203",
+      "accountName": "Bank Charges",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r003z1089qrjxfikd",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5300",
+      "accountName": "Depreciation",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r004010894y6ddk7u",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5301",
+      "accountName": "Depreciation - Furniture",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r00411089gy7oz3ih",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5302",
+      "accountName": "Depreciation - Equipment",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmp78ou1r00441089tl7jp9la",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "3001",
+      "accountName": "Opening Balance Equity",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1r00451089h5x2nkym",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "3002",
+      "accountName": "Owner's Capital",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1r00461089c2fqxznl",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "3003",
+      "accountName": "Retained Earnings",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmp78ou1r00471089lgefujqn",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "3004",
+      "accountName": "Current Year Profit/Loss",
+      "currentBalance": 0,
+      "accountType": "EQUITY"
+    },
+    {
+      "id": "cmpviiruq0016xkiyrwsw1d4j",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1305",
+      "accountName": "Overdue Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmpwaa9st0021m1lqx6tsjd7s",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "1305",
+      "accountName": "Overdue Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmpzb8c2s000btypz5pd19uh3",
+      "companyId": "cmp4w8dx70005100660bx4vh8",
+      "accountCode": "1305",
+      "accountName": "Overdue Interest Receivable",
+      "currentBalance": 0,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmrnlp37400076n6d0shn7jad",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5400",
+      "accountName": "Miscellaneous Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmrnlp37400086n6dk5xzbna8",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "5500",
+      "accountName": "Irrecoverable Debt",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmrnlp37b000a6n6dnn683fxs",
+      "companyId": "cmp4w8dxa0008100655jq7ywo",
+      "accountCode": "1401",
+      "accountName": "BOB - BOB",
+      "currentBalance": 500000,
+      "accountType": "ASSET"
+    },
+    {
+      "id": "cmrnmuftt003d6n6dgxx7lb97",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5400",
+      "accountName": "Miscellaneous Expense",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    },
+    {
+      "id": "cmrnmuftt003e6n6dfky9n1tr",
+      "companyId": "cmp4w8dx100021006f6e0c1il",
+      "accountCode": "5500",
+      "accountName": "Irrecoverable Debt",
+      "currentBalance": 0,
+      "accountType": "EXPENSE"
+    }
+  ]
+}

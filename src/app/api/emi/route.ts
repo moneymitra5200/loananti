@@ -1217,8 +1217,23 @@ export async function PUT(request: NextRequest) {
         }
 
         // ── PROCESSING FEE JOURNAL ENTRY on first EMI (EMI #1) ──
-        // Same logic as offline loans: when installment #1 is paid, record the processing fee
-        const processingFeeAmount = emi.loanApplication?.sessionForm?.processingFee || 0;
+        // For mirror loans, use mirrorProcessingFee from MirrorLoanMapping (NOT the original sessionForm.processingFee)
+        // For non-mirror loans, fall back to the session form processing fee
+        let processingFeeAmount = 0;
+        if (acctIsMirror) {
+          // Look up the mirror-specific processing fee from the mapping
+          try {
+            const pfMapping = await db.mirrorLoanMapping.findFirst({
+              where: { mirrorLoanId: acctMirrorLoanId || undefined },
+              select: { mirrorProcessingFee: true }
+            });
+            processingFeeAmount = pfMapping?.mirrorProcessingFee || 0;
+          } catch (pfLookupErr) {
+            console.warn('[EMI API] Failed to look up mirrorProcessingFee, falling back to 0:', pfLookupErr);
+          }
+        } else {
+          processingFeeAmount = emi.loanApplication?.sessionForm?.processingFee || 0;
+        }
         if (emi.installmentNumber === 1 && processingFeeAmount > 0 && acctCompanyId) {
           try {
             const pfService = new AccountingService(acctCompanyId);
@@ -1275,7 +1290,11 @@ export async function PUT(request: NextRequest) {
         } // end processing fee block
 
         // ── BANK / CASHBOOK PASSBOOK UPDATE (routes to acctCompanyId: mirror or original) ────
-        if (capturedPaymentId && acctCompanyId) {
+        // IMPORTANT: For mirror EMI payments, simple-accounting.ts (recordEMIPaymentAccounting)
+        // already creates the CashBook/BankTransaction entry inside the mirror path.
+        // Repeating it here would cause a double-entry in the mirror company's passbook.
+        // Only run this block for NON-mirror (original company) payments.
+        if (capturedPaymentId && acctCompanyId && !acctIsMirror) {
           try {
             const isCash = actualPaymentMode === 'CASH';
             const loanAppNo = emi.loanApplication?.applicationNo || loanId;

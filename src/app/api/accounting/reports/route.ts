@@ -434,7 +434,10 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
       // Always use EquityEntry-derived actualCapital (source of truth) instead of stale CoA balance
       balance = actualCapital !== 0 ? actualCapital : balance;
     }
-    if (acc.accountCode === '1200') balance = actualOnlineLoans + actualOfflineLoans;
+    // NOTE: 1200 is a parent/summary account. Its sub-accounts (1201 Online Loans, 1210 Offline Loans)
+    // are listed individually in the balance sheet assets array. Setting 1200 to 0 here prevents
+    // double-counting the loan portfolio in totalAssets. The individual sub-account lines carry the value.
+    if (acc.accountCode === '1200') balance = 0;
 
     accountBalances[acc.accountCode] = balance;
   }

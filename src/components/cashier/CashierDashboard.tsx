@@ -322,6 +322,8 @@ export default function CashierDashboard() {
   const [showOfflineLoanPanel, setShowOfflineLoanPanel] = useState(false);
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  // CashBooks list for all companies
+  const [allCashBooks, setAllCashBooks] = useState<any[]>([]);
   const { settings } = useSettings();
   const { settings: systemSettings } = useSystemSettings();
   const [pendingPaymentRequestCount, setPendingPaymentRequestCount] = useState(0);
@@ -430,8 +432,9 @@ export default function CashierDashboard() {
         setActiveLoans(loansStore.activeLoans as Loan[]);
       }
       setLoading(false);
-      // Still fetch bank accounts
+      // Still fetch bank accounts & cash books
       fetchBankAccounts();
+      fetchCashBooks();
       return;
     }
 
@@ -439,17 +442,19 @@ export default function CashierDashboard() {
     try {
       // PARALLEL FETCH
       const ncParam = forceRefresh ? '?noCache=true&' : '?';
-      const [loansRes, allActiveRes, bankAccountsRes] = await Promise.all([
+      const [loansRes, allActiveRes, bankAccountsRes, cashBooksRes] = await Promise.all([
         fetch(`/api/loan/list?role=CASHIER&${ncParam.replace('?', '')}_t=${Date.now()}`),
         fetch(`/api/loan/all-active${ncParam}_t=${Date.now()}`),
-        fetch(`/api/accounting/bank-accounts?_t=${Date.now()}`)
+        fetch(`/api/accounting/bank-accounts?_t=${Date.now()}`),
+        fetch(`/api/cashbook?_t=${Date.now()}`)
       ]);
 
       // Process responses in parallel
-      const [loansData, allActiveData, bankAccountsData] = await Promise.all([
+      const [loansData, allActiveData, bankAccountsData, cashBooksData] = await Promise.all([
         loansRes.json(),
         allActiveRes.json(),
-        bankAccountsRes.json()
+        bankAccountsRes.json(),
+        cashBooksRes.json()
       ]);
 
       const loansList = loansData.loans || [];
@@ -462,6 +467,7 @@ export default function CashierDashboard() {
       setLoans(loansList);
       setActiveLoans(activeLoansList);
       setBankAccounts(bankAccountsData.bankAccounts || []);
+      setAllCashBooks(cashBooksData.cashBooks || []);
       
       // Set default bank account
       const defaultAccount = bankAccountsData.bankAccounts?.find((a: BankAccount) => a.isDefault);
@@ -478,6 +484,18 @@ export default function CashierDashboard() {
 
   const fetchLoans = async () => {
     fetchAllData();
+  };
+
+  const fetchCashBooks = async () => {
+    try {
+      const response = await fetch(`/api/cashbook?_t=${Date.now()}`);
+      const data = await response.json();
+      if (data.success && data.cashBooks) {
+        setAllCashBooks(data.cashBooks || []);
+      }
+    } catch (error) {
+      console.error('Error fetching cash books:', error);
+    }
   };
 
   const fetchActiveLoans = async () => {
@@ -696,11 +714,7 @@ export default function CashierDashboard() {
       return;
     }
     
-    if (disbursementForm.disbursedAmount > remainingLimit) {
-      console.error('[handleDisburse] Amount exceeds limit');
-      toast({ title: 'Error', description: 'Amount exceeds daily limit', variant: 'destructive' });
-      return;
-    }
+    // Limit check bypassed - disbursements are unlimited
     
     // Check for Secondary Payment Page selection (required for all mirror loans and Company 3)
     if ((mirrorLoanInfo?.isMirrorLoan || isCompany3) && !disbursementForm.extraEMIPaymentPageId) {
@@ -970,13 +984,10 @@ export default function CashierDashboard() {
   const originalActiveLoans = (activeLoans as any[]).filter(l => !l.isMirrorLoan);
   const mirrorActiveLoans = (activeLoans as any[]).filter(l => l.isMirrorLoan);
 
-  // FIX-07: real remaining limit uses totalDisbursedToday computed from actual loans
-  const actualRemainingLimit = dailyLimit - totalDisbursedToday;
-
   const stats = [
     { label: 'Ready for Disbursement', value: readyForDisbursement.length, icon: CreditCard, color: 'text-green-600', bg: 'bg-green-50', onClick: () => setActiveTab('pending') },
     { label: 'Today\'s Disbursement', value: formatCurrency(totalDisbursedToday), icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Remaining Daily Limit', value: formatCurrency(actualRemainingLimit), icon: Banknote, color: actualRemainingLimit < dailyLimit * 0.2 ? 'text-red-600' : 'text-purple-600', bg: actualRemainingLimit < dailyLimit * 0.2 ? 'bg-red-50' : 'bg-purple-50' },
+    { label: 'Disbursement Limit', value: 'Unlimited', icon: Banknote, color: 'text-purple-600', bg: 'bg-purple-50' },
     { label: 'Total Disbursed', value: formatCurrency(totalDisbursedAll), icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50', onClick: () => setActiveTab('history') }
   ];
 
@@ -1431,18 +1442,18 @@ export default function CashierDashboard() {
             {/* Today Credit Panel */}
             <TodayCreditPanel userRole={user?.role} userId={user?.id} />
 
-            {/* Bank Balance Summary */}
-            {bankAccounts.length > 0 && (
-              <Card className="border-0 shadow-sm">
+            {/* Bank & Cash Balances Summary */}
+            {(bankAccounts.length > 0 || allCashBooks.length > 0) && (
+              <Card className="border-0 shadow-sm bg-white">
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Landmark className="h-5 w-5 text-blue-600" />
-                    Bank Accounts
+                    Bank & Cash Balances
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid md:grid-cols-3 gap-4">
-                    {bankAccounts.slice(0, 3).map(account => (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {bankAccounts.map(account => (
                       <div key={account.id} className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100">
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium text-gray-900">{account.bankName}</span>
@@ -1452,32 +1463,20 @@ export default function CashierDashboard() {
                         <p className="text-xl font-bold text-blue-600">{formatCurrency(account.currentBalance)}</p>
                       </div>
                     ))}
+                    {allCashBooks.map(cb => (
+                      <div key={cb.id} className="p-4 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-gray-900">Cash: {cb.company?.name || 'Company'}</span>
+                          <Badge className="bg-amber-500 text-xs text-white">Cash in Hand</Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-1">Company Code: {cb.company?.code || 'N/A'}</p>
+                        <p className="text-xl font-bold text-amber-600">{formatCurrency(cb.currentBalance)}</p>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>
             )}
-
-            {/* Daily Limit Progress */}
-            <Card className="border-0 shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Daily Limit Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Used: {formatCurrency(totalDisbursedToday)}</span>
-                    <span>Limit: {formatCurrency(dailyLimit)}</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-3">
-                    <div 
-                      className="bg-gradient-to-r from-orange-500 to-red-500 h-3 rounded-full transition-all" 
-                      style={{ width: `${Math.min((totalDisbursedToday / dailyLimit) * 100, 100)}%` }} 
-                    />
-                  </div>
-                  <p className="text-sm text-gray-500">Remaining: {formatCurrency(dailyLimit - totalDisbursedToday)}</p>
-                </div>
-              </CardContent>
-            </Card>
 
             {/* Pending Disbursements */}
             {readyForDisbursement.length > 0 && (

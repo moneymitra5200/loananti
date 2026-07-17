@@ -1003,13 +1003,62 @@ export async function PUT(request: NextRequest) {
         // Continue - disbursement is still successful
       }
 
-      // Record mirror processing fee accrual in the mirror company (just like offline loans)
+      // Record mirror processing fee accrual and collection in the mirror company instantly (both legs)
       try {
         const mirrorProcessingFee = calculation.processingFee || 0;
         if (mirrorProcessingFee > 0 && !isIOLoan) {
           const { AccountingService } = await import('@/lib/accounting-service');
+          const { recordCashBookEntry: pfCb, recordBankTransaction: pfBank } = await import('@/lib/simple-accounting');
+
+          // 1. Cashbook or bank entry in the mirror company so it appears in DayBook/passbook
+          // If a bank account is specified for disbursement, we credit it; otherwise, check if there is any active bank account for the mirror company.
+          const mirrorBankAcct = disbursementBankAccountId 
+            ? await db.bankAccount.findUnique({ where: { id: disbursementBankAccountId } })
+            : await db.bankAccount.findFirst({
+                where: { companyId: pendingLoan.mirrorCompanyId, isActive: true },
+                orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }]
+              });
+
+          const isPfOnline = !!mirrorBankAcct;
+          
+          if (isPfOnline && mirrorBankAcct) {
+            // Update bank balance in DB
+            const pfNewBalance = mirrorBankAcct.currentBalance + mirrorProcessingFee;
+            await db.bankAccount.update({
+              where: { id: mirrorBankAcct.id },
+              data: { currentBalance: pfNewBalance }
+            });
+
+            await pfBank({
+              companyId: pendingLoan.mirrorCompanyId,
+              bankAccountId: mirrorBankAcct.id,
+              transactionType: 'CREDIT',
+              amount: mirrorProcessingFee,
+              description: `Processing Fee (Mirror) - ${mirrorLoan.applicationNo}`,
+              referenceType: 'PROCESSING_FEE',
+              referenceId: `${mirrorLoan.id}-PF`,
+              createdById: userId || 'SYSTEM',
+            });
+            console.log(`[Mirror Loan Accounting] Recorded processing fee bank transaction: ₹${mirrorProcessingFee} in bank account ${mirrorBankAcct.id}`);
+          } else {
+            // Cash-book credit fallback
+            await pfCb({
+              companyId: pendingLoan.mirrorCompanyId,
+              entryType: 'CREDIT',
+              amount: mirrorProcessingFee,
+              description: `Processing Fee (Mirror) - ${mirrorLoan.applicationNo}`,
+              referenceType: 'PROCESSING_FEE',
+              referenceId: `${mirrorLoan.id}-PF`,
+              createdById: userId || 'SYSTEM',
+            });
+            console.log(`[Mirror Loan Accounting] Recorded processing fee cashbook entry: ₹${mirrorProcessingFee} in mirror company ${pendingLoan.mirrorCompanyId}`);
+          }
+
+          // 2. Double-entry journal for processing fee in the mirror company
           const mirrorAccSvc = new AccountingService(pendingLoan.mirrorCompanyId);
           await mirrorAccSvc.initializeChartOfAccounts();
+          
+          // First: Record Accrual (Dr 1302 / Cr 4121)
           await mirrorAccSvc.recordProcessingFeeAccrual({
             loanId: mirrorLoan.id,
             customerId: originalLoan.customerId || mirrorLoan.id,
@@ -1017,13 +1066,33 @@ export async function PUT(request: NextRequest) {
             accrualDate: new Date(Date.now() - 5000),
             createdById: userId || 'SYSTEM',
           });
-          console.log(`[Mirror Loan Accounting] Recorded mirror processing fee accrual: ₹${mirrorProcessingFee} in company ${pendingLoan.mirrorCompanyId}`);
+
+          // Second: Record Collection (Dr Bank/Cash / Cr 1302)
+          await mirrorAccSvc.recordProcessingFee({
+            loanId: mirrorLoan.id,
+            customerId: originalLoan.customerId || mirrorLoan.id,
+            amount: mirrorProcessingFee,
+            collectionDate: new Date(),
+            createdById: userId || 'SYSTEM',
+            paymentMode: isPfOnline ? 'BANK_TRANSFER' : 'CASH',
+            bankAccountId: isPfOnline ? mirrorBankAcct.id : undefined,
+            reference: `Processing Fee: ${mirrorLoan.applicationNo}`
+          });
+
+          // 3. Mark the mapping's processingFeeRecorded = true
+          await db.mirrorLoanMapping.update({
+            where: { id: mirrorMapping.id },
+            data: { processingFeeRecorded: true }
+          });
+
+          console.log(`[Mirror Loan Accounting] Fully recorded mirror processing fee accrual and collection: ₹${mirrorProcessingFee} in company ${pendingLoan.mirrorCompanyId}`);
         } else if (isIOLoan) {
           console.log(`[Mirror Loan Accounting] Skipping processing fee accrual for Phase 1 interest-only loan — will be recorded at Phase 2 transition.`);
         }
       } catch (pfAccrualErr) {
-        console.error(`[Mirror Loan Accounting] Mirror processing fee accrual FAILED:`, pfAccrualErr);
+        console.error(`[Mirror Loan Accounting] Mirror processing fee accrual/collection FAILED:`, pfAccrualErr);
       }
+
 
       // Update pending loan status
       const updated = await db.pendingMirrorLoan.update({

@@ -1477,13 +1477,7 @@ export default function DisbursementDialog({
                   </div>
                 )}
 
-                {/* Warning for limit */}
-                {disbursementForm.disbursedAmount > remainingLimit && (
-                  <div className="p-3 bg-red-50 rounded-lg text-red-700 text-sm flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4" />
-                    Amount exceeds your daily limit of {formatCurrency(dailyLimit)}
-                  </div>
-                )}
+
               </div>
             </div>
           )}
