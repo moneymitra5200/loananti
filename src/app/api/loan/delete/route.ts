@@ -2,6 +2,79 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { Prisma } from '@prisma/client';
 
+// ============================================================
+// ONLINE-ONLY: Reverse bank / cashbook running balances BEFORE
+// deleting the disbursement entries for an online loan.
+// This prevents balance drift when a loan is deleted.
+// OFFLINE loans are never passed through this function.
+// ============================================================
+async function reverseOnlineLoanDisbursementBalances(loanId: string, companyId: string | null | undefined): Promise<void> {
+  if (!companyId) return;
+
+  const disbursementRefTypes = ['LOAN_DISBURSEMENT', 'MIRROR_LOAN_DISBURSEMENT'] as string[];
+  const processingFeeRefTypes = ['PROCESSING_FEE', 'PROCESSING_FEE_COLLECTION'] as string[];
+
+  // 1. Bank DEBIT → disbursement went OUT → add back
+  try {
+    const bankDebits = await db.bankTransaction.findMany({
+      where: { referenceId: loanId, referenceType: { in: disbursementRefTypes }, transactionType: 'DEBIT' },
+      select: { bankAccountId: true, amount: true }
+    });
+    for (const txn of bankDebits) {
+      await db.bankAccount.update({
+        where: { id: txn.bankAccountId },
+        data: { currentBalance: { increment: Number(txn.amount) } }
+      }).catch(e => console.error(`[DELETE LOAN] Bank DEBIT restore failed (${txn.bankAccountId}):`, e));
+      console.log(`[DELETE LOAN] ✅ Restored ₹${txn.amount} to bank acct ${txn.bankAccountId} (disburse)`);
+    }
+  } catch (e) { console.error('[DELETE LOAN] Error reversing bank DEBIT balances:', e); }
+
+  // 2. Bank CREDIT → processing fee came IN → subtract back
+  try {
+    const bankCredits = await db.bankTransaction.findMany({
+      where: { referenceId: { in: [loanId, `${loanId}-PF`] }, referenceType: { in: processingFeeRefTypes }, transactionType: 'CREDIT' },
+      select: { bankAccountId: true, amount: true }
+    });
+    for (const txn of bankCredits) {
+      await db.bankAccount.update({
+        where: { id: txn.bankAccountId },
+        data: { currentBalance: { decrement: Number(txn.amount) } }
+      }).catch(e => console.error(`[DELETE LOAN] Bank CREDIT reverse failed (${txn.bankAccountId}):`, e));
+      console.log(`[DELETE LOAN] ✅ Reversed ₹${txn.amount} from bank acct ${txn.bankAccountId} (proc fee)`);
+    }
+  } catch (e) { console.error('[DELETE LOAN] Error reversing bank CREDIT balances:', e); }
+
+  // 3. CashBook DEBIT → disbursement went OUT → add back
+  try {
+    const cashDebits = await db.cashBookEntry.findMany({
+      where: { referenceId: loanId, referenceType: { in: disbursementRefTypes }, entryType: 'DEBIT' },
+      select: { cashBookId: true, amount: true }
+    });
+    for (const entry of cashDebits) {
+      await db.cashBook.update({
+        where: { id: entry.cashBookId },
+        data: { currentBalance: { increment: Number(entry.amount) }, lastUpdatedAt: new Date() }
+      }).catch(e => console.error(`[DELETE LOAN] CashBook DEBIT restore failed (${entry.cashBookId}):`, e));
+      console.log(`[DELETE LOAN] ✅ Restored ₹${entry.amount} to cashbook ${entry.cashBookId} (disburse)`);
+    }
+  } catch (e) { console.error('[DELETE LOAN] Error reversing cashbook DEBIT balances:', e); }
+
+  // 4. CashBook CREDIT → processing fee came IN → subtract back
+  try {
+    const cashCredits = await db.cashBookEntry.findMany({
+      where: { referenceId: { in: [loanId, `${loanId}-PF`] }, referenceType: { in: processingFeeRefTypes }, entryType: 'CREDIT' },
+      select: { cashBookId: true, amount: true }
+    });
+    for (const entry of cashCredits) {
+      await db.cashBook.update({
+        where: { id: entry.cashBookId },
+        data: { currentBalance: { decrement: Number(entry.amount) }, lastUpdatedAt: new Date() }
+      }).catch(e => console.error(`[DELETE LOAN] CashBook CREDIT reverse failed (${entry.cashBookId}):`, e));
+      console.log(`[DELETE LOAN] ✅ Reversed ₹${entry.amount} from cashbook ${entry.cashBookId} (proc fee)`);
+    }
+  } catch (e) { console.error('[DELETE LOAN] Error reversing cashbook CREDIT balances:', e); }
+}
+
 // Helper function to delete all related records for a loan
 async function deleteAllLoanRelatedRecords(loanId: string) {
   console.log(`[DELETE LOAN] Deleting all related records for loan: ${loanId}`);
@@ -17,6 +90,9 @@ async function deleteAllLoanRelatedRecords(loanId: string) {
     'MIRROR_EMI_PAYMENT',
     'EXTRA_EMI_PAYMENT',
     'LOAN_DISBURSEMENT',
+    'MIRROR_LOAN_DISBURSEMENT',
+    'PROCESSING_FEE',
+    'PROCESSING_FEE_COLLECTION',
     'EMI_PAYMENT',
     'OFFLINE_LOAN',
     'OFFLINE_EMI'
@@ -78,6 +154,40 @@ async function deleteAllLoanRelatedRecords(loanId: string) {
     }
   } catch (e) {
     console.error('[DELETE LOAN] Error deleting EMI accounting entries:', e);
+  }
+
+  // ==========================================
+  // DELETE JOURNAL ENTRIES (double-entry ledger)
+  // ==========================================
+  // JournalEntry + JournalEntryLine records keyed by loanId must be cleaned
+  // so they don't produce ghost rows in the trial balance / Chart of Accounts.
+  // We also clean up EMI-keyed journal entries.
+  try {
+    // Collect EMI IDs again (may have been populated above, but scope is local)
+    const emiSchedulesForJE = await db.eMISchedule.findMany({
+      where: { loanApplicationId: loanId },
+      select: { id: true }
+    });
+    const emiIdsForJE = emiSchedulesForJE.map(e => e.id);
+
+    const journalRefIds = [loanId, `${loanId}-PF`, `${loanId}-FORECLOSURE`, `${loanId}-FORECLOSURE-JE`, `${loanId}-LOSS-WRITEOFF`, ...emiIdsForJE];
+
+    // Delete JournalEntryLines first (FK child)
+    await db.journalEntryLine.deleteMany({
+      where: {
+        journalEntry: {
+          referenceId: { in: journalRefIds }
+        }
+      }
+    }).catch(e => console.error('[DELETE LOAN] Error deleting JournalEntryLines:', e));
+
+    // Delete JournalEntries (parent)
+    const deletedJEs = await db.journalEntry.deleteMany({
+      where: { referenceId: { in: journalRefIds } }
+    });
+    console.log(`[DELETE LOAN] Deleted ${deletedJEs.count} JournalEntry rows`);
+  } catch (e) {
+    console.error('[DELETE LOAN] Error deleting Journal Entries:', e);
   }
 
   // ==========================================
@@ -235,6 +345,13 @@ export async function DELETE(request: NextRequest) {
         console.log(`[DELETE LOAN] Starting deletion for loan: ${applicationNo}`);
 
         // ==========================================
+        // ONLINE-ONLY: REVERSE BANK / CASHBOOK BALANCES
+        // Must happen BEFORE entries are deleted so we can read the amounts.
+        // Offline loans are never routed through this branch.
+        // ==========================================
+        await reverseOnlineLoanDisbursementBalances(loanId, loanDetails.companyId);
+
+        // ==========================================
         // CHECK FOR MIRROR LOAN
         // ==========================================
         let mirrorLoanId: string | null = null;
@@ -267,7 +384,13 @@ export async function DELETE(request: NextRequest) {
         // ==========================================
         if (mirrorLoanId) {
           console.log(`[DELETE LOAN] Deleting mirror loan: ${mirrorLoanId}`);
-          
+
+          // ONLINE-ONLY: Reverse mirror company bank/cashbook balances FIRST.
+          // The mirror loan was disbursed from the mirror company's account,
+          // so we must restore that before wiping its entries.
+          const mirrorCompanyForRestore = mirrorMappingAsOriginal?.mirrorCompanyId;
+          await reverseOnlineLoanDisbursementBalances(mirrorLoanId, mirrorCompanyForRestore);
+
           // Delete all related records for mirror loan
           await deleteAllLoanRelatedRecords(mirrorLoanId);
           
