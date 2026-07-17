@@ -222,48 +222,54 @@ export async function POST(request: NextRequest) {
       }
 
       // D. Credit update (atomic — reads & writes in same tx)
+      // FIX: Only increment credit for CASH payments.
+      //      Online/bank payments go directly to bank; no collector credit involved.
       const isCashPayment = !isBankPayment;
-      if (isCashPayment && loan.companyId) {
-        const company = await tx.company.findUnique({
-          where: { id: loan.companyId }, select: { companyCredit: true }
-        });
-        const newCompanyCredit = (company?.companyCredit || 0) + amount;
-        await tx.creditTransaction.create({
-          data: {
-            userId: collectedBy, transactionType: 'CREDIT_INCREASE', amount,
-            paymentMode: 'CASH', creditType: 'COMPANY', sourceType: 'INTEREST_ONLY_PAYMENT',
-            sourceId: payment.id, balanceAfter: newCompanyCredit, personalBalanceAfter: 0,
-            companyBalanceAfter: newCompanyCredit, loanApplicationId: loanId,
-            customerId: loan.customerId, customerName: loan.customer?.name,
-            loanApplicationNo: loan.applicationNo,
-            description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
-            transactionDate: new Date()
-          }
-        });
-        await tx.company.update({ where: { id: loan.companyId }, data: { companyCredit: newCompanyCredit } });
+      if (isCashPayment) {
+        if (loan.companyId) {
+          const company = await tx.company.findUnique({
+            where: { id: loan.companyId }, select: { companyCredit: true }
+          });
+          const newCompanyCredit = (company?.companyCredit || 0) + amount;
+          await tx.creditTransaction.create({
+            data: {
+              userId: collectedBy, transactionType: 'CREDIT_INCREASE', amount,
+              paymentMode: 'CASH', creditType: 'COMPANY', sourceType: 'INTEREST_ONLY_PAYMENT',
+              sourceId: payment.id, balanceAfter: newCompanyCredit, personalBalanceAfter: 0,
+              companyBalanceAfter: newCompanyCredit, loanApplicationId: loanId,
+              customerId: loan.customerId, customerName: loan.customer?.name,
+              loanApplicationNo: loan.applicationNo,
+              description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
+              transactionDate: new Date()
+            }
+          });
+          await tx.company.update({ where: { id: loan.companyId }, data: { companyCredit: newCompanyCredit } });
+        } else {
+          const collector = await tx.user.findUnique({
+            where: { id: collectedBy }, select: { personalCredit: true, companyCredit: true, credit: true }
+          });
+          const newPersonalCredit = (collector?.personalCredit || 0) + amount;
+          const newTotalCredit    = (collector?.credit        || 0) + amount;
+          await tx.creditTransaction.create({
+            data: {
+              userId: collectedBy, transactionType: 'PERSONAL_COLLECTION', amount,
+              paymentMode: paymentMode as any, creditType: 'PERSONAL',
+              sourceType: 'INTEREST_ONLY_PAYMENT', sourceId: payment.id,
+              balanceAfter: newTotalCredit, personalBalanceAfter: newPersonalCredit,
+              companyBalanceAfter: collector?.companyCredit || 0,
+              loanApplicationId: loanId, customerId: loan.customerId,
+              customerName: loan.customer?.name, loanApplicationNo: loan.applicationNo,
+              description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
+              transactionDate: new Date()
+            }
+          });
+          await tx.user.update({
+            where: { id: collectedBy },
+            data: { personalCredit: newPersonalCredit, credit: newTotalCredit }
+          });
+        }
       } else {
-        const collector = await tx.user.findUnique({
-          where: { id: collectedBy }, select: { personalCredit: true, companyCredit: true, credit: true }
-        });
-        const newPersonalCredit = (collector?.personalCredit || 0) + amount;
-        const newTotalCredit    = (collector?.credit        || 0) + amount;
-        await tx.creditTransaction.create({
-          data: {
-            userId: collectedBy, transactionType: 'PERSONAL_COLLECTION', amount,
-            paymentMode: paymentMode as any, creditType: 'PERSONAL',
-            sourceType: 'INTEREST_ONLY_PAYMENT', sourceId: payment.id,
-            balanceAfter: newTotalCredit, personalBalanceAfter: newPersonalCredit,
-            companyBalanceAfter: collector?.companyCredit || 0,
-            loanApplicationId: loanId, customerId: loan.customerId,
-            customerName: loan.customer?.name, loanApplicationNo: loan.applicationNo,
-            description: `Interest Collection (Interest-Only) - ${loan.applicationNo}`,
-            transactionDate: new Date()
-          }
-        });
-        await tx.user.update({
-          where: { id: collectedBy },
-          data: { personalCredit: newPersonalCredit, credit: newTotalCredit }
-        });
+        console.log(`[Interest Payment] Online payment — skipping collector credit increment (funds go directly to bank).`);
       }
 
       // E. WorkflowLog inside transaction
@@ -331,6 +337,69 @@ export async function POST(request: NextRequest) {
             }
           });
           console.log(`[Interest Payment] Next IO EMI #${nextInstNum} created (rolling)`);
+        }
+      }
+
+      // F. Partner mirror loan EMI rolling sync — ATOMIC with payment (FIX: was outside tx before)
+      // If this loan has a mirror partner, mark the partner's current IO EMI as paid
+      // and create the next partner EMI inside the same transaction.
+      if (mirrorMapForAcct) {
+        const partnerLoanIdForSync = loanId === mirrorMapForAcct.originalLoanId
+          ? mirrorMapForAcct.mirrorLoanId
+          : mirrorMapForAcct.originalLoanId;
+        if (partnerLoanIdForSync && currentIOEmi) {
+          try {
+            const partnerEMI = await tx.eMISchedule.findFirst({
+              where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: currentIOEmi.installmentNumber },
+            });
+            if (partnerEMI && partnerEMI.paymentStatus !== 'PAID' && partnerEMI.paymentStatus !== 'INTEREST_ONLY_PAID') {
+              const partnerSyncAmount = loanId === mirrorMapForAcct.originalLoanId ? acctAmount : expectedMonthlyInterest;
+              await tx.eMISchedule.update({
+                where: { id: partnerEMI.id },
+                data: {
+                  paymentStatus: 'INTEREST_ONLY_PAID',
+                  isInterestOnly: true,
+                  interestOnlyPaidAt: new Date(),
+                  interestOnlyAmount: partnerSyncAmount,
+                  paidInterest: partnerSyncAmount,
+                  paidAmount: partnerSyncAmount,
+                  paidDate: new Date(),
+                  principalDeferred: true,
+                  notes: `[IO SYNC] Auto-paid ₹${partnerSyncAmount} (synced from partner loan)`,
+                }
+              });
+              // Create next partner EMI if it doesn't exist
+              const nextPartnerInstNum = partnerEMI.installmentNumber + 1;
+              const partnerNextExists = await tx.eMISchedule.findFirst({
+                where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: nextPartnerInstNum },
+              });
+              if (!partnerNextExists) {
+                const nextPartnerDue = new Date(partnerEMI.dueDate);
+                nextPartnerDue.setMonth(nextPartnerDue.getMonth() + 1);
+                const partnerExpectedInterest = loanId === mirrorMapForAcct.originalLoanId ? acctAmount : expectedMonthlyInterest;
+                await tx.eMISchedule.create({
+                  data: {
+                    loanApplicationId: partnerLoanIdForSync,
+                    installmentNumber: nextPartnerInstNum,
+                    dueDate: nextPartnerDue,
+                    originalDueDate: nextPartnerDue,
+                    principalAmount: 0,
+                    interestAmount: partnerExpectedInterest,
+                    totalAmount: partnerExpectedInterest,
+                    outstandingPrincipal: partnerEMI.outstandingPrincipal,
+                    outstandingInterest: partnerExpectedInterest,
+                    paymentStatus: 'PENDING',
+                    isInterestOnly: true,
+                    interestOnlyAmount: partnerExpectedInterest,
+                  }
+                });
+                console.log(`[Interest Payment] ✅ Partner EMI #${nextPartnerInstNum} created atomically for partner loan ${partnerLoanIdForSync}`);
+              }
+            }
+          } catch (partnerSyncErr) {
+            console.error('[Interest Payment] Partner EMI sync error inside tx (non-critical):', partnerSyncErr);
+            // Non-critical: don't throw, allow main payment to succeed
+          }
         }
       }
 

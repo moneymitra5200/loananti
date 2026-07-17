@@ -1043,47 +1043,13 @@ export async function PUT(request: NextRequest) {
         // Continue - disbursement is still successful
       }
 
-      // Create journal entry in the original company (funding via mirror)
-      try {
-        if (pendingLoan.originalCompanyId) {
-          const { AccountingService, ACCOUNT_CODES } = await import('@/lib/accounting-service');
-          const origAccSvc = new AccountingService(pendingLoan.originalCompanyId);
-          await origAccSvc.initializeChartOfAccounts();
-
-          const customerName = originalLoan.customer?.name || 'Customer';
-          const loanNumber = originalLoan.applicationNo || 'Loan';
-
-          await origAccSvc.createJournalEntry({
-            entryDate: new Date(),
-            referenceType: 'LOAN_DISBURSEMENT',
-            referenceId: pendingLoan.originalLoanId,
-            narration: `Loan Disbursed — ${loanNumber} to ${customerName} (funded via mirror: ${pendingLoan.mirrorCompanyId})`,
-            lines: [
-              {
-                accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,
-                debitAmount: pendingLoan.principalAmount,
-                creditAmount: 0,
-                loanId: pendingLoan.originalLoanId,
-                customerId: originalLoan.customerId || pendingLoan.originalLoanId,
-                narration: `Loan principal disbursed to ${customerName}`,
-              },
-              {
-                accountCode: ACCOUNT_CODES.ACCOUNTS_PAYABLE,
-                debitAmount: 0,
-                creditAmount: pendingLoan.principalAmount,
-                loanId: pendingLoan.originalLoanId,
-                narration: `Funded by mirror company (inter-company payable)`,
-              },
-            ],
-            createdById: userId || 'SYSTEM',
-            isAutoEntry: true,
-          });
-
-          console.log(`[Mirror Loan Accounting] ✅ Original company (${pendingLoan.originalCompanyId}) disbursement journal created — Dr 1200 / Cr 2100 ₹${pendingLoan.principalAmount}`);
-        }
-      } catch (origJournalErr) {
-        console.error('[Mirror Loan Accounting] Original company disbursement journal FAILED:', origJournalErr);
-      }
+      // ── ORIGINAL COMPANY: No disbursement journal entry ───────────────────────
+      // GOLDEN RULE: ALL accounting for a mirror loan belongs exclusively to the
+      // MIRROR company. The original company's books must NOT have a Loans Receivable
+      // or Accounts Payable entry here — that would double-count the asset.
+      // The inter-company relationship is tracked solely via MirrorLoanMapping.
+      // Any cross-company reconciliation report reads MirrorLoanMapping directly.
+      console.log(`[Mirror Loan Accounting] ℹ️ Skipping original-company journal — mirror isolation enforced. Relationship tracked via MirrorLoanMapping id=${mirrorMapping.id}`);
 
       // Record mirror processing fee accrual in the mirror company instantly (accrual only, collection happens on EMI#1)
       try {
