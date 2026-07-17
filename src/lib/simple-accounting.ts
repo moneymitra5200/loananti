@@ -875,10 +875,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     result.mirrorBankTransaction = result.bankTransaction;
     result.mirrorJournalEntryId = result.journalEntryId;
 
-    // Reset standard fields so they can be populated by the original company's entries
-    result.cashBookEntry = undefined;
-    result.bankTransaction = undefined;
-    result.journalEntryId = undefined;
+    return result;
   }
 
   // ============================================

@@ -60,7 +60,7 @@ async function main() {
   });
   console.log(`Total Online Loans: ${loans.length}`);
   for (const loan of loans) {
-    console.log(`ID: ${loan.id}, AppNo: ${loan.applicationNo}, Status: ${loan.status}, Amt: ${loan.amount}, DisbursedAmt: ${loan.disbursedAmount}, Customer: ${loan.customer?.name}`);
+    console.log(`ID: ${loan.id}, AppNo: ${loan.applicationNo}, Status: ${loan.status}, Amt: ${loan.requestedAmount}, DisbursedAmt: ${loan.disbursedAmount}, Customer: ${loan.customer?.name}`);
   }
 
   // 6. Offline Loans
