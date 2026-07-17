@@ -1410,17 +1410,9 @@ export async function PUT(request: NextRequest) {
                       });
                     }
 
-                    // Steps 2 & 3: Double-entry journal via AccountingService (mirror company)
+                    // Step 3: Double-entry journal via AccountingService (mirror company) - Collection only
                     const mirrorAccSvc = new AccountingService(mirrorMapping.mirrorCompanyId);
                     await mirrorAccSvc.initializeChartOfAccounts();
-                    // Accrual: Dr Processing Fee Receivable / Cr Processing Fee Income
-                    await mirrorAccSvc.recordProcessingFeeAccrual({
-                      loanId: mirrorMapping.mirrorLoanId!,
-                      customerId: paymentRequest.customerId,
-                      amount: procFee,
-                      accrualDate: new Date(Date.now() - 5000),
-                      createdById: reviewedById
-                    });
                     // Collection: Dr Bank/Cash / Cr Processing Fee Receivable
                     await mirrorAccSvc.recordProcessingFee({
                       loanId: mirrorMapping.mirrorLoanId!,
@@ -1483,16 +1475,9 @@ export async function PUT(request: NextRequest) {
                       });
                     }
 
-                    // Steps 2 & 3: Double-entry via AccountingService (loan's own company)
+                    // Step 3: Double-entry via AccountingService (loan's own company) - Collection only
                     const pfAccSvc = new AccountingService(loan.companyId);
                     await pfAccSvc.initializeChartOfAccounts();
-                    await pfAccSvc.recordProcessingFeeAccrual({
-                      loanId: loan.id,
-                      customerId: paymentRequest.customerId,
-                      amount: procFee,
-                      accrualDate: new Date(Date.now() - 5000),
-                      createdById: reviewedById
-                    });
                     await pfAccSvc.recordProcessingFee({
                       loanId: loan.id,
                       customerId: paymentRequest.customerId,
