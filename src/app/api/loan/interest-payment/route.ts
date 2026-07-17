@@ -438,6 +438,48 @@ export async function POST(request: NextRequest) {
       console.error('[Interest Payment] Journal entry failed (non-critical):', journalErr?.message);
     }
 
+    // ── ACTION LOG for undo support (fire-and-forget, non-blocking) ──────────────
+    // Must run AFTER the journal entry block so the undo handler can find all entries.
+    setImmediate(() => {
+      db.actionLog.create({
+        data: {
+          userId: collectedBy,
+          userRole: 'CASHIER',
+          actionType: 'PAY',
+          module: 'ONLINE_LOAN',
+          recordId: payment.id,
+          recordType: 'INTEREST_ONLY_PAYMENT',
+          description: `IO Interest collected ₹${amount} for loan ${loan.applicationNo} (Receipt: ${receiptNo}) via ${paymentMode}`,
+          canUndo: true,
+          previousData: JSON.stringify({
+            emiStatus: 'PENDING',
+            paidAmount: 0,
+            paidPrincipal: 0,
+            paidInterest: 0,
+            paidDate: null,
+            paymentMode: null,
+            isInterestOnly: true,
+          }),
+          newData: JSON.stringify({
+            loanId,
+            paymentId: payment.id,
+            amount,
+            paymentMode,
+            receiptNo,
+            collectedBy,
+            paidInstNum: paidInstNum ?? null,
+            acctCompanyId,
+            mirrorOriginalLoanId: mirrorMapForAcct?.originalLoanId ?? null,
+            mirrorLoanId: mirrorMapForAcct?.mirrorLoanId ?? null,
+            partnerLoanIdForSync: mirrorMapForAcct
+              ? (loanId === mirrorMapForAcct.originalLoanId ? mirrorMapForAcct.mirrorLoanId : mirrorMapForAcct.originalLoanId)
+              : null,
+            isIoPayment: true,
+          }),
+        }
+      }).catch(err => console.error('[Interest Payment] ActionLog create failed:', err));
+    });
+
     console.log(`[Interest Payment] ========== INTEREST COLLECTION COMPLETE ==========`);
     
     return NextResponse.json({

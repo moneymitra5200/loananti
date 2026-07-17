@@ -2011,47 +2011,92 @@ export async function POST(request: NextRequest) {
     } catch (accError: any) {
       const onlineErrMsg = accError?.message || String(accError);
       onlineAccountingWarnings.push(`EMI accounting: ${onlineErrMsg}`);
-      console.error('[ATOMICITY]  Accounting threw exception  rolling back payment', {
+      console.error('[ATOMICITY] ❌ Accounting threw exception — rolling back payment', {
         message: onlineErrMsg,
         stack: accError?.stack?.split('\n').slice(0, 6).join(' | '),
         loanId, emiId,
       });
+
+      // ── AUDIT LOG (fire-and-forget, non-blocking) ───────────────────────────
+      db.actionLog.create({
+        data: {
+          userId: paidBy || 'SYSTEM',
+          userRole: 'SYSTEM',
+          actionType: 'ACCOUNTING_ERROR',
+          module: 'ONLINE_LOAN',
+          recordId: payment.id,
+          recordType: 'EMIPayment',
+          description: `ACCOUNTING FAILED: Payment ${payment.id} (EMI #${emi.installmentNumber}) Rs.${paidAmount} — ${onlineErrMsg}`,
+          canUndo: false,
+        }
+      }).catch(() => {});
+
+      // ── COMPENSATING TRANSACTION: revert all side-effects atomically ────────
+      // Reverses: EMI status, Payment record, credit balance change, auto-close.
       try {
-        await db.actionLog.create({
-          data: {
-            userId: paidBy || 'SYSTEM',
-            userRole: 'SYSTEM',
-            actionType: 'ACCOUNTING_ERROR',
-            module: 'ONLINE_LOAN',
-            recordId: payment.id,
-            recordType: 'EMIPayment',
-            description: `ACCOUNTING FAILED: Payment ${payment.id} (EMI #${emi.installmentNumber}) paid Rs.${paidAmount} but threw: ${onlineErrMsg}`,
-            canUndo: false,
+        await db.$transaction(async (rbTx) => {
+          // 1. Revert EMI to pre-payment state
+          await rbTx.eMISchedule.update({
+            where: { id: emi.id },
+            data: {
+              paymentStatus:    emi.paymentStatus as any,
+              paidAmount:       emi.paidAmount      ?? 0,
+              paidPrincipal:    emi.paidPrincipal   ?? 0,
+              paidInterest:     emi.paidInterest    ?? 0,
+              penaltyAmount:    emi.penaltyAmount   ?? 0,
+              penaltyPaid:      emi.penaltyPaid     ?? 0,
+              waivedAmount:     emi.waivedAmount    ?? 0,
+              isPartialPayment: emi.isPartialPayment ?? false,
+              isInterestOnly:   emi.isInterestOnly  ?? false,
+              principalDeferred: emi.principalDeferred ?? false,
+              nextPaymentDate:  emi.nextPaymentDate  ?? null,
+              paidDate:         emi.paidDate         ?? null,
+            },
+          });
+          // 2. Delete the payment record
+          await rbTx.payment.delete({ where: { id: payment.id } });
+          // 3. Revert credit balance if it was changed
+          if (splitCreditAmount > 0 && effectiveCreditType === 'PERSONAL') {
+            await rbTx.user.update({
+              where: { id: creditUserId },
+              data: {
+                personalCredit: { decrement: splitCreditAmount },
+                credit:         { decrement: splitCreditAmount },
+              },
+            });
+            // Delete the credit transaction record
+            await rbTx.creditTransaction.deleteMany({
+              where: { sourceType: 'EMI_PAYMENT', loanApplicationId: loanId, emiScheduleId: emiId, amount: splitCreditAmount },
+            });
+          } else if (splitCreditAmount > 0 && effectiveCreditType === 'COMPANY') {
+            await rbTx.user.update({
+              where: { id: paidBy },
+              data: {
+                companyCredit: { decrement: splitCreditAmount },
+                credit:        { decrement: splitCreditAmount },
+              },
+            });
+            await rbTx.creditTransaction.deleteMany({
+              where: { sourceType: 'EMI_PAYMENT', loanApplicationId: loanId, emiScheduleId: emiId, amount: splitCreditAmount },
+            });
           }
-        });
-      } catch (_) { /* non-critical */ }
-      try {
-        await db.eMISchedule.update({
-          where: { id: emi.id },
-          data: {
-            paymentStatus:    emi.paymentStatus,
-            paidAmount:       emi.paidAmount      ?? 0,
-            paidPrincipal:    emi.paidPrincipal   ?? 0,
-            paidInterest:     emi.paidInterest    ?? 0,
-            isPartialPayment: emi.isPartialPayment ?? false,
-            isInterestOnly:   emi.isInterestOnly  ?? false,
-            nextPaymentDate:  emi.nextPaymentDate  ?? null,
-            paidDate:         emi.paidDate         ?? null,
-          },
-        });
-        console.log(`[ATOMICITY] EMI ${emi.id} rolled back to '${emi.paymentStatus}'`);
+          // 4. Re-open loan if auto-close had fired (CLOSED → ACTIVE)
+          const currentLoan = await rbTx.loanApplication.findUnique({
+            where: { id: loanId }, select: { status: true }
+          });
+          if (currentLoan?.status === 'CLOSED') {
+            await rbTx.loanApplication.update({
+              where: { id: loanId }, data: { status: 'ACTIVE' }
+            });
+            console.log(`[ATOMICITY] Auto-close reversed: loan ${loanId} re-opened to ACTIVE`);
+          }
+        }, { maxWait: 10000, timeout: 20000 });
+        console.log(`[ATOMICITY] ✅ Compensating revert complete — EMI back to '${emi.paymentStatus}', payment deleted`);
       } catch (rbErr: any) {
-        console.error('[ATOMICITY] EMI ROLLBACK FAILED:', rbErr?.message);
+        console.error('[ATOMICITY] ❌ CRITICAL: Compensating revert FAILED:', rbErr?.message);
+        // Still return error so the UI knows the payment did not succeed
       }
-      try {
-        await db.payment.delete({ where: { id: payment.id } });
-        console.log(`[ATOMICITY] Payment ${payment.id} deleted`);
-      } catch (_) {}
+
       return NextResponse.json({
         success: false,
         error: 'Payment failed: accounting entry could not be created. Payment reversed. Please try again.',
@@ -2060,26 +2105,42 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    //  ATOMICITY CHECK: No journal = EMI must stay UNPAID 
+    // ── ATOMICITY CHECK: No journal = EMI must revert to unpaid ───────────────
     const journalWasCreated = !isTerminalPaidState || isExtraEMI || onlineJournalCreated;
     if (!journalWasCreated) {
-      console.error(`[ATOMICITY] No journal for EMI #${emi.installmentNumber}  rolling back`);
+      console.error(`[ATOMICITY] ❌ No journal for EMI #${emi.installmentNumber} — reverting`);
       try {
-        await db.eMISchedule.update({
-          where: { id: emi.id },
-          data: {
-            paymentStatus:    emi.paymentStatus,
-            paidAmount:       emi.paidAmount      ?? 0,
-            paidPrincipal:    emi.paidPrincipal   ?? 0,
-            paidInterest:     emi.paidInterest    ?? 0,
-            isPartialPayment: emi.isPartialPayment ?? false,
-            isInterestOnly:   emi.isInterestOnly  ?? false,
-            nextPaymentDate:  emi.nextPaymentDate  ?? null,
-            paidDate:         emi.paidDate         ?? null,
-          },
-        });
-      } catch (rbErr: any) { console.error('[ATOMICITY] ROLLBACK FAILED:', rbErr?.message); }
-      try { await db.payment.delete({ where: { id: payment.id } }); } catch (_) {}
+        await db.$transaction(async (rbTx) => {
+          await rbTx.eMISchedule.update({
+            where: { id: emi.id },
+            data: {
+              paymentStatus:    emi.paymentStatus as any,
+              paidAmount:       emi.paidAmount      ?? 0,
+              paidPrincipal:    emi.paidPrincipal   ?? 0,
+              paidInterest:     emi.paidInterest    ?? 0,
+              penaltyAmount:    emi.penaltyAmount   ?? 0,
+              penaltyPaid:      emi.penaltyPaid     ?? 0,
+              waivedAmount:     emi.waivedAmount    ?? 0,
+              isPartialPayment: emi.isPartialPayment ?? false,
+              isInterestOnly:   emi.isInterestOnly  ?? false,
+              principalDeferred: emi.principalDeferred ?? false,
+              nextPaymentDate:  emi.nextPaymentDate  ?? null,
+              paidDate:         emi.paidDate         ?? null,
+            },
+          });
+          await rbTx.payment.delete({ where: { id: payment.id } });
+          // Re-open loan if auto-close had fired
+          const loanNow = await rbTx.loanApplication.findUnique({
+            where: { id: loanId }, select: { status: true }
+          });
+          if (loanNow?.status === 'CLOSED') {
+            await rbTx.loanApplication.update({ where: { id: loanId }, data: { status: 'ACTIVE' } });
+          }
+        }, { maxWait: 10000, timeout: 20000 });
+        console.log(`[ATOMICITY] ✅ No-journal revert applied — EMI back to '${emi.paymentStatus}'`);
+      } catch (rbErr: any) {
+        console.error('[ATOMICITY] ❌ CRITICAL: No-journal revert FAILED:', rbErr?.message);
+      }
       return NextResponse.json({
         success: false,
         error: 'Payment could not be processed: accounting entry failed. No amount deducted. Please try again.',
@@ -2134,6 +2195,62 @@ export async function POST(request: NextRequest) {
       `EMI #${emi.installmentNumber} paid for loan ${emi.loanApplication?.applicationNo || loanId} | Type: ${paymentType} | Amount: â‚¹${paidAmount.toFixed(2)} (P:â‚¹${paidPrincipal.toFixed(2)} + I:â‚¹${paidInterest.toFixed(2)}) | Mode: ${paymentMode} | Status: ${newEmiStatus}`,
       { loanApplicationId: loanId, newValue: { paidAmount, paidPrincipal, paidInterest, paymentType, paymentMode, newEmiStatus }, ipAddress: request.headers.get('x-forwarded-for') || undefined }
     );
+
+    // â"€â"€ ACTION LOG for undo support (fire-and-forget, non-blocking) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+    // previousData = exact pre-payment EMI state — undo restores field-for-field.
+    // newData      = all side-effect refs. paymentMode/penaltyPaymentMode/splitAmounts
+    //                are stored explicitly so undo NEVER switches bank â†" cash.
+    setImmediate(() => {
+      db.actionLog.create({
+        data: {
+          userId: paidBy,
+          userRole: 'CASHIER',
+          actionType: 'PAY',
+          module: 'ONLINE_LOAN',
+          recordId: payment.id,
+          recordType: 'EMI_PAYMENT',
+          description: `EMI #${emi.installmentNumber} paid â‚¹${paidAmount.toFixed(2)} (${paymentType}) for ${emi.loanApplication?.applicationNo || loanId} via ${paymentMode}`,
+          canUndo: true,
+          previousData: JSON.stringify({
+            emiStatus:         emi.paymentStatus,
+            paidAmount:        Number(emi.paidAmount        ?? 0),
+            paidPrincipal:     Number(emi.paidPrincipal     ?? 0),
+            paidInterest:      Number(emi.paidInterest      ?? 0),
+            paidDate:          emi.paidDate         ?? null,
+            paymentMode:       emi.paymentMode      ?? null,
+            isPartialPayment:  emi.isPartialPayment  ?? false,
+            isInterestOnly:    emi.isInterestOnly    ?? false,
+            principalDeferred: emi.principalDeferred ?? false,
+            penaltyAmount:     Number(emi.penaltyAmount ?? 0),
+            penaltyPaid:       Number(emi.penaltyPaid   ?? 0),
+            waivedAmount:      Number(emi.waivedAmount  ?? 0),
+            nextPaymentDate:   emi.nextPaymentDate   ?? null,
+          }),
+          newData: JSON.stringify({
+            emiId,
+            loanId,
+            paymentId:         payment.id,
+            paidAmount,
+            paidPrincipal,
+            paidInterest,
+            paymentType,
+            paymentMode,       // bank stays bank, cash stays cash on undo
+            isSplitPayment,
+            splitCashAmount,
+            splitOnlineAmount,
+            penaltyAmount,
+            netPenalty,
+            penaltyPaymentMode,  // penalty channel preserved for undo
+            newEmiStatus,
+            creditType,
+            collectorId:       paidBy,
+            companyId,
+            mirrorLoanId:      mirrorMapping?.mirrorLoanId ?? null,
+            installmentNumber: emi.installmentNumber,
+          }),
+        }
+      }).catch(err => console.error('[EMI Pay] ActionLog create failed:', err));
+    });
 
     return NextResponse.json({
 

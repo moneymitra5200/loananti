@@ -494,6 +494,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // ── ACTION LOG for undo support (fire-and-forget, non-blocking) ──────────────
+    // Capture the pre-start loan state so UNDO can restore to ACTIVE_INTEREST_ONLY.
+    setImmediate(() => {
+      const mirrorMappingForLog = mirrorMappingForPF;
+      db.actionLog.create({
+        data: {
+          userId: startedBy || 'system',
+          userRole: 'SUPER_ADMIN',
+          actionType: 'UPDATE',
+          module: 'ONLINE_LOAN',
+          recordId: loanId,
+          recordType: 'LOAN_START',
+          description: `Loan ${loan.applicationNo} started — IO→ACTIVE | Tenure: ${tenure}mo | Rate: ${interestRate}% | PF: ₹${parsedProcessingFee}`,
+          canUndo: true,
+          previousData: JSON.stringify({
+            action: 'LOAN_STARTED',
+            status: loan.status,
+            isInterestOnlyLoan: true,
+            tenure: loan.sessionForm?.tenure ?? 0,
+            interestRate: loan.sessionForm?.interestRate ?? 0,
+            emiAmount: loan.sessionForm?.emiAmount ?? 0,
+            totalInterest: loan.sessionForm?.totalInterest ?? 0,
+            totalAmount: loan.sessionForm?.totalAmount ?? 0,
+            processingFee: parsedProcessingFee,
+            bankAccountId: bankAccountId ?? null,
+            secondaryPaymentPageId: secondaryPaymentPageId ?? null,
+            mirrorMappingId: mirrorMappingForLog?.id ?? null,
+          }),
+          newData: JSON.stringify({
+            newStatus: 'ACTIVE',
+            tenure,
+            interestRate,
+            emiAmount: emiCalculation.emi,
+            mirrorLoanId: mirrorMappingForPF?.mirrorLoanId ?? null,
+            processingFee: parsedProcessingFee,
+          }),
+        }
+      }).catch(err => console.error('[Start Loan] ActionLog create failed:', err));
+    });
+
     // Broadcast real-time refresh
     setImmediate(() => {
       import('@/lib/socket-emitter').then(m => m.broadcastRefresh()).catch(() => {});

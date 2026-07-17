@@ -1323,7 +1323,7 @@ export async function PUT(request: NextRequest) {
 
         // ── ONLINE EMI PAYMENT ────────────────────────────────────────────────
         else if (actionLog.module === 'ONLINE_LOAN' || actionLog.module === 'PAYMENT') {
-          if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && previousData) {
+          if ((actionLog.actionType === 'PAY' || actionLog.actionType === 'PAYMENT') && actionLog.recordType !== 'INTEREST_ONLY_PAYMENT' && previousData) {
             // Revert EMI schedule status
             const emiId = newData?.emiId || previousData?.emiId || actionLog.recordId;
             let emi: any = null;
@@ -1645,6 +1645,188 @@ export async function PUT(request: NextRequest) {
             console.log(`[Undo] Successfully deleted Payments and related records:`, paymentsToDelete);
 
             localUndoResult = { type: 'online_payment_deleted', recordId: actionLog.recordId };
+          }
+
+          // ── IO INTEREST PAYMENT UNDO ────────────────────────────────────────────
+          // Exact inverse of loan/interest-payment forward path.
+          // Bank stays bank, cash stays cash — deleteBankOrCashEntriesForRef uses
+          // payment.id as the ref so it deletes exactly what was written.
+          else if (actionLog.actionType === 'PAY' && actionLog.recordType === 'INTEREST_ONLY_PAYMENT' && newData) {
+            const paymentId   = newData.paymentId || actionLog.recordId;
+            const ioLoanId    = newData.loanId;
+            const ioAmount    = newData.amount || 0;
+            const paidInstNum = newData.paidInstNum;
+            const partnerLoanIdForSync = newData.partnerLoanIdForSync;
+            const ioCollector = newData.collectedBy;
+
+            if (!ioLoanId) throw new Error('[Undo IO] loanId missing from newData');
+
+            // 1. Reverse journal entries (mirrors accSvc.createJournalEntry { referenceId: paymentId })
+            await reverseJournalEntriesForRef(paymentId, userId, tx);
+            console.log(`[Undo IO] Reversed journal for payment ${paymentId}`);
+
+            // 2. Partner EMI sync reversal
+            if (partnerLoanIdForSync && paidInstNum != null) {
+              await tx.eMISchedule.deleteMany({
+                where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: paidInstNum + 1, isInterestOnly: true, paymentStatus: 'PENDING' }
+              });
+              const partnerEMI = await tx.eMISchedule.findFirst({
+                where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: paidInstNum }
+              });
+              if (partnerEMI) {
+                await tx.eMISchedule.update({
+                  where: { id: partnerEMI.id },
+                  data: { paymentStatus: 'PENDING', paidAmount: 0, paidInterest: 0, paidDate: null, interestOnlyPaidAt: null, interestOnlyAmount: 0, notes: null }
+                });
+                console.log(`[Undo IO] Reverted partner EMI #${paidInstNum} for ${partnerLoanIdForSync} → PENDING`);
+              }
+            }
+
+            // 3. Delete bank/cash passbook entry — same channel as written
+            //    Forward: bank → bankTransaction(referenceId=paymentId)
+            //             cash → cashBookEntry(referenceId=paymentId)
+            await deleteBankOrCashEntriesForRef(paymentId, tx);
+            console.log(`[Undo IO] Deleted bank/cash entry for ${paymentId}`);
+
+            // 4. Revert credit + delete creditTransactions
+            // creditTransaction has no direct companyId — mirror the forward path:
+            //   creditType COMPANY: resolve loanApplicationId → loan.companyId → company.companyCredit -= amount
+            //   creditType PERSONAL: user.personalCredit -= amount, user.credit -= amount
+            const ioCreditTxs = await tx.creditTransaction.findMany({
+              where: { sourceId: paymentId },
+              select: { id: true, userId: true, amount: true, creditType: true, loanApplicationId: true }
+            });
+            for (const ctx of ioCreditTxs) {
+              if (ctx.creditType === 'COMPANY' && ctx.loanApplicationId) {
+                const loanForCredit = await tx.loanApplication.findUnique({
+                  where: { id: ctx.loanApplicationId }, select: { companyId: true }
+                });
+                if (loanForCredit?.companyId) {
+                  const co = await tx.company.findUnique({ where: { id: loanForCredit.companyId }, select: { companyCredit: true } });
+                  if (co) {
+                    await tx.company.update({ where: { id: loanForCredit.companyId }, data: { companyCredit: Math.max(0, (co.companyCredit || 0) - ioAmount) } });
+                    console.log(`[Undo IO] Reverted company credit ₹${ioAmount} for company ${loanForCredit.companyId}`);
+                  }
+                }
+              } else if (ctx.creditType === 'PERSONAL' && ctx.userId) {
+                const u = await tx.user.findUnique({ where: { id: ctx.userId }, select: { credit: true, personalCredit: true } });
+                if (u) {
+                  await tx.user.update({ where: { id: ctx.userId }, data: { personalCredit: Math.max(0, (u.personalCredit || 0) - ioAmount), credit: Math.max(0, (u.credit || 0) - ioAmount) } });
+                  console.log(`[Undo IO] Reverted personal credit ₹${ioAmount} for user ${ctx.userId}`);
+                }
+              }
+            }
+            await tx.creditTransaction.deleteMany({ where: { sourceId: paymentId } });
+
+            // 5. Delete rolling next IO EMI + restore paid IO EMI → PENDING
+            if (paidInstNum != null) {
+              await tx.eMISchedule.deleteMany({
+                where: { loanApplicationId: ioLoanId, installmentNumber: paidInstNum + 1, isInterestOnly: true, paymentStatus: 'PENDING' }
+              });
+              const ioEMI = await tx.eMISchedule.findFirst({
+                where: { loanApplicationId: ioLoanId, installmentNumber: paidInstNum, isInterestOnly: true }
+              });
+              if (ioEMI) {
+                await tx.eMISchedule.update({
+                  where: { id: ioEMI.id },
+                  data: { paymentStatus: 'PENDING', paidAmount: 0, paidInterest: 0, paidDate: null, paymentMode: null, interestOnlyPaidAt: null, interestOnlyAmount: 0, notes: null }
+                });
+                console.log(`[Undo IO] Restored IO EMI #${paidInstNum} → PENDING`);
+              }
+            }
+
+            // 6. Decrement totalInterestOnlyPaid (mirrors { increment: amount })
+            await tx.loanApplication.update({
+              where: { id: ioLoanId },
+              data: { totalInterestOnlyPaid: { decrement: ioAmount } }
+            });
+
+            // 7. Delete payment record (mirrors payment.create)
+            await tx.auditLog.deleteMany({ where: { paymentId } });
+            await tx.payment.deleteMany({ where: { id: paymentId } });
+            console.log(`[Undo IO] ✅ IO interest payment ${paymentId} fully reversed`);
+
+            localUndoResult = { type: 'io_interest_payment_reversed', recordId: paymentId };
+          }
+
+          // ── LOAN START UNDO ─────────────────────────────────────────────────────
+          // Exact inverse of loan/start forward path.
+          // Restores loan → ACTIVE_INTEREST_ONLY, deletes new amortizing schedules,
+          // reverses PF accounting using same loanId/mirrorLoanId refs (bank stays bank).
+          else if (actionLog.actionType === 'UPDATE' && actionLog.recordType === 'LOAN_START' && previousData) {
+            const startLoanId  = actionLog.recordId;
+            const startMirrorId = newData?.mirrorLoanId;
+            const pf           = Number(previousData.processingFee ?? 0);
+
+            // 1. Restore loan (mirrors loanApplication.update { status:'ACTIVE', isInterestOnlyLoan:false })
+            await tx.loanApplication.update({
+              where: { id: startLoanId },
+              data: {
+                status: previousData.status || 'ACTIVE_INTEREST_ONLY',
+                isInterestOnlyLoan: true,
+                loanStartedAt: null,
+                tenure: previousData.tenure || 0,
+                interestRate: previousData.interestRate || 0,
+                emiAmount: previousData.emiAmount || 0,
+              }
+            });
+            console.log(`[Undo Start] Restored loan ${startLoanId} → ${previousData.status || 'ACTIVE_INTEREST_ONLY'}`);
+
+            // 2. Restore sessionForm (mirrors sessionForm.update { tenure, interestRate, ... })
+            await tx.sessionForm.updateMany({
+              where: { loanApplicationId: startLoanId },
+              data: {
+                tenure: previousData.tenure || 0,
+                interestRate: previousData.interestRate || 0,
+                emiAmount: previousData.emiAmount || 0,
+                totalInterest: previousData.totalInterest || 0,
+                totalAmount: previousData.totalAmount || 0,
+              }
+            });
+
+            // 3. Delete new EMI payment settings + amortizing schedules (mirrors createMany)
+            //    Nullify FK on payment/paymentRequest first to avoid constraint errors
+            await tx.payment.updateMany({ where: { emiSchedule: { loanApplicationId: startLoanId } }, data: { emiScheduleId: null } });
+            await tx.paymentRequest.updateMany({ where: { emiSchedule: { loanApplicationId: startLoanId } }, data: { emiScheduleId: null } });
+            await tx.eMIPaymentSetting.deleteMany({ where: { loanApplicationId: startLoanId } });
+            await tx.eMISchedule.deleteMany({ where: { loanApplicationId: startLoanId } });
+            console.log(`[Undo Start] Deleted new EMI schedules for ${startLoanId}`);
+
+            // 4. Mirror loan reversal (mirrors the CASCADE mirror start inside transaction)
+            if (startMirrorId) {
+              await tx.payment.updateMany({ where: { emiSchedule: { loanApplicationId: startMirrorId } }, data: { emiScheduleId: null } });
+              await tx.paymentRequest.updateMany({ where: { emiSchedule: { loanApplicationId: startMirrorId } }, data: { emiScheduleId: null } });
+              await tx.eMIPaymentSetting.deleteMany({ where: { loanApplicationId: startMirrorId } });
+              await tx.eMISchedule.deleteMany({ where: { loanApplicationId: startMirrorId } });
+              await tx.loanApplication.update({
+                where: { id: startMirrorId },
+                data: { status: 'ACTIVE_INTEREST_ONLY', isInterestOnlyLoan: true, loanStartedAt: null }
+              });
+              // Revert mirrorLoanMapping (mirrors mirrorLoanMapping.update { processingFeeRecorded:false })
+              await tx.mirrorLoanMapping.updateMany({
+                where: { mirrorLoanId: startMirrorId },
+                data: { processingFeeRecorded: false, mirrorProcessingFee: 0, mirrorTenure: 0, originalTenure: 0 }
+              });
+              // Reverse mirror PF accrual journal (recorded with referenceId: mirrorLoanId)
+              await reverseJournalEntriesForRef(startMirrorId, userId, tx);
+              console.log(`[Undo Start] Reversed mirror ${startMirrorId}`);
+            }
+
+            // 5. Reverse PF accounting on original loan:
+            //    Forward wrote: bankTransaction(referenceId=startLoanId) OR cashBookEntry(referenceId=startLoanId)
+            //    + journalEntries(referenceId=startLoanId) for accrual and collection
+            //    Bank stays bank, cash stays cash — deleteBankOrCashEntriesForRef uses startLoanId
+            if (pf > 0) {
+              await reverseJournalEntriesForRef(startLoanId, userId, tx);
+              await deleteBankOrCashEntriesForRef(startLoanId, tx);
+              // Backward-compat stale ref patterns
+              await deleteBankOrCashEntriesForRef(`${startLoanId}-PF`, tx);
+              await reverseJournalEntriesForRef(`${startLoanId}-PF-JE`, userId, tx);
+              console.log(`[Undo Start] Reversed PF ₹${pf} accounting for ${startLoanId}`);
+            }
+
+            console.log(`[Undo Start] ✅ Loan start fully reversed for ${startLoanId}`);
+            localUndoResult = { type: 'loan_start_reversed', recordId: startLoanId };
           }
         }
 

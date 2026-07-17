@@ -459,6 +459,50 @@ export async function PUT(request: NextRequest) {
       const principalAmount = pendingLoan.principalAmount;
       const isSplitPayment = useSplitPayment && (bankAmount || 0) > 0 && (cashAmount || 0) > 0;
 
+      // ── IDEMPOTENCY GUARD ─────────────────────────────────────────────────
+      // If the mapping was already created (e.g., a network retry hit us again),
+      // return success immediately so the frontend sees a clean result and the
+      // UI can refresh without a silent 500 caused by a unique-constraint crash
+      // inside the otherwise-correct atomic transaction below.
+      const existingMapping = await db.mirrorLoanMapping.findUnique({
+        where: {
+          originalLoanId_mirrorCompanyId: {
+            originalLoanId: pendingLoan.originalLoanId,
+            mirrorCompanyId: pendingLoan.mirrorCompanyId,
+          },
+        },
+        include: {
+          mirrorCompany: { select: { id: true, name: true, code: true } },
+          originalCompany: { select: { id: true, name: true, code: true } },
+        },
+      });
+
+      if (existingMapping) {
+        console.log(`[Mirror Loan] Mapping already exists for original ${pendingLoan.originalLoanId} — returning existing data (idempotent).`);
+        const existingMirrorLoan = existingMapping.mirrorLoanId
+          ? await db.loanApplication.findUnique({ where: { id: existingMapping.mirrorLoanId } })
+          : null;
+        // Ensure pendingMirrorLoan status reflects DISBURSED
+        const ensureUpdated = await db.pendingMirrorLoan.update({
+          where: { id },
+          data: {
+            status: 'DISBURSED',
+            disbursedById: userId,
+            disbursedAt: pendingLoan.disbursedAt || new Date(),
+          },
+        });
+        return NextResponse.json({
+          success: true,
+          pendingLoan: ensureUpdated,
+          mirrorLoan: existingMirrorLoan
+            ? { id: existingMirrorLoan.id, applicationNo: existingMirrorLoan.applicationNo }
+            : null,
+          mirrorMapping: existingMapping,
+          message: 'Mirror loan already disbursed (idempotent response).',
+        });
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       try {
         ({ mirrorLoan, mirrorMapping, updated } = await db.$transaction(async (tx) => {
 

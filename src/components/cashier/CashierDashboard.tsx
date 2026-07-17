@@ -902,6 +902,34 @@ export default function CashierDashboard() {
         fetchLoans();
         fetchBankAccounts();
 
+        // Force-refresh mirror mappings so the Parallel View shows the new mirror immediately
+        // Use noCache to bypass the 60 s active-loans cache
+        try {
+          const [mappingsRes, activeRes] = await Promise.all([
+            fetch('/api/mirror-loan?action=all-mappings&_t=' + Date.now()),
+            fetch('/api/loan/all-active?noCache=true&_t=' + Date.now())
+          ]);
+          if (mappingsRes.ok) {
+            const mappingsData = await mappingsRes.json();
+            if (mappingsData.success && mappingsData.mappings) {
+              const map: Record<string, any> = {};
+              for (const m of mappingsData.mappings) {
+                map[m.originalLoanId] = m;
+                if (m.mirrorLoanId) map[m.mirrorLoanId] = m;
+              }
+              setMirrorMappings(map);
+            }
+          }
+          if (activeRes.ok) {
+            const activeData = await activeRes.json();
+            const store = useLoansStore.getState();
+            store.setActiveLoans(activeData.loans || []);
+            setActiveLoans(activeData.loans || []);
+          }
+        } catch (refreshErr) {
+          console.warn('[handleDisburse] Post-disbursement refresh failed:', refreshErr);
+        }
+
         // Fire-and-forget: add charges to cashier's personal credit
         if ((disbursementForm.chargesAmount || 0) > 0 && user?.id) {
           fetch('/api/user/personal-credit', {
@@ -1176,7 +1204,11 @@ export default function CashierDashboard() {
               <div className="space-y-3">
                 <AnimatePresence>
                   {parallelLoans.map((loan: any) => {
-                    const mapping = mirrorMappings[loan.id];
+                    // Prefer the separately-fetched mirrorMappings state (richer data);
+                    // fall back to the mirrorMapping embedded in the loan by all-active API.
+                    // This prevents a blank right panel immediately after disbursement while
+                    // the mirrorMappings state is still being refreshed.
+                    const mapping = mirrorMappings[loan.id] || loan.mirrorMapping || null;
 
                     // Resolve mirror loan source: online loans use `mirrorLoan`, offline use `offlineMirrorLoan`
                     const mirrorSource = mapping?.mirrorLoan || mapping?.offlineMirrorLoan || null;
