@@ -443,8 +443,26 @@ export async function PUT(request: NextRequest) {
         ? Math.round((pendingLoan.principalAmount * pendingLoan.mirrorInterestRate / 100 / 12) * 100) / 100
         : 0;
 
+      // ============================================================
+      // ATOMIC TRANSACTION — All core DB writes must succeed together
+      // or all roll back. This prevents orphaned LoanApplication /
+      // EMISchedule records when a later step (e.g. mapping creation
+      // or bank deduction) fails.
+      // Note: Accounting journal steps (dynamic imports) run AFTER
+      // the transaction and are individually guarded by try-catch.
+      // ============================================================
+      let mirrorLoan: Awaited<ReturnType<typeof db.loanApplication.create>>;
+      let mirrorMapping: Awaited<ReturnType<typeof db.mirrorLoanMapping.create>>;
+      let updated: Awaited<ReturnType<typeof db.pendingMirrorLoan.update>>;
 
-      const mirrorLoan = await db.loanApplication.create({
+      // Hoisted outside transaction so journal code below can reference them
+      const principalAmount = pendingLoan.principalAmount;
+      const isSplitPayment = useSplitPayment && (bankAmount || 0) > 0 && (cashAmount || 0) > 0;
+
+      try {
+        ({ mirrorLoan, mirrorMapping, updated } = await db.$transaction(async (tx) => {
+
+        const txMirrorLoan = await tx.loanApplication.create({
         data: {
           applicationNo: mirrorApplicationNo,
           customerId: originalLoan.customerId,
@@ -490,10 +508,10 @@ export async function PUT(request: NextRequest) {
       });
 
       // Create SessionForm for mirror loan
-      await db.sessionForm.create({
+      await tx.sessionForm.create({
         data: {
-          loanApplicationId: mirrorLoan.id,
-          agentId: originalLoan.sessionForm.agentId,
+          loanApplicationId: txMirrorLoan.id,
+          agentId: originalLoan.sessionForm!.agentId,
           approvedAmount: pendingLoan.principalAmount,
           interestRate: pendingLoan.mirrorInterestRate,
           interestType: pendingLoan.mirrorInterestType || 'REDUCING',
@@ -510,7 +528,7 @@ export async function PUT(request: NextRequest) {
       });
 
       // Fetch original loan's EMIs first to align the start day dynamically
-      const originalLoanEMIs = await db.eMISchedule.findMany({
+      const originalLoanEMIs = await tx.eMISchedule.findMany({
         where: { loanApplicationId: pendingLoan.originalLoanId },
         orderBy: { installmentNumber: 'asc' }
       });
@@ -527,9 +545,9 @@ export async function PUT(request: NextRequest) {
         firstDue.setMonth(firstDue.getMonth() + 1);
         firstDue.setDate(startDay);
         firstDue.setHours(0, 0, 0, 0);
-        await db.eMISchedule.create({
+        await tx.eMISchedule.create({
           data: {
-            loanApplicationId: mirrorLoan.id,
+            loanApplicationId: txMirrorLoan.id,
             installmentNumber: 1,
             dueDate: firstDue,
             originalDueDate: firstDue,
@@ -555,7 +573,7 @@ export async function PUT(request: NextRequest) {
           dueDate.setMonth(dueDate.getMonth() + index + 1);
           dueDate.setDate(startDay);
           return {
-            loanApplicationId: mirrorLoan.id,
+            loanApplicationId: txMirrorLoan.id,
             installmentNumber: emi.installmentNumber,
             dueDate,
             originalDueDate: dueDate,
@@ -568,7 +586,7 @@ export async function PUT(request: NextRequest) {
           };
         });
 
-        await db.eMISchedule.createMany({
+        await tx.eMISchedule.createMany({
           data: mirrorEMISchedules as any,
         });
       }
@@ -586,7 +604,7 @@ export async function PUT(request: NextRequest) {
       for (const emi of originalLoanEMIs) {
         const isExtraEMI = emi.installmentNumber > mirrorTenure;
         
-        await db.eMIPaymentSetting.create({
+        await tx.eMIPaymentSetting.create({
           data: {
             emiScheduleId: emi.id,
             loanApplicationId: pendingLoan.originalLoanId,
@@ -603,10 +621,10 @@ export async function PUT(request: NextRequest) {
       console.log(`[Mirror Loan] ${(originalLoanEMIs.length - mirrorTenure)} EMIs marked as Extra EMIs with secondary payment page`);
 
       // Create the mirror loan mapping — include processingFee & processingFeeRecorded
-      const mirrorMapping = await db.mirrorLoanMapping.create({
+      const txMirrorMapping = await tx.mirrorLoanMapping.create({
         data: {
           originalLoanId: pendingLoan.originalLoanId,
-          mirrorLoanId: mirrorLoan.id,
+          mirrorLoanId: txMirrorLoan.id,
           originalCompanyId: pendingLoan.originalCompanyId,
           mirrorCompanyId: pendingLoan.mirrorCompanyId,
           mirrorType: pendingLoan.mirrorType,
@@ -633,12 +651,9 @@ export async function PUT(request: NextRequest) {
 
       // ============================================
       // DEDUCT FROM MIRROR COMPANY'S BANK ACCOUNT AND/OR CASH BOOK
-      // This is the ACTUAL disbursement - money goes out from mirror company
+      // Runs inside the transaction — a bank failure rolls back all loan records.
       // Supports Split Payment (Bank + Cash)
       // ============================================
-      
-      const principalAmount = pendingLoan.principalAmount;
-      const isSplitPayment = useSplitPayment && (bankAmount || 0) > 0 && (cashAmount || 0) > 0;
       
       console.log(`[Mirror Loan] Disbursement params:`, {
         useSplitPayment,
@@ -651,27 +666,20 @@ export async function PUT(request: NextRequest) {
       
       if (isSplitPayment) {
         console.log(`[Mirror Loan] Processing SPLIT PAYMENT: Bank ₹${bankAmount}, Cash ₹${cashAmount}`);
-        
+
         // 1. Handle Bank Portion
         if (bankAmount > 0 && disbursementBankAccountId) {
-          const bank = await db.bankAccount.findUnique({ 
+          const bank = await tx.bankAccount.findUnique({
             where: { id: disbursementBankAccountId },
             select: { currentBalance: true, companyId: true }
           });
-          
           if (bank) {
             if (bank.companyId !== pendingLoan.mirrorCompanyId) {
               console.warn(`[Mirror Loan] WARNING: Bank account ${disbursementBankAccountId} does not belong to mirror company ${pendingLoan.mirrorCompanyId}`);
             }
-            
             const newBalance = bank.currentBalance - bankAmount;
-            
-            await db.bankAccount.update({
-              where: { id: disbursementBankAccountId },
-              data: { currentBalance: newBalance }
-            });
-            
-            await db.bankTransaction.create({
+            await tx.bankAccount.update({ where: { id: disbursementBankAccountId }, data: { currentBalance: newBalance } });
+            await tx.bankTransaction.create({
               data: {
                 bankAccountId: disbursementBankAccountId,
                 transactionType: 'DEBIT',
@@ -679,38 +687,26 @@ export async function PUT(request: NextRequest) {
                 balanceAfter: newBalance,
                 description: `Mirror Loan Disbursement (Bank Portion) - ${mirrorApplicationNo}`,
                 referenceType: 'LOAN_DISBURSEMENT',
-                referenceId: mirrorLoan.id,
+                referenceId: txMirrorLoan.id,
                 createdById: userId
               }
             });
-            
             console.log(`[Mirror Loan] Bank deduction: ₹${bankAmount}, New Balance: ₹${newBalance}`);
           } else {
-            console.error(`[Mirror Loan] ERROR: Bank account ${disbursementBankAccountId} not found!`);
+            throw new Error(`Bank account ${disbursementBankAccountId} not found — aborting disbursement.`);
           }
         } else if (bankAmount > 0) {
-          console.error(`[Mirror Loan] ERROR: Bank amount ₹${bankAmount} provided but disbursementBankAccountId is missing!`);
+          throw new Error(`Bank amount ₹${bankAmount} provided but disbursementBankAccountId is missing.`);
         }
-        
+
         // 2. Handle Cash Portion
         if (cashAmount > 0) {
-          let cashBook = await db.cashBook.findUnique({
-            where: { companyId: pendingLoan.mirrorCompanyId }
-          });
-          
+          let cashBook = await tx.cashBook.findUnique({ where: { companyId: pendingLoan.mirrorCompanyId } });
           if (!cashBook) {
-            cashBook = await db.cashBook.create({
-              data: {
-                companyId: pendingLoan.mirrorCompanyId,
-                openingBalance: 0,
-                currentBalance: 0
-              }
-            });
+            cashBook = await tx.cashBook.create({ data: { companyId: pendingLoan.mirrorCompanyId, openingBalance: 0, currentBalance: 0 } });
           }
-          
           const newCashBalance = cashBook.currentBalance - cashAmount;
-          
-          await db.cashBookEntry.create({
+          await tx.cashBookEntry.create({
             data: {
               cashBookId: cashBook.id,
               entryType: 'DEBIT',
@@ -718,41 +714,27 @@ export async function PUT(request: NextRequest) {
               balanceAfter: newCashBalance,
               description: `Mirror Loan Disbursement (Cash Portion) - ${mirrorApplicationNo}`,
               referenceType: 'LOAN_DISBURSEMENT',
-              referenceId: mirrorLoan.id,
+              referenceId: txMirrorLoan.id,
               createdById: userId
             }
           });
-          
-          await db.cashBook.update({
-            where: { id: cashBook.id },
-            data: {
-              currentBalance: newCashBalance,
-              lastUpdatedAt: new Date()
-            }
-          });
-          
+          await tx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBalance, lastUpdatedAt: new Date() } });
           console.log(`[Mirror Loan] Cash deduction: ₹${cashAmount}, New Balance: ₹${newCashBalance}`);
         }
+
       } else if (disbursementBankAccountId) {
         // Single Bank Payment
-        const bank = await db.bankAccount.findUnique({ 
+        const bank = await tx.bankAccount.findUnique({
           where: { id: disbursementBankAccountId },
           select: { currentBalance: true, companyId: true }
         });
-        
         if (bank) {
           if (bank.companyId !== pendingLoan.mirrorCompanyId) {
             console.warn(`[Mirror Loan] WARNING: Bank account ${disbursementBankAccountId} does not belong to mirror company ${pendingLoan.mirrorCompanyId}`);
           }
-          
           const newBalance = bank.currentBalance - principalAmount;
-          
-          await db.bankAccount.update({
-            where: { id: disbursementBankAccountId },
-            data: { currentBalance: newBalance }
-          });
-          
-          await db.bankTransaction.create({
+          await tx.bankAccount.update({ where: { id: disbursementBankAccountId }, data: { currentBalance: newBalance } });
+          await tx.bankTransaction.create({
             data: {
               bankAccountId: disbursementBankAccountId,
               transactionType: 'DEBIT',
@@ -760,36 +742,24 @@ export async function PUT(request: NextRequest) {
               balanceAfter: newBalance,
               description: `Mirror Loan Disbursement - ${mirrorApplicationNo} (Original: ${originalLoan.applicationNo})`,
               referenceType: 'LOAN_DISBURSEMENT',
-              referenceId: mirrorLoan.id,
+              referenceId: txMirrorLoan.id,
               createdById: userId
             }
           });
-          
           console.log(`[Mirror Loan] Bank transaction created: Account ${disbursementBankAccountId}, Amount: ${principalAmount}, New Balance: ${newBalance}`);
         } else {
-          console.error(`[Mirror Loan] ERROR: Bank account ${disbursementBankAccountId} not found!`);
+          throw new Error(`Bank account ${disbursementBankAccountId} not found — aborting disbursement.`);
         }
+
       } else {
-        console.warn(`[Mirror Loan] WARNING: No bank account ID provided for disbursement. Checking for cash-only disbursement...`);
-        
         // Cash-only disbursement
-        let cashBook = await db.cashBook.findUnique({
-          where: { companyId: pendingLoan.mirrorCompanyId }
-        });
-        
+        console.log(`[Mirror Loan] Cash-only disbursement of ₹${principalAmount}`);
+        let cashBook = await tx.cashBook.findUnique({ where: { companyId: pendingLoan.mirrorCompanyId } });
         if (!cashBook) {
-          cashBook = await db.cashBook.create({
-            data: {
-              companyId: pendingLoan.mirrorCompanyId,
-              openingBalance: 0,
-              currentBalance: 0
-            }
-          });
+          cashBook = await tx.cashBook.create({ data: { companyId: pendingLoan.mirrorCompanyId, openingBalance: 0, currentBalance: 0 } });
         }
-        
         const newCashBalance = cashBook.currentBalance - principalAmount;
-        
-        await db.cashBookEntry.create({
+        await tx.cashBookEntry.create({
           data: {
             cashBookId: cashBook.id,
             entryType: 'DEBIT',
@@ -797,20 +767,37 @@ export async function PUT(request: NextRequest) {
             balanceAfter: newCashBalance,
             description: `Mirror Loan Disbursement (Cash) - ${mirrorApplicationNo}`,
             referenceType: 'LOAN_DISBURSEMENT',
-            referenceId: mirrorLoan.id,
+            referenceId: txMirrorLoan.id,
             createdById: userId
           }
         });
-        
-        await db.cashBook.update({
-          where: { id: cashBook.id },
-          data: {
-            currentBalance: newCashBalance,
-            lastUpdatedAt: new Date()
-          }
-        });
-        
+        await tx.cashBook.update({ where: { id: cashBook.id }, data: { currentBalance: newCashBalance, lastUpdatedAt: new Date() } });
         console.log(`[Mirror Loan] Cash disbursement: ₹${principalAmount}, New Balance: ₹${newCashBalance}`);
+      }
+
+      // ── FINAL GATE: flip status to DISBURSED as the last write in the transaction ──
+      // If any step above threw, we never reach here and everything rolls back.
+      const txUpdated = await tx.pendingMirrorLoan.update({
+        where: { id },
+        data: {
+          status: 'DISBURSED',
+          disbursedById: userId,
+          disbursedAt: new Date(),
+          disbursementBankAccountId: disbursementBankAccountId || null,
+          disbursementReference: disbursementReference || null
+        }
+      });
+
+      return { mirrorLoan: txMirrorLoan, mirrorMapping: txMirrorMapping, updated: txUpdated };
+
+      })); // ← end db.$transaction
+
+      } catch (txError) {
+        console.error('[Mirror Loan] TRANSACTION FAILED — all changes rolled back:', txError);
+        return NextResponse.json({
+          error: 'Mirror loan disbursement failed. All changes have been rolled back. Please try again.',
+          details: txError instanceof Error ? txError.message : 'Unknown transaction error',
+        }, { status: 500 });
       }
 
       // ============================================
@@ -820,6 +807,11 @@ export async function PUT(request: NextRequest) {
       // ============================================
       
       try {
+        // Initialize Chart of Accounts for mirror company to ensure required accounts exist
+        const { AccountingService } = await import('@/lib/accounting-service');
+        const mirrorAccSvc = new AccountingService(pendingLoan.mirrorCompanyId);
+        await mirrorAccSvc.initializeChartOfAccounts();
+
         // Get or create financial year
         const currentYear = new Date().getMonth() >= 3 ? new Date().getFullYear() : new Date().getFullYear() - 1;
         const yearName = `FY ${currentYear}-${currentYear + 1}`;
@@ -1075,17 +1067,7 @@ export async function PUT(request: NextRequest) {
       }
 
 
-      // Update pending loan status
-      const updated = await db.pendingMirrorLoan.update({
-        where: { id },
-        data: {
-          status: 'DISBURSED',
-          disbursedById: userId,
-          disbursedAt: new Date(),
-          disbursementBankAccountId: disbursementBankAccountId || null,
-          disbursementReference: disbursementReference || null
-        }
-      });
+      // (status update now happens inside the atomic transaction above)
 
       // Trigger instant UI refresh across the app
       try {

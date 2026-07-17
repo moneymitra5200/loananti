@@ -365,7 +365,7 @@ export default function CompanyDashboard() {
     'AGENT_APPROVED_STAGE1', 'LOAN_FORM_COMPLETED', 'SESSION_CREATED', 
     'CUSTOMER_SESSION_APPROVED', 'FINAL_APPROVED'
   ].includes(l.status));
-  const activeLoans = loans.filter(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
+  const activeLoans = loans.filter(l => ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(l.status));
   const rejectedLoans = loans.filter(l => ['REJECTED_BY_COMPANY', 'REJECTED_FINAL'].includes(l.status));
 
   const totalDisbursed = activeLoans.reduce((sum, l) => sum + (l.sessionForm?.approvedAmount || l.requestedAmount), 0);

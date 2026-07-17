@@ -325,6 +325,12 @@
       "namedRegex": "^/api/accounting/aging\\-analysis(?:/)?$"
     },
     {
+      "page": "/api/accounting/audit",
+      "regex": "^/api/accounting/audit(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/accounting/audit(?:/)?$"
+    },
+    {
       "page": "/api/accounting/auto-fix",
       "regex": "^/api/accounting/auto\\-fix(?:/)?$",
       "routeKeys": {},
@@ -851,6 +857,12 @@
       "regex": "^/api/dev/set\\-interest\\-only(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/dev/set\\-interest\\-only(?:/)?$"
+    },
+    {
+      "page": "/api/diagnostic",
+      "regex": "^/api/diagnostic(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/diagnostic(?:/)?$"
     },
     {
       "page": "/api/emi",

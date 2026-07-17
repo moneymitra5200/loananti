@@ -281,6 +281,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/accounting/audit/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/accounting/audit">> = Specific
+  const handler = {} as typeof import("../../src/app/api/accounting/audit/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/accounting/auto-fix/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/accounting/auto-fix">> = Specific
@@ -1077,6 +1086,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/dev/set-interest-only">> = Specific
   const handler = {} as typeof import("../../src/app/api/dev/set-interest-only/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/diagnostic/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/diagnostic">> = Specific
+  const handler = {} as typeof import("../../src/app/api/diagnostic/route.js")
   type __Check = __IsExpected<typeof handler>
   // @ts-ignore
   type __Unused = __Check
