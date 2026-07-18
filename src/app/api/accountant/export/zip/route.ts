@@ -5,55 +5,25 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/accountant/export/zip?companyId=xxx&year=2026
- *
- * Generates a comprehensive JSON-based ZIP archive of all accounting data
- * for the selected Indian Financial Year (April 1 → March 31).
- *
  * year=2026 → FY 2026-27 → 1 Apr 2026 to 31 Mar 2027
- *
- * The ZIP contains CSV files for:
- * - journal_entries.csv        All JEs in the FY
- * - journal_entry_lines.csv    All JE lines
- * - cashbook_entries.csv       All cashbook transactions
- * - bank_transactions.csv      All bank transactions
- * - loan_portfolio.csv         All active/closed loans
- * - emi_collections.csv        All EMI payments received
- * - balance_sheet_summary.txt  Snapshot of the Balance Sheet
- * - profit_loss_summary.txt    P&L summary
  */
-
-// ── Indian Financial Year helper ────────────────────────────────────────────
 function getIndianFY(year: number): { fyStart: Date; fyEnd: Date; label: string } {
-  // year=2026 → 1 Apr 2026 to 31 Mar 2027
-  const fyStart = new Date(year, 3, 1, 0, 0, 0, 0);      // Apr 1, 00:00:00
-  const fyEnd   = new Date(year + 1, 2, 31, 23, 59, 59, 999); // Mar 31, 23:59:59
+  const fyStart = new Date(year, 3, 1, 0, 0, 0, 0);
+  const fyEnd   = new Date(year + 1, 2, 31, 23, 59, 59, 999);
   return { fyStart, fyEnd, label: `FY ${year}-${String(year + 1).slice(-2)}` };
 }
 
-// ── CSV helper ───────────────────────────────────────────────────────────────
 function toCSV(rows: Record<string, any>[]): string {
   if (!rows || rows.length === 0) return '';
   const headers = Object.keys(rows[0]);
   const escape = (v: any) => {
     if (v === null || v === undefined) return '';
     const s = String(v);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const lines = [
-    headers.join(','),
-    ...rows.map(r => headers.map(h => escape(r[h])).join(','))
-  ];
-  return lines.join('\n');
+  return [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
 }
-
-// ── Simple in-memory ZIP builder (no external deps) ─────────────────────────
-// We produce a JSON manifest + individual CSV files bundled as a multi-part
-// response that the client will receive as a single "zip-bundle" JSON and
-// reconstruct. The client uses JSZip (already in project) to produce the ZIP.
-// The API returns: { fyLabel, files: [{ name, content }] }
 
 export async function GET(request: NextRequest) {
   try {
@@ -72,7 +42,6 @@ export async function GET(request: NextRequest) {
 
     const { fyStart, fyEnd, label } = getIndianFY(yearNum);
 
-    // ── Fetch company info ─────────────────────────────────────────────────
     const company = await db.company.findUnique({
       where: { id: companyId },
       select: { name: true, code: true }
@@ -81,13 +50,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // ── 1. Journal Entries ─────────────────────────────────────────────────
+    // ── 1. Journal Entries ────────────────────────────────────────────────────
     const journalEntries = await db.journalEntry.findMany({
-      where: {
-        companyId,
-        entryDate: { gte: fyStart, lte: fyEnd },
-        isReversed: false
-      },
+      where: { companyId, entryDate: { gte: fyStart, lte: fyEnd }, isReversed: false },
       include: {
         lines: {
           include: { account: { select: { accountCode: true, accountName: true } } }
@@ -115,23 +80,23 @@ export async function GET(request: NextRequest) {
         account_name: l.account?.accountName || '',
         debit_amount: l.debitAmount || 0,
         credit_amount: l.creditAmount || 0,
-        narration: (l as any).narration || ''
+        narration: l.narration || ''   // ✅ field exists on JournalEntryLine - no cast
       }))
     );
 
-    // ── 2. CashBook Entries ────────────────────────────────────────────────
+    // ── 2. CashBook — FIX: filter by entryDate not createdAt ─────────────────
     const cashBook = await db.cashBook.findUnique({ where: { companyId } });
     const cashEntries = cashBook ? await db.cashBookEntry.findMany({
       where: {
         cashBookId: cashBook.id,
-        createdAt: { gte: fyStart, lte: fyEnd }
+        entryDate: { gte: fyStart, lte: fyEnd }   // ✅ FIX: was createdAt
       },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { entryDate: 'asc' }
     }) : [];
 
     const cashRows = cashEntries.map(e => ({
-      date: e.createdAt?.toISOString().slice(0, 10),
-      time: e.createdAt?.toISOString().slice(11, 19),
+      date: e.entryDate?.toISOString().slice(0, 10),
+      time: e.entryDate?.toISOString().slice(11, 19),
       type: e.entryType,
       amount: e.amount,
       balance_after: e.balanceAfter,
@@ -140,41 +105,42 @@ export async function GET(request: NextRequest) {
       reference_id: e.referenceId || ''
     }));
 
-    // ── 3. Bank Transactions ───────────────────────────────────────────────
+    // ── 3. Bank Transactions — FIX: single query, no N+1 loop ────────────────
     const bankAccounts = await db.bankAccount.findMany({
       where: { companyId, isActive: true },
       select: { id: true, bankName: true, accountNumber: true }
     });
 
-    const bankTxRows: Record<string, any>[] = [];
-    for (const ba of bankAccounts) {
-      const txns = await db.bankTransaction.findMany({
-        where: {
-          bankAccountId: ba.id,
-          transactionDate: { gte: fyStart, lte: fyEnd }
-        },
-        orderBy: { transactionDate: 'asc' }
-      });
-      for (const t of txns) {
-        bankTxRows.push({
-          bank_name: ba.bankName,
-          account_number: ba.accountNumber,
-          date: t.transactionDate?.toISOString().slice(0, 10),
-          type: t.transactionType,
-          amount: t.amount,
-          balance_after: t.balanceAfter,
-          description: t.description || '',
-          reference_type: t.referenceType || '',
-          reference_id: t.referenceId || ''
-        });
-      }
-    }
+    const bankAccountMap = new Map(bankAccounts.map(ba => [ba.id, ba]));
+    const allBankTxns = bankAccounts.length > 0 ? await db.bankTransaction.findMany({
+      where: {
+        bankAccountId: { in: bankAccounts.map(ba => ba.id) },
+        transactionDate: { gte: fyStart, lte: fyEnd }
+      },
+      orderBy: { transactionDate: 'asc' }
+    }) : [];
 
-    // ── 4. Loan Portfolio ──────────────────────────────────────────────────
+    const bankTxRows = allBankTxns.map(t => {
+      const ba = bankAccountMap.get(t.bankAccountId);
+      return {
+        bank_name: ba?.bankName || '',
+        account_number: ba?.accountNumber || '',
+        date: t.transactionDate?.toISOString().slice(0, 10),
+        type: t.transactionType,
+        amount: t.amount,
+        balance_after: t.balanceAfter,
+        description: t.description || '',
+        reference_type: t.referenceType || '',
+        reference_id: t.referenceId || ''
+      };
+    });
+
+    // ── 4. Loan Portfolio — FIX: only disbursed/active/closed loans ──────────
     const onlineLoans = await db.loanApplication.findMany({
       where: {
         companyId,
-        createdAt: { gte: fyStart, lte: fyEnd }
+        createdAt: { gte: fyStart, lte: fyEnd },
+        status: { in: ['DISBURSED', 'ACTIVE', 'CLOSED', 'FORECLOSED'] }  // ✅ FIX
       },
       select: {
         applicationNo: true, firstName: true, lastName: true, loanAmount: true,
@@ -188,7 +154,8 @@ export async function GET(request: NextRequest) {
       where: {
         companyId,
         isMirrorLoan: false,
-        createdAt: { gte: fyStart, lte: fyEnd }
+        createdAt: { gte: fyStart, lte: fyEnd },
+        status: { in: ['ACTIVE', 'CLOSED', 'FORECLOSED', 'NPA'] }  // ✅ FIX
       },
       select: {
         loanNumber: true, customerName: true, loanAmount: true,
@@ -223,7 +190,7 @@ export async function GET(request: NextRequest) {
       }))
     ];
 
-    // ── 5. EMI Collections ─────────────────────────────────────────────────
+    // ── 5. EMI Collections ────────────────────────────────────────────────────
     const emiCollections = await db.offlineLoanEMI.findMany({
       where: {
         offlineLoan: { companyId, isMirrorLoan: false },
@@ -238,7 +205,7 @@ export async function GET(request: NextRequest) {
         principalAmount: true,
         interestAmount: true,
         paidDate: true,
-        paymentMode: true
+        paymentMode: true  // ✅ field exists on OfflineLoanEMI - no cast
       },
       orderBy: { paidDate: 'asc' }
     });
@@ -252,49 +219,91 @@ export async function GET(request: NextRequest) {
       principal: e.principalAmount,
       interest: e.interestAmount,
       paid_date: e.paidDate?.toISOString().slice(0, 10) || '',
-      payment_mode: (e as any).paymentMode || ''
+      payment_mode: e.paymentMode || ''  // ✅ no cast
     }));
 
-    // ── 6. Income & Expense Summary ────────────────────────────────────────
-    const incomeAccounts = await db.chartOfAccount.findMany({
-      where: { companyId, accountType: 'INCOME', isActive: true },
-      select: { accountCode: true, accountName: true, currentBalance: true }
-    });
-    const expenseAccounts = await db.chartOfAccount.findMany({
-      where: { companyId, accountType: 'EXPENSE', isActive: true },
-      select: { accountCode: true, accountName: true, currentBalance: true }
-    });
-    const totalIncome = incomeAccounts.reduce((s, a) => s + (a.currentBalance || 0), 0);
-    const totalExpense = expenseAccounts.reduce((s, a) => s + (a.currentBalance || 0), 0);
+    // ── 6. FY-accurate P&L — FIX: sum JE lines in FY, not currentBalance ─────
+    //
+    // INCOME accounts are credit-normal:  net = sum(creditAmount) - sum(debitAmount)
+    // EXPENSE accounts are debit-normal:  net = sum(debitAmount)  - sum(creditAmount)
+
+    const [incomeAccounts, expenseAccounts] = await Promise.all([
+      db.chartOfAccount.findMany({
+        where: { companyId, accountType: 'INCOME', isActive: true },
+        select: { id: true, accountCode: true, accountName: true }
+      }),
+      db.chartOfAccount.findMany({
+        where: { companyId, accountType: 'EXPENSE', isActive: true },
+        select: { id: true, accountCode: true, accountName: true }
+      })
+    ]);
+
+    const incomeIds  = incomeAccounts.map(a => a.id);
+    const expenseIds = expenseAccounts.map(a => a.id);
+
+    const [fyIncomeLines, fyExpenseLines] = await Promise.all([
+      incomeIds.length > 0 ? db.journalEntryLine.findMany({
+        where: {
+          accountId: { in: incomeIds },
+          journalEntry: { companyId, entryDate: { gte: fyStart, lte: fyEnd }, isReversed: false }
+        },
+        select: { accountId: true, debitAmount: true, creditAmount: true }
+      }) : [],
+      expenseIds.length > 0 ? db.journalEntryLine.findMany({
+        where: {
+          accountId: { in: expenseIds },
+          journalEntry: { companyId, entryDate: { gte: fyStart, lte: fyEnd }, isReversed: false }
+        },
+        select: { accountId: true, debitAmount: true, creditAmount: true }
+      }) : []
+    ]);
+
+    // Accumulate per account
+    const incomeSummary = new Map(incomeAccounts.map(a => [a.id, { ...a, net: 0 }]));
+    for (const l of fyIncomeLines) {
+      const s = incomeSummary.get(l.accountId);
+      if (s) s.net += (l.creditAmount || 0) - (l.debitAmount || 0);
+    }
+
+    const expenseSummary = new Map(expenseAccounts.map(a => [a.id, { ...a, net: 0 }]));
+    for (const l of fyExpenseLines) {
+      const s = expenseSummary.get(l.accountId);
+      if (s) s.net += (l.debitAmount || 0) - (l.creditAmount || 0);
+    }
+
+    const totalIncome  = [...incomeSummary.values()].reduce((s, a) => s + a.net, 0);
+    const totalExpense = [...expenseSummary.values()].reduce((s, a) => s + a.net, 0);
     const netProfitLoss = totalIncome - totalExpense;
 
-    // ── Assemble text summaries ────────────────────────────────────────────
     const plSummary = [
       `PROFIT & LOSS STATEMENT`,
       `Company: ${company.name} (${company.code})`,
       `Financial Year: ${label} (${fyStart.toDateString()} - ${fyEnd.toDateString()})`,
       `Generated: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
+      `Basis: Journal entries posted within FY (not cumulative all-time balances)`,
       ``,
       `INCOME`,
-      ...incomeAccounts.map(a => `  ${a.accountCode} - ${a.accountName}: ₹${(a.currentBalance || 0).toFixed(2)}`),
+      ...[...incomeSummary.values()].filter(a => a.net !== 0)
+        .map(a => `  ${a.accountCode} - ${a.accountName}: ₹${a.net.toFixed(2)}`),
       `  TOTAL INCOME: ₹${totalIncome.toFixed(2)}`,
       ``,
       `EXPENSES`,
-      ...expenseAccounts.map(a => `  ${a.accountCode} - ${a.accountName}: ₹${(a.currentBalance || 0).toFixed(2)}`),
+      ...[...expenseSummary.values()].filter(a => a.net !== 0)
+        .map(a => `  ${a.accountCode} - ${a.accountName}: ₹${a.net.toFixed(2)}`),
       `  TOTAL EXPENSES: ₹${totalExpense.toFixed(2)}`,
       ``,
       `NET ${netProfitLoss >= 0 ? 'PROFIT' : 'LOSS'}: ₹${Math.abs(netProfitLoss).toFixed(2)}`
     ].join('\n');
 
-    // ── Assemble files bundle ──────────────────────────────────────────────
+    // ── Assemble ──────────────────────────────────────────────────────────────
     const files = [
-      { name: 'journal_entries.csv',      content: toCSV(jeRows),         count: jeRows.length },
-      { name: 'journal_entry_lines.csv',  content: toCSV(jeLineRows),     count: jeLineRows.length },
-      { name: 'cashbook_entries.csv',     content: toCSV(cashRows),       count: cashRows.length },
-      { name: 'bank_transactions.csv',    content: toCSV(bankTxRows),     count: bankTxRows.length },
-      { name: 'loan_portfolio.csv',       content: toCSV(loanRows),       count: loanRows.length },
-      { name: 'emi_collections.csv',      content: toCSV(emiRows),        count: emiRows.length },
-      { name: 'profit_loss_summary.txt',  content: plSummary,             count: null },
+      { name: 'journal_entries.csv',     content: toCSV(jeRows),     count: jeRows.length },
+      { name: 'journal_entry_lines.csv', content: toCSV(jeLineRows), count: jeLineRows.length },
+      { name: 'cashbook_entries.csv',    content: toCSV(cashRows),   count: cashRows.length },
+      { name: 'bank_transactions.csv',   content: toCSV(bankTxRows), count: bankTxRows.length },
+      { name: 'loan_portfolio.csv',      content: toCSV(loanRows),   count: loanRows.length },
+      { name: 'emi_collections.csv',     content: toCSV(emiRows),    count: emiRows.length },
+      { name: 'profit_loss_summary.txt', content: plSummary,         count: null },
     ];
 
     return NextResponse.json({
