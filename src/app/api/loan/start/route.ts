@@ -484,7 +484,7 @@ export async function POST(request: NextRequest) {
 
         // Update the mirror mapping to mark it recorded
         await db.mirrorLoanMapping.updateMany({
-          where: { originalLoanId: loanId, isOfflineLoan: false },
+          where: { originalLoanId: loanId },
           data: { processingFeeRecorded: true, mirrorProcessingFee: parsedProcessingFee }
         });
         

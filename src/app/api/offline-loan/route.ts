@@ -3794,7 +3794,7 @@ export async function PUT(request: NextRequest) {
                   installmentNumber:  emi.installmentNumber,
                   isInterestAccrued:  isMirrorAccrued,
                   isInterestReclassified: isMirrorReclass,
-                  customerId:         emi.offlineLoan.customerId || undefined,
+                  customerId:         emi.offlineLoan.customerId || '',
                 });
                 if (!mirrorJournalResult.success) {
                   accountingWarnings.push(`MIRROR PRINCIPAL_ONLY/ADVANCE journal: ${mirrorJournalResult.error}`);
@@ -3855,7 +3855,7 @@ export async function PUT(request: NextRequest) {
                   installmentNumber:  emi.installmentNumber,
                   isInterestAccrued:  isAccrued,
                   isInterestReclassified: isReclass,
-                  customerId:         emi.offlineLoan.customerId || undefined,
+                  customerId:         emi.offlineLoan.customerId || '',
                 });
                 if (!journalResult.success) {
                   accountingWarnings.push(`PRINCIPAL_ONLY journal: ${journalResult.error}`);
@@ -3951,13 +3951,14 @@ export async function PUT(request: NextRequest) {
               const isOnlineMode = paymentMode === 'ONLINE' || paymentMode === 'BANK_TRANSFER' || paymentMode === 'UPI';
               const debitCode = isOnlineMode ? FbCodes.BANK_ACCOUNT : FbCodes.CASH_IN_HAND;
               const fbLoanId = isMirrorLoan ? (mirrorLoanMapping.mirrorLoanId || emi.offlineLoanId) : emi.offlineLoanId;
+              const fbCustomerId = emi.offlineLoan.customerId || undefined;
  
               const fbLines: any[] = [
-                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: fbLoanId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - EMI #${emi.installmentNumber}` },
-                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: fbLoanId, narration: `Interest income - EMI #${emi.installmentNumber}` },
+                { accountCode: debitCode, debitAmount: effectiveTotal, creditAmount: 0, loanId: fbLoanId, customerId: fbCustomerId, narration: `${isOnlineMode ? 'Bank' : 'Cash'} received - EMI #${emi.installmentNumber}` },
+                { accountCode: FbCodes.INTEREST_INCOME, debitAmount: 0, creditAmount: effectiveI, loanId: fbLoanId, customerId: fbCustomerId, narration: `Interest income - EMI #${emi.installmentNumber}` },
               ];
               if (effectiveP > 0) {
-                fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: fbLoanId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
+                fbLines.push({ accountCode: FbCodes.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: effectiveP, loanId: fbLoanId, customerId: fbCustomerId, narration: `Principal repayment - EMI #${emi.installmentNumber}` });
               }
  
               const fbJournalId = await fbSvc.createJournalEntry({
@@ -4108,8 +4109,8 @@ export async function PUT(request: NextRequest) {
             createdById: userId || 'SYSTEM',
             isAutoEntry: true,
             lines: [
-              { accountCode: isOnlinePenalty ? PenCodes.BANK_ACCOUNT : PenCodes.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, narration: `Penalty collected via ${penaltyPaymentMode}` },
-              { accountCode: PenCodes.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, narration: `Penalty income after waiver of ₹${penaltyWaiver}` },
+              { accountCode: isOnlinePenalty ? PenCodes.BANK_ACCOUNT : PenCodes.CASH_IN_HAND, debitAmount: netPenalty, creditAmount: 0, loanId: emi.offlineLoanId, customerId: emi.offlineLoan.customerId || undefined, narration: `Penalty collected via ${penaltyPaymentMode}` },
+              { accountCode: PenCodes.PENALTY_INCOME, debitAmount: 0, creditAmount: netPenalty, loanId: emi.offlineLoanId, customerId: emi.offlineLoan.customerId || undefined, narration: `Penalty income after waiver of ₹${penaltyWaiver}` },
             ],
           });
           console.log(`[Penalty] ✅ ₹${netPenalty} Penalty Income recorded in company ${penaltyCompanyId}`);

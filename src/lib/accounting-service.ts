@@ -923,6 +923,8 @@ export class AccountingService {
           accountCode: debitAccount,
           debitAmount: params.totalAmount,
           creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
           narration: `EMI payment received via ${params.paymentMode}`,
         },
         ...creditLines,
@@ -1060,9 +1062,9 @@ export class AccountingService {
 
     const lines: Array<{ accountCode: string; debitAmount: number; creditAmount: number; loanId?: string; customerId?: string; narration?: string }> = [
       // Dr Cash/Bank — money received
-      { accountCode: debitCashBank,                       debitAmount: params.principalAmount,       creditAmount: 0,                          narration: `Principal received (${params.paymentMode})` },
+      { accountCode: debitCashBank, debitAmount: params.principalAmount, creditAmount: 0, loanId: params.loanId, customerId: params.customerId, narration: `Principal received (${params.paymentMode})` },
       // Cr Loans Receivable — principal portion of loan cleared
-      { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE,      debitAmount: 0,                            creditAmount: params.principalAmount,      loanId: params.loanId, customerId: params.customerId, narration: 'Principal repayment — loan reduced' },
+      { accountCode: ACCOUNT_CODES.LOANS_RECEIVABLE, debitAmount: 0, creditAmount: params.principalAmount, loanId: params.loanId, customerId: params.customerId, narration: 'Principal repayment — loan reduced' },
     ];
 
     // If interest is being written off, create the write-off entry
@@ -1185,6 +1187,8 @@ export class AccountingService {
           accountCode: debitAccount,
           debitAmount: params.amount,
           creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
           narration: `Processing fee received via ${params.paymentMode}`,
         },
         {
@@ -1312,6 +1316,8 @@ export class AccountingService {
           accountCode: debitAccount,
           debitAmount: params.amount,
           creditAmount: 0,
+          loanId: params.loanId,
+          customerId: params.customerId,
           narration: `Interest profit received via ${params.paymentMode}`,
         },
         {
@@ -1482,6 +1488,8 @@ export class AccountingService {
       accountCode: debitAccountCode,
       debitAmount: params.totalSettlement,
       creditAmount: 0,
+      loanId: params.loanId,
+      customerId: params.customerId,
       narration: isOnline ? 'Foreclosure settlement received via Bank/Online' : 'Foreclosure settlement received',
     });
 

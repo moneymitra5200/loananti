@@ -1205,13 +1205,20 @@ export async function recordPrincipalOnlyJournal(params: {
   installmentNumber: number | string;
   isInterestAccrued?: boolean;
   isInterestReclassified?: boolean;
-  customerId?: string;
+  customerId: string;
 }): Promise<{ success: boolean; journalEntryId?: string; error?: string }> {
   let {
     companyId, company3Id, creditType, loanId, paymentId, principalAmount, interestWrittenOff,
     paymentDate, createdById, paymentMode, loanNumber, installmentNumber,
     isInterestAccrued, isInterestReclassified, customerId,
   } = params;
+
+  if (!customerId) {
+    return { success: false, error: 'customerId is required' };
+  }
+  if (!loanId) {
+    return { success: false, error: 'loanId is required' };
+  }
 
   if (creditType === 'PERSONAL' && company3Id) {
     companyId = company3Id; // Route to Company 3 for personal credit

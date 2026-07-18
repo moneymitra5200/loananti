@@ -644,21 +644,37 @@ export async function PUT(request: NextRequest) {
       console.log(`[Mirror Loan] Mirror Tenure: ${mirrorTenure}, Extra EMI Count: ${extraEMICount}`);
       console.log(`[Mirror Loan] Extra EMI Payment Page ID: ${extraEMIPaymentPageId || 'Not provided'}`);
 
-      // Create EMIPaymentSetting for each EMI
+      // Create or update EMIPaymentSetting for each EMI
       for (const emi of originalLoanEMIs) {
         const isExtraEMI = emi.installmentNumber > mirrorTenure;
         
-        await tx.eMIPaymentSetting.create({
-          data: {
-            emiScheduleId: emi.id,
-            loanApplicationId: pendingLoan.originalLoanId,
-            enableFullPayment: true,
-            enablePartialPayment: !isExtraEMI, // Extra EMIs should only allow full payment
-            enableInterestOnly: !isExtraEMI, // Extra EMIs should not allow interest-only
-            useDefaultCompanyPage: !isExtraEMI || !extraEMIPaymentPageId,
-            secondaryPaymentPageId: isExtraEMI ? extraEMIPaymentPageId : null,
-          }
+        const existingSetting = await tx.eMIPaymentSetting.findUnique({
+          where: { emiScheduleId: emi.id }
         });
+
+        if (existingSetting) {
+          await tx.eMIPaymentSetting.update({
+            where: { id: existingSetting.id },
+            data: {
+              enablePartialPayment: !isExtraEMI, // Extra EMIs should only allow full payment
+              enableInterestOnly: !isExtraEMI, // Extra EMIs should not allow interest-only
+              useDefaultCompanyPage: !isExtraEMI || !extraEMIPaymentPageId,
+              secondaryPaymentPageId: isExtraEMI ? extraEMIPaymentPageId : null,
+            }
+          });
+        } else {
+          await tx.eMIPaymentSetting.create({
+            data: {
+              emiScheduleId: emi.id,
+              loanApplicationId: pendingLoan.originalLoanId,
+              enableFullPayment: true,
+              enablePartialPayment: !isExtraEMI, // Extra EMIs should only allow full payment
+              enableInterestOnly: !isExtraEMI, // Extra EMIs should not allow interest-only
+              useDefaultCompanyPage: !isExtraEMI || !extraEMIPaymentPageId,
+              secondaryPaymentPageId: isExtraEMI ? extraEMIPaymentPageId : null,
+            }
+          });
+        }
       }
 
       console.log(`[Mirror Loan] Created ${originalLoanEMIs.length} EMI Payment Settings`);

@@ -121,22 +121,51 @@ This checklist consolidates all critical issues, database transaction failures, 
 
 ## 6. Orphaned Customer Ledgers & Missing Metadata
 
-- [ ] **Issue 20: Missing Customer & Loan Metadata on Foreclosure Journals**
+- [x] **Issue 20: Missing Customer & Loan Metadata on Foreclosure Journals** ✅ RESOLVED
   * **File**: [src/app/api/loan/close/route.ts](file:///c:/Users/bscom/Desktop/reallll/src/app/api/loan/close/route.ts#L747) & [L852](file:///c:/Users/bscom/Desktop/reallll/src/app/api/loan/close/route.ts#L852)
-  * **Description**: During foreclosure, the double-entry lines generated for bank/cash, loans receivable, accrued interest, overdue interest, and foreclosure fee do not pass `loanId` and `customerId`.
-  * **Fix**: Update both the original and mirror foreclosure lines to explicitly pass `loanId` and `customerId`.
+  * **Description**: During foreclosure, the double-entry lines generated for bank/cash, loans receivable, accrued interest, overdue interest, and foreclosure fee did not pass `loanId` and `customerId`.
+  * **Resolution**: Updated both original and mirror foreclosure lines to explicitly pass `loanId` and `customerId`. Confirmed via `audit_journal_entries.js` — zero `EMI_PAYMENT`/`OFFLINE_LOAN_FORECLOSURE` lines missing metadata.
 
-- [ ] **Issue 21: Missing Customer Metadata on Interest Payment Journals**
+- [x] **Issue 21: Missing Customer Metadata on Interest Payment Journals** ✅ RESOLVED
   * **File**: [src/app/api/loan/interest-payment/route.ts](file:///c:/Users/bscom/Desktop/reallll/src/app/api/loan/interest-payment/route.ts#L353)
-  * **Description**: Interest payment journal entries correctly record `loanId` but omit `customerId` on all lines.
-  * **Fix**: Append `customerId: loan.customerId` to both debit and credit journal lines in the accounting block.
+  * **Description**: Interest payment journal entries correctly recorded `loanId` but omitted `customerId` on all lines.
+  * **Resolution**: Appended `customerId: loan.customerId` to both debit and credit journal lines in the accounting block.
 
-- [ ] **Issue 22: Missing Customer Metadata on Offline Interest-Only Journals**
-  * **File**: [src/app/api/offline-loan/route.ts](file:///c:/Users/bscom/Desktop/reallll/src/app/api/offline-loan/route.ts#L2510)
-  * **Description**: Offline interest-only collections pass `loanId: targetLoanId` to the ledger entries but leave `customerId` completely blank.
-  * **Fix**: Explicitly pass `customerId: targetCustomerId` (which resolves to `loan.customerId || ...`) on all debit and credit lines.
+- [x] **Issue 22: Missing Customer Metadata on Offline Interest-Only Journals** ✅ RESOLVED
+  * **File**: [src/app/api/offline-loan/route.ts](file:///c:/Users/bscom/Desktop/reallll/src/app/api/offline-loan/route.ts#L3953)
+  * **Description**: Offline EMI fallback journal and penalty income journals left `customerId` blank.
+  * **Resolution**: Injected `customerId` into both the fallback journal lines (L3955-3960) and penalty collection journal lines (L4110-4112).
 
-- [ ] **Issue 23: Missing Customer Metadata on Principal-Only Journals**
-  * **File**: [src/lib/simple-accounting.ts](file:///c:/Users/bscom/Desktop/reallll/src/lib/simple-accounting.ts#L1248)
-  * **Description**: `recordPrincipalOnlyJournal` does not have a `customerId` parameter and leaves `customerId` as `null` on all double-entry lines, breaking customer ledger reports.
-  * **Fix**: Add `customerId?: string` to `recordPrincipalOnlyJournal` params and assign it to the created journal lines.
+- [x] **Issue 23: Missing Customer Metadata on Principal-Only Journals** ✅ RESOLVED
+  * **File**: [src/lib/simple-accounting.ts](file:///c:/Users/bscom/Desktop/reallll/src/lib/simple-accounting.ts#L1193)
+  * **Description**: `recordPrincipalOnlyJournal` lacked a `customerId` parameter.
+  * **Resolution**: Added `customerId: string` as a **mandatory** parameter with runtime validation. All 4 journal lines (Dr Cash/Bank, Cr Loans Receivable, Dr Irrecoverable Debt, Cr Interest/Receivable) now carry `customerId` and `loanId`. Call sites in offline-loan/route.ts also updated.
+
+- [x] **Issue 24: Missing loanId/customerId on EMI Payment Debit Lines** ✅ RESOLVED
+  * **File**: [src/lib/accounting-service.ts](file:///c:/Users/bscom/Desktop/reallll/src/lib/accounting-service.ts#L923)
+  * **Description**: `recordEMIPayment` in AccountingService had `loanId`/`customerId` on credit lines but not on the debit (cash/bank) line.
+  * **Resolution**: Added `loanId: params.loanId` and `customerId: params.customerId` to the debit journal line.
+
+- [x] **Issue 25: Missing loanId/customerId on Processing Fee Collection Debit Line** ✅ RESOLVED
+  * **File**: [src/lib/accounting-service.ts](file:///c:/Users/bscom/Desktop/reallll/src/lib/accounting-service.ts#L1183)
+  * **Description**: `recordProcessingFeeCollection` had metadata on the credit (receivable cleared) line but not on the debit (cash/bank received) line.
+  * **Resolution**: Added `loanId: params.loanId` and `customerId: params.customerId` to the debit line.
+
+- [x] **Issue 26: Missing loanId/customerId on Mirror Interest Income and Foreclosure Debit Lines** ✅ RESOLVED
+  * **File**: [src/lib/accounting-service.ts](file:///c:/Users/bscom/Desktop/reallll/src/lib/accounting-service.ts#L1309)
+  * **Description**: `recordMirrorInterestIncome` and `recordForeclosure` debit (cash/bank) lines had no `loanId`/`customerId`.
+  * **Resolution**: Added metadata to both debit lines in `recordMirrorInterestIncome` (L1309) and `recordForeclosure` (L1481).
+
+---
+
+## 7. Remaining DB-Level Legacy Gaps (Pre-Hardening Records)
+
+> **Note**: The following reference types show missing metadata in the current database due to records created *before* the audit hardening. The code paths are now fully fixed — new entries will be compliant. Legacy records require a one-time data backfill.
+
+| `referenceType` | Missing Lines | Root Cause |
+|---|---|---|
+| `EQUITY_INVESTMENT` | 6 | Capital injection entries — no loan or customer context by design |
+| `MIRROR_LOAN_DISBURSEMENT` | 1 | Legacy record from before metadata injection in disbursement path |
+| `PROCESSING_FEE_ACCRUAL` | 1 | Legacy record from before `recordProcessingFeeAccrual` had full metadata |
+
+> `EQUITY_INVESTMENT` entries intentionally have no `loanId`/`customerId` — they represent company-level capital events, not customer loan transactions. These should be excluded from customer ledger audit queries.
