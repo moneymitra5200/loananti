@@ -767,11 +767,18 @@ async function processSingleApproval({
       }
 
       // ============ UNIFIED ACCOUNTING - PROCESSING FEE ============
-      // Record processing fee at disbursement for standard/non-mirror loans
+      // Record processing fee at disbursement for standard/non-mirror loans ONLY.
+      //
+      // ⚠️ PHASE RULE: IO (Interest-Only) loans in Phase 1 have NO defined tenure yet.
+      // Processing fee for mirror loans is derived from (originalEMI − lastMirrorEMI) which
+      // requires tenure. Accruing PF here would be premature and incorrect.
+      //
+      // PF for IO loans is accrued exclusively in Phase 2 (api/loan/start/route.ts)
+      // when the loan is converted to ACTIVE with a defined tenure — same as normal loans.
       const processingFee = typeof loan.sessionForm?.processingFee === 'number' 
         ? loan.sessionForm.processingFee 
         : parseFloat(loan.sessionForm?.processingFee as any) || 0;
-      if (targetCompanyId && processingFee > 0 && !pendingMirrorLoan) {
+      if (targetCompanyId && processingFee > 0 && !pendingMirrorLoan && !loan.isInterestOnlyLoan) {
         try {
           // 1. Cashbook or bank entry so it appears in DayBook
           const { recordCashBookEntry: pfCb, recordBankTransaction: pfBank } = await import('@/lib/simple-accounting');
@@ -833,6 +840,10 @@ async function processSingleApproval({
           console.error('[Disbursement] Processing fee recording failed:', pfError);
           throw pfError;
         }
+      } else if (loan.isInterestOnlyLoan && processingFee > 0) {
+        // ✅ PHASE RULE: IO loan Phase 1 — PF skipped intentionally.
+        // Will be accrued in Phase 2 (api/loan/start) when tenure is defined.
+        console.log(`[Disbursement] ⏭ IO Loan Phase 1 — PF ₹${processingFee} deferred to Phase 2 for ${loan.applicationNo}`);
       }
       } // End of else block (no pending mirror loan)
     }

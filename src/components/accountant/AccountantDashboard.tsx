@@ -23,7 +23,8 @@ import {
   LogOut, Plus, Receipt, BookCopy, BarChart3,
   AlertTriangle, CheckCircle, Building2, Wallet, PiggyBank,
   ChevronRight, CreditCard, Eye, Calendar, Search, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Wrench, Zap, Edit, BookCheck, User, QrCode, Upload, X, Activity
+  Wrench, Zap, Edit, BookCheck, User, QrCode, Upload, X, Activity,
+  Download, Archive
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -2673,6 +2674,13 @@ export default function UnifiedAccountantDashboard() {
   const [showRepayDialog, setShowRepayDialog] = useState(false);
   const [showCapitalDialog, setShowCapitalDialog] = useState(false);
   const [showWithdrawCapitalDialog, setShowWithdrawCapitalDialog] = useState(false);
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [downloadYear, setDownloadYear] = useState<string>(() => {
+    const now = new Date();
+    return String(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1);
+  });
+  const [downloading, setDownloading] = useState(false);
+  const [downloadSummary, setDownloadSummary] = useState<any>(null);
   const [bankAccountsList, setBankAccountsList] = useState<BankAccount[]>([]);
 
   // Recalculate result dialog (populated by ChartOfAccountsSection callback)
@@ -2985,6 +2993,17 @@ export default function UnifiedAccountantDashboard() {
                 Journal Entry
               </Button>
 
+              {/* ── FY Download Button ─────────────────────────────── */}
+              <Button
+                size="sm"
+                onClick={() => setShowDownloadDialog(true)}
+                className="h-8 bg-white/10 border border-white/30 text-white hover:bg-white/20 text-xs px-2.5"
+                title="Download Annual Accounting Data"
+              >
+                <Download className="h-3.5 w-3.5 mr-1" />
+                Export FY
+              </Button>
+
               {/* Quick Action Buttons */}
               <div className="flex items-center gap-1">
                 <Button size="sm" onClick={() => setShowBorrowDialog(true)} className="h-8 bg-amber-500/80 hover:bg-amber-400 text-white text-xs px-2" title="Record Borrowing">
@@ -3211,6 +3230,136 @@ export default function UnifiedAccountantDashboard() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* ─────────────────────── FY Download Dialog ─────────────────────── */}
+      <Dialog open={showDownloadDialog} onOpenChange={(o) => { setShowDownloadDialog(o); if (!o) setDownloadSummary(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Archive className="h-5 w-5 text-emerald-600" />
+              Download Annual Accounting Data
+            </DialogTitle>
+            <DialogDescription>
+              Select a Financial Year to download all accounting records as a ZIP file.
+              Indian FY: <span className="font-semibold">1 April → 31 March</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* FY Selector */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Financial Year</Label>
+              <Select value={downloadYear} onValueChange={setDownloadYear}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 6 }, (_, i) => {
+                    const y = new Date().getFullYear() - i;
+                    return (
+                      <SelectItem key={y} value={String(y)}>
+                        FY {y}-{String(y + 1).slice(-2)}&nbsp;&nbsp;
+                        <span className="text-gray-400 text-xs">(1 Apr {y} – 31 Mar {y + 1})</span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">
+                Selected period: <span className="font-semibold text-emerald-700">1 April {downloadYear} — 31 March {parseInt(downloadYear) + 1}</span>
+              </p>
+            </div>
+
+            {/* What's included */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wide mb-2">📦 ZIP Contents</p>
+              <ul className="text-xs text-emerald-700 space-y-1">
+                <li>📄 journal_entries.csv — All journal entries</li>
+                <li>📄 journal_entry_lines.csv — Detailed GL lines</li>
+                <li>📄 cashbook_entries.csv — Cash transactions</li>
+                <li>📄 bank_transactions.csv — Bank transactions</li>
+                <li>📄 loan_portfolio.csv — All loans</li>
+                <li>📄 emi_collections.csv — EMI payments received</li>
+                <li>📄 profit_loss_summary.txt — P&amp;L snapshot</li>
+              </ul>
+            </div>
+
+            {/* Summary after fetch */}
+            {downloadSummary && (
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs space-y-1">
+                <p className="font-semibold text-gray-700">📊 Data Summary</p>
+                <div className="grid grid-cols-2 gap-1 mt-1">
+                  <span className="text-gray-500">Journal Entries:</span><span className="font-medium">{downloadSummary.journalEntries}</span>
+                  <span className="text-gray-500">Cash Transactions:</span><span className="font-medium">{downloadSummary.cashEntries}</span>
+                  <span className="text-gray-500">Bank Transactions:</span><span className="font-medium">{downloadSummary.bankTransactions}</span>
+                  <span className="text-gray-500">Loans:</span><span className="font-medium">{downloadSummary.loans}</span>
+                  <span className="text-gray-500">EMI Collections:</span><span className="font-medium">{downloadSummary.emiCollections}</span>
+                  <span className="text-gray-500">Net P&amp;L:</span>
+                  <span className={`font-bold ${downloadSummary.netProfitLoss >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {downloadSummary.netProfitLoss >= 0 ? '+' : ''}{formatCurrency(downloadSummary.netProfitLoss)}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => { setShowDownloadDialog(false); setDownloadSummary(null); }}>Cancel</Button>
+            <Button
+              disabled={downloading || !selectedCompanyId}
+              onClick={async () => {
+                if (!selectedCompanyId) { toast.error('Select a company first'); return; }
+                setDownloading(true);
+                setDownloadSummary(null);
+                try {
+                  const res = await fetch(`/api/accountant/export/zip?companyId=${selectedCompanyId}&year=${downloadYear}`);
+                  if (!res.ok) throw new Error((await res.json()).error || 'Export failed');
+                  const data = await res.json();
+                  setDownloadSummary(data.summary);
+
+                  // Build ZIP using JSZip
+                  const JSZip = (await import('jszip')).default;
+                  const zip = new JSZip();
+                  const folderName = `Accounting_${data.company.code}_${data.fyLabel.replace(/\s/g,'_')}`;
+                  const folder = zip.folder(folderName)!;
+                  for (const file of data.files) {
+                    folder.file(file.name, file.content);
+                  }
+                  // Manifest
+                  folder.file('manifest.txt', [
+                    `Company: ${data.company.name} (${data.company.code})`,
+                    `Financial Year: ${data.fyLabel}`,
+                    `Period: ${new Date(data.fyStart).toDateString()} — ${new Date(data.fyEnd).toDateString()}`,
+                    `Generated: ${new Date(data.generatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
+                    ``,
+                    `FILES:`,
+                    ...data.files.map((f: any) => `  ${f.name}${f.count !== null ? ` (${f.count} records)` : ''}`)
+                  ].join('\n'));
+
+                  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+                  const url  = URL.createObjectURL(blob);
+                  const a    = document.createElement('a');
+                  a.href     = url;
+                  a.download = `${folderName}.zip`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  toast.success(`✅ ${data.fyLabel} data downloaded successfully!`);
+                } catch (err: any) {
+                  toast.error(err.message || 'Download failed');
+                } finally {
+                  setDownloading(false);
+                }
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {downloading
+                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Preparing ZIP...</>
+                : <><Download className="h-4 w-4 mr-2" />Download ZIP</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
