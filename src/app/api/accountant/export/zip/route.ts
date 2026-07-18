@@ -177,7 +177,7 @@ export async function GET(request: NextRequest) {
         createdAt: { gte: fyStart, lte: fyEnd }
       },
       select: {
-        applicationNo: true, customerName: true, disbursedAmount: true,
+        applicationNo: true, firstName: true, lastName: true, loanAmount: true,
         interestRate: true, status: true, createdAt: true, disbursedAt: true,
         isInterestOnlyLoan: true, tenure: true
       },
@@ -202,8 +202,8 @@ export async function GET(request: NextRequest) {
       ...onlineLoans.map(l => ({
         loan_number: l.applicationNo,
         type: 'ONLINE',
-        customer_name: l.customerName || '',
-        loan_amount: l.disbursedAmount || 0,
+        customer_name: [l.firstName, l.lastName].filter(Boolean).join(' ') || '',
+        loan_amount: l.loanAmount || 0,
         interest_rate: l.interestRate || 0,
         tenure_months: l.tenure || 'IO',
         status: l.status,
