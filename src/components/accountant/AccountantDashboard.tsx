@@ -3266,7 +3266,10 @@ export default function UnifiedAccountantDashboard() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-gray-500">
-                Selected period: <span className="font-semibold text-emerald-700">1 April {downloadYear} — 31 March {parseInt(downloadYear) + 1}</span>
+                Selected period:{' '}
+                <span className="font-semibold text-emerald-700">
+                  1 April {downloadYear} — 31 March {parseInt(downloadYear, 10) + 1}
+                </span>
               </p>
             </div>
 
@@ -3276,11 +3279,17 @@ export default function UnifiedAccountantDashboard() {
               <ul className="text-xs text-emerald-700 space-y-1">
                 <li>📄 journal_entries.csv — All journal entries</li>
                 <li>📄 journal_entry_lines.csv — Detailed GL lines</li>
+                <li>📄 daybook_transactions.csv — Chronological Daybook</li>
                 <li>📄 cashbook_entries.csv — Cash transactions</li>
                 <li>📄 bank_transactions.csv — Bank transactions</li>
                 <li>📄 loan_portfolio.csv — All loans</li>
                 <li>📄 emi_collections.csv — EMI payments received</li>
-                <li>📄 profit_loss_summary.txt — P&amp;L snapshot</li>
+                <li>📄 chart_of_accounts.csv — Chart of Accounts</li>
+                <li>📄 trial_balance.csv — Trial Balance sheet</li>
+                <li>📄 balance_sheet.csv — Dynamic Balance Sheet</li>
+                <li>📄 profit_and_loss.csv — Financial P&amp;L sheet</li>
+                <li>📄 profit_loss_summary.txt — P&amp;L snapshot summary</li>
+                <li>📁 personal_ledgers/ — Subfolder containing customer ledgers</li>
               </ul>
             </div>
 
@@ -3294,6 +3303,7 @@ export default function UnifiedAccountantDashboard() {
                   <span className="text-gray-500">Bank Transactions:</span><span className="font-medium">{downloadSummary.bankTransactions}</span>
                   <span className="text-gray-500">Loans:</span><span className="font-medium">{downloadSummary.loans}</span>
                   <span className="text-gray-500">EMI Collections:</span><span className="font-medium">{downloadSummary.emiCollections}</span>
+                  <span className="text-gray-500">Customers Exported:</span><span className="font-medium">{downloadSummary.customersExported}</span>
                   <span className="text-gray-500">Net P&amp;L:</span>
                   <span className={`font-bold ${downloadSummary.netProfitLoss >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                     {downloadSummary.netProfitLoss >= 0 ? '+' : ''}{formatCurrency(downloadSummary.netProfitLoss)}
