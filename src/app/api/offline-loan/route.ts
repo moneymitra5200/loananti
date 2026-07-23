@@ -517,6 +517,61 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // ── Upcoming EMIs — date-range filter ──────────────────────────────────
+    // Returns all pending/overdue EMIs for original loans whose due date falls
+    // within the requested date window. Mirror loan EMIs are excluded.
+    if (action === 'upcoming-emis') {
+      const fromParam = searchParams.get('from');
+      const toParam   = searchParams.get('to');
+
+      const fromDate = fromParam ? new Date(fromParam) : new Date();
+      const toDate   = toParam   ? new Date(toParam)   : new Date();
+
+      // Normalise: from = start of day, to = end of day
+      fromDate.setHours(0, 0, 0, 0);
+      toDate.setHours(23, 59, 59, 999);
+
+      // Role-based loan filter for upcoming EMIs
+      const PRIVILEGED_ROLES_UPCOMING = ['SUPER_ADMIN', 'CASHIER', 'ACCOUNTANT'];
+      const loanFilterForUpcoming: Record<string, unknown> = { isMirrorLoan: false };
+      if (userId && userRole && !PRIVILEGED_ROLES_UPCOMING.includes(userRole)) {
+        loanFilterForUpcoming.createdById = userId;
+      }
+      if (companyId) loanFilterForUpcoming.companyId = companyId;
+
+      const upcomingEmis = await db.offlineLoanEMI.findMany({
+        where: {
+          dueDate:     { gte: fromDate, lte: toDate },
+          paymentStatus: { in: ['PENDING', 'OVERDUE', 'PARTIALLY_PAID'] },
+          offlineLoan: loanFilterForUpcoming,
+        },
+        include: {
+          offlineLoan: {
+            select: {
+              id: true, loanNumber: true, customerName: true,
+              customerPhone: true, loanAmount: true, emiAmount: true,
+              status: true, companyId: true, createdById: true,
+              company: { select: { id: true, name: true, code: true } }
+            }
+          }
+        },
+        orderBy: { dueDate: 'asc' }
+      });
+
+      const totalAmount = upcomingEmis.reduce((s, e) => s + (e.totalAmount - (e.paidAmount || 0)), 0);
+
+      return NextResponse.json({
+        success: true,
+        emis: upcomingEmis,
+        summary: {
+          count: upcomingEmis.length,
+          totalAmount,
+          overdueCount: upcomingEmis.filter(e => e.paymentStatus === 'OVERDUE').length,
+          pendingCount:  upcomingEmis.filter(e => e.paymentStatus === 'PENDING').length,
+        }
+      });
+    }
+
     // Get list of offline loans — exclude mirror loans (internal accounting duplicates).
     // The ACCOUNTANT role accesses mirror loan data via the accounting APIs, not here.
     const where: Record<string, unknown> = { isMirrorLoan: false };
@@ -532,6 +587,13 @@ export async function GET(request: NextRequest) {
 
     if (companyId) {
       where.companyId = companyId;
+    }
+
+    // Role-based visibility: privileged roles see all loans;
+    // agents/staff/company users see only their own.
+    const PRIVILEGED_ROLES = ['SUPER_ADMIN', 'CASHIER', 'ACCOUNTANT'];
+    if (userId && userRole && !PRIVILEGED_ROLES.includes(userRole)) {
+      where.createdById = userId;
     }
 
     const page = parseInt(searchParams.get('page') || '1');
@@ -552,37 +614,71 @@ export async function GET(request: NextRequest) {
       db.offlineLoan.count({ where })
     ]);
 
-    // Calculate summary and outstandingAmount for each loan
+    // Calculate summary and accurate outstanding amounts for each loan
     const loansWithSummary = await Promise.all(
       loans.map(async (loan) => {
         const emis = await db.offlineLoanEMI.findMany({
           where: { offlineLoanId: loan.id }
         });
 
-        const paidCount = emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length;
-        const pendingCount = emis.filter(e => e.paymentStatus === 'PENDING').length;
-        const overdueCount = emis.filter(e => e.paymentStatus === 'OVERDUE').length;
+        const paidEMIs    = emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID');
+        const pendingEMIs = emis.filter(e => e.paymentStatus === 'PENDING');
+        const overdueEMIs = emis.filter(e => e.paymentStatus === 'OVERDUE');
+        const partialEMIs = emis.filter(e => e.paymentStatus === 'PARTIALLY_PAID');
 
-        // Calculate outstanding amount: sum of (totalAmount - paidAmount) for all non-paid EMIs.
-        let outstandingAmount = emis
-          .filter(e => e.paymentStatus !== 'PAID')
-          .reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0);
+        const paidCount    = paidEMIs.length;
+        const pendingCount = pendingEMIs.length;
+        const overdueCount = overdueEMIs.length;
 
         const isInterestOnlyLoan = loan.isInterestOnlyLoan || loan.status === 'INTEREST_ONLY';
+
+        // ── Correct outstanding amount ──────────────────────────────────────────
+        // For standard loans: total scheduled principal/interest MINUS what was paid.
+        // We compute three components separately so the UI can show a breakdown.
+        let outstandingPrincipal: number;
+        let outstandingInterest: number;
+        let outstandingAmount: number;
+
         if (isInterestOnlyLoan) {
-          outstandingAmount = loan.loanAmount || 0;
+          // Interest-only: full principal always outstanding until loan starts
+          outstandingPrincipal = loan.loanAmount || 0;
+          outstandingInterest  = 0;
+          outstandingAmount    = outstandingPrincipal;
+        } else {
+          // Sum all paid principal / interest (from fully-paid + partial EMIs)
+          const totalPaidPrincipal = emis.reduce((s, e) => s + (Number(e.paidPrincipal) || 0), 0);
+          const totalPaidInterest  = emis.reduce((s, e) => s + (Number(e.paidInterest)  || 0), 0);
+
+          // Scheduled totals
+          const totalScheduledPrincipal = emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0);
+          const totalScheduledInterest  = emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
+
+          outstandingPrincipal = Math.max(0, totalScheduledPrincipal - totalPaidPrincipal);
+          outstandingInterest  = Math.max(0, totalScheduledInterest  - totalPaidInterest);
+          outstandingAmount    = outstandingPrincipal + outstandingInterest;
         }
+
+        // Total principal / interest / amount for this loan (for UI breakdown)
+        const totalPrincipal = emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0) || (loan.loanAmount || 0);
+        const totalInterest  = emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
+        const totalAmount    = totalPrincipal + totalInterest;
 
         return {
           ...loan,
           outstandingAmount,
+          outstandingPrincipal,
+          outstandingInterest,
+          totalPrincipal,
+          totalInterest,
+          totalAmount,
           summary: {
-            totalEMIs: emis.length,
-            paidEMIs: paidCount,
-            pendingEMIs: pendingCount,
-            overdueEMIs: overdueCount,
-            lastPaidEMI: paidCount > 0 ? emis.filter(e => e.paymentStatus === 'PAID').slice(-1)[0]?.paidDate : null,
-            nextDueEMI: pendingCount > 0 ? emis.find(e => e.paymentStatus === 'PENDING')?.dueDate : null
+            totalEMIs:    emis.length,
+            paidEMIs:     paidCount,
+            pendingEMIs:  pendingCount,
+            overdueEMIs:  overdueCount,
+            partialEMIs:  partialEMIs.length,
+            lastPaidEMI:  paidCount > 0 ? paidEMIs.slice(-1)[0]?.paidDate ?? null : null,
+            nextDueEMI:   pendingCount > 0 ? (pendingEMIs[0]?.dueDate ?? null) : null
           }
         };
       })
@@ -2892,7 +2988,9 @@ export async function PUT(request: NextRequest) {
         paidAmount: emi.paidAmount,
         paidPrincipal: emi.paidPrincipal,
         paidInterest: emi.paidInterest,
-        paymentStatus: emi.paymentStatus
+        paymentStatus: emi.paymentStatus,
+        penaltyAmount: emi.penaltyAmount || 0,
+        penaltyPaid: emi.penaltyPaid || 0
       };
 
       let paidPrincipal = emi.paidPrincipal || 0;
@@ -3121,6 +3219,13 @@ export async function PUT(request: NextRequest) {
               paymentAmount: sessionAmount,   // alias used by undo handler (credit reversal)
               amount: sessionAmount,          // extra alias
               interestAmount: sessionInterest, // for credit reversal calculation
+              creditIncreaseAmount,
+              isSplitPayment: isSplitPayment || false,
+              splitCashAmount: splitCashAmt,
+              splitOnlineAmount: splitOnlineAmt,
+              netPenalty,
+              penaltyPaymentMode,
+              paymentType,
               loanId: emi.offlineLoanId,      // ← CRITICAL: undo needs this to look up mirror mapping
               mirrorLoanId: mirrorLoanMapping?.mirrorLoanId || null, // ← store directly for fast lookup
               companyId: emi.offlineLoan.companyId,

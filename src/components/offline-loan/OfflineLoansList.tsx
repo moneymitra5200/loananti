@@ -216,6 +216,9 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     try {
       if (!silent) setLoading(true);
       let url = `/api/offline-loan?page=${page}&limit=10`;
+      // Pass userId + userRole so the backend applies role-based visibility
+      if (userId) url += `&userId=${userId}`;
+      if (userRole) url += `&userRole=${userRole}`;
       // Pass status to backend; 'all' means show active+other but NOT closed (API excludes CLOSED by default)
       if (statusFilter === 'CLOSED') {
         url += `&status=CLOSED`;
@@ -430,7 +433,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const activeLoans = filteredLoans.filter(loan => loan.status !== 'CLOSED');
   const closedLoans = filteredLoans.filter(loan => loan.status === 'CLOSED');
 
-  if (loading) {
+  if (loading && loans.length === 0) {
     return (
       <Card>
         <CardContent className="p-6">

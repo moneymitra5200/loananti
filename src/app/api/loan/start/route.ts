@@ -223,7 +223,12 @@ export async function POST(request: NextRequest) {
 
       // Check mirror mapping
       const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId }
+        where: {
+          OR: [
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ]
+        }
       });
 
       // Create new EMI payment settings

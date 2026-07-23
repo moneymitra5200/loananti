@@ -23,6 +23,7 @@ import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPag
 import ProfileSection from '@/components/shared/ProfileSection';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
+import UpcomingEMIPanel from '@/components/offline-loan/UpcomingEMIPanel';
 import OfflineLoanDetailPanel from '@/components/offline-loan/OfflineLoanDetailPanel';
 import EnquirySection from '@/components/shared/EnquirySection';
 import TicketManagement from '@/components/support/TicketManagement';
@@ -1136,6 +1137,11 @@ export default function CashierDashboard() {
                 onLoanCreated={() => setOfflineLoansRefreshKey(k => k + 1)}
               />
             </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'CASHIER'}
+              companyId={user?.companyId || undefined}
+            />
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'CASHIER'}

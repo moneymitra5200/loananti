@@ -61,6 +61,34 @@ const PERMANENT_PRODUCTS = [
     order: 1,
   },
   {
+    title: 'Silver Loan',
+    description: 'Get instant loans against your silver jewelry and articles with attractive interest rates. Quick disbursement with minimal documentation.',
+    icon: '🥈',
+    code: 'SL',
+    loanType: 'SILVER',
+    minInterestRate: 7,
+    maxInterestRate: 18,
+    defaultInterestRate: 12,
+    minTenure: 3,
+    maxTenure: 36,
+    defaultTenure: 12,
+    minAmount: 5000,
+    maxAmount: 20000000,
+    processingFeePercent: 0.5,
+    processingFeeMin: 500,
+    processingFeeMax: 5000,
+    latePaymentPenaltyPercent: 2,
+    gracePeriodDays: 7,
+    bounceCharges: 500,
+    allowMoratorium: false,
+    maxMoratoriumMonths: 0,
+    allowPrepayment: true,
+    prepaymentCharges: 1,
+    isPermanent: true,
+    isActive: true,
+    order: 2,
+  },
+  {
     title: 'Vehicle Loan',
     description: 'Finance your dream vehicle with competitive interest rates. Loans for cars, bikes, and commercial vehicles.',
     icon: '🚗',
@@ -195,11 +223,13 @@ async function ensurePermanentProducts() {
 
     // 5s timeout — don't block the request for this housekeeping task
     const existingProducts = await dbWithTimeout(
-      () => db.cMSService.findMany({ where: { isPermanent: true }, select: { loanType: true } }),
+      () => db.cMSService.findMany({ where: { isPermanent: true }, select: { loanType: true, code: true } }),
       5000
     );
+    // Check by BOTH loanType and code to avoid double-seeding Silver Loan
     const existingTypes = new Set(existingProducts.map(p => p.loanType));
-    const missingProducts = PERMANENT_PRODUCTS.filter(p => !existingTypes.has(p.loanType));
+    const existingCodes = new Set(existingProducts.map(p => p.code));
+    const missingProducts = PERMANENT_PRODUCTS.filter(p => !existingTypes.has(p.loanType) && !existingCodes.has(p.code));
     if (missingProducts.length > 0) {
       await Promise.all(
         missingProducts.map(product =>

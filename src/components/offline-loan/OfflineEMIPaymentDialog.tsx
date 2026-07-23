@@ -649,7 +649,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
               {isSplitMode && (
                 <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200 space-y-2">
                   <p className="text-xs font-medium text-purple-700">Enter either Cash or Online — the other fills automatically</p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                       <Label className="text-xs text-gray-600">Cash Amount (₹)</Label>
                       <Input type="number" value={splitCashAmount}

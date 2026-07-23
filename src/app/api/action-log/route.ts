@@ -337,19 +337,30 @@ function salvageJson(str: string | null): any {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, actionLogId, userId, userRole } = body;
+    const { action, actionLogId, userId } = body;
 
     if (!actionLogId || !userId) {
       return NextResponse.json({ error: 'actionLogId and userId are required' }, { status: 400 });
     }
+
+    // Verify user identity & role from DB (prevent role-spoofing in request body)
+    const user = await db.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true }
+    });
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    const realUserRole = user.role;
 
     const actionLog = await db.actionLog.findUnique({ where: { id: actionLogId } });
     if (!actionLog) {
       return NextResponse.json({ error: 'Action log not found' }, { status: 404 });
     }
 
-    // Ownership check — Super Admin can undo anyone's actions
-    if (userRole !== 'SUPER_ADMIN' && actionLog.userId !== userId) {
+    // Ownership check — Super Admin & Admin can undo anyone's actions; staff can only undo their own
+    const userRoleStr = (realUserRole as string) || '';
+    if (userRoleStr !== 'SUPER_ADMIN' && userRoleStr !== 'ADMIN' && actionLog.userId !== userId) {
       return NextResponse.json({ error: 'You can only undo/redo your own actions' }, { status: 403 });
     }
 
@@ -1147,39 +1158,64 @@ export async function PUT(request: NextRequest) {
                 collectedByName: previousData.collectedByName || null,
                 collectedAt:     previousData.collectedAt ? new Date(previousData.collectedAt) : null,
                 interestOnlyPaidAt: null,
+                penaltyAmount:   previousData.penaltyAmount   ?? 0,
+                penaltyPaid:     previousData.penaltyPaid     ?? 0,
               }
             });
             console.log(`[Undo EMI] Reverted EMI ${emiId} to ${previousData.paymentStatus ?? 'PENDING'}`);
 
-            // 2. Delete the rolling NEXT EMI that was auto-created after this payment
-            //    (installmentNumber = paid EMI's installmentNumber + 1)
-            //    Only appropriate for dynamic interest-only loans. In standard fixed-tenure loans,
-            //    it deletes pre-generated EMIs, corrupting schedules.
+            // 2. Delete the rolling NEXT EMI that was auto-created after this payment (for interest-only loans)
+            //    or clean up deferred EMI (for interest-only payment on fixed-tenure loans)
             if (loanId) {
               const loan = await tx.offlineLoan.findUnique({
                 where: { id: loanId },
                 select: { isInterestOnlyLoan: true }
               });
-              if (loan?.isInterestOnlyLoan) {
-                const paidEMI = await tx.offlineLoanEMI.findUnique({
-                  where: { id: emiId }, select: { installmentNumber: true }
+              const paidEMI = await tx.offlineLoanEMI.findUnique({
+                where: { id: emiId }, select: { installmentNumber: true }
+              });
+              if (loan?.isInterestOnlyLoan && paidEMI) {
+                const nextInstNum = paidEMI.installmentNumber + 1;
+                const deletedCount = await tx.offlineLoanEMI.deleteMany({
+                  where: {
+                    offlineLoanId: loanId,
+                    installmentNumber: nextInstNum,
+                    paymentStatus: 'PENDING'
+                  }
                 });
-                if (paidEMI) {
-                  const nextInstNum = paidEMI.installmentNumber + 1;
-                  // Only delete if it has NEVER been paid (PENDING) — safety guard
-                  const deletedCount = await tx.offlineLoanEMI.deleteMany({
-                    where: {
-                      offlineLoanId: loanId,
-                      installmentNumber: nextInstNum,
-                      paymentStatus: 'PENDING'
-                    }
+                console.log(`[Undo EMI] Deleted ${deletedCount.count} rolling next-EMI (#${nextInstNum}) for loan ${loanId}`);
+              } else if (paidEMI) {
+                // If a deferred EMI was created during an Interest-Only payment on a fixed-tenure loan
+                const deferredEMI = await tx.offlineLoanEMI.findFirst({
+                  where: { offlineLoanId: loanId, deferredFromEMI: paidEMI.installmentNumber }
+                });
+                if (deferredEMI) {
+                  const subsequentEmis = await tx.offlineLoanEMI.findMany({
+                    where: { offlineLoanId: loanId, installmentNumber: { gt: deferredEMI.installmentNumber } },
+                    orderBy: { installmentNumber: 'asc' }
                   });
-                  console.log(`[Undo EMI] Deleted ${deletedCount.count} rolling next-EMI (#${nextInstNum}) for loan ${loanId}`);
+                  await tx.offlineLoanEMI.delete({ where: { id: deferredEMI.id } });
+                  for (const sub of subsequentEmis) {
+                    const prevDue = new Date(sub.dueDate);
+                    prevDue.setMonth(prevDue.getMonth() - 1);
+                    await tx.offlineLoanEMI.update({
+                      where: { id: sub.id },
+                      data: { installmentNumber: sub.installmentNumber - 1, dueDate: prevDue }
+                    });
+                  }
+                  const mMapping = await tx.mirrorLoanMapping.findFirst({ where: { originalLoanId: loanId } });
+                  if (mMapping) {
+                    await tx.mirrorLoanMapping.update({
+                      where: { id: mMapping.id },
+                      data: { mirrorTenure: Math.max(0, mMapping.mirrorTenure - 1) }
+                    });
+                  }
+                  console.log(`[Undo EMI] Deleted deferred EMI and shifted subsequent EMIs back for loan ${loanId}`);
                 }
               }
             }
 
-            // 3. Revert mirror loan EMI and delete mirror's rolling next EMI
+            // 3. Revert mirror loan EMI and delete mirror's rolling next EMI / deferred EMI
             if (mirrorLoanId) {
               const paidEMI = await tx.offlineLoanEMI.findUnique({
                 where: { id: emiId }, select: { installmentNumber: true }
@@ -1187,8 +1223,6 @@ export async function PUT(request: NextRequest) {
               const installmentNumber = paidEMI?.installmentNumber;
 
               if (installmentNumber) {
-                // Find mirror EMIs at this installment — include ALL non-PENDING statuses
-                // (PAID, INTEREST_ONLY_PAID, PARTIALLY_PAID) so partial payments are also reversed
                 const mirrorEMIs = await tx.offlineLoanEMI.findMany({
                   where: {
                     offlineLoanId: mirrorLoanId,
@@ -1198,13 +1232,10 @@ export async function PUT(request: NextRequest) {
                 });
 
                 for (const memi of mirrorEMIs) {
-                  // Delete bank/cash entries referencing mirror EMI id
                   await deleteBankOrCashEntriesForRef(memi.id, tx);
-                  // Delete journal entries referencing mirror EMI id (exact + startsWith for partial suffix)
                   await reverseJournalEntriesForRef(memi.id, userId, tx);
                 }
 
-                // Revert mirror EMI to PENDING — covers all paid statuses
                 await tx.offlineLoanEMI.updateMany({
                   where: {
                     offlineLoanId: mirrorLoanId,
@@ -1226,7 +1257,6 @@ export async function PUT(request: NextRequest) {
                   select: { isInterestOnlyLoan: true }
                 });
                 if (mirrorLoan?.isInterestOnlyLoan) {
-                  // Delete mirror's rolling next EMI
                   await tx.offlineLoanEMI.deleteMany({
                     where: {
                       offlineLoanId: mirrorLoanId,
@@ -1236,7 +1266,26 @@ export async function PUT(request: NextRequest) {
                   });
                   console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI deleted`);
                 } else {
-                  console.log(`[Undo EMI] Mirror EMI #${installmentNumber} reverted, next mirror EMI NOT deleted (fixed-tenure)`);
+                  // If a mirror deferred EMI exists, clean it up
+                  const mirrorDeferred = await tx.offlineLoanEMI.findFirst({
+                    where: { offlineLoanId: mirrorLoanId, deferredFromEMI: installmentNumber }
+                  });
+                  if (mirrorDeferred) {
+                    const subMirrorEmis = await tx.offlineLoanEMI.findMany({
+                      where: { offlineLoanId: mirrorLoanId, installmentNumber: { gt: mirrorDeferred.installmentNumber } },
+                      orderBy: { installmentNumber: 'asc' }
+                    });
+                    await tx.offlineLoanEMI.delete({ where: { id: mirrorDeferred.id } });
+                    for (const sub of subMirrorEmis) {
+                      const prevDue = new Date(sub.dueDate);
+                      prevDue.setMonth(prevDue.getMonth() - 1);
+                      await tx.offlineLoanEMI.update({
+                        where: { id: sub.id },
+                        data: { installmentNumber: sub.installmentNumber - 1, dueDate: prevDue }
+                      });
+                    }
+                    console.log(`[Undo EMI] Mirror deferred EMI deleted for mirror loan ${mirrorLoanId}`);
+                  }
                 }
               }
             }
@@ -1249,7 +1298,6 @@ export async function PUT(request: NextRequest) {
                   where: { id: loanId },
                   data: { totalInterestPaid: { decrement: interestPaid } }
                 });
-                // Also re-open loan if it was auto-closed by this payment
                 const loan = await tx.offlineLoan.findUnique({
                   where: { id: loanId },
                   select: { isInterestOnlyLoan: true }
@@ -1262,12 +1310,25 @@ export async function PUT(request: NextRequest) {
               }
             }
 
-            // 5. Revert collector credit
+            // 5. Revert collector credit & secondary payment page credit accurately
             if (newData) {
-              const paymentAmount = newData.paymentAmount || newData.interestAmount || newData.amount || 0;
+              const rawPaymentAmount = newData.paymentAmount || newData.interestAmount || newData.amount || 0;
               const paymentMode   = (newData.paymentMode || '').toUpperCase();
-              const isOnline = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
-              if (newData.collectorId && paymentAmount > 0 && !isOnline) {
+              const isOnlineMode  = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
+              const isSplit       = newData.isSplitPayment || paymentMode === 'SPLIT';
+
+              let effectiveCreditReversion = 0;
+              if (newData.creditIncreaseAmount !== undefined) {
+                effectiveCreditReversion = Number(newData.creditIncreaseAmount) || 0;
+              } else if (isSplit) {
+                effectiveCreditReversion = Number(newData.splitCashAmount) || 0;
+              } else if (isOnlineMode) {
+                effectiveCreditReversion = 0;
+              } else {
+                effectiveCreditReversion = rawPaymentAmount;
+              }
+
+              if (newData.collectorId && effectiveCreditReversion > 0) {
                 const creditType = newData.creditType || 'COMPANY';
                 const user = await tx.user.findUnique({
                   where: { id: newData.collectorId },
@@ -1275,10 +1336,10 @@ export async function PUT(request: NextRequest) {
                 });
                 if (user) {
                   const companyCreditAfter  = creditType === 'COMPANY'
-                    ? Math.max(0, (user.companyCredit  || 0) - paymentAmount)
+                    ? Math.max(0, (user.companyCredit  || 0) - effectiveCreditReversion)
                     : (user.companyCredit  || 0);
                   const personalCreditAfter = creditType === 'PERSONAL'
-                    ? Math.max(0, (user.personalCredit || 0) - paymentAmount)
+                    ? Math.max(0, (user.personalCredit || 0) - effectiveCreditReversion)
                     : (user.personalCredit || 0);
                   await tx.user.update({
                     where: { id: newData.collectorId },
@@ -1288,25 +1349,59 @@ export async function PUT(request: NextRequest) {
                       personalCredit: personalCreditAfter
                     }
                   });
+                  console.log(`[Undo EMI] Reverted collector (${newData.collectorId}) credit by ₹${effectiveCreditReversion}`);
                 } else {
                   console.warn(`[Undo EMI] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                }
+              }
+
+              // Revert secondary payment page owner credit if used
+              const secPageId = newData.secondaryPaymentPageId || previousData?.secondaryPaymentPageId;
+              if (secPageId) {
+                const secPage = await tx.secondaryPaymentPage.findUnique({
+                  where: { id: secPageId },
+                  select: { roleId: true }
+                });
+                if (secPage?.roleId) {
+                  const secUser = await tx.user.findUnique({
+                    where: { id: secPage.roleId },
+                    select: { credit: true, personalCredit: true, companyCredit: true }
+                  });
+                  if (secUser) {
+                    const revAmt = effectiveCreditReversion > 0 ? effectiveCreditReversion : rawPaymentAmount;
+                    const newPersCr = Math.max(0, (secUser.personalCredit || 0) - revAmt);
+                    await tx.user.update({
+                      where: { id: secPage.roleId },
+                      data: {
+                        personalCredit: newPersCr,
+                        credit: (secUser.companyCredit || 0) + newPersCr
+                      }
+                    });
+                    console.log(`[Undo EMI] Reverted secondary payment page user (${secPage.roleId}) credit by ₹${revAmt}`);
+                  }
                 }
               }
             }
 
             // 6. Delete bank/cash transactions tied to this EMI
             await deleteBankOrCashEntriesForRef(emiId, tx);
+            if (newData?.paymentId) {
+              await deleteBankOrCashEntriesForRef(newData.paymentId, tx);
+            }
 
-            // 7. Delete ALL journal entries referencing this EMI id:
-            //    covers INTEREST_ACCRUAL + INTEREST_ONLY_PAYMENT + EMI_PAYMENT
+            // 7. Delete ALL journal entries referencing this EMI id / paymentId:
             await reverseJournalEntriesForRef(emiId, userId, tx);
+            if (newData?.paymentId) {
+              await reverseJournalEntriesForRef(newData.paymentId, userId, tx);
+            }
 
-            // 8. Also delete credit transactions referencing this EMI (IO_PAYMENT sourceId = loanId)
+            // 8. Delete credit transactions referencing this EMI
             if (loanId) {
               await tx.creditTransaction.deleteMany({
                 where: {
                   OR: [
                     { sourceId: emiId },
+                    ...(newData?.paymentId ? [{ sourceId: newData.paymentId }] : []),
                     { sourceId: loanId, sourceType: 'INTEREST_ONLY_PAYMENT' },
                     { emiScheduleId: emiId }
                   ],
@@ -1316,7 +1411,7 @@ export async function PUT(request: NextRequest) {
             }
 
             localUndoResult = { type: 'payment_fully_reversed', recordId: emiId,
-              detail: 'EMI reverted, rolling EMI deleted, mirror synced, journals deleted, credit restored' };
+              detail: 'EMI reverted, rolling/deferred EMI deleted, mirror synced, journals deleted, credit restored' };
           }
         }
 
@@ -1758,19 +1853,24 @@ export async function PUT(request: NextRequest) {
             const startMirrorId = newData?.mirrorLoanId;
             const pf           = Number(previousData.processingFee ?? 0);
 
-            // 1. Restore loan (mirrors loanApplication.update { status:'ACTIVE', isInterestOnlyLoan:false })
+            const isInterestOnly = previousData.isInterestOnlyLoan !== undefined 
+              ? previousData.isInterestOnlyLoan 
+              : (previousData.status === 'ACTIVE_INTEREST_ONLY');
+            const targetStatus = previousData.status || (isInterestOnly ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE');
+
+            // 1. Restore loan
             await tx.loanApplication.update({
               where: { id: startLoanId },
               data: {
-                status: previousData.status || 'ACTIVE_INTEREST_ONLY',
-                isInterestOnlyLoan: true,
+                status: targetStatus,
+                isInterestOnlyLoan: isInterestOnly,
                 loanStartedAt: null,
                 tenure: previousData.tenure || 0,
                 interestRate: previousData.interestRate || 0,
                 emiAmount: previousData.emiAmount || 0,
               }
             });
-            console.log(`[Undo Start] Restored loan ${startLoanId} → ${previousData.status || 'ACTIVE_INTEREST_ONLY'}`);
+            console.log(`[Undo Start] Restored loan ${startLoanId} → ${targetStatus}`);
 
             // 2. Restore sessionForm (mirrors sessionForm.update { tenure, interestRate, ... })
             await tx.sessionForm.updateMany({
@@ -1798,9 +1898,17 @@ export async function PUT(request: NextRequest) {
               await tx.paymentRequest.updateMany({ where: { emiSchedule: { loanApplicationId: startMirrorId } }, data: { emiScheduleId: null } });
               await tx.eMIPaymentSetting.deleteMany({ where: { loanApplicationId: startMirrorId } });
               await tx.eMISchedule.deleteMany({ where: { loanApplicationId: startMirrorId } });
+              
+              const mirrorLoanApp = await tx.loanApplication.findUnique({
+                where: { id: startMirrorId },
+                select: { isInterestOnlyLoan: true }
+              });
+              const mirrorIsIO = mirrorLoanApp?.isInterestOnlyLoan ?? isInterestOnly;
+              const mirrorStatus = mirrorIsIO ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE';
+
               await tx.loanApplication.update({
                 where: { id: startMirrorId },
-                data: { status: 'ACTIVE_INTEREST_ONLY', isInterestOnlyLoan: true, loanStartedAt: null }
+                data: { status: mirrorStatus, isInterestOnlyLoan: mirrorIsIO, loanStartedAt: null }
               });
               // Revert mirrorLoanMapping (mirrors mirrorLoanMapping.update { processingFeeRecorded:false })
               await tx.mirrorLoanMapping.updateMany({
@@ -2071,11 +2179,17 @@ export async function PUT(request: NextRequest) {
             const creditType = newData.creditType;
             const transferRefId = newData.transferRefId || actionLog.recordId;
 
-            // 1. Revert bank & cash transactions matching the transferRefId
+            // 1. Revert bank & cash transactions matching the transferRefId and recordId
             await deleteBankOrCashEntriesForRef(transferRefId, tx);
+            if (transferRefId !== actionLog.recordId) {
+              await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
+            }
 
-            // 2. Reverse double-entry journal entries matching the transferRefId
+            // 2. Reverse double-entry journal entries matching the transferRefId and recordId
             await reverseJournalEntriesForRef(transferRefId, userId, tx);
+            if (transferRefId !== actionLog.recordId) {
+              await reverseJournalEntriesForRef(actionLog.recordId, userId, tx);
+            }
 
             if (newData.toUserId) {
               // Revert receiver credit (decrement)

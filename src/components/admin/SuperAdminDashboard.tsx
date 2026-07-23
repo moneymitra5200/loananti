@@ -44,6 +44,7 @@ import EmiTodayReport from '@/components/admin/modules/EmiTodayReport';
 const EMICalendar = lazy(() => import('@/components/emi/EMICalendar'));
 const OfflineLoanForm = lazy(() => import('@/components/offline-loan/OfflineLoanForm'));
 const OfflineLoansList = lazy(() => import('@/components/offline-loan/OfflineLoansList'));
+const UpcomingEMIPanel = lazy(() => import('@/components/offline-loan/UpcomingEMIPanel'));
 const PersonalCreditManager = lazy(() => import('@/components/credit/PersonalCreditManager'));
 const CreditManagementPage = lazy(() => import('@/components/credit/CreditManagementPage'));
 const NotificationManagementSection = lazy(() => import('@/components/notification/NotificationManagementSection'));
@@ -1604,6 +1605,12 @@ export default function SuperAdminDashboard() {
                 }}
               />
             </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-violet-600" /></div>}>
+              <UpcomingEMIPanel 
+                userId={user?.id}
+                userRole={user?.role || 'SUPER_ADMIN'}
+              />
+            </Suspense>
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'SUPER_ADMIN'}

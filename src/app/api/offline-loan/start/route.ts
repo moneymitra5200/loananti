@@ -62,7 +62,13 @@ export async function POST(request: NextRequest) {
     const result = await db.$transaction(async (tx) => {
       // Find mirror mapping and mirror loan BEFORE updating
       const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: true },
+        where: {
+          OR: [
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ],
+          isOfflineLoan: true
+        },
         include: { mirrorCompany: { select: { id: true, name: true } } }
       });
       let mirrorLoan: any = null;
@@ -158,7 +164,13 @@ export async function POST(request: NextRequest) {
 
       // ── Record processing fee (inside transaction) ──────────────────
       const mirrorMappingForPF = await tx.mirrorLoanMapping.findFirst({
-        where: { originalLoanId: loanId, isOfflineLoan: true }
+        where: {
+          OR: [
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ],
+          isOfflineLoan: true
+        }
       });
 
       if (parsedProcessingFee > 0 && !mirrorMappingForPF) {

@@ -38,6 +38,7 @@ import {
 import { toast } from '@/hooks/use-toast';
 import GoldLoanReceipt from '@/components/loan/GoldLoanReceipt';
 import VehicleLoanReceipt from '@/components/loan/VehicleLoanReceipt';
+import SilverLoanReceipt from '@/components/loan/SilverLoanReceipt';
 
 interface Company {
   id: string;
@@ -143,6 +144,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   // Optional receipt toggles — not compulsory, works for ANY loan type including IO
   const [showGoldReceipt, setShowGoldReceipt] = useState(false);
   const [showVehicleReceipt, setShowVehicleReceipt] = useState(false);
+  const [showSilverReceipt, setShowSilverReceipt] = useState(false);
   
   // Cashbook balance for ALL companies (not just Company 3)
   const [cashbookBalance, setCashbookBalance] = useState<number | null>(null);
@@ -396,6 +398,23 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     engineNumber: '',
     fuelType: 'PETROL',
     color: '',
+    verificationDate: new Date().toISOString().slice(0, 10),
+    verifiedBy: '',
+    remarks: ''
+  });
+
+  // Silver Loan Receipt State
+  const [silverLoanData, setSilverLoanData] = useState({
+    grossWeight: 0,
+    netWeight: 0,
+    silverRate: 0,
+    purity: '999',
+    valuationAmount: 0,
+    loanAmount: 0,
+    ownerName: '',
+    silverItemPhoto: '',
+    numberOfItems: 1,
+    itemDescription: '',
     verificationDate: new Date().toISOString().slice(0, 10),
     verifiedBy: '',
     remarks: ''
@@ -728,6 +747,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const handleSubmit = async () => {
     let finalGoldLoanDetail: any = null;
     let finalVehicleLoanDetail: any = null;
+    let finalSilverLoanDetail: any = null;
 
     // 1. Company Selection Validation
     if (!formData.companyId) {
@@ -985,6 +1005,48 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       }
     }
 
+    // 7b. Silver Loan Receipt — only validate if user chose to add it (any loan type)
+    const hasSilverReceipt = showSilverReceipt || formData.loanType === 'SILVER';
+    if (hasSilverReceipt) {
+      const calcValuation = (parseFloat(silverLoanData.netWeight as any) || 0) * (parseFloat(silverLoanData.silverRate as any) || 0);
+      const effectiveValuation = silverLoanData.valuationAmount > 0 ? silverLoanData.valuationAmount : calcValuation;
+      const calcLoan = Math.round(effectiveValuation * 0.65);
+      const effectiveLoan = silverLoanData.loanAmount > 0 ? silverLoanData.loanAmount : calcLoan;
+      const effectiveOwnerName = silverLoanData.ownerName && silverLoanData.ownerName.trim()
+        ? silverLoanData.ownerName
+        : formData.customerName;
+
+      const updatedSilverLoanData = {
+        ...silverLoanData,
+        valuationAmount: effectiveValuation,
+        loanAmount: effectiveLoan,
+        ownerName: effectiveOwnerName
+      };
+
+      setSilverLoanData(updatedSilverLoanData);
+      finalSilverLoanDetail = {
+        ...updatedSilverLoanData,
+        verifiedBy: createdById
+      };
+
+      if (!updatedSilverLoanData.grossWeight || updatedSilverLoanData.grossWeight <= 0) {
+        toast({ title: 'Validation Error', description: 'Error: Gross Weight in Silver Receipt is required.', variant: 'destructive' });
+        return;
+      }
+      if (!updatedSilverLoanData.netWeight || updatedSilverLoanData.netWeight <= 0) {
+        toast({ title: 'Validation Error', description: 'Error: Net Weight in Silver Receipt is required.', variant: 'destructive' });
+        return;
+      }
+      if (!updatedSilverLoanData.silverRate || updatedSilverLoanData.silverRate <= 0) {
+        toast({ title: 'Validation Error', description: 'Error: Silver Rate in Silver Receipt is required.', variant: 'destructive' });
+        return;
+      }
+      if (!updatedSilverLoanData.ownerName || !updatedSilverLoanData.ownerName.trim()) {
+        toast({ title: 'Validation Error', description: 'Error: Owner Name in Silver Receipt is required.', variant: 'destructive' });
+        return;
+      }
+    }
+
     // 8. Mirror Loan Validation
     if (isMirrorLoan) {
       if (!mirrorCompanyId) {
@@ -1154,6 +1216,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
         requestBody.goldLoanDetail = finalGoldLoanDetail;
       }
 
+      // Add Silver Loan Receipt Data
+      if (formData.loanType === 'SILVER' || showSilverReceipt) {
+        requestBody.silverLoanDetail = finalSilverLoanDetail;
+      }
+
       // Add Vehicle Loan Receipt Data
       if (formData.loanType === 'VEHICLE' || showVehicleReceipt) {
         requestBody.vehicleLoanDetail = finalVehicleLoanDetail;
@@ -1256,6 +1323,13 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       ownerName: '', goldItemPhoto: '', karat: 22, numberOfItems: 1, itemDescription: '',
       verificationDate: new Date().toISOString().slice(0, 10), verifiedBy: '', remarks: ''
     });
+    // Reset Silver Loan Data
+    setSilverLoanData({
+      grossWeight: 0, netWeight: 0, silverRate: 0, purity: '999', valuationAmount: 0, loanAmount: 0,
+      ownerName: '', silverItemPhoto: '', numberOfItems: 1, itemDescription: '',
+      verificationDate: new Date().toISOString().slice(0, 10), verifiedBy: '', remarks: ''
+    });
+    setShowSilverReceipt(false);
     // Reset Vehicle Loan Data
     setVehicleLoanData({
       vehicleType: 'CAR', vehicleNumber: '', manufacturer: '', model: '',
@@ -1856,6 +1930,27 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 <GoldLoanReceipt
                   data={goldLoanData}
                   onChange={(data) => setGoldLoanData(prev => ({ ...prev, ...data }))}
+                />
+              </div>
+            )}
+
+            {/* Silver Loan Receipt - Shows when loan type is SILVER or user toggled it */}
+            {(formData.loanType === 'SILVER' || showSilverReceipt) && (
+              <div className="pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-slate-500" />
+                  <h3 className="font-semibold text-slate-700">Silver Loan Receipt</h3>
+                  <Badge className="bg-slate-100 text-slate-700">Required for Silver Loan</Badge>
+                </div>
+                <Alert className="bg-slate-50 border-slate-200 mb-4">
+                  <Info className="h-4 w-4 text-slate-500" />
+                  <AlertDescription className="text-slate-700">
+                    Please fill in all silver item details. This information is mandatory for silver loan processing.
+                  </AlertDescription>
+                </Alert>
+                <SilverLoanReceipt
+                  data={silverLoanData}
+                  onChange={(data) => setSilverLoanData(prev => ({ ...prev, ...data }))}
                 />
               </div>
             )}

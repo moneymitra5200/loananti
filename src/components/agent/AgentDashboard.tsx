@@ -23,6 +23,7 @@ import EMICollectionSection from '@/components/emi/EMICollectionSection';
 import EMICalendar from '@/components/emi/EMICalendar';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
+import UpcomingEMIPanel from '@/components/offline-loan/UpcomingEMIPanel';
 import LoanDetailPanel from '@/components/loan/LoanDetailPanel';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import ProfileSection from '@/components/shared/ProfileSection';
@@ -873,6 +874,11 @@ export default function AgentDashboard() {
                 onLoanCreated={() => setOfflineLoansRefreshKey(k => k + 1)}
               />
             </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'AGENT'}
+              companyId={user?.companyId || undefined}
+            />
             <OfflineLoansList 
               userId={user?.id}
               userRole={user?.role || 'AGENT'}

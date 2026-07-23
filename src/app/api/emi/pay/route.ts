@@ -1820,7 +1820,7 @@ export async function POST(request: NextRequest) {
               installmentNumber:  emi.installmentNumber,
               isInterestAccrued:  isMirrorAccrued,
               isInterestReclassified: isMirrorReclass,
-              customerId:         emi.loanApplication?.customerId || undefined,
+              customerId:         emi.loanApplication?.customerId || loanId,
             });
             if (!mirrorPoResult.success) {
               onlineAccountingWarnings.push(`MIRROR PRINCIPAL_ONLY/ADVANCE journal: ${mirrorPoResult.error}`);
@@ -1853,7 +1853,7 @@ export async function POST(request: NextRequest) {
               installmentNumber:    emi.installmentNumber,
               isInterestAccrued:    !!(emi as any).interestAccrued,
               isInterestReclassified: emi.paymentStatus === 'OVERDUE',
-              customerId:           emi.loanApplication?.customerId || undefined,
+              customerId:           emi.loanApplication?.customerId || loanId,
             });
             if (!poJournalResult.success) {
               onlineAccountingWarnings.push(`PRINCIPAL_ONLY/ADVANCE journal: ${poJournalResult.error}`);

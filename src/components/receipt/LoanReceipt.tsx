@@ -255,16 +255,8 @@ const LoanReceipt = forwardRef<HTMLDivElement, LoanReceiptProps>(({
                 <td style={{ padding: '1mm' }}>: {formatCurrency(loanAmount)}</td>
               </tr>
               <tr>
-                <td style={{ padding: '1mm', fontWeight: 'bold' }}>Interest Rate</td>
-                <td style={{ padding: '1mm' }}>: {interestRate}% ({interestType})</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '1mm', fontWeight: 'bold' }}>Tenure</td>
+                <td style={{ padding: '1mm', fontWeight: 'bold', width: '30%' }}>Tenure</td>
                 <td style={{ padding: '1mm' }}>: {tenure} Months</td>
-              </tr>
-              <tr>
-                <td style={{ padding: '1mm', fontWeight: 'bold' }}>EMI Amount</td>
-                <td style={{ padding: '1mm' }}>: {formatCurrency(emiAmount)}/month</td>
               </tr>
               <tr>
                 <td style={{ padding: '1mm', fontWeight: 'bold' }}>Total Interest</td>

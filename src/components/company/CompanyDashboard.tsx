@@ -25,6 +25,7 @@ import EMICollectionSection from '@/components/emi/EMICollectionSection';
 import EMICalendar from '@/components/emi/EMICalendar';
 import OfflineLoanForm from '@/components/offline-loan/OfflineLoanForm';
 import OfflineLoansList from '@/components/offline-loan/OfflineLoansList';
+import UpcomingEMIPanel from '@/components/offline-loan/UpcomingEMIPanel';
 import MyCreditPassbook from '@/components/credit/MyCreditPassbook';
 import ProfileSection from '@/components/shared/ProfileSection';
 import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPageSection';
@@ -1187,6 +1188,11 @@ export default function CompanyDashboard() {
                 <p className="text-muted-foreground">Manage offline loan applications</p>
               </div>
             </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'COMPANY'}
+              companyId={getCompanyId() || undefined}
+            />
             <div className="grid lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
