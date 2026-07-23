@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
         companyId,
         isMirrorLoan: false,
         createdAt: { gte: fyStart, lte: fyEnd },
-        status: { in: ['ACTIVE', 'CLOSED', 'FORECLOSED', 'NPA'] }  // ✅ FIX
+        status: { in: ['ACTIVE', 'CLOSED', 'DEFAULTED', 'RESTRUCTURED', 'INTEREST_ONLY'] }  // ✅ valid OfflineLoanStatus values
       },
       select: {
         loanNumber: true, customerName: true, loanAmount: true,
