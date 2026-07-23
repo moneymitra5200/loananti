@@ -25,6 +25,7 @@ import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useLoansStore } from '@/stores/loansStore';
+import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 interface Loan {
   id: string; applicationNo: string; status: string; requestedAmount: number; loanType: string;
@@ -776,7 +777,16 @@ export default function StaffDashboard() {
           />
         );
       case 'activeLoans':
-        return <ActiveLoansTab activeLoans={activeOnlyLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />;
+        return (
+          <div className="space-y-3">
+            <EMIDueAlertBanner
+              userId={user?.id || ''}
+              userRole={user?.role || 'STAFF'}
+              onOpenLoanDetail={(loanId) => { setSelectedLoanId(loanId); setShowLoanDetailPanel(true); }}
+            />
+            <ActiveLoansTab activeLoans={activeOnlyLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />
+          </div>
+        );
       case 'field':
         // Field visits removed — redirect to dashboard
         return <DashboardTab loans={loans} pendingLoans={pendingLoans} setActiveTab={setActiveTab} />;

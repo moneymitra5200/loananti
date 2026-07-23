@@ -10,6 +10,25 @@ import {
   Building2, User, Phone, Calendar, Eye, IndianRupee, Clock,
   AlertTriangle, CheckCircle, ArrowRightLeft
 } from 'lucide-react';
+
+// ── EMI Urgency Badge Utility ────────────────────────────────────────────────
+function getEMIBadgeConfig(nextEmiDate?: string): {
+  label: string;
+  className: string;
+  pulse: boolean;
+} | null {
+  if (!nextEmiDate) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(nextEmiDate);
+  due.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+  if (diffDays < 0) return { label: '🔴 EMI OVERDUE', className: 'bg-red-100 text-red-700 border border-red-400 font-bold', pulse: true };
+  if (diffDays === 0) return { label: '🔴 EMI DUE TODAY', className: 'bg-red-50 text-red-600 border border-red-300 font-semibold', pulse: true };
+  if (diffDays === 1) return { label: '🟡 EMI DUE TOMORROW', className: 'bg-yellow-50 text-yellow-700 border border-yellow-300 font-semibold', pulse: false };
+  if (diffDays === 2) return { label: '🟢 EMI in 2 Days', className: 'bg-green-50 text-green-700 border border-green-300 font-medium', pulse: false };
+  return null;
+}
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
 
@@ -191,6 +210,17 @@ export function ParallelLoanView({
                 <Clock className="h-3 w-3 mr-1" /> Interest Only
               </Badge>
             )}
+            {/* EMI Urgency Badge — only on original side */}
+            {isOriginal && (() => {
+              const emiDue = loan.nextEmi?.dueDate || loan.summary?.nextDueEMI;
+              const cfg = getEMIBadgeConfig(emiDue);
+              if (!cfg) return null;
+              return (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full ${cfg.className} ${cfg.pulse ? 'animate-pulse' : ''}`}>
+                  {cfg.label}
+                </span>
+              );
+            })()}
           </div>
           {loan.company && (
             <Badge variant="secondary" className="text-xs bg-gray-100">

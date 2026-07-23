@@ -37,6 +37,7 @@ import { useRealtime } from '@/hooks/useRealtime';
 import { useRefresh } from '@/contexts/RefreshContext';
 import { useLoansStore } from '@/stores/loansStore';
 import { useUsersStore } from '@/stores/usersStore';
+import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 interface Loan {
   id: string; applicationNo: string; status: string; requestedAmount: number; loanType: string;
@@ -681,6 +682,11 @@ export default function CompanyDashboard() {
       case 'active':
         return (
           <div className="space-y-4">
+            <EMIDueAlertBanner
+              userId={user?.id || ''}
+              userRole={user?.role || 'COMPANY'}
+              onOpenLoanDetail={(loanId) => { setSelectedLoanId(loanId); setShowLoanDetailPanel(true); }}
+            />
             <Card className="bg-white shadow-sm border-0">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

@@ -43,6 +43,7 @@ import { EMICalculatorSection, PerformanceSection, DashboardSection } from './mo
 import { ApprovalDialog, SanctionDialog, StaffDialog, LoanDetailsDialog, BulkApprovalDialog } from './dialogs';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
+import EMIDueAlertBanner from '@/components/notification/EMIDueAlertBanner';
 
 const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
 
@@ -806,7 +807,16 @@ export default function AgentDashboard() {
         );
 
       case 'active':
-        return renderActiveLoans();
+        return (
+          <div className="space-y-3">
+            <EMIDueAlertBanner
+              userId={user?.id || ''}
+              userRole={user?.role || 'AGENT'}
+              onOpenLoanDetail={(loanId) => { setSelectedLoanId(loanId); setShowLoanDetailPanel(true); }}
+            />
+            {renderActiveLoans()}
+          </div>
+        );
 
       case 'emi-collection':
         return (
