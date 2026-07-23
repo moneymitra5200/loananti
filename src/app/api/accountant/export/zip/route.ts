@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
       where: {
         companyId,
         createdAt: { gte: fyStart, lte: fyEnd },
-        status: { in: ['DISBURSED', 'ACTIVE', 'CLOSED', 'FORECLOSED'] }  // ✅ FIX
+        status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY', 'CLOSED'] }  // ✅ valid LoanStatus values
       },
       select: {
         applicationNo: true, firstName: true, lastName: true, loanAmount: true,
