@@ -278,16 +278,17 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     }).join('');
 
     const pdfContainer = document.createElement('div');
-    pdfContainer.style.position = 'fixed';
-    pdfContainer.style.left = '-9999px';
-    pdfContainer.style.top = '-9999px';
-    pdfContainer.style.width = '750px';
+    pdfContainer.style.position = 'absolute';
+    pdfContainer.style.left = '0px';
+    pdfContainer.style.top = '0px';
+    pdfContainer.style.width = '790px';
     pdfContainer.style.boxSizing = 'border-box';
     pdfContainer.style.fontFamily = 'system-ui, -apple-system, sans-serif';
     pdfContainer.style.background = '#ffffff';
+    pdfContainer.style.zIndex = '99999';
 
     pdfContainer.innerHTML = `
-      <div style="padding: 24px; color: #0f172a;">
+      <div style="padding: 24px; color: #0f172a; background: #ffffff;">
         <!-- Header Banner -->
         <div style="background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%); color: #ffffff; padding: 22px; border-radius: 12px; margin-bottom: 20px;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -346,13 +347,16 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     document.body.appendChild(pdfContainer);
 
     try {
+      // Allow browser to paint the DOM element before html2pdf captures canvas
+      await new Promise(resolve => setTimeout(resolve, 250));
+
       const html2pdfModule = (await import('html2pdf.js')).default;
       const opt = {
         margin: 8,
         filename: `EMI_Report_${selectedDate}.pdf`,
         image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: { 
-          scale: 3, 
+          scale: 2.5, 
           useCORS: true, 
           letterRendering: true,
           logging: false 
@@ -578,38 +582,38 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
-            <div className="p-3 rounded-lg bg-purple-50 border border-purple-100 flex flex-col justify-between text-center">
-              <p className="text-xs text-purple-600 font-medium">Total EMIs</p>
-              <p className="text-2xl font-bold text-purple-700">{totalEmis}</p>
-              <p className="text-[11px] text-purple-500 mt-1">Scheduled for this month</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-4">
+            <div className="p-3.5 rounded-lg bg-purple-50 border border-purple-100 flex flex-col justify-between text-center">
+              <p className="text-sm text-purple-700 font-bold">Total EMIs</p>
+              <p className="text-3xl font-extrabold text-purple-900 my-0.5">{totalEmis}</p>
+              <p className="text-xs text-purple-600 font-semibold">Scheduled for this month</p>
             </div>
-            <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 flex flex-col justify-between">
-              <div className="flex justify-between items-center mb-1">
+            <div className="p-3.5 rounded-lg bg-blue-50 border border-blue-100 flex flex-col justify-between">
+              <div className="flex justify-between items-center mb-1.5">
                 <div>
-                  <p className="text-xs text-blue-600 font-semibold">To Collect</p>
-                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                  <p className="text-sm text-blue-800 font-bold">To Collect</p>
+                  <span className="text-xs font-extrabold bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-300">
                     {pendingPct}% Pending
                   </span>
                 </div>
-                <p className="text-lg font-bold text-blue-700">{formatCurrency(toCollectTotal)}</p>
+                <p className="text-xl md:text-2xl font-black text-blue-900">{formatCurrency(toCollectTotal)}</p>
               </div>
-              <div className="text-[11px] text-blue-600/90 pt-1.5 border-t border-blue-200/60 flex justify-between font-medium">
+              <div className="text-xs md:text-sm text-blue-900 pt-2 border-t border-blue-200/80 flex justify-between font-bold">
                 <span>P: {formatCurrency(toCollectPrincipal)}</span>
                 <span>+ I: {formatCurrency(toCollectInterest)}</span>
               </div>
             </div>
-            <div className="p-3 rounded-lg bg-green-50 border border-green-100 flex flex-col justify-between">
-              <div className="flex justify-between items-center mb-1">
+            <div className="p-3.5 rounded-lg bg-green-50 border border-green-100 flex flex-col justify-between">
+              <div className="flex justify-between items-center mb-1.5">
                 <div>
-                  <p className="text-xs text-green-600 font-semibold">Collected</p>
-                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
+                  <p className="text-sm text-green-800 font-bold">Collected</p>
+                  <span className="text-xs font-extrabold bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300">
                     {collectedPct}% Collected
                   </span>
                 </div>
-                <p className="text-lg font-bold text-green-700">{formatCurrency(collectedTotal)}</p>
+                <p className="text-xl md:text-2xl font-black text-green-900">{formatCurrency(collectedTotal)}</p>
               </div>
-              <div className="text-[11px] text-green-600/90 pt-1.5 border-t border-green-200/60 flex justify-between font-medium">
+              <div className="text-xs md:text-sm text-green-900 pt-2 border-t border-green-200/80 flex justify-between font-bold">
                 <span>P: {formatCurrency(paidPrincipal)}</span>
                 <span>+ I: {formatCurrency(paidInterest)}</span>
               </div>
@@ -618,18 +622,18 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
           {/* Monthly Collection Progress Bar */}
           {grandMonthTotal > 0 && (
-            <div className="mb-4 p-3 bg-gradient-to-r from-slate-50 to-purple-50/60 rounded-lg border border-purple-100 shadow-xs">
-              <div className="flex items-center justify-between text-xs font-semibold text-gray-700 mb-1.5 flex-wrap gap-1">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                  Monthly Collection Efficiency: <span className="text-emerald-700 font-bold text-sm">{collectedPct}%</span>
+            <div className="mb-4 p-3.5 bg-gradient-to-r from-slate-50 to-purple-50/70 rounded-lg border border-purple-200 shadow-xs">
+              <div className="flex items-center justify-between text-sm font-bold text-slate-800 mb-2 flex-wrap gap-1.5">
+                <span className="flex items-center gap-2 text-sm md:text-base">
+                  <span className="w-3 h-3 rounded-full bg-emerald-500"></span>
+                  Monthly Collection Efficiency: <span className="text-emerald-700 font-extrabold">{collectedPct}%</span>
                 </span>
-                <span className="text-gray-600 text-[11px]">
+                <span className="text-slate-700 text-xs md:text-sm font-semibold">
                   Collected: <span className="text-emerald-700 font-bold">{formatCurrency(collectedTotal)}</span> ({collectedPct}%) | 
                   Pending: <span className="text-amber-700 font-bold">{formatCurrency(toCollectTotal)}</span> ({pendingPct}%)
                 </span>
               </div>
-              <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden flex">
+              <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden flex">
                 <div 
                   className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-500" 
                   style={{ width: `${collectedPct}%` }}
@@ -732,7 +736,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
         {/* Day Detail Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-6">
             <DialogHeader className="flex flex-row items-center justify-between pr-6">
               <DialogTitle className="flex items-center gap-2 text-lg">
                 <Calendar className="h-5.5 w-5.5 text-purple-500" />
