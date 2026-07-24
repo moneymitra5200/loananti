@@ -1,13 +1,11 @@
 'use client';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, BookCopy, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { Loader2, BookCopy, RefreshCw } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 const PRESET_ACCOUNTS = [
@@ -27,6 +25,7 @@ const TYPE_COLORS: Record<string, string> = {
   LIABILITY: 'text-red-700 bg-red-50', EQUITY: 'text-purple-700 bg-purple-50',
   EXPENSE: 'text-orange-700 bg-orange-50',
 };
+
 const fmt = (n: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(n || 0);
 
 interface LedgerRow { date: string; particulars: string; referenceNo: string; debit: number; credit: number; balance: number; }
@@ -38,12 +37,33 @@ interface LedgerData {
 interface COAItem { code: string; label: string; type: string; desc: string; }
 
 export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
+  const getFYStartDate = () => {
+    const now = new Date();
+    const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${year}-04-01`;
+  };
+
   const [selectedAccount, setSelectedAccount] = useState('CASH');
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [startDate, setStartDate] = useState(getFYStartDate());
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [dbAccounts, setDbAccounts] = useState<COAItem[]>([]);
+
+  const setPeriodFY = () => {
+    setStartDate(getFYStartDate());
+    setEndDate(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  };
+
+  const setPeriodMonth = () => {
+    setStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+    setEndDate(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  };
+
+  const setPeriodAllTime = () => {
+    setStartDate('2020-01-01');
+    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+  };
 
   // Fetch Chart of Accounts for company
   useEffect(() => {
@@ -64,7 +84,7 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
       .catch(() => {});
   }, [selectedCompanyId]);
 
-  // Combine presets and dynamic COA accounts (deduplicating by code)
+  // Combine presets and dynamic COA accounts
   const allAccountOptions: COAItem[] = [...PRESET_ACCOUNTS];
   for (const acc of dbAccounts) {
     if (!allAccountOptions.some(a => a.code === acc.code)) {
@@ -87,7 +107,10 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
     } catch { /* silent */ } finally { setLoading(false); }
   }, [selectedCompanyId, selectedAccount, startDate, endDate, refreshKey]);
 
-  // Auto-refresh disabled — refreshes on socket update or mount
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const { lastUpdated: ldLastUpdated } = useAutoRefresh({
     onRefresh: load,
     intervalMs: 0,
@@ -101,6 +124,8 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
     type: ledger?.accountType || 'ASSET',
     desc: `Account Code: ${ledger?.accountCode || selectedAccount}`
   };
+
+  const isCreditNormal = ['EQUITY', 'LIABILITY', 'INCOME'].includes(ledger?.accountType || acctInfo.type);
 
   return (
     <div className="space-y-4">
@@ -131,6 +156,17 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              <Button variant={startDate === getFYStartDate() ? 'secondary' : 'ghost'} size="sm" className="text-xs h-8" onClick={setPeriodFY}>
+                Current FY
+              </Button>
+              <Button variant={startDate === format(startOfMonth(new Date()), 'yyyy-MM-dd') ? 'secondary' : 'ghost'} size="sm" className="text-xs h-8" onClick={setPeriodMonth}>
+                This Month
+              </Button>
+              <Button variant={startDate === '2020-01-01' ? 'secondary' : 'ghost'} size="sm" className="text-xs h-8" onClick={setPeriodAllTime}>
+                All Time
+              </Button>
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">From</label>
@@ -178,8 +214,12 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
           <div className="grid grid-cols-3 border-b">
             <div className="p-4 border-r text-center">
               <p className="text-xs text-gray-500 uppercase tracking-wide">Opening Balance</p>
-              <p className={`text-lg font-bold ${ledger.openingBalance >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{fmt(Math.abs(ledger.openingBalance))}</p>
-              <p className="text-xs text-gray-400">{ledger.openingBalance >= 0 ? '(Dr)' : '(Cr)'}</p>
+              <p className={`text-lg font-bold ${isCreditNormal ? (ledger.openingBalance >= 0 ? 'text-green-700' : 'text-red-600') : (ledger.openingBalance >= 0 ? 'text-blue-700' : 'text-red-600')}`}>
+                {fmt(Math.abs(ledger.openingBalance))}
+              </p>
+              <p className="text-xs text-gray-400">
+                {isCreditNormal ? (ledger.openingBalance >= 0 ? '(Cr)' : '(Dr)') : (ledger.openingBalance >= 0 ? '(Dr)' : '(Cr)')}
+              </p>
             </div>
             <div className="p-4 border-r text-center">
               <p className="text-xs text-gray-500 uppercase tracking-wide">Period Activity</p>
@@ -188,12 +228,16 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
             </div>
             <div className="p-4 text-center">
               <p className="text-xs text-gray-500 uppercase tracking-wide">Closing Balance</p>
-              <p className={`text-lg font-bold ${ledger.closingBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>{fmt(Math.abs(ledger.closingBalance))}</p>
-              <p className="text-xs text-gray-400">{ledger.closingBalance >= 0 ? '(Dr)' : '(Cr)'}</p>
+              <p className={`text-lg font-bold ${ledger.closingBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                {fmt(Math.abs(ledger.closingBalance))}
+              </p>
+              <p className="text-xs text-gray-400">
+                {isCreditNormal ? (ledger.closingBalance >= 0 ? '(Cr)' : '(Dr)') : (ledger.closingBalance >= 0 ? '(Dr)' : '(Cr)')}
+              </p>
             </div>
           </div>
 
-          {/* Transaction table — always show, opening balance always visible */}
+          {/* Transaction table */}
           <div className="max-w-full">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-gray-50 border-b">
@@ -207,12 +251,16 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                 </tr>
               </thead>
               <tbody>
-                {/* Opening balance row — always shown */}
-                <tr className="bg-blue-50 border-b">
+                {/* Opening balance row */}
+                <tr className="bg-blue-50/70 border-b font-medium">
                   <td className="py-2 px-4 text-xs text-gray-500">{format(new Date(startDate), 'dd MMM yyyy')}</td>
-                  <td className="py-2 px-4 font-medium text-gray-700" colSpan={2}>Opening Balance b/d</td>
-                  <td className="py-2 px-4 text-right font-mono text-blue-700">{ledger.openingBalance > 0 ? fmt(ledger.openingBalance) : '—'}</td>
-                  <td className="py-2 px-4 text-right font-mono text-green-700">{ledger.openingBalance < 0 ? fmt(Math.abs(ledger.openingBalance)) : '—'}</td>
+                  <td className="py-2 px-4 font-semibold text-gray-700" colSpan={2}>Opening Balance b/d</td>
+                  <td className="py-2 px-4 text-right font-mono text-blue-700">
+                    {!isCreditNormal && ledger.openingBalance !== 0 ? fmt(Math.abs(ledger.openingBalance)) : '—'}
+                  </td>
+                  <td className="py-2 px-4 text-right font-mono text-green-700">
+                    {isCreditNormal && ledger.openingBalance !== 0 ? fmt(Math.abs(ledger.openingBalance)) : '—'}
+                  </td>
                   <td className="py-2 px-4 text-right font-mono font-semibold">{fmt(ledger.openingBalance)}</td>
                 </tr>
                 {ledger.transactions.length === 0 ? (
@@ -224,10 +272,10 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                     <td className="py-2 px-4 text-xs text-gray-500 whitespace-nowrap">{format(new Date(row.date), 'dd MMM yyyy')}</td>
                     <td className="py-2 px-4 text-gray-800 max-w-xs truncate">{row.particulars}</td>
                     <td className="py-2 px-4 text-xs text-gray-400 font-mono truncate">{row.referenceNo}</td>
-                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.debit > 0 ? 'text-blue-700' : 'text-gray-200'}`}>
+                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.debit > 0 ? 'text-blue-700' : 'text-gray-300'}`}>
                       {row.debit > 0 ? fmt(row.debit) : '—'}
                     </td>
-                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.credit > 0 ? 'text-green-700' : 'text-gray-200'}`}>
+                    <td className={`py-2 px-4 text-right font-mono font-medium ${row.credit > 0 ? 'text-green-700' : 'text-gray-300'}`}>
                       {row.credit > 0 ? fmt(row.credit) : '—'}
                     </td>
                     <td className={`py-2 px-4 text-right font-mono font-semibold ${row.balance < 0 ? 'text-red-600' : 'text-gray-800'}`}>
@@ -246,7 +294,9 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                 </tr>
                 {/* Closing balance */}
                 <tr className="bg-emerald-50 border-t font-bold">
-                  <td className="py-2.5 px-4 text-xs text-gray-600" colSpan={4}>Closing Balance c/d</td>
+                  <td className="py-2.5 px-4 text-xs text-gray-600" colSpan={4}>
+                    Closing Balance c/d {isCreditNormal ? '(Cr)' : '(Dr)'}
+                  </td>
                   <td className="py-2.5 px-4 text-right font-mono text-emerald-800"></td>
                   <td className={`py-2.5 px-4 text-right font-mono text-lg font-bold ${ledger.closingBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                     {fmt(ledger.closingBalance)}

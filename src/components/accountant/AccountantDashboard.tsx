@@ -2100,8 +2100,29 @@ function ProfitLossSection({
 }) {
   const [profitLoss, setProfitLoss] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const getFYStartDate = () => {
+    const now = new Date();
+    const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${year}-04-01`;
+  };
+
+  const [startDate, setStartDate] = useState(getFYStartDate());
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const setPeriodFY = () => {
+    setStartDate(getFYStartDate());
+    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  const setPeriodMonth = () => {
+    setStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+  };
+
+  const setPeriodAllTime = () => {
+    setStartDate('2020-01-01');
+    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+  };
 
   const loadProfitLoss = useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -2157,6 +2178,32 @@ function ProfitLossSection({
           Profit & Loss Statement
         </h2>
         <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+            <Button
+              variant={startDate === getFYStartDate() ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs h-7"
+              onClick={setPeriodFY}
+            >
+              Current FY
+            </Button>
+            <Button
+              variant={startDate === format(startOfMonth(new Date()), 'yyyy-MM-dd') ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs h-7"
+              onClick={setPeriodMonth}
+            >
+              This Month
+            </Button>
+            <Button
+              variant={startDate === '2020-01-01' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="text-xs h-7"
+              onClick={setPeriodAllTime}
+            >
+              All Time
+            </Button>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">From:</span>
             <Input
