@@ -1177,7 +1177,17 @@ export default function CompanyDashboard() {
         return <EMICollectionSection userId={user?.id || ''} userRole={user?.role || 'COMPANY'} />;
       
       case 'emi-calendar':
-        return <EMICalendar userId={user?.id || ''} userRole={user?.role || 'COMPANY'} />;
+        return (
+          <EMICalendar
+            userId={user?.id || ''}
+            userRole={user?.role || 'COMPANY'}
+            onSelectLoan={(loanId, loanType) => {
+              setSelectedLoanId(loanId);
+              setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+              setShowLoanDetailPanel(true);
+            }}
+          />
+        );
       
       case 'offline-loans':
         return (
@@ -1192,6 +1202,11 @@ export default function CompanyDashboard() {
               userId={user?.id}
               userRole={user?.role || 'COMPANY'}
               companyId={getCompanyId() || undefined}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
             />
             <div className="grid lg:grid-cols-2 gap-6">
               <Card>

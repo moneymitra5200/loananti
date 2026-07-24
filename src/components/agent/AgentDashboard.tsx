@@ -850,6 +850,11 @@ export default function AgentDashboard() {
             <EMICalendar 
               userId={user?.id || ''} 
               userRole={user?.role || 'AGENT'}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
             />
           </div>
         );
@@ -878,6 +883,11 @@ export default function AgentDashboard() {
               userId={user?.id}
               userRole={user?.role || 'AGENT'}
               companyId={user?.companyId || undefined}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
             />
             <OfflineLoansList 
               userId={user?.id}

@@ -1141,6 +1141,7 @@ export default function CashierDashboard() {
               userId={user?.id}
               userRole={user?.role || 'CASHIER'}
               companyId={user?.companyId || undefined}
+              onSelectLoan={handleOpenLoanFromEMI}
             />
             <OfflineLoansList 
               userId={user?.id}
@@ -1358,6 +1359,7 @@ export default function CashierDashboard() {
             <EMICalendar
               userId={user?.id || ''}
               userRole={user?.role || 'CASHIER'}
+              onSelectLoan={handleOpenLoanFromEMI}
             />
           </div>
         );

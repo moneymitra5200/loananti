@@ -1582,6 +1582,7 @@ export default function SuperAdminDashboard() {
             <EMICalendar 
               userId={user?.id || ''} 
               userRole={user?.role || 'SUPER_ADMIN'}
+              onSelectLoan={handleOpenLoanFromEMI}
             />
           </div>
         );
@@ -1609,6 +1610,7 @@ export default function SuperAdminDashboard() {
               <UpcomingEMIPanel 
                 userId={user?.id}
                 userRole={user?.role || 'SUPER_ADMIN'}
+                onSelectLoan={handleOpenLoanFromEMI}
               />
             </Suspense>
             <OfflineLoansList 

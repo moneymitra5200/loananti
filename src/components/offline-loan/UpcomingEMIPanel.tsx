@@ -46,11 +46,12 @@ interface UpcomingEMIPanelProps {
   userId?: string;
   userRole: string;
   companyId?: string;
+  onSelectLoan?: (loanId: string, type: 'online' | 'offline') => void;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function UpcomingEMIPanel({ userId, userRole, companyId }: UpcomingEMIPanelProps) {
+export default function UpcomingEMIPanel({ userId, userRole, companyId, onSelectLoan }: UpcomingEMIPanelProps) {
   const [fromDate, setFromDate] = useState(today());
   const [toDate, setToDate] = useState(today());
   const [loading, setLoading] = useState(false);
@@ -252,7 +253,10 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId }: Upcomi
                     <div className="flex items-start justify-between gap-2">
                       {/* Left: Loan + Customer info */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div
+                          className={`flex items-center gap-2 flex-wrap ${onSelectLoan ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+                          onClick={() => onSelectLoan?.(emi.offlineLoan.id, 'offline')}
+                        >
                           <span className="font-semibold text-sm text-gray-900 truncate">
                             {emi.offlineLoan.loanNumber}
                           </span>
@@ -271,7 +275,10 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId }: Upcomi
                           )}
                         </div>
 
-                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                        <div
+                          className={`flex items-center gap-3 mt-1 text-xs text-gray-500 ${onSelectLoan ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+                          onClick={() => onSelectLoan?.(emi.offlineLoan.id, 'offline')}
+                        >
                           <span className="flex items-center gap-1">
                             <User className="h-3 w-3" />
                             {emi.offlineLoan.customerName}
@@ -291,7 +298,7 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId }: Upcomi
                         </div>
                       </div>
 
-                      {/* Right: Amount */}
+                      {/* Right: Amount + Pay/View Button */}
                       <div className="text-right shrink-0">
                         <p className="text-base font-bold text-gray-900">
                           {formatCurrency(remaining)}
@@ -304,6 +311,15 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId }: Upcomi
                         <p className="text-xs text-gray-400">
                           of {formatCurrency(emi.totalAmount)}
                         </p>
+                        {onSelectLoan && (
+                          <Button
+                            size="sm"
+                            className="mt-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                            onClick={() => onSelectLoan(emi.offlineLoan.id, 'offline')}
+                          >
+                            <IndianRupee className="h-3 w-3 mr-1" /> Pay Loan
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </motion.div>

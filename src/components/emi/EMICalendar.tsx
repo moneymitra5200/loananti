@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChevronLeft, ChevronRight, Calendar, IndianRupee, CheckCircle,
-  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter
+  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye
 } from 'lucide-react';
 import EMIPaymentDialog from './EMIPaymentDialog';
 
@@ -60,9 +60,10 @@ interface CalendarDay {
 interface EMICalendarProps {
   userId: string;
   userRole: string;
+  onSelectLoan?: (loanId: string, type: 'online' | 'offline') => void;
 }
 
-export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
+export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalendarProps) {
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendar, setCalendar] = useState<CalendarDay[]>([]);
@@ -222,6 +223,14 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
       ? emi.offlineLoan?.customerPhone
       : emi.loanApplication?.phone;
     const canPay = emi.paymentStatus !== 'PAID';
+    const loanId = type === 'offline' ? emi.offlineLoan?.id : emi.loanApplication?.id;
+
+    const handleOpenLoan = () => {
+      if (onSelectLoan && loanId) {
+        setDialogOpen(false);
+        onSelectLoan(loanId, type);
+      }
+    };
 
     return (
       <motion.div
@@ -261,12 +270,18 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
               </Badge>
               <span className="text-xs text-gray-500">EMI #{emi.installmentNumber}</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div
+              className={`flex items-center gap-2 ${onSelectLoan && loanId ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+              onClick={handleOpenLoan}
+            >
               <User className="h-3 w-3 text-gray-400" />
               <span className="text-sm font-medium">{customerName}</span>
             </div>
-            <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-              <span>{loanNumber}</span>
+            <div
+              className={`text-xs text-gray-500 flex items-center gap-2 mt-1 ${onSelectLoan && loanId ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+              onClick={handleOpenLoan}
+            >
+              <span className="font-semibold">{loanNumber}</span>
               {phone && <span>• {phone}</span>}
             </div>
             {type === 'offline' && emi.offlineLoan?.company && (
@@ -287,15 +302,34 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
             {emi.paymentStatus === 'PARTIALLY_PAID' && (
               <p className="text-xs text-amber-600">Remaining: {formatCurrency(emi.totalAmount - emi.paidAmount)}</p>
             )}
-            {canPay && (
-              <Button
-                size="sm"
-                className="mt-2 bg-emerald-500 hover:bg-emerald-600"
-                onClick={() => handlePayEmi(emi, type)}
-              >
-                <IndianRupee className="h-3 w-3 mr-1" /> Pay
-              </Button>
-            )}
+            <div className="flex items-center justify-end gap-1 mt-2">
+              {canPay && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-500 hover:bg-emerald-600"
+                  onClick={() => {
+                    if (onSelectLoan && loanId) {
+                      setDialogOpen(false);
+                      onSelectLoan(loanId, type);
+                    } else {
+                      handlePayEmi(emi, type);
+                    }
+                  }}
+                >
+                  <IndianRupee className="h-3 w-3 mr-1" /> Pay
+                </Button>
+              )}
+              {onSelectLoan && loanId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs border-purple-200 text-purple-700 hover:bg-purple-50"
+                  onClick={handleOpenLoan}
+                >
+                  <Eye className="h-3 w-3 mr-1" /> Detail
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </motion.div>
