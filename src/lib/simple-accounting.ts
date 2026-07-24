@@ -843,7 +843,15 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           if (singleDebitAccId)
             await client.chartOfAccount.update({ where: { id: singleDebitAccId }, data: { currentBalance: { increment: recordAmount } } });
         }
-        await client.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
+        // For ASSET accounts (1301 Interest Receivable, 1305 Overdue Interest), a journal CREDIT
+        // means the receivable is being cleared → DECREMENT the balance.
+        // For INCOME accounts (4110 Interest on Loans), a journal CREDIT means income earned → INCREMENT.
+        const isInterestAssetAccount = ['1301', '1305', ACCOUNT_CODES.INTEREST_RECEIVABLE].includes(mirrorInterestCreditCode);
+        if (isInterestAssetAccount) {
+          await client.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { decrement: recordInterest } } });
+        } else {
+          await client.chartOfAccount.update({ where: { id: interestAccId }, data: { currentBalance: { increment: recordInterest } } });
+        }
         if (recordPrincipal > 0 && loanAccId)
           await client.chartOfAccount.update({ where: { id: loanAccId }, data: { currentBalance: { decrement: recordPrincipal } } });
 

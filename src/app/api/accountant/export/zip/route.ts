@@ -705,13 +705,23 @@ export async function GET(request: NextRequest) {
       }
     }) : [];
 
-    // Combine direct and mirror loans
-    const allLoansList = [
-      ...directOnlineLoans.map(l => ({ ...l, type: 'ONLINE' as const, _isMirror: false })),
-      ...extraMirrorOnlineLoans.map(l => ({ ...l, type: 'ONLINE' as const, _isMirror: true })),
-      ...directOfflineLoans.map(l => ({ ...l, type: 'OFFLINE' as const, _isMirror: false })),
-      ...extraMirrorOfflineLoans.map(l => ({ ...l, type: 'OFFLINE' as const, _isMirror: true }))
-    ];
+    // Combine direct and mirror loans, deduplicating by ID
+    const uniqueLoansMap = new Map<string, any>();
+    for (const l of directOnlineLoans) {
+      uniqueLoansMap.set(l.id, { ...l, type: 'ONLINE' as const, _isMirror: false });
+    }
+    for (const l of extraMirrorOnlineLoans) {
+      const existing = uniqueLoansMap.get(l.id);
+      uniqueLoansMap.set(l.id, { ...(existing || l), type: 'ONLINE' as const, _isMirror: true });
+    }
+    for (const l of directOfflineLoans) {
+      uniqueLoansMap.set(l.id, { ...l, type: 'OFFLINE' as const, _isMirror: false });
+    }
+    for (const l of extraMirrorOfflineLoans) {
+      const existing = uniqueLoansMap.get(l.id);
+      uniqueLoansMap.set(l.id, { ...(existing || l), type: 'OFFLINE' as const, _isMirror: true });
+    }
+    const allLoansList = Array.from(uniqueLoansMap.values());
 
     // Group loans by normalized customer identity (name + phone)
     const customerLoansMap = new Map<string, { customerInfo: { name: string; phone: string; email: string }; loans: typeof allLoansList }>();
@@ -797,6 +807,7 @@ export async function GET(request: NextRequest) {
       const customerAccrualEntries = await db.journalEntry.findMany({
         where: {
           isReversed: false,
+          companyId,
           referenceType: { in: ['INTEREST_ACCRUAL', 'INTEREST_RECLASSIFICATION', 'PROCESSING_FEE_ACCRUAL', 'PROCESSING_FEE_COLLECTION', 'PROCESSING_FEE'] },
           lines: { some: { loanId: { in: customerLoanIds } } }
         },
@@ -994,12 +1005,22 @@ export async function GET(request: NextRequest) {
         return a.entryNumber.localeCompare(b.entryNumber, undefined, { numeric: true });
       });
 
+      // Deduplicate ledger entries by JE id + loan id to prevent duplicates
+      const seenEntryKeys = new Set<string>();
+      const dedupedEntries = ledgerEntries.filter(entry => {
+        const key = `${entry.id}-${entry.loanId}`;
+        if (seenEntryKeys.has(key)) return false;
+        seenEntryKeys.add(key);
+        return true;
+      });
+
       // Calculate running balance
       let balance = 0;
-      const statementRows = ledgerEntries.map(row => {
+      const statementRows = dedupedEntries.map(row => {
         balance += (row.debit || 0) - (row.credit || 0);
         return {
-          date: formatIST(row.date, 'datetime'),
+          date: formatIST(row.date, 'date'),
+          time: formatIST(row.date, 'time'),
           entry_no: row.entryNumber || 'Auto',
           particulars: row.description,
           debit: row.debit || 0,
@@ -1035,8 +1056,68 @@ export async function GET(request: NextRequest) {
       { name: 'balance_sheet.csv',       content: toCSV(bsRows),     count: bsRows.length },
       { name: 'profit_and_loss.csv',     content: toCSV(plRows),     count: plRows.length },
       { name: 'profit_loss_summary.txt', content: plSummary,         count: null },
-      ...personalLedgerFiles
+      ...personalLedgerFiles,
     ];
+
+    // ==========================================
+    // 14. GENERAL LEDGER PER ACCOUNT HEAD
+    // ==========================================
+    const accountMap = new Map(accounts.map(a => [a.id, a]));
+    const generalLedgerFiles: { name: string; content: string; count: number }[] = [];
+
+    for (const account of accounts) {
+      // Find all journal lines touching this account within FY
+      const accountLines = journalEntries.flatMap(je =>
+        je.lines
+          .filter(l => l.accountId === account.id)
+          .map(l => ({
+            date: formatIST(je.entryDate, 'date'),
+            time: formatIST(je.entryDate, 'time'),
+            entry_number: je.entryNumber,
+            reference_type: je.referenceType || '',
+            narration: l.narration || je.narration || '',
+            debit: l.debitAmount || 0,
+            credit: l.creditAmount || 0,
+          }))
+      );
+
+      const isDebitNormal = ['ASSET', 'EXPENSE'].includes(account.accountType);
+      let runningBalance = account.openingBalance || 0;
+
+      // Include Opening Balance Row
+      const ledgerRows: any[] = [{
+        date: formatIST(fyStart, 'date'),
+        time: '00:00:00',
+        entry_number: 'Opening',
+        reference_type: 'OPENING_BALANCE',
+        narration: 'Opening Balance b/d',
+        debit: isDebitNormal ? (account.openingBalance > 0 ? account.openingBalance : 0) : 0,
+        credit: !isDebitNormal ? (account.openingBalance > 0 ? account.openingBalance : 0) : 0,
+        balance: runningBalance,
+      }];
+
+      for (const line of accountLines) {
+        if (isDebitNormal) {
+          runningBalance += (line.debit || 0) - (line.credit || 0);
+        } else {
+          runningBalance += (line.credit || 0) - (line.debit || 0);
+        }
+        ledgerRows.push({
+          ...line,
+          balance: Math.round(runningBalance * 100) / 100,
+        });
+      }
+
+      const safeName = cleanFilename(`${account.accountCode}_${account.accountName}`);
+      generalLedgerFiles.push({
+        name: `general_ledger/${safeName}_ledger.csv`,
+        content: toCSV(ledgerRows),
+        count: ledgerRows.length,
+      });
+    }
+
+    // Add general ledger files to the export
+    files.push(...generalLedgerFiles);
 
     return NextResponse.json({
       success: true,

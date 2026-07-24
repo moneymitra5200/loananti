@@ -1448,8 +1448,9 @@ export async function POST(request: NextRequest) {
       '1201': targetOnlineLoans,   // Online Loans Receivable
       '1210': targetOfflineLoans,  // Offline Loans Receivable
       '1200': 0,                   // Parent Loans Receivable → 0 (subaccounts have detail)
-      '1301': targetInterestReceivable,    // Interest Receivable
-      '1305': targetOverdueInterest,       // Overdue Interest Receivable
+      // NOTE: 1301 (Interest Receivable) and 1305 (Overdue Interest) are NOT overridden.
+      // They must reflect the General Ledger (journal entries), not EMI aggregates.
+      // Overriding them caused persistent stale balances (accruals added but never decremented).
       '3002': targetCapital,       // Owner's Capital
     };
 

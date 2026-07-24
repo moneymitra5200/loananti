@@ -535,6 +535,76 @@ export async function GET(request: NextRequest) {
       for (const e of expenses) { bal += e.amount; totDr += e.amount; txns.push({ date: e.paymentDate.toISOString(), particulars: `${e.expenseType.replace(/_/g, ' ')} – ${e.description}`, referenceNo: e.expenseNumber, debit: e.amount, credit: 0, balance: bal }); }
     }
 
+    // ─── DYNAMIC CHARTOFACCOUNT LOOKUP (ANY OTHER ACCOUNT HEAD) ───────────────
+    else {
+      // Look up account by accountCode or ID for this company
+      const coa = await db.chartOfAccount.findFirst({
+        where: {
+          companyId,
+          OR: [
+            { accountCode: account },
+            { id: account }
+          ]
+        }
+      });
+
+      if (coa) {
+        accountName = coa.accountName;
+        accountCode = coa.accountCode;
+        accountType = coa.accountType;
+        const isDebitNormal = ['ASSET', 'EXPENSE'].includes(accountType);
+
+        // 1. Calculate opening balance from journal entries before periodStart
+        const priorLines = await db.journalEntryLine.findMany({
+          where: {
+            accountId: coa.id,
+            journalEntry: { companyId, entryDate: { lt: periodStart }, isApproved: true, isReversed: false }
+          },
+          select: { debitAmount: true, creditAmount: true }
+        });
+
+        const priorNet = priorLines.reduce((s, l) => s + (l.debitAmount || 0) - (l.creditAmount || 0), 0);
+        opening = (coa.openingBalance || 0) + (isDebitNormal ? priorNet : -priorNet);
+
+        // 2. Fetch period journal lines
+        const periodLines = await db.journalEntryLine.findMany({
+          where: {
+            accountId: coa.id,
+            journalEntry: { companyId, entryDate: { gte: periodStart, lte: periodEnd }, isApproved: true, isReversed: false }
+          },
+          include: {
+            journalEntry: {
+              select: { entryDate: true, entryNumber: true, narration: true, referenceType: true }
+            }
+          },
+          orderBy: { journalEntry: { entryDate: 'asc' } }
+        });
+
+        let bal = opening;
+        for (const line of periodLines) {
+          const dr = line.debitAmount || 0;
+          const cr = line.creditAmount || 0;
+          totDr += dr;
+          totCr += cr;
+
+          if (isDebitNormal) {
+            bal += dr - cr;
+          } else {
+            bal += cr - dr;
+          }
+
+          txns.push({
+            date: line.journalEntry.entryDate.toISOString(),
+            particulars: line.narration || line.journalEntry.narration || `${coa.accountName} entry`,
+            referenceNo: line.journalEntry.entryNumber || line.journalEntry.referenceType || '-',
+            debit: dr,
+            credit: cr,
+            balance: bal
+          });
+        }
+      }
+    }
+
     // Closing balance: sign convention depends on account normal side
     // ASSET/EXPENSE → debit-normal: closing = opening + totDr - totCr
     // EQUITY/LIABILITY/INCOME → credit-normal: closing = opening + totCr - totDr

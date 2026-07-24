@@ -304,11 +304,13 @@ export async function POST(request: NextRequest) {
             }
           });
 
-          // Record mirror processing fee accrual in the mirror company
+          // Record mirror processing fee accrual + collection in the mirror company
           const mirrorCompanyId = mirrorMapping.mirrorCompanyId;
           if (mirrorCompanyId && autoProcessingFee > 0) {
             const mirrorAccSvc = new AccountingService(mirrorCompanyId);
             await mirrorAccSvc.initializeChartOfAccounts();
+
+            // Step 1: Accrue PF (Dr 1302 Processing Fee Receivable / Cr 4121 Processing Fee Income)
             await mirrorAccSvc.recordProcessingFeeAccrual({
               loanId: mirrorLoan.id,
               customerId: mirrorLoan.customerId || mirrorLoan.id,
@@ -316,7 +318,40 @@ export async function POST(request: NextRequest) {
               accrualDate: new Date(Date.now() - 5000),
               createdById: startedBy || 'system',
             }, tx);
-            console.log(`[Mirror Start] Recorded mirror processing fee accrual: ₹${autoProcessingFee} in company ${mirrorCompanyId} inside transaction`);
+
+            // Step 2: Collect PF (Dr Cash/Bank / Cr 1302 Processing Fee Receivable)
+            // This clears the receivable — PF is collected at loan start
+            const mirrorPfMode = (bankAccountId && !bankAccountId.startsWith('cash_')) ? 'BANK_TRANSFER' : 'CASH';
+            const mirrorPfBankId = (bankAccountId && !bankAccountId.startsWith('cash_')) ? bankAccountId : undefined;
+            await mirrorAccSvc.recordProcessingFee({
+              loanId: mirrorLoan.id,
+              customerId: mirrorLoan.customerId || mirrorLoan.id,
+              amount: autoProcessingFee,
+              collectionDate: new Date(),
+              createdById: startedBy || 'system',
+              paymentMode: mirrorPfMode,
+              bankAccountId: mirrorPfBankId,
+            }, tx);
+
+            // Mark PF as recorded in mirror mapping
+            await tx.mirrorLoanMapping.update({
+              where: { id: mirrorMapping.id },
+              data: { processingFeeRecorded: true }
+            });
+
+            // Also record the cashbook credit for mirror company
+            await recordCashBookEntry({
+              companyId: mirrorCompanyId,
+              entryType: 'CREDIT',
+              amount: autoProcessingFee,
+              description: `Processing Fee - ${mirrorLoan.loanNumber}`,
+              referenceType: 'PROCESSING_FEE',
+              referenceId: `${mirrorLoan.id}-PF`,
+              createdById: startedBy || 'system',
+              tx,
+            });
+
+            console.log(`[Mirror Start] ✅ Recorded mirror PF accrual + collection: ₹${autoProcessingFee} in company ${mirrorCompanyId}`);
           }
 
           console.log(`[Mirror Start] ✅ ${mirrorLoan.loanNumber} activated | Shifted schedule | PF ₹${autoProcessingFee} inside transaction`);

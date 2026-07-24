@@ -41,6 +41,7 @@ import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAutoRefresh, useRelativeTime } from '@/hooks/useAutoRefresh';
 import { RefreshProvider, useRefresh } from '@/contexts/RefreshContext';
+import UpcomingEMIPanel from '@/components/offline-loan/UpcomingEMIPanel';
 
 // ============================================
 // TYPES
@@ -2778,6 +2779,7 @@ export default function UnifiedAccountantDashboard() {
     : [
         { id: 'journal-entry',    label: 'Journal Entry',    icon: BookCheck },
         { id: 'payment-audit',    label: '💳 Payment Audit',  icon: Receipt },
+        { id: 'upcoming-emis',    label: 'Upcoming EMIs',    icon: Calendar },
         { id: 'day-book',         label: 'Day Book',         icon: BookOpen },
         { id: 'ledger',           label: 'Ledger',           icon: BookCopy },
         { id: 'personal-ledger',  label: 'Personal Ledger',  icon: User },
@@ -2832,6 +2834,14 @@ export default function UnifiedAccountantDashboard() {
         );
       case 'payment-audit':
         return <JournalEntriesSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
+      case 'upcoming-emis':
+        return (
+          <UpcomingEMIPanel
+            userId={user?.id}
+            userRole={user?.role || 'ACCOUNTANT'}
+            companyId={selectedCompanyId || undefined}
+          />
+        );
       case 'day-book':
         return <TradDayBookSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
       case 'ledger':
@@ -3290,6 +3300,7 @@ export default function UnifiedAccountantDashboard() {
                 <li>📄 profit_and_loss.csv — Financial P&amp;L sheet</li>
                 <li>📄 profit_loss_summary.txt — P&amp;L snapshot summary</li>
                 <li>📁 personal_ledgers/ — Subfolder containing customer ledgers</li>
+                <li>📁 general_ledger/ — Subfolder containing account head ledgers</li>
               </ul>
             </div>
 

@@ -10,16 +10,16 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Loader2, BookCopy, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 
-const ACCOUNTS = [
-  { code: 'CASH',       label: 'Cash in Hand',               type: 'ASSET',     desc: 'Physical cash received and paid' },
-  { code: 'BANK',       label: 'Cash at Bank',               type: 'ASSET',     desc: 'Bank account transactions' },
-  { code: 'LOANS',      label: 'Loans Given / Advances',     type: 'ASSET',     desc: 'Money lent to borrowers' },
-  { code: 'INTEREST',   label: 'Interest Income',            type: 'INCOME',    desc: 'Interest earned on loans' },
-  { code: 'PROCESSING', label: 'Processing Fee Income',      type: 'INCOME',    desc: 'Processing fees collected' },
-  { code: 'PENALTY',    label: 'Penalty / Late Fee Income',  type: 'INCOME',    desc: 'Late payment charges collected' },
-  { code: 'BORROWED',   label: 'Borrowed Funds',             type: 'LIABILITY', desc: 'Money borrowed from external sources' },
-  { code: 'CAPITAL',    label: "Owner's Capital",            type: 'EQUITY',    desc: 'Capital introduced by owner' },
-  { code: 'EXPENSES',   label: 'All Expenses',               type: 'EXPENSE',   desc: 'Expenses paid from business funds' },
+const PRESET_ACCOUNTS = [
+  { code: 'CASH',       label: 'Cash in Hand (Summary)',     type: 'ASSET',     desc: 'Physical cash received and paid' },
+  { code: 'BANK',       label: 'Cash at Bank (Summary)',     type: 'ASSET',     desc: 'Bank account transactions' },
+  { code: 'LOANS',      label: 'Loans Given / Advances (Summary)', type: 'ASSET', desc: 'Money lent to borrowers' },
+  { code: 'INTEREST',   label: 'Interest Income (Summary)',  type: 'INCOME',    desc: 'Interest earned on loans' },
+  { code: 'PROCESSING', label: 'Processing Fee Income (Summary)', type: 'INCOME', desc: 'Processing fees collected' },
+  { code: 'PENALTY',    label: 'Penalty / Late Fee Income (Summary)', type: 'INCOME', desc: 'Late payment charges collected' },
+  { code: 'BORROWED',   label: 'Borrowed Funds (Summary)',   type: 'LIABILITY', desc: 'Money borrowed from external sources' },
+  { code: 'CAPITAL',    label: "Owner's Capital (Summary)",  type: 'EQUITY',    desc: 'Capital introduced by owner' },
+  { code: 'EXPENSES',   label: 'All Expenses (Summary)',     type: 'EXPENSE',   desc: 'Expenses paid from business funds' },
 ];
 
 const TYPE_COLORS: Record<string, string> = {
@@ -35,6 +35,7 @@ interface LedgerData {
   openingBalance: number; transactions: LedgerRow[];
   closingBalance: number; totalDebit: number; totalCredit: number;
 }
+interface COAItem { code: string; label: string; type: string; desc: string; }
 
 export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
   const [selectedAccount, setSelectedAccount] = useState('CASH');
@@ -42,6 +43,34 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [dbAccounts, setDbAccounts] = useState<COAItem[]>([]);
+
+  // Fetch Chart of Accounts for company
+  useEffect(() => {
+    if (!selectedCompanyId) return;
+    fetch(`/api/accounting?action=chart-of-accounts&companyId=${selectedCompanyId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data?.accounts) {
+          const list: COAItem[] = data.data.accounts.map((a: any) => ({
+            code: a.accountCode,
+            label: `${a.accountCode} — ${a.accountName}`,
+            type: a.accountType,
+            desc: `Account Head (${a.accountCode})`
+          }));
+          setDbAccounts(list);
+        }
+      })
+      .catch(() => {});
+  }, [selectedCompanyId]);
+
+  // Combine presets and dynamic COA accounts (deduplicating by code)
+  const allAccountOptions: COAItem[] = [...PRESET_ACCOUNTS];
+  for (const acc of dbAccounts) {
+    if (!allAccountOptions.some(a => a.code === acc.code)) {
+      allAccountOptions.push(acc);
+    }
+  }
 
   const load = useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -66,7 +95,12 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
   });
   const ldUpdatedLabel = useRelativeTime(ldLastUpdated);
 
-  const acctInfo = ACCOUNTS.find(a => a.code === selectedAccount);
+  const acctInfo = allAccountOptions.find(a => a.code === selectedAccount) || {
+    code: ledger?.accountCode || selectedAccount,
+    label: ledger?.accountName || selectedAccount,
+    type: ledger?.accountType || 'ASSET',
+    desc: `Account Code: ${ledger?.accountCode || selectedAccount}`
+  };
 
   return (
     <div className="space-y-4">
@@ -88,8 +122,8 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  {ACCOUNTS.map(a => (
+                <SelectContent className="max-h-80">
+                  {allAccountOptions.map(a => (
                     <SelectItem key={a.code} value={a.code}>
                       <span className="font-medium">{a.label}</span>
                       <span className="ml-2 text-xs text-gray-400">({a.type})</span>

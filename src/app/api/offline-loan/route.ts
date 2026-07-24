@@ -245,21 +245,54 @@ export async function GET(request: NextRequest) {
       // must show its own smaller (shifted) amount rather than the original loan's EMI #1.
 
 
+      // Calculate outstanding details
+      const isInterestOnlyLoan = loan.isInterestOnlyLoan || loan.status === 'INTEREST_ONLY';
+
+      let outstandingPrincipal: number;
+      let outstandingInterest: number;
+      let outstandingAmount: number;
+
+      if (isInterestOnlyLoan) {
+        outstandingPrincipal = loan.loanAmount || 0;
+        outstandingInterest  = 0;
+        outstandingAmount    = outstandingPrincipal;
+      } else {
+        const totalPaidPrincipal = loan.emis.reduce((s, e) => s + (Number(e.paidPrincipal) || 0), 0);
+        const totalPaidInterest  = loan.emis.reduce((s, e) => s + (Number(e.paidInterest)  || 0), 0);
+
+        const totalScheduledPrincipal = loan.emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0);
+        const totalScheduledInterest  = loan.emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
+
+        outstandingPrincipal = Math.max(0, totalScheduledPrincipal - totalPaidPrincipal);
+        outstandingInterest  = Math.max(0, totalScheduledInterest  - totalPaidInterest);
+        outstandingAmount    = outstandingPrincipal + outstandingInterest;
+      }
+
+      const totalPrincipal = loan.emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0) || (loan.loanAmount || 0);
+      const totalInterest  = loan.emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
+      const totalAmount    = totalPrincipal + totalInterest;
+
       // Calculate summary
       const summary = {
         totalEMIs: loan.emis.length,
         paidEMIs: loan.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length,
         pendingEMIs: loan.emis.filter(e => e.paymentStatus === 'PENDING').length,
         overdueEMIs: loan.emis.filter(e => e.paymentStatus === 'OVERDUE').length,
-        totalAmount: loan.emis.reduce((sum, e) => sum + e.totalAmount, 0),
+        totalAmount,
         totalPaid: loan.emis.reduce((sum, e) => sum + e.paidAmount, 0),
-        totalOutstanding: loan.emis.reduce((sum, e) => sum + (e.totalAmount - e.paidAmount), 0)
+        totalOutstanding: outstandingAmount
       };
 
       return NextResponse.json({
         success: true,
         loan: {
           ...loan,
+          outstandingAmount,
+          outstandingPrincipal,
+          outstandingInterest,
+          totalPrincipal,
+          totalInterest,
+          totalAmount,
           isMirrored,
           isMirrorLoan,
           displayColor,
@@ -535,7 +568,10 @@ export async function GET(request: NextRequest) {
       const PRIVILEGED_ROLES_UPCOMING = ['SUPER_ADMIN', 'CASHIER', 'ACCOUNTANT'];
       const loanFilterForUpcoming: Record<string, unknown> = { isMirrorLoan: false };
       if (userId && userRole && !PRIVILEGED_ROLES_UPCOMING.includes(userRole)) {
-        loanFilterForUpcoming.createdById = userId;
+        loanFilterForUpcoming.OR = [
+          { createdById: userId },
+          { emis: { some: { collectedById: userId } } }
+        ];
       }
       if (companyId) loanFilterForUpcoming.companyId = companyId;
 
@@ -593,7 +629,10 @@ export async function GET(request: NextRequest) {
     // agents/staff/company users see only their own.
     const PRIVILEGED_ROLES = ['SUPER_ADMIN', 'CASHIER', 'ACCOUNTANT'];
     if (userId && userRole && !PRIVILEGED_ROLES.includes(userRole)) {
-      where.createdById = userId;
+      where.OR = [
+        { createdById: userId },
+        { emis: { some: { collectedById: userId } } }
+      ];
     }
 
     const page = parseInt(searchParams.get('page') || '1');
