@@ -268,37 +268,38 @@ export function ParallelLoanView({
                   Outstanding: {formatCurrency(loan.outstandingAmount)}
                 </p>
                 {(() => {
-                  const p = loan.totalPrincipal || getLoanAmount(loan) || 0;
-                  const realTenure = loan.tenure || (loan as any).sessionForm?.tenure || (loan.emiAmount > 0 && loan.outstandingAmount ? Math.max(1, Math.round(loan.outstandingAmount / loan.emiAmount)) : 1);
-                  let i = loan.totalInterest;
-                  if (i === undefined || i === null || i === 0) {
-                    if (loan.emiAmount > 0 && realTenure > 0) {
-                      i = Math.max(0, Math.round((loan.emiAmount * realTenure) - p));
-                    } else if (loan.interestOnlyMonthlyAmount) {
-                      i = loan.interestOnlyMonthlyAmount * realTenure;
-                    }
-                    if ((!i || i === 0) && (loan.interestRate || 0) > 0) {
-                      i = Math.round((p * (loan.interestRate || 0) / 100 / 12) * realTenure);
-                    }
-                    if ((!i || i === 0) && loan.outstandingAmount && loan.outstandingAmount > p) {
-                      i = loan.outstandingAmount - p;
+                  const outstanding = loan.outstandingAmount || 0;
+                  let remP: number;
+                  let remI: number;
+
+                  if ((loan as any).remainingPrincipal !== undefined && (loan as any).remainingInterest !== undefined) {
+                    remP = (loan as any).remainingPrincipal;
+                    remI = (loan as any).remainingInterest;
+                  } else {
+                    const origPrincipal = getLoanAmount(loan) || 0;
+                    if (outstanding <= origPrincipal) {
+                      remP = outstanding;
+                      remI = 0;
+                    } else {
+                      remP = origPrincipal;
+                      remI = outstanding - origPrincipal;
                     }
                   }
-                  const total = loan.totalAmount || (p + (i || 0));
+                  const totalRem = remP + remI;
 
                   return (
                     <div className="text-[11px] text-gray-600 font-medium mt-1 space-y-0.5 bg-white/90 p-1.5 rounded border border-gray-200 shadow-2xs max-w-[210px] w-full">
                       <div className="flex justify-between gap-3">
-                        <span className="text-gray-500">Total P:</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(p)}</span>
+                        <span className="text-gray-500">Remaining P:</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(remP)}</span>
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className="text-gray-500">Total I:</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(i || 0)}</span>
+                        <span className="text-gray-500">Remaining I:</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(remI)}</span>
                       </div>
                       <div className="flex justify-between gap-3 pt-0.5 border-t border-gray-200 text-emerald-700 font-bold">
                         <span>Total (P+I):</span>
-                        <span>{formatCurrency(total)}</span>
+                        <span>{formatCurrency(totalRem)}</span>
                       </div>
                     </div>
                   );
