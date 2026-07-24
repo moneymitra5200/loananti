@@ -367,6 +367,10 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
   const toCollectTotal = toCollectPrincipal + toCollectInterest;
   const collectedTotal = paidPrincipal + paidInterest;
 
+  const grandMonthTotal = toCollectTotal + collectedTotal;
+  const collectedPct = grandMonthTotal > 0 ? ((collectedTotal / grandMonthTotal) * 100).toFixed(1) : '0';
+  const pendingPct = grandMonthTotal > 0 ? ((toCollectTotal / grandMonthTotal) * 100).toFixed(1) : '0';
+
   return (
     <>
       <Card className="overflow-hidden">
@@ -418,7 +422,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
             <div className="p-3 rounded-lg bg-purple-50 border border-purple-100 flex flex-col justify-between text-center">
               <p className="text-xs text-purple-600 font-medium">Total EMIs</p>
               <p className="text-2xl font-bold text-purple-700">{totalEmis}</p>
@@ -426,7 +430,12 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             </div>
             <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 flex flex-col justify-between">
               <div className="flex justify-between items-center mb-1">
-                <p className="text-xs text-blue-600 font-semibold">To Collect</p>
+                <div>
+                  <p className="text-xs text-blue-600 font-semibold">To Collect</p>
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-200">
+                    {pendingPct}% Pending
+                  </span>
+                </div>
                 <p className="text-lg font-bold text-blue-700">{formatCurrency(toCollectTotal)}</p>
               </div>
               <div className="text-[11px] text-blue-600/90 pt-1.5 border-t border-blue-200/60 flex justify-between font-medium">
@@ -436,7 +445,12 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             </div>
             <div className="p-3 rounded-lg bg-green-50 border border-green-100 flex flex-col justify-between">
               <div className="flex justify-between items-center mb-1">
-                <p className="text-xs text-green-600 font-semibold">Collected</p>
+                <div>
+                  <p className="text-xs text-green-600 font-semibold">Collected</p>
+                  <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200">
+                    {collectedPct}% Collected
+                  </span>
+                </div>
                 <p className="text-lg font-bold text-green-700">{formatCurrency(collectedTotal)}</p>
               </div>
               <div className="text-[11px] text-green-600/90 pt-1.5 border-t border-green-200/60 flex justify-between font-medium">
@@ -445,6 +459,32 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               </div>
             </div>
           </div>
+
+          {/* Monthly Collection Progress Bar */}
+          {grandMonthTotal > 0 && (
+            <div className="mb-4 p-3 bg-gradient-to-r from-slate-50 to-purple-50/60 rounded-lg border border-purple-100 shadow-xs">
+              <div className="flex items-center justify-between text-xs font-semibold text-gray-700 mb-1.5 flex-wrap gap-1">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                  Monthly Collection Efficiency: <span className="text-emerald-700 font-bold text-sm">{collectedPct}%</span>
+                </span>
+                <span className="text-gray-600 text-[11px]">
+                  Collected: <span className="text-emerald-700 font-bold">{formatCurrency(collectedTotal)}</span> ({collectedPct}%) | 
+                  Pending: <span className="text-amber-700 font-bold">{formatCurrency(toCollectTotal)}</span> ({pendingPct}%)
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 h-2.5 rounded-full overflow-hidden flex">
+                <div 
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 h-full transition-all duration-500" 
+                  style={{ width: `${collectedPct}%` }}
+                ></div>
+                <div 
+                  className="bg-amber-400 h-full transition-all duration-500" 
+                  style={{ width: `${pendingPct}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
 
           {/* Week Days Header */}
           <div className="grid grid-cols-7 gap-1 mb-2">

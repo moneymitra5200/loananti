@@ -269,31 +269,34 @@ export function ParallelLoanView({
                 </p>
                 {(() => {
                   const p = loan.totalPrincipal || getLoanAmount(loan) || 0;
+                  const realTenure = loan.tenure || (loan as any).sessionForm?.tenure || (loan.emiAmount > 0 && loan.outstandingAmount ? Math.max(1, Math.round(loan.outstandingAmount / loan.emiAmount)) : 1);
                   let i = loan.totalInterest;
                   if (i === undefined || i === null || i === 0) {
-                    if (loan.emiAmount > 0 && loan.tenure > 0) {
-                      const tenure = (loan as any)._count?.emiSchedules || loan.tenure;
-                      i = Math.max(0, (loan.emiAmount * tenure) - p);
+                    if (loan.emiAmount > 0 && realTenure > 0) {
+                      i = Math.max(0, Math.round((loan.emiAmount * realTenure) - p));
                     } else if (loan.interestOnlyMonthlyAmount) {
-                      i = loan.interestOnlyMonthlyAmount * loan.tenure;
-                    } else {
-                      const tenure = (loan as any)._count?.emiSchedules || loan.tenure;
-                      i = Math.max(0, Math.round((p * (loan.interestRate || 0) / 100 / 12) * tenure));
+                      i = loan.interestOnlyMonthlyAmount * realTenure;
+                    }
+                    if ((!i || i === 0) && (loan.interestRate || 0) > 0) {
+                      i = Math.round((p * (loan.interestRate || 0) / 100 / 12) * realTenure);
+                    }
+                    if ((!i || i === 0) && loan.outstandingAmount && loan.outstandingAmount > p) {
+                      i = loan.outstandingAmount - p;
                     }
                   }
-                  const total = loan.totalAmount || (p + i);
+                  const total = loan.totalAmount || (p + (i || 0));
 
                   return (
-                    <div className="text-[11px] text-gray-600 font-medium mt-1 space-y-0.5 bg-white/80 p-1.5 rounded border border-gray-200 shadow-xs">
-                      <div className="flex justify-between gap-2">
+                    <div className="text-[11px] text-gray-600 font-medium mt-1 space-y-0.5 bg-white/90 p-1.5 rounded border border-gray-200 shadow-2xs max-w-[210px] w-full">
+                      <div className="flex justify-between gap-3">
                         <span className="text-gray-500">Total P:</span>
                         <span className="font-semibold text-gray-800">{formatCurrency(p)}</span>
                       </div>
-                      <div className="flex justify-between gap-2">
+                      <div className="flex justify-between gap-3">
                         <span className="text-gray-500">Total I:</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(i)}</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(i || 0)}</span>
                       </div>
-                      <div className="flex justify-between gap-2 pt-0.5 border-t border-gray-200 text-emerald-700 font-bold">
+                      <div className="flex justify-between gap-3 pt-0.5 border-t border-gray-200 text-emerald-700 font-bold">
                         <span>Total (P+I):</span>
                         <span>{formatCurrency(total)}</span>
                       </div>
@@ -306,7 +309,7 @@ export function ParallelLoanView({
               {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
                 `@${loan.interestRate}% (Interest Only Phase)`
               ) : (
-                `@${loan.interestRate}% for ${(loan as any)._count?.emiSchedules || loan.tenure} months`
+                `@${loan.interestRate}% for ${loan.tenure || (loan as any).sessionForm?.tenure || (loan.emiAmount > 0 && loan.outstandingAmount ? Math.max(1, Math.round(loan.outstandingAmount / loan.emiAmount)) : 1)} months`
               )}
             </p>
             {loan.emiAmount > 0 && (

@@ -620,58 +620,113 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
           </div>
 
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 gap-3 mb-4">
-            {/* Combined Total */}
-            <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-emerald-600 font-medium">
-                    {dateRangeMode
-                      ? `EMI Collection: ${startDate} → ${endDate}`
-                      : `Total Collection for ${formatDate(selectedDate)}`}
-                  </p>
-                  <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.combined.totalAmount)}</p>
-                  <p className="text-xs text-emerald-500 mt-1">{summary.combined.count} EMIs</p>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-500 space-y-1">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>Collected: <span className="font-semibold text-emerald-700">{formatCurrency(summary.combined.totalCollected || 0)}</span></span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 text-amber-600" />
-                      <span>Pending: <span className="font-semibold text-amber-700">{formatCurrency(summary.combined.totalPending || 0)}</span></span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          {(() => {
+            const combTotal = summary.combined.totalAmount || 0;
+            const combColl = summary.combined.totalCollected || 0;
+            const combPend = summary.combined.totalPending || 0;
+            const combCollPct = combTotal > 0 ? ((combColl / combTotal) * 100).toFixed(1) : '0';
+            const combPendPct = combTotal > 0 ? ((combPend / combTotal) * 100).toFixed(1) : '0';
 
-            {/* Online/Offline Breakdown */}
-            {(summary.online.count > 0 || summary.offline.count > 0) && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
-                  <p className="text-xs text-blue-600 font-medium">Online Loans</p>
-                  <p className="text-lg font-bold text-blue-700">{formatCurrency(summary.online.totalAmount)}</p>
-                  <p className="text-xs text-blue-500">{summary.online.count} EMIs</p>
-                  <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-blue-100 space-y-0.5">
-                    <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.online.totalCollected || 0)}</span></div>
-                    <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.online.totalPending || 0)}</span></div>
+            const onlTotal = summary.online.totalAmount || 0;
+            const onlColl = summary.online.totalCollected || 0;
+            const onlCollPct = onlTotal > 0 ? ((onlColl / onlTotal) * 100).toFixed(1) : '0';
+
+            const offTotal = summary.offline.totalAmount || 0;
+            const offColl = summary.offline.totalCollected || 0;
+            const offCollPct = offTotal > 0 ? ((offColl / offTotal) * 100).toFixed(1) : '0';
+
+            return (
+              <div className="grid grid-cols-1 gap-3 mb-4">
+                {/* Combined Total */}
+                <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <p className="text-sm text-emerald-600 font-medium">
+                        {dateRangeMode
+                          ? `EMI Collection: ${startDate} → ${endDate}`
+                          : `Total Collection for ${formatDate(selectedDate)}`}
+                      </p>
+                      <p className="text-2xl font-bold text-emerald-700">{formatCurrency(summary.combined.totalAmount)}</p>
+                      <div className="text-xs font-semibold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded border border-emerald-300 inline-flex items-center gap-1 mt-1">
+                        <span>P: {formatCurrency(summary.combined.totalPrincipal)}</span>
+                        <span>+</span>
+                        <span>I: {formatCurrency(summary.combined.totalInterest)}</span>
+                        <span>=</span>
+                        <span className="font-bold text-emerald-900">Total: {formatCurrency(summary.combined.totalAmount)}</span>
+                      </div>
+                      <p className="text-xs text-emerald-500 mt-1">{summary.combined.count} EMIs</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div className="flex items-center gap-2 justify-end">
+                          <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>Collected: <span className="font-semibold text-emerald-700">{formatCurrency(combColl)}</span> ({combCollPct}%)</span>
+                        </div>
+                        <div className="flex items-center gap-2 justify-end">
+                          <Clock className="h-3.5 w-3.5 text-amber-600" />
+                          <span>Pending: <span className="font-semibold text-amber-700">{formatCurrency(combPend)}</span> ({combPendPct}%)</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Combined Progress Bar */}
+                  {combTotal > 0 && (
+                    <div className="mt-3 pt-2 border-t border-emerald-200/60">
+                      <div className="flex justify-between text-[11px] font-semibold text-emerald-800 mb-1">
+                        <span>Collection Rate: {combCollPct}%</span>
+                        <span>{combCollPct}% Collected | {combPendPct}% Pending</span>
+                      </div>
+                      <div className="w-full bg-emerald-200/60 h-2 rounded-full overflow-hidden flex">
+                        <div className="bg-emerald-600 h-full transition-all duration-500" style={{ width: `${combCollPct}%` }}></div>
+                        <div className="bg-amber-400 h-full transition-all duration-500" style={{ width: `${combPendPct}%` }}></div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="p-3 rounded-lg bg-purple-50 border border-purple-100">
-                  <p className="text-xs text-purple-600 font-medium">Offline Loans</p>
-                  <p className="text-lg font-bold text-purple-700">{formatCurrency(summary.offline.totalAmount)}</p>
-                  <p className="text-xs text-purple-500">{summary.offline.count} EMIs</p>
-                  <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-purple-100 space-y-0.5">
-                    <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.offline.totalCollected || 0)}</span></div>
-                    <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.offline.totalPending || 0)}</span></div>
+
+                {/* Online/Offline Breakdown */}
+                {(summary.online.count > 0 || summary.offline.count > 0) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-blue-50 border border-blue-100">
+                      <div className="flex justify-between items-start">
+                        <p className="text-xs text-blue-600 font-medium">Online Loans</p>
+                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                          {onlCollPct}% Collected
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold text-blue-700">{formatCurrency(summary.online.totalAmount)}</p>
+                      <div className="text-[11px] font-semibold text-blue-800 bg-blue-100/90 px-1.5 py-0.5 rounded border border-blue-200 inline-block my-1">
+                        P: {formatCurrency(summary.online.totalPrincipal)} + I: {formatCurrency(summary.online.totalInterest)} = Total: {formatCurrency(summary.online.totalAmount)}
+                      </div>
+                      <p className="text-xs text-blue-500">{summary.online.count} EMIs</p>
+                      <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-blue-100 space-y-0.5">
+                        <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.online.totalCollected || 0)}</span></div>
+                        <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.online.totalPending || 0)}</span></div>
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-purple-50 border border-purple-100">
+                      <div className="flex justify-between items-start">
+                        <p className="text-xs text-purple-600 font-medium">Offline Loans</p>
+                        <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded">
+                          {offCollPct}% Collected
+                        </span>
+                      </div>
+                      <p className="text-lg font-bold text-purple-700">{formatCurrency(summary.offline.totalAmount)}</p>
+                      <div className="text-[11px] font-semibold text-purple-800 bg-purple-100/90 px-1.5 py-0.5 rounded border border-purple-200 inline-block my-1">
+                        P: {formatCurrency(summary.offline.totalPrincipal)} + I: {formatCurrency(summary.offline.totalInterest)} = Total: {formatCurrency(summary.offline.totalAmount)}
+                      </div>
+                      <p className="text-xs text-purple-500">{summary.offline.count} EMIs</p>
+                      <div className="text-xs text-gray-500 mt-2 pt-2 border-t border-purple-100 space-y-0.5">
+                        <div>Collected: <span className="font-medium text-emerald-600">{formatCurrency(summary.offline.totalCollected || 0)}</span></div>
+                        <div>Pending: <span className="font-medium text-amber-600">{formatCurrency(summary.offline.totalPending || 0)}</span></div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-            )}
-          </div>
+            );
+          })()}
 
           {/* EMI List */}
           {loading ? (
