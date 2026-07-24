@@ -7,7 +7,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid request content type. QR Code upload requires multipart/form-data.' }, { status: 400 });
     }
 
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (parseError: any) {
+      return NextResponse.json({ error: 'Invalid form data. QR upload requires multipart/form-data.' }, { status: 400 });
+    }
     const file = formData.get('file') as File | null;
     const type = formData.get('type') as string | null;
 
