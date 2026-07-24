@@ -382,37 +382,6 @@ export function ParallelLoanView({
             )}
           </div>
         )}
-
-        {/* Mirror-specific info */}
-        {!isOriginal && mirrorMapping && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {mirrorMapping.mirrorInterestRate && (
-                <div>
-                  <span className="text-gray-500">Mirror Rate:</span>
-                  <span className="ml-1 font-medium">{mirrorMapping.mirrorInterestRate}%</span>
-                </div>
-              )}
-              {mirrorMapping.mirrorTenure && (
-                <div>
-                  <span className="text-gray-500">Mirror Tenure:</span>
-                  <span className="ml-1 font-medium">
-                    {loan?.status === 'ACTIVE_INTEREST_ONLY' || loan?.status === 'INTEREST_ONLY' 
-                      ? '(Interest Only Phase)' 
-                      : `${(originalLoan as any)._count?.emiSchedules || originalLoan.tenure} mo`}
-                  </span>
-                </div>
-              )}
-              {mirrorMapping.extraEMICount && mirrorMapping.extraEMICount > 0 && (
-                <div className="col-span-2">
-                  <span className="text-gray-500">Extra EMIs:</span>
-                  <span className="ml-1 font-medium text-emerald-600">{mirrorMapping.extraEMICount}</span>
-                  <span className="text-gray-400 ml-1">(Profit)</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     );
   };
