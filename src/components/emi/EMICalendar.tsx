@@ -584,22 +584,70 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4 py-4">
-              {selectedEmis.online.length === 0 && selectedEmis.offline.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Wallet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>No EMIs for this date</p>
+            {(() => {
+              const allDayEmis = [...selectedEmis.offline, ...selectedEmis.online];
+              const dayTotalPrincipal = allDayEmis.reduce((s, e) => s + (e.principalAmount || 0), 0);
+              const dayTotalInterest = allDayEmis.reduce((s, e) => s + (e.interestAmount || 0), 0);
+              const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
+
+              const dayTotalCollected = allDayEmis.reduce((s, e) => {
+                if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
+                if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
+                return s;
+              }, 0);
+              const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
+              const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
+
+              return (
+                <div className="space-y-3 py-2">
+                  {allDayEmis.length > 0 && (
+                    <div className="p-3.5 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div>
+                          <p className="text-xs font-medium text-purple-700">Day Total Due ({allDayEmis.length} EMIs)</p>
+                          <p className="text-xl font-bold text-purple-900">{formatCurrency(dayTotalAmount)}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full border border-emerald-300 inline-flex items-center gap-1">
+                            <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
+                            {dayRecoveryPct}% Recovery Rate
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 pt-2 border-t border-purple-200/60 flex items-center justify-between text-xs font-semibold flex-wrap gap-2">
+                        <div className="bg-white/90 px-2 py-0.5 rounded border border-purple-300 inline-block text-[11px] text-purple-900">
+                          <span>P: {formatCurrency(dayTotalPrincipal)}</span>
+                          <span className="mx-1">+</span>
+                          <span>I: {formatCurrency(dayTotalInterest)}</span>
+                          <span className="mx-1">=</span>
+                          <span className="font-bold text-purple-950">Total: {formatCurrency(dayTotalAmount)}</span>
+                        </div>
+                        <div className="text-gray-600 text-[11px]">
+                          Collected: <span className="text-emerald-700 font-bold">{formatCurrency(dayTotalCollected)}</span> ({dayRecoveryPct}%) | 
+                          Pending: <span className="text-amber-700 font-bold">{formatCurrency(dayTotalPending)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {allDayEmis.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Wallet className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                      <p>No EMIs for this date</p>
+                    </div>
+                  ) : (
+                    <div className="max-w-full">
+                      <div className="space-y-3">
+                        {/* Show offline EMIs first (more common for offline loan system) */}
+                        {selectedEmis.offline.map(emi => renderEmiItem(emi, 'offline'))}
+                        {selectedEmis.online.map(emi => renderEmiItem(emi, 'online'))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="max-w-full">
-                  <div className="space-y-3">
-                    {/* Show offline EMIs first (more common for offline loan system) */}
-                    {selectedEmis.offline.map(emi => renderEmiItem(emi, 'offline'))}
-                    {selectedEmis.online.map(emi => renderEmiItem(emi, 'online'))}
-                  </div>
-                </div>
-              )}
-            </div>
+              );
+            })()}
           </DialogContent>
         </Dialog>
       </Card>
