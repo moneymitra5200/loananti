@@ -487,9 +487,9 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           )}
 
           {/* Week Days Header */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-1.5 mb-1.5">
             {weekDays.map(day => (
-              <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
+              <div key={day} className="text-center text-xs font-semibold text-gray-600 py-1 bg-gray-50 rounded">
                 {day}
               </div>
             ))}
@@ -497,13 +497,13 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
           {/* Calendar Grid */}
           {loading ? (
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1.5">
               {Array.from({ length: 35 }).map((_, i) => (
-                <div key={i} className="aspect-square bg-gray-100 rounded animate-pulse" />
+                <div key={i} className="h-16 bg-gray-100 rounded-lg animate-pulse" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1.5">
               {calendarDays.map((day, index) => {
                 const hasEmis = day.emis && (day.emis.online.length > 0 || day.emis.offline.length > 0);
                 const isPaid = day.emis && day.emis.paid >= day.emis.total && hasEmis;
@@ -513,39 +513,39 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                 return (
                   <motion.button
                     key={index}
-                    whileHover={hasEmis ? { scale: 1.05 } : {}}
-                    whileTap={hasEmis ? { scale: 0.95 } : {}}
+                    whileHover={hasEmis ? { scale: 1.03 } : {}}
+                    whileTap={hasEmis ? { scale: 0.97 } : {}}
                     onClick={() => handleDayClick(day)}
                     disabled={!hasEmis}
-                    className={`aspect-square rounded-lg flex flex-col items-center justify-center relative transition-colors ${
+                    className={`h-16 rounded-lg flex flex-col items-center justify-between p-1.5 relative transition-all border ${
                       !day.isCurrentMonth
-                        ? 'text-gray-300'
+                        ? 'text-gray-300 bg-gray-50/40 border-transparent'
                         : isToday(day.date)
-                        ? 'bg-purple-100 text-purple-700 font-bold'
+                        ? 'bg-purple-100 text-purple-700 font-bold border-purple-300 shadow-2xs'
                         : hasEmis
                         ? isPaid
-                          ? 'bg-green-50 hover:bg-green-100 cursor-pointer'
-                          : 'bg-amber-50 hover:bg-amber-100 cursor-pointer'
-                        : 'hover:bg-gray-50'
+                          ? 'bg-green-50 hover:bg-green-100 border-green-200 cursor-pointer shadow-2xs'
+                          : 'bg-amber-50 hover:bg-amber-100 border-amber-200 cursor-pointer shadow-2xs'
+                        : 'bg-white hover:bg-gray-50 border-gray-100'
                     }`}
                   >
-                    <span className="text-sm">{day.day}</span>
-                    {hasEmis && (
-                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
+                    <span className="text-sm font-semibold">{day.day}</span>
+                    {hasEmis ? (
+                      <div className="flex items-center gap-1 bg-white/90 px-1.5 py-0.5 rounded-full border border-gray-200 shadow-2xs">
                         {day.emis!.online.length > 0 && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" title="Online Loan EMI" />
                         )}
                         {day.emis!.offline.length > 0 && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-purple-500" title="Offline Loan EMI" />
                         )}
+                        <span className={`text-[10px] font-bold ${
+                          isPaid ? 'text-green-700' : 'text-amber-700'
+                        }`}>
+                          {emiCount} {emiCount === 1 ? 'EMI' : 'EMIs'}
+                        </span>
                       </div>
-                    )}
-                    {hasEmis && (
-                      <span className={`text-[10px] font-medium ${
-                        isPaid ? 'text-green-600' : 'text-amber-600'
-                      }`}>
-                        {emiCount}
-                      </span>
+                    ) : (
+                      <div className="h-3" />
                     )}
                   </motion.button>
                 );
