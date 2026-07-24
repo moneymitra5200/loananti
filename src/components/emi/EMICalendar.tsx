@@ -277,10 +277,11 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       `;
     }).join('');
 
+    const currentScrollY = typeof window !== 'undefined' ? (window.scrollY || document.documentElement.scrollTop || 0) : 0;
     const pdfContainer = document.createElement('div');
     pdfContainer.style.position = 'absolute';
     pdfContainer.style.left = '0px';
-    pdfContainer.style.top = '0px';
+    pdfContainer.style.top = `${currentScrollY}px`;
     pdfContainer.style.width = '790px';
     pdfContainer.style.boxSizing = 'border-box';
     pdfContainer.style.fontFamily = 'system-ui, -apple-system, sans-serif';
@@ -348,7 +349,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
     try {
       // Allow browser to paint the DOM element before html2pdf captures canvas
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       const html2pdfModule = (await import('html2pdf.js')).default;
       const opt = {
@@ -356,10 +357,12 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
         filename: `EMI_Report_${selectedDate}.pdf`,
         image: { type: 'jpeg' as const, quality: 0.98 },
         html2canvas: { 
-          scale: 2.5, 
+          scale: 2, 
           useCORS: true, 
           letterRendering: true,
-          logging: false 
+          logging: false,
+          scrollY: 0,
+          scrollX: 0
         },
         jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
       };
