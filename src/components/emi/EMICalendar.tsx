@@ -231,96 +231,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
     const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
 
-    // Build Canvas with 20% larger fonts
-    const canvas = document.createElement('canvas');
-    const width = 850;
-    const headerHeight = 130;
-    const summaryHeight = 165;
-    const emiCardHeight = 105;
-    const emiPadding = 14;
-    const totalHeight = headerHeight + summaryHeight + (allDayEmis.length * (emiCardHeight + emiPadding)) + 70;
-
-    canvas.width = width * 2;
-    canvas.height = totalHeight * 2;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.scale(2, 2);
-
-    // Background
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, width, totalHeight);
-
-    // Header gradient
-    const grad = ctx.createLinearGradient(0, 0, width, 0);
-    grad.addColorStop(0, '#5b21b6');
-    grad.addColorStop(1, '#7c3aed');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, width, headerHeight);
-
-    // Header text (+20% font sizes)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.fillText('MONEY MITRA FINANCIAL ADVISOR', 28, 44);
-
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillStyle = '#f3e8ff';
-    ctx.fillText(`Daily EMI Collection Report — ${formatDate(selectedDate)}`, 28, 78);
-
-    ctx.font = '15px sans-serif';
-    ctx.fillStyle = '#e9d5ff';
-    ctx.fillText(`Total EMIs Scheduled: ${allDayEmis.length}`, 28, 105);
-
-    // Summary Box
-    const sY = headerHeight + 20;
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#ddd6fe';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(28, sY, width - 56, 135, 12);
-    ctx.fill();
-    ctx.stroke();
-
-    // Summary text (+20% font sizes)
-    ctx.fillStyle = '#6b21a8';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('DAY COLLECTION SUMMARY', 45, sY + 32);
-
-    ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.fillText(formatCurrency(dayTotalAmount), 45, sY + 66);
-
-    // Breakdown P + I = Total
-    ctx.fillStyle = '#334155';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(`P: ${formatCurrency(dayTotalPrincipal)} + I: ${formatCurrency(dayTotalInterest)} = Total: ${formatCurrency(dayTotalAmount)}`, 45, sY + 100);
-
-    // Recovery Pill
-    ctx.fillStyle = '#dcfce7';
-    ctx.strokeStyle = '#86efac';
-    ctx.beginPath();
-    ctx.roundRect(width - 270, sY + 22, 220, 42, 21);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#14532d';
-    ctx.font = 'bold 16px sans-serif';
-    ctx.fillText(`${dayRecoveryPct}% Recovery Rate`, width - 242, sY + 48);
-
-    // Collected / Pending text
-    ctx.fillStyle = '#15803d';
-    ctx.font = 'bold 15px sans-serif';
-    ctx.fillText(`Collected: ${formatCurrency(dayTotalCollected)}`, width - 270, sY + 100);
-    ctx.fillStyle = '#b45309';
-    ctx.fillText(`Pending: ${formatCurrency(dayTotalPending)}`, width - 125, sY + 100);
-
-    // EMI Cards List (+20% font sizes)
-    let currentY = sY + 160;
-    ctx.font = 'bold 17px sans-serif';
-    ctx.fillStyle = '#1e293b';
-    ctx.fillText('SCHEDULED EMIS FOR THE DAY', 28, currentY - 10);
-
-    allDayEmis.forEach((emi) => {
+    const emiCardsHTML = allDayEmis.map((emi) => {
       const type = emi.offlineLoanId ? 'offline' : 'online';
       const customerName = type === 'offline'
         ? (emi.offlineLoan?.customerName || 'Offline Customer')
@@ -328,79 +239,134 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       const loanNo = type === 'offline'
         ? (emi.offlineLoan?.loanNumber || '')
         : (emi.loanApplication?.applicationNo || '');
+      const phone = type === 'offline'
+        ? emi.offlineLoan?.customerPhone
+        : emi.loanApplication?.phone;
 
       const isPaid = emi.paymentStatus === 'PAID';
       const isOverdue = emi.paymentStatus === 'OVERDUE';
+      const statusBg = isPaid ? '#dcfce7' : isOverdue ? '#fee2e2' : '#fef3c7';
+      const statusText = isPaid ? '#15803d' : isOverdue ? '#b91c1c' : '#b45309';
 
-      // Card Background
-      ctx.fillStyle = isPaid ? '#f0fdf4' : isOverdue ? '#fef2f2' : '#fffbeb';
-      ctx.strokeStyle = isPaid ? '#86efac' : isOverdue ? '#fca5a5' : '#fde047';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(28, currentY, width - 56, emiCardHeight, 10);
-      ctx.fill();
-      ctx.stroke();
+      return `
+        <div style="background: ${isPaid ? '#f0fdf4' : isOverdue ? '#fef2f2' : '#fffbeb'}; border: 1.5px solid ${isPaid ? '#86efac' : isOverdue ? '#fca5a5' : '#fde047'}; border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+              <span style="background: ${type === 'offline' ? '#e2e8f0' : '#dbeafe'}; color: ${type === 'offline' ? '#334155' : '#1e40af'}; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;">${type}</span>
+              <span style="background: ${statusBg}; color: ${statusText}; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px;">${emi.paymentStatus.replace('_', ' ')}</span>
+              <span style="font-size: 12px; font-weight: 700; color: #64748b;">EMI #${emi.installmentNumber}</span>
+            </div>
 
-      // Customer Name
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 17px sans-serif';
-      ctx.fillText(`${customerName}`, 45, currentY + 30);
+            <div style="font-size: 17px; font-weight: 800; color: #0f172a; margin-bottom: 3px;">${customerName}</div>
+            
+            <div style="font-size: 13px; color: #475569; font-weight: 600; margin-bottom: 6px;">
+              Loan No: ${loanNo} ${phone ? `• Phone: ${phone}` : ''}
+            </div>
 
-      // Loan No & EMI #
-      ctx.fillStyle = '#475569';
-      ctx.font = '15px sans-serif';
-      ctx.fillText(`${loanNo} • EMI #${emi.installmentNumber} (${type.toUpperCase()})`, 45, currentY + 55);
+            <div style="background: #ffffff; border: 1px solid rgba(0,0,0,0.08); padding: 4px 10px; border-radius: 6px; display: inline-block; font-size: 13px; font-weight: 700; color: #047857;">
+              Principal: ${formatCurrency(emi.principalAmount)} + Interest: ${formatCurrency(emi.interestAmount)} = <strong>Total: ${formatCurrency(emi.totalAmount)}</strong>
+            </div>
+          </div>
 
-      // P + I = Total line
-      ctx.fillStyle = '#047857';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillText(`P: ${formatCurrency(emi.principalAmount)} + I: ${formatCurrency(emi.interestAmount)} = Total: ${formatCurrency(emi.totalAmount)}`, 45, currentY + 82);
+          <div style="text-align: right; min-width: 140px;">
+            <div style="font-size: 22px; font-weight: 900; color: #0f172a; margin-bottom: 2px;">${formatCurrency(emi.totalAmount)}</div>
+            ${isPaid ? `<div style="font-size: 12px; color: #166534; font-weight: 700;">Paid: ${formatCurrency(emi.paidAmount)}</div>` : ''}
+            ${emi.paymentStatus === 'PARTIALLY_PAID' ? `<div style="font-size: 12px; color: #b45309; font-weight: 700;">Remaining: ${formatCurrency(emi.totalAmount - emi.paidAmount)}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
 
-      // Amount & Status Badge (Right aligned)
-      ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 19px sans-serif';
-      ctx.fillText(formatCurrency(emi.totalAmount), width - 195, currentY + 34);
+    const pdfContainer = document.createElement('div');
+    pdfContainer.style.position = 'fixed';
+    pdfContainer.style.left = '-9999px';
+    pdfContainer.style.top = '-9999px';
+    pdfContainer.style.width = '750px';
+    pdfContainer.style.boxSizing = 'border-box';
+    pdfContainer.style.fontFamily = 'system-ui, -apple-system, sans-serif';
+    pdfContainer.style.background = '#ffffff';
 
-      // Status pill
-      ctx.fillStyle = isPaid ? '#bbf7d0' : isOverdue ? '#fecaca' : '#fef08a';
-      ctx.beginPath();
-      ctx.roundRect(width - 195, currentY + 48, 140, 30, 15);
-      ctx.fill();
+    pdfContainer.innerHTML = `
+      <div style="padding: 24px; color: #0f172a;">
+        <!-- Header Banner -->
+        <div style="background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%); color: #ffffff; padding: 22px; border-radius: 12px; margin-bottom: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div>
+              <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px;">MONEY MITRA FINANCIAL ADVISOR</h1>
+              <p style="margin: 6px 0 0 0; font-size: 16px; color: #f3e8ff; font-weight: 600;">Daily EMI Collection Report — ${formatDate(selectedDate)}</p>
+            </div>
+            <div style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #ffffff;">
+              ${allDayEmis.length} Scheduled EMIs
+            </div>
+          </div>
+        </div>
 
-      ctx.fillStyle = isPaid ? '#14532d' : isOverdue ? '#7f1d1d' : '#713f12';
-      ctx.font = 'bold 14px sans-serif';
-      ctx.fillText(emi.paymentStatus.replace('_', ' '), width - 175, currentY + 68);
+        <!-- Summary Card -->
+        <div style="background: #faf5ff; border: 1.5px solid #e9d5ff; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 13px; font-weight: 800; color: #6b21a8; text-transform: uppercase; letter-spacing: 0.5px;">Day Collection Summary</span>
+            <span style="background: #dcfce7; color: #14532d; border: 1px solid #86efac; font-size: 13px; font-weight: 800; padding: 5px 14px; border-radius: 20px;">
+              ✓ ${dayRecoveryPct}% Recovery Rate
+            </span>
+          </div>
 
-      currentY += emiCardHeight + emiPadding;
-    });
+          <div style="font-size: 30px; font-weight: 900; color: #1e1b4b; margin-bottom: 14px;">
+            ${formatCurrency(dayTotalAmount)}
+          </div>
 
-    // Footer
-    ctx.fillStyle = '#64748b';
-    ctx.font = '13px sans-serif';
-    ctx.fillText(`Generated on ${new Date().toLocaleString()} • Money Mitra Financial Portal`, 28, totalHeight - 20);
+          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #f0abfc;">
+            <div style="background: #ffffff; border: 1px solid #d8b4fe; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #4c1d95;">
+              Principal: ${formatCurrency(dayTotalPrincipal)} + Interest: ${formatCurrency(dayTotalInterest)} = <strong>Total: ${formatCurrency(dayTotalAmount)}</strong>
+            </div>
+            <div style="font-size: 13px; font-weight: 700;">
+              <span style="color: #166534; margin-right: 12px;">Collected: <strong>${formatCurrency(dayTotalCollected)}</strong> (${dayRecoveryPct}%)</span>
+              <span style="color: #92400e;">Pending: <strong>${formatCurrency(dayTotalPending)}</strong></span>
+            </div>
+          </div>
+        </div>
 
-    // Convert Canvas to PDF download
+        <!-- Scheduled EMIs Section -->
+        <div style="font-size: 14px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
+          Scheduled EMIs for the Day (${allDayEmis.length})
+        </div>
+
+        <!-- EMI Cards List -->
+        <div>
+          ${emiCardsHTML}
+        </div>
+
+        <!-- Footer -->
+        <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748b;">
+          <span>Generated on ${new Date().toLocaleString('en-IN')}</span>
+          <span style="font-weight: 700; color: #7c3aed;">Money Mitra Financial Portal</span>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(pdfContainer);
+
     try {
       const html2pdfModule = (await import('html2pdf.js')).default;
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-      const pdfContainer = document.createElement('div');
-      pdfContainer.style.width = '100%';
-      pdfContainer.innerHTML = `<img src="${imgData}" style="width: 100%; height: auto; display: block;" />`;
-      
       const opt = {
-        margin: 5,
+        margin: 8,
         filename: `EMI_Report_${selectedDate}.pdf`,
         image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 2 },
+        html2canvas: { 
+          scale: 3, 
+          useCORS: true, 
+          letterRendering: true,
+          logging: false 
+        },
         jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
       };
 
-      html2pdfModule().set(opt).from(pdfContainer).save();
+      await html2pdfModule().set(opt).from(pdfContainer).save();
     } catch (e) {
-      const link = document.createElement('a');
-      link.download = `EMI_Report_${selectedDate}.pdf`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      console.error('PDF generation error:', e);
+    } finally {
+      if (document.body.contains(pdfContainer)) {
+        document.body.removeChild(pdfContainer);
+      }
     }
   };
 
