@@ -110,7 +110,29 @@ export async function GET(request: NextRequest) {
       offlineRecovered.forEach(e => events.push({ date: e.paidDate!, particulars: `Principal received – ${e.offlineLoan?.customerName || 'Unknown'} EMI #${e.installmentNumber}`, ref: e.offlineLoan?.loanNumber || '-', dr: 0, cr: e.paidPrincipal || 0 }));
       events.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-      let bal = 0;
+      // Calculate opening balance prior to periodStart
+      const priorDisbursedOnline = await db.loanApplication.findMany({
+        where: { companyId, disbursedAt: { lt: periodStart }, disbursedAmount: { gt: 0 } },
+        select: { disbursedAmount: true }
+      });
+      const priorDisbursedOffline = await db.offlineLoan.findMany({
+        where: { companyId, disbursementDate: { lt: periodStart }, loanAmount: { gt: 0 } },
+        select: { loanAmount: true }
+      });
+      const priorRecoveredOnline = await db.eMISchedule.findMany({
+        where: { loanApplication: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }, paidDate: { lt: periodStart }, paidPrincipal: { gt: 0 } },
+        select: { paidPrincipal: true }
+      });
+      const priorRecoveredOffline = await db.offlineLoanEMI.findMany({
+        where: { offlineLoan: { companyId }, paymentStatus: { in: ['PAID', 'PARTIALLY_PAID'] }, paidDate: { lt: periodStart }, paidPrincipal: { gt: 0 } },
+        select: { paidPrincipal: true }
+      });
+
+      const priorDisbTotal = priorDisbursedOnline.reduce((s, l) => s + (l.disbursedAmount || 0), 0) + priorDisbursedOffline.reduce((s, l) => s + (l.loanAmount || 0), 0);
+      const priorRecTotal = priorRecoveredOnline.reduce((s, e) => s + (e.paidPrincipal || 0), 0) + priorRecoveredOffline.reduce((s, e) => s + (e.paidPrincipal || 0), 0);
+      opening = priorDisbTotal - priorRecTotal;
+
+      let bal = opening;
       for (const ev of events) { bal += ev.dr - ev.cr; totDr += ev.dr; totCr += ev.cr; txns.push({ date: ev.date.toISOString(), particulars: ev.particulars, referenceNo: ev.ref, debit: ev.dr, credit: ev.cr, balance: bal }); }
     }
 

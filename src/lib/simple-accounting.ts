@@ -465,11 +465,12 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     }
 
     if (mirrorEmiId) {
+      const possibleAccrualEmiIds = [mirrorEmiId, emiId].filter(Boolean) as string[];
       const accEntry = await client.journalEntry.findFirst({
         where: {
           companyId: mirrorCompanyId!,
           referenceType: 'INTEREST_ACCRUAL',
-          referenceId: mirrorEmiId,
+          referenceId: { in: possibleAccrualEmiIds },
           isReversed: false
         }
       });

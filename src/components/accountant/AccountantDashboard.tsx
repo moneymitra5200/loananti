@@ -2779,7 +2779,6 @@ export default function UnifiedAccountantDashboard() {
     : [
         { id: 'journal-entry',    label: 'Journal Entry',    icon: BookCheck },
         { id: 'payment-audit',    label: '💳 Payment Audit',  icon: Receipt },
-        { id: 'upcoming-emis',    label: 'Upcoming EMIs',    icon: Calendar },
         { id: 'day-book',         label: 'Day Book',         icon: BookOpen },
         { id: 'ledger',           label: 'Ledger',           icon: BookCopy },
         { id: 'personal-ledger',  label: 'Personal Ledger',  icon: User },
