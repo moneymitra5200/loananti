@@ -26,6 +26,7 @@ export interface CashbookEntryParams {
   referenceType: string;
   referenceId?: string;
   createdById: string;
+  entryDate?: Date;
   /** Optional: pass a Prisma transaction client to run inside a larger transaction */
   tx?: Parameters<Parameters<typeof db.$transaction>[0]>[0];
 }
@@ -39,6 +40,8 @@ export interface BankEntryParams {
   referenceType: string;
   referenceId?: string;
   createdById: string;
+  entryDate?: Date;
+  transactionDate?: Date;
   /** Optional: pass a Prisma transaction client to run inside a larger transaction */
   tx?: Parameters<Parameters<typeof db.$transaction>[0]>[0];
 }
@@ -73,7 +76,7 @@ export async function getOrCreateCashBook(companyId: string, tx?: any): Promise<
  * IDEMPOTENCY: If a DEBIT entry for the same referenceId already exists, skip to prevent double-deduction
  */
 export async function recordCashBookEntry(params: CashbookEntryParams): Promise<{ success: boolean; cashBookId: string; newBalance: number }> {
-  const { companyId, entryType, amount, description, referenceType, referenceId, createdById, tx: outerTx } = params;
+  const { companyId, entryType, amount, description, referenceType, referenceId, createdById, entryDate, tx: outerTx } = params;
   // Use outer tx client if provided, otherwise use db directly
   const client = (outerTx as any) || db;
 
@@ -98,11 +101,12 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
 
   const currentBalance = cashBook.currentBalance || 0;
   const newBalance = entryType === 'CREDIT' ? currentBalance + amount : currentBalance - amount;
+  const targetDate = entryDate || new Date();
 
   if (outerTx) {
     // Running inside caller's transaction — just do the writes directly
     await (outerTx as any).cashBookEntry.create({
-      data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+      data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById, entryDate: targetDate, createdAt: targetDate }
     });
     await (outerTx as any).cashBook.update({
       where: { id: cashBookId },
@@ -112,7 +116,7 @@ export async function recordCashBookEntry(params: CashbookEntryParams): Promise<
     // No outer tx — use own internal transaction (backward compatible)
     await db.$transaction([
       db.cashBookEntry.create({
-        data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+        data: { cashBookId, entryType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById, entryDate: targetDate, createdAt: targetDate }
       }),
       db.cashBook.update({
         where: { id: cashBookId },
@@ -155,7 +159,7 @@ export async function getDefaultBankAccount(companyId: string, tx?: any): Promis
  * IDEMPOTENCY: If a DEBIT transaction for the same referenceId already exists, skip it.
  */
 export async function recordBankTransaction(params: BankEntryParams): Promise<{ success: boolean; bankAccountId: string; newBalance: number }> {
-  const { companyId, bankAccountId, transactionType, amount, description, referenceType, referenceId, createdById, tx: outerTx } = params;
+  const { companyId, bankAccountId, transactionType, amount, description, referenceType, referenceId, createdById, entryDate, transactionDate, tx: outerTx } = params;
   const client = (outerTx as any) || db;
 
   // Get bank account
@@ -169,7 +173,7 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
     console.warn(`[Bank] No bank account found for company ${companyId}. Falling back to CashBook.`);
     const cashResult = await recordCashBookEntry({
       companyId, entryType: transactionType === 'CREDIT' ? 'CREDIT' : 'DEBIT', amount,
-      description: `[Bank Fallback] ${description}`, referenceType, referenceId, createdById, tx: outerTx
+      description: `[Bank Fallback] ${description}`, referenceType, referenceId, createdById, entryDate: entryDate || transactionDate, tx: outerTx
     });
     return { success: true, bankAccountId: 'CASHBOOK', newBalance: cashResult.newBalance };
   }
@@ -192,11 +196,12 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
 
   const currentBalance = bankAccount.currentBalance || 0;
   const newBalance = transactionType === 'CREDIT' ? currentBalance + amount : currentBalance - amount;
+  const targetDate = transactionDate || entryDate || new Date();
 
   if (outerTx) {
     // Running inside caller's transaction
     await (outerTx as any).bankTransaction.create({
-      data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+      data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById, transactionDate: targetDate, createdAt: targetDate }
     });
     await (outerTx as any).bankAccount.update({
       where: { id: targetBankId }, data: { currentBalance: newBalance }
@@ -205,7 +210,7 @@ export async function recordBankTransaction(params: BankEntryParams): Promise<{ 
     // No outer tx — own internal transaction
     await db.$transaction([
       db.bankTransaction.create({
-        data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById }
+        data: { bankAccountId: targetBankId, transactionType, amount, balanceAfter: newBalance, description, referenceType, referenceId, createdById, transactionDate: targetDate, createdAt: targetDate }
       }),
       db.bankAccount.update({
         where: { id: targetBankId }, data: { currentBalance: newBalance }
@@ -250,6 +255,10 @@ export interface EMIPaymentAccountingParams {
   // Customer
   customerId?: string;
   customerName?: string;
+  
+  // Optional date override
+  paymentDate?: Date;
+  entryDate?: Date;
   
   // Mirror loan info (if applicable)
   mirrorLoanId?: string;
@@ -311,6 +320,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     installmentNumber,
     userId,
     customerId,
+    paymentDate,
+    entryDate: paramEntryDate,
     mirrorLoanId,
     mirrorPrincipal,
     mirrorInterest,
@@ -324,6 +335,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
     tx,
   } = params;
 
+  const effectiveDate = paymentDate || paramEntryDate || new Date();
   const client = tx || db;
 
   const result: {
@@ -607,7 +619,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: `${paymentId}-MIRROR`,
-          createdById: userId
+          createdById: userId,
+          entryDate: effectiveDate,
         });
       }
       // Online portion → Bank
@@ -619,7 +632,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: `${paymentId}-SPLIT-ONLINE-MIRROR`,
-          createdById: userId
+          createdById: userId,
+          transactionDate: effectiveDate,
         });
       }
       console.log(`[Accounting] MIRROR SPLIT ✅: Cash ₹${mirrorCashPortion} → Cashbook, Online ₹${mirrorOnlinePortion} → Bank`);
@@ -636,7 +650,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: `${paymentId}-MIRROR`,
-          createdById: userId
+          createdById: userId,
+          transactionDate: effectiveDate,
         });
         console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company BANK ACCOUNT`);
       } else {
@@ -647,7 +662,8 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           description: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
           referenceType: 'MIRROR_EMI_PAYMENT',
           referenceId: `${paymentId}-MIRROR`,
-          createdById: userId
+          createdById: userId,
+          entryDate: effectiveDate,
         });
         console.log(`[Accounting] MIRROR: Recorded ₹${recordAmount} in Mirror Company CASH BOOK`);
       }
@@ -814,7 +830,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
           data: {
             companyId: mirrorCompanyId,
             entryNumber,
-            entryDate: now,
+            entryDate: effectiveDate,
             referenceType: 'MIRROR_EMI_PAYMENT',
             referenceId: paymentId,
             narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
@@ -947,7 +963,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
       if (Math.abs(personalDiff) > 0.001) personalCreditLines[personalCreditLines.length - 1].creditAmount += personalDiff;
       
       result.journalEntryId = await accountingService.createJournalEntry({
-        entryDate: new Date(),
+        entryDate: effectiveDate,
         referenceType: 'EMI_PAYMENT',
         referenceId: paymentId,
         narration: `${customerLabel} ${loanNumber} (EMI#${installmentNumber})`,
@@ -1002,7 +1018,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         const bResult = await recordBankTransaction({
           companyId: targetCompanyId, transactionType: 'CREDIT', amount,
           description: `${description} [Company Credit]`,
-          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
+          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, transactionDate: effectiveDate, tx
         });
         result.bankTransaction = bResult;
         console.log(`[Accounting] Company Credit EMI -> BANK: Rs.`);
@@ -1010,7 +1026,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
         const cbResult = await recordCashBookEntry({
           companyId: targetCompanyId, entryType: 'CREDIT', amount,
           description: `${description} [Company Credit]`,
-          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, tx
+          referenceType: 'EMI_PAYMENT', referenceId: paymentId, createdById: userId, entryDate: effectiveDate, tx
         });
         result.cashBookEntry = cbResult;
         console.log(`[Accounting] Company Credit EMI -> CASHBOOK: Rs.`);
@@ -1042,7 +1058,7 @@ export async function recordEMIPaymentAccounting(params: EMIPaymentAccountingPar
 
       // 3. Create journal entry inside the same transaction
       result.journalEntryId = await accountingService.createJournalEntry({
-        entryDate: new Date(), referenceType: 'EMI_PAYMENT', referenceId: paymentId,
+        entryDate: effectiveDate, referenceType: 'EMI_PAYMENT', referenceId: paymentId,
         narration: customerLabel + ' ' + loanNumber + ' (EMI#' + installmentNumber + ')',
         lines: [...debitLines, ...companyCreditLines], createdById: userId,
         paymentMode: isSplitMode ? 'SPLIT' : paymentMode,
@@ -1392,6 +1408,7 @@ export async function recordPrincipalOnlyJournal(params: {
           data: { currentBalance: newBalance },
         });
         // Create bank transaction record for audit trail
+        const poDate = params.paymentDate || new Date();
         await db.bankTransaction.create({
           data: {
             bankAccountId: bankAcc.id,
@@ -1402,6 +1419,8 @@ export async function recordPrincipalOnlyJournal(params: {
             referenceType: 'PRINCIPAL_ONLY_PAYMENT',
             referenceId: paymentId,
             createdById,
+            transactionDate: poDate,
+            createdAt: poDate,
           },
         });
         console.log(`[PrincipalOnly] ✅ Bank Account updated: +₹${principalAmount} → Balance: ₹${newBalance}`);
@@ -1418,6 +1437,9 @@ export async function recordPrincipalOnlyJournal(params: {
           select: { id: true, currentBalance: true },
         });
       }
+      if (!cashBook) {
+        throw new Error(`Failed to find or create cashBook for company ${companyId}`);
+      }
       const newCashBalance = (cashBook.currentBalance || 0) + principalAmount;
       await db.cashBook.update({
         where: { id: cashBook.id },
@@ -1428,6 +1450,7 @@ export async function recordPrincipalOnlyJournal(params: {
         },
       });
       // Create cash book entry record for audit trail
+      const poDate = params.paymentDate || new Date();
       await db.cashBookEntry.create({
         data: {
           cashBookId: cashBook.id,
@@ -1438,6 +1461,8 @@ export async function recordPrincipalOnlyJournal(params: {
           referenceType: 'PRINCIPAL_ONLY_PAYMENT',
           referenceId: paymentId,
           createdById,
+          entryDate: poDate,
+          createdAt: poDate,
         },
       });
       console.log(`[PrincipalOnly] ✅ Cash Book updated: +₹${principalAmount} → Balance: ₹${newCashBalance}`);
