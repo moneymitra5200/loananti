@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChevronLeft, ChevronRight, Calendar, IndianRupee, CheckCircle,
-  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye
+  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye, Download
 } from 'lucide-react';
 import EMIPaymentDialog from './EMIPaymentDialog';
 
@@ -212,6 +212,175 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
   const isToday = (date: Date) => {
     const today = new Date();
     return date.toDateString() === today.toDateString();
+  };
+
+  const downloadDaySummaryImage = () => {
+    if (!selectedDate) return;
+    const allDayEmis = [...selectedEmis.offline, ...selectedEmis.online];
+    if (allDayEmis.length === 0) return;
+
+    const dayTotalPrincipal = allDayEmis.reduce((s, e) => s + (e.principalAmount || 0), 0);
+    const dayTotalInterest = allDayEmis.reduce((s, e) => s + (e.interestAmount || 0), 0);
+    const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
+
+    const dayTotalCollected = allDayEmis.reduce((s, e) => {
+      if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
+      if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
+      return s;
+    }, 0);
+    const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
+    const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
+
+    const canvas = document.createElement('canvas');
+    const width = 800;
+    const headerHeight = 110;
+    const summaryHeight = 140;
+    const emiCardHeight = 85;
+    const emiPadding = 12;
+    const totalHeight = headerHeight + summaryHeight + (allDayEmis.length * (emiCardHeight + emiPadding)) + 60;
+
+    canvas.width = width * 2;
+    canvas.height = totalHeight * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.scale(2, 2);
+
+    // Background
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, totalHeight);
+
+    // Header gradient
+    const grad = ctx.createLinearGradient(0, 0, width, 0);
+    grad.addColorStop(0, '#6b21a8');
+    grad.addColorStop(1, '#9333ea');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, width, headerHeight);
+
+    // Header text
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('MONEY MITRA FINANCIAL ADVISOR', 25, 40);
+
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillStyle = '#e9d5ff';
+    ctx.fillText(`Daily EMI Collection Report — ${formatDate(selectedDate)}`, 25, 70);
+
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = '#f3e8ff';
+    ctx.fillText(`Total EMIs Scheduled: ${allDayEmis.length}`, 25, 92);
+
+    // Summary Box
+    const sY = headerHeight + 18;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#e9d5ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(25, sY, width - 50, 115, 10);
+    ctx.fill();
+    ctx.stroke();
+
+    // Summary text
+    ctx.fillStyle = '#581c87';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText('DAY COLLECTION SUMMARY', 40, sY + 28);
+
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText(formatCurrency(dayTotalAmount), 40, sY + 56);
+
+    // Breakdown P + I = Total
+    ctx.fillStyle = '#475569';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`P: ${formatCurrency(dayTotalPrincipal)} + I: ${formatCurrency(dayTotalInterest)} = Total: ${formatCurrency(dayTotalAmount)}`, 40, sY + 82);
+
+    // Recovery Pill
+    ctx.fillStyle = '#dcfce7';
+    ctx.strokeStyle = '#86efac';
+    ctx.beginPath();
+    ctx.roundRect(width - 240, sY + 20, 190, 34, 17);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#14532d';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(`${dayRecoveryPct}% Recovery Rate`, width - 215, sY + 42);
+
+    // Collected / Pending text
+    ctx.fillStyle = '#15803d';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText(`Collected: ${formatCurrency(dayTotalCollected)}`, width - 240, sY + 82);
+    ctx.fillStyle = '#b45309';
+    ctx.fillText(`Pending: ${formatCurrency(dayTotalPending)}`, width - 110, sY + 82);
+
+    // EMI Cards List
+    let currentY = sY + 135;
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = '#334155';
+    ctx.fillText('SCHEDULED EMIS FOR THE DAY', 25, currentY - 8);
+
+    allDayEmis.forEach((emi) => {
+      const type = emi.offlineLoanId ? 'offline' : 'online';
+      const customerName = type === 'offline'
+        ? (emi.offlineLoan?.customerName || 'Offline Customer')
+        : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim();
+      const loanNo = type === 'offline'
+        ? (emi.offlineLoan?.loanNumber || '')
+        : (emi.loanApplication?.applicationNo || '');
+
+      const isPaid = emi.paymentStatus === 'PAID';
+      const isOverdue = emi.paymentStatus === 'OVERDUE';
+
+      // Card Background
+      ctx.fillStyle = isPaid ? '#f0fdf4' : isOverdue ? '#fef2f2' : '#fffbeb';
+      ctx.strokeStyle = isPaid ? '#bbf7d0' : isOverdue ? '#fecaca' : '#fef08a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(25, currentY, width - 50, emiCardHeight, 8);
+      ctx.fill();
+      ctx.stroke();
+
+      // Customer Name
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(`${customerName}`, 40, currentY + 26);
+
+      ctx.fillStyle = '#64748b';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(`${loanNo} • EMI #${emi.installmentNumber} (${type.toUpperCase()})`, 40, currentY + 46);
+
+      // P + I = Total line
+      ctx.fillStyle = '#047857';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText(`P: ${formatCurrency(emi.principalAmount)} + I: ${formatCurrency(emi.interestAmount)} = Total: ${formatCurrency(emi.totalAmount)}`, 40, currentY + 68);
+
+      // Amount & Status Badge (Right aligned)
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(formatCurrency(emi.totalAmount), width - 170, currentY + 30);
+
+      // Status pill
+      ctx.fillStyle = isPaid ? '#dcfce7' : isOverdue ? '#fee2e2' : '#fef3c7';
+      ctx.beginPath();
+      ctx.roundRect(width - 170, currentY + 42, 120, 24, 12);
+      ctx.fill();
+
+      ctx.fillStyle = isPaid ? '#15803d' : isOverdue ? '#b91c1c' : '#b45309';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(emi.paymentStatus.replace('_', ' '), width - 150, currentY + 58);
+
+      currentY += emiCardHeight + emiPadding;
+    });
+
+    // Footer
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(`Generated on ${new Date().toLocaleString()} • Money Mitra Financial Portal`, 25, totalHeight - 20);
+
+    const link = document.createElement('a');
+    link.download = `EMI_Report_${selectedDate}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
   };
 
   const renderEmiItem = (emi: EMIItem, type: 'online' | 'offline') => {
@@ -577,11 +746,20 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
         {/* Day Detail Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
+            <DialogHeader className="flex flex-row items-center justify-between pr-6">
               <DialogTitle className="flex items-center gap-2">
                 <Calendar className="h-5 w-5 text-purple-500" />
                 EMIs for {selectedDate && formatDate(selectedDate)}
               </DialogTitle>
+              {([...selectedEmis.offline, ...selectedEmis.online].length > 0) && (
+                <Button
+                  size="sm"
+                  onClick={downloadDaySummaryImage}
+                  className="bg-purple-600 hover:bg-purple-700 text-white gap-1.5 shadow-2xs text-xs font-semibold"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download Image
+                </Button>
+              )}
             </DialogHeader>
 
             {(() => {
@@ -607,11 +785,19 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                           <p className="text-xs font-medium text-purple-700">Day Total Due ({allDayEmis.length} EMIs)</p>
                           <p className="text-xl font-bold text-purple-900">{formatCurrency(dayTotalAmount)}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex items-center gap-2">
                           <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full border border-emerald-300 inline-flex items-center gap-1">
                             <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
                             {dayRecoveryPct}% Recovery Rate
                           </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={downloadDaySummaryImage}
+                            className="bg-white hover:bg-purple-50 text-purple-700 border-purple-300 gap-1 h-7 text-xs font-medium shadow-2xs"
+                          >
+                            <Download className="h-3 w-3" /> Image
+                          </Button>
                         </div>
                       </div>
 
