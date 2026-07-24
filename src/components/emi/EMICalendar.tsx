@@ -220,64 +220,163 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     const allDayEmis = [...selectedEmis.offline, ...selectedEmis.online];
     if (allDayEmis.length === 0) return;
 
-    const targetElement = (document.getElementById('emi-day-report-printable') || document.querySelector('[role="dialog"]')) as HTMLElement | null;
-    if (!targetElement) return;
-
-    const downloadBtns = targetElement.querySelectorAll('.pdf-download-btn');
     try {
-      // Temporarily hide the PDF download action buttons during screenshot capture
-      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'hidden'));
-
-      const html2canvasModule = (await import('html2canvas')).default;
-      const canvas = await html2canvasModule(targetElement, {
-        scale: 2.5,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff'
-      });
-
-      // Convert Canvas directly into high quality JPEG Image Data URL
-      const imgData = canvas.toDataURL('image/jpeg', 0.98);
-
-      // Create PDF and embed the image
       const { jsPDF } = await import('jspdf');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+      const pageWidth = doc.internal.pageSize.getWidth(); // 210 mm
+      let y = 14;
+
+      // 1. Header Banner Box
+      doc.setFillColor(91, 33, 182); // #5b21b6 (Purple)
+      doc.roundedRect(12, y, pageWidth - 24, 26, 3, 3, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('MONEY MITRA FINANCIAL ADVISOR', 18, y + 10);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      doc.text(`Daily EMI Collection Report — ${formatDate(selectedDate)}`, 18, y + 18);
+
+      y += 32;
+
+      // 2. Collection Summary Box
+      const dayTotalPrincipal = allDayEmis.reduce((s, e) => s + (e.principalAmount || 0), 0);
+      const dayTotalInterest = allDayEmis.reduce((s, e) => s + (e.interestAmount || 0), 0);
+      const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
+
+      const dayTotalCollected = allDayEmis.reduce((s, e) => {
+        if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
+        if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
+        return s;
+      }, 0);
+      const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
+      const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
+
+      doc.setFillColor(250, 245, 255); // #faf5ff
+      doc.setDrawColor(233, 213, 255); // #e9d5ff
+      doc.roundedRect(12, y, pageWidth - 24, 30, 3, 3, 'FD');
+
+      doc.setTextColor(107, 33, 168); // #6b21a8
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('DAY COLLECTION SUMMARY', 18, y + 8);
+
+      doc.setTextColor(20, 83, 45); // Green recovery
+      doc.text(`Recovery Rate: ${dayRecoveryPct}%`, pageWidth - 60, y + 8);
+
+      doc.setTextColor(30, 27, 75); // Dark purple
+      doc.setFontSize(16);
+      doc.text(formatCurrency(dayTotalAmount), 18, y + 17);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(76, 29, 149);
+      doc.text(`Principal: ${formatCurrency(dayTotalPrincipal)} + Interest: ${formatCurrency(dayTotalInterest)}`, 18, y + 24);
+
+      doc.setTextColor(22, 101, 52);
+      doc.text(`Collected: ${formatCurrency(dayTotalCollected)}`, pageWidth - 90, y + 24);
+
+      doc.setTextColor(146, 64, 14);
+      doc.text(`Pending: ${formatCurrency(dayTotalPending)}`, pageWidth - 45, y + 24);
+
+      y += 36;
+
+      // 3. Section Header
+      doc.setTextColor(51, 65, 85);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text(`SCHEDULED EMIS FOR THE DAY (${allDayEmis.length})`, 12, y);
+
+      doc.setDrawColor(226, 232, 240);
+      doc.line(12, y + 2, pageWidth - 12, y + 2);
+      y += 8;
+
+      // 4. EMI Cards Breakdown
+      allDayEmis.forEach((emi) => {
+        if (y > 260) {
+          doc.addPage();
+          y = 15;
+        }
+
+        const type = emi.offlineLoanId ? 'offline' : 'online';
+        const customerName = type === 'offline'
+          ? (emi.offlineLoan?.customerName || 'Offline Customer')
+          : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim();
+        const loanNo = type === 'offline'
+          ? (emi.offlineLoan?.loanNumber || '')
+          : (emi.loanApplication?.applicationNo || '');
+        const phone = type === 'offline'
+          ? emi.offlineLoan?.customerPhone
+          : emi.loanApplication?.phone;
+
+        const isPaid = emi.paymentStatus === 'PAID';
+        const isOverdue = emi.paymentStatus === 'OVERDUE';
+
+        if (isPaid) {
+          doc.setFillColor(240, 253, 244);
+          doc.setDrawColor(134, 239, 172);
+        } else if (isOverdue) {
+          doc.setFillColor(254, 242, 242);
+          doc.setDrawColor(252, 165, 165);
+        } else {
+          doc.setFillColor(255, 251, 235);
+          doc.setDrawColor(253, 224, 71);
+        }
+
+        doc.roundedRect(12, y, pageWidth - 24, 24, 2, 2, 'FD');
+
+        // Type Badge
+        doc.setFillColor(type === 'offline' ? 226 : 219, type === 'offline' ? 232 : 234, type === 'offline' ? 240 : 254);
+        doc.roundedRect(16, y + 4, 18, 5, 1, 1, 'F');
+        doc.setTextColor(type === 'offline' ? 51 : 30, type === 'offline' ? 65 : 64, type === 'offline' ? 85 : 175);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.text(type.toUpperCase(), 18, y + 7.5);
+
+        // Status Line
+        doc.setTextColor(isPaid ? 21 : isOverdue ? 185 : 180, isPaid ? 128 : isOverdue ? 28 : 83, isPaid ? 61 : isOverdue ? 28 : 9);
+        doc.setFontSize(8);
+        doc.text(`Status: ${emi.paymentStatus.replace('_', ' ')}  |  EMI #${emi.installmentNumber}`, 38, y + 7.5);
+
+        // Customer Name
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.text(customerName, 16, y + 14);
+
+        // Details Line
+        doc.setTextColor(71, 85, 105);
+        doc.setFontSize(8.5);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Loan: ${loanNo}${phone ? ` • Phone: ${phone}` : ''}`, 16, y + 19.5);
+
+        // Right Side Total Amount
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(13);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatCurrency(emi.totalAmount), pageWidth - 16, y + 11, { align: 'right' });
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(4, 120, 87);
+        doc.text(`P: ${formatCurrency(emi.principalAmount)} + I: ${formatCurrency(emi.interestAmount)}`, pageWidth - 16, y + 17, { align: 'right' });
+
+        y += 28;
       });
 
-      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210 mm
-      const pdfHeight = pdf.internal.pageSize.getHeight(); // 297 mm
-      const margin = 8;
-      const imgWidth = pdfWidth - (margin * 2); // 194 mm
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      // Footer
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated on ${new Date().toLocaleString('en-IN')} • Money Mitra Financial Portal`, 12, 287);
 
-      if (imgHeight <= pdfHeight - (margin * 2)) {
-        pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
-      } else {
-        let heightLeft = imgHeight;
-        let position = margin;
-
-        pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
-        heightLeft -= (pdfHeight - (margin * 2));
-
-        while (heightLeft > 0) {
-          position = heightLeft - imgHeight + margin;
-          pdf.addPage();
-          pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
-          heightLeft -= (pdfHeight - (margin * 2));
-        }
-      }
-
-      pdf.save(`EMI_Report_${selectedDate}.pdf`);
-      toast({ title: 'PDF Downloaded', description: `EMI_Report_${selectedDate}.pdf has been saved.` });
-    } catch (e) {
+      doc.save(`EMI_Report_${selectedDate}.pdf`);
+      toast({ title: 'PDF Downloaded', description: `EMI_Report_${selectedDate}.pdf generated successfully.` });
+    } catch (e: any) {
       console.error('PDF generation error:', e);
-      toast({ title: 'PDF Error', description: 'Could not generate PDF. Please try again.', variant: 'destructive' });
-    } finally {
-      // Always restore download buttons visibility regardless of success or error
-      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'visible'));
+      toast({ title: 'PDF Error', description: e?.message || 'Failed to generate PDF.', variant: 'destructive' });
     }
   };
 
