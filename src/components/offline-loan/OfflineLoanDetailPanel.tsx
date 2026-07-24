@@ -1739,48 +1739,74 @@ export default function OfflineLoanDetailPanel({
                         <CardContent>
                           <div className="grid grid-cols-2 gap-3">
                             {[
-                              { label: 'PAN Card', url: loan.panCardDoc },
-                              { label: 'Aadhaar Front', url: loan.aadhaarFrontDoc },
-                              { label: 'Aadhaar Back', url: loan.aadhaarBackDoc },
-                              { label: 'Income Proof', url: loan.incomeProofDoc },
-                              { label: 'Address Proof', url: loan.addressProofDoc },
-                              { label: 'Photo', url: loan.photoDoc },
-                              { label: 'Election Card', url: loan.electionCardDoc },
-                              { label: 'House Photo', url: loan.housePhotoDoc },
-                              { label: 'Guarantor Photo', url: loan.guarantorPhotoDoc },
-                              { label: 'Passbook', url: loan.passbookPhotoDoc },
+                              { key: 'panCardDoc', label: 'PAN Card', url: loan.panCardDoc },
+                              { key: 'aadhaarFrontDoc', label: 'Aadhaar Front', url: loan.aadhaarFrontDoc },
+                              { key: 'aadhaarBackDoc', label: 'Aadhaar Back', url: loan.aadhaarBackDoc },
+                              { key: 'incomeProofDoc', label: 'Income Proof', url: loan.incomeProofDoc },
+                              { key: 'addressProofDoc', label: 'Address Proof', url: loan.addressProofDoc },
+                              { key: 'photoDoc', label: 'Photo', url: loan.photoDoc },
+                              { key: 'electionCardDoc', label: 'Election Card', url: loan.electionCardDoc },
+                              { key: 'housePhotoDoc', label: 'House Photo', url: loan.housePhotoDoc },
+                              { key: 'guarantorPhotoDoc', label: 'Guarantor Photo', url: loan.guarantorPhotoDoc },
+                              { key: 'passbookPhotoDoc', label: 'Passbook', url: loan.passbookPhotoDoc },
                             ].map((doc, idx) => {
                               const isPdf = doc.url?.includes('application/pdf') || doc.url?.toLowerCase().endsWith('.pdf');
-                                const isImage = doc.url && !isPdf;
-                                return (
-                                <div key={idx} className={`rounded-lg border overflow-hidden ${doc.url ? 'border-green-200' : 'border-dashed border-gray-300'}`}>
-                                  {isImage ? (
-                                    <button type="button" onClick={() => openDoc(doc.url!)} className="block w-full bg-gray-100 hover:opacity-90 transition-opacity cursor-pointer">
+                              const isImage = doc.url && !isPdf;
+                              const isThisUploading = uploading && selectedDocType === doc.key;
+
+                              const triggerCardUpload = () => {
+                                setSelectedDocType(doc.key);
+                                setTimeout(() => {
+                                  fileInputRef.current?.click();
+                                }, 50);
+                              };
+
+                              return (
+                                <div key={idx} className={`rounded-lg border overflow-hidden transition-all ${doc.url ? 'border-green-200 bg-green-50/20' : 'border-dashed border-gray-300 hover:border-emerald-500 bg-gray-50/50'}`}>
+                                  {isThisUploading ? (
+                                    <div className="w-full h-28 flex flex-col items-center justify-center bg-emerald-50/50 gap-2">
+                                      <Loader2 className="h-6 w-6 text-emerald-600 animate-spin" />
+                                      <span className="text-xs text-emerald-700 font-medium">Uploading...</span>
+                                    </div>
+                                  ) : isImage ? (
+                                    <button type="button" onClick={() => openDoc(doc.url!)} className="block w-full bg-gray-100 hover:opacity-90 transition-opacity cursor-pointer relative group">
                                       <img src={doc.url!} alt={doc.label} className="w-full h-28 object-cover"
                                         onError={(e) => { const t = e.target as HTMLImageElement; t.style.display='none'; t.nextElementSibling?.classList.remove('hidden'); }} />
                                       <div className="hidden w-full h-28 flex items-center justify-center bg-gray-50"><FileText className="h-8 w-8 text-gray-400" /></div>
                                     </button>
                                   ) : isPdf ? (
-                                    <div className="w-full h-28 flex flex-col items-center justify-center bg-red-50 gap-1">
-                                      <FileText className="h-8 w-8 text-red-400" /><span className="text-xs text-red-500 font-medium">PDF</span>
-                                    </div>
+                                    <button type="button" onClick={() => openDoc(doc.url!)} className="w-full h-28 flex flex-col items-center justify-center bg-red-50 gap-1 hover:bg-red-100/60 transition-colors">
+                                      <FileText className="h-8 w-8 text-red-400" /><span className="text-xs text-red-500 font-medium">PDF Document</span>
+                                    </button>
                                   ) : (
-                                    <div className="w-full h-28 flex items-center justify-center bg-gray-50">
-                                      <div className="text-center">
-                                        <FileText className="h-8 w-8 text-gray-300 mx-auto" />
-                                        <p className="text-xs text-gray-400 mt-1">Not uploaded</p>
-                                      </div>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={triggerCardUpload}
+                                      className="w-full h-28 flex flex-col items-center justify-center bg-gray-50 hover:bg-emerald-50/60 transition-colors cursor-pointer p-2 text-center group"
+                                    >
+                                      <Upload className="h-6 w-6 text-emerald-600 mb-1 group-hover:scale-110 transition-transform" />
+                                      <span className="text-xs font-semibold text-emerald-700">Click to Upload</span>
+                                      <span className="text-[10px] text-gray-400 mt-0.5">JPG, PNG or PDF</span>
+                                    </button>
                                   )}
-                                  <div className={`flex items-center justify-between px-2 py-1.5 ${doc.url ? 'bg-green-50' : 'bg-gray-50'}`}>
-                                    <p className="text-xs font-medium text-gray-700 truncate">{doc.label}</p>
-                                    {doc.url ? (
-                                      <button type="button" onClick={() => openDoc(doc.url!)} className="text-xs text-blue-600 hover:underline flex items-center gap-1 shrink-0 ml-1">
-                                        <Eye className="h-3 w-3" /> View
-                                      </button>
-                                    ) : (
-                                      <span className="text-xs text-gray-400 shrink-0">—</span>
-                                    )}
+                                  <div className={`flex items-center justify-between px-2.5 py-1.5 border-t ${doc.url ? 'bg-green-50/80 border-green-200' : 'bg-gray-100/80 border-gray-200'}`}>
+                                    <p className="text-xs font-medium text-gray-800 truncate">{doc.label}</p>
+                                    <div className="flex items-center gap-1 shrink-0 ml-1">
+                                      {doc.url ? (
+                                        <>
+                                          <button type="button" onClick={() => openDoc(doc.url!)} className="text-xs text-blue-600 hover:underline flex items-center gap-0.5 shrink-0 px-1 py-0.5 rounded hover:bg-blue-50">
+                                            <Eye className="h-3 w-3" /> View
+                                          </button>
+                                          <button type="button" onClick={triggerCardUpload} className="text-xs text-emerald-600 hover:underline flex items-center gap-0.5 shrink-0 px-1 py-0.5 rounded hover:bg-emerald-50" title="Re-upload or Replace">
+                                            <Upload className="h-3 w-3" /> Replace
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <button type="button" onClick={triggerCardUpload} className="text-xs font-semibold text-emerald-600 hover:underline flex items-center gap-1 shrink-0 px-1.5 py-0.5 bg-emerald-100/80 rounded hover:bg-emerald-200/80 transition-colors">
+                                          <Upload className="h-3 w-3" /> Upload
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               );
