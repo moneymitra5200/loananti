@@ -1,0 +1,3 @@
+{
+  "/api/accounting/init-chart-of-accounts/route": "app/api/accounting/init-chart-of-accounts/route.js"
+}
