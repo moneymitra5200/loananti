@@ -459,8 +459,8 @@ const EMISection = memo(function EMISection({
                               + ₹{penaltyInfo.penaltyAmount.toLocaleString('en-IN')} Penalty
                             </p>
                           )}
-                          <p className="text-xs text-gray-500">
-                            P: ₹{formatCurrency(emi.principalAmount)} | I: ₹{formatCurrency(emi.interestAmount)}
+                          <p className="text-xs text-gray-600 font-medium">
+                            P: ₹{formatCurrency(emi.principalAmount)} + I: ₹{formatCurrency(emi.interestAmount)} = <span className="font-bold text-emerald-700">Total: ₹{formatCurrency(emi.principalAmount + emi.interestAmount)}</span>
                           </p>
                         </>
                       )}

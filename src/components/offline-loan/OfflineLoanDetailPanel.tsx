@@ -2858,9 +2858,10 @@ export default function OfflineLoanDetailPanel({
                         <span className="text-lg">₹{formatCurrency(breakdown.grandTotal)}</span>
                       </div>
                       {breakdown.totalInterest > 0 && (
-                        <div className="text-xs text-gray-500 flex justify-between">
-                          <span>Principal: ₹{formatCurrency(breakdown.totalPrincipal)}</span>
-                          <span>Interest: ₹{formatCurrency(breakdown.totalInterest)}</span>
+                        <div className="text-xs text-gray-600 flex flex-wrap justify-between gap-1 pt-1.5 border-t border-gray-100 font-medium">
+                          <span>P: ₹{formatCurrency(breakdown.totalPrincipal)}</span>
+                          <span>+ I: ₹{formatCurrency(breakdown.totalInterest)}</span>
+                          <span className="font-bold text-emerald-700">= Total: ₹{formatCurrency(breakdown.grandTotal)}</span>
                         </div>
                       )}
                     </>

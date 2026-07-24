@@ -468,12 +468,17 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   <span className="truncate max-w-[200px]">{address}</span>
                 </div>
               )}
-              <div className="flex items-center gap-4 mt-2 pt-2 border-t border-gray-100">
-                <span className="text-xs text-gray-400">
-                  Principal: <span className="font-medium text-gray-600">{formatCurrency(emi.principalAmount)}</span>
+              <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-gray-100 text-xs">
+                <span className="text-gray-500">
+                  Principal: <span className="font-semibold text-gray-700">{formatCurrency(emi.principalAmount)}</span>
                 </span>
-                <span className="text-xs text-gray-400">
-                  Interest: <span className="font-medium text-gray-600">{formatCurrency(emi.interestAmount)}</span>
+                <span className="text-gray-400">+</span>
+                <span className="text-gray-500">
+                  Interest: <span className="font-semibold text-gray-700">{formatCurrency(emi.interestAmount)}</span>
+                </span>
+                <span className="text-gray-400">=</span>
+                <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  Total: {formatCurrency(emi.principalAmount + emi.interestAmount)}
                 </span>
               </div>
             </div>
