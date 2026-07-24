@@ -16,6 +16,7 @@ import {
   ChevronLeft, ChevronRight, Calendar, IndianRupee, CheckCircle,
   Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye, Download
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import EMIPaymentDialog from './EMIPaymentDialog';
 
 interface EMIItem {
@@ -219,25 +220,21 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     const allDayEmis = [...selectedEmis.offline, ...selectedEmis.online];
     if (allDayEmis.length === 0) return;
 
-    try {
-      // Target the active rendered dialog element that the user sees on screen
-      const targetElement = document.getElementById('emi-day-report-printable') || document.querySelector('[role="dialog"]');
-      if (!targetElement) return;
+    const targetElement = (document.getElementById('emi-day-report-printable') || document.querySelector('[role="dialog"]')) as HTMLElement | null;
+    if (!targetElement) return;
 
+    const downloadBtns = targetElement.querySelectorAll('.pdf-download-btn');
+    try {
       // Temporarily hide the PDF download action buttons during screenshot capture
-      const downloadBtns = targetElement.querySelectorAll('.pdf-download-btn');
       downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'hidden'));
 
       const html2canvasModule = (await import('html2canvas')).default;
-      const canvas = await html2canvasModule(targetElement as HTMLElement, {
+      const canvas = await html2canvasModule(targetElement, {
         scale: 2.5,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff'
       });
-
-      // Restore download buttons visibility
-      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'visible'));
 
       // Convert Canvas directly into high quality JPEG Image Data URL
       const imgData = canvas.toDataURL('image/jpeg', 0.98);
@@ -274,8 +271,13 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       }
 
       pdf.save(`EMI_Report_${selectedDate}.pdf`);
+      toast({ title: 'PDF Downloaded', description: `EMI_Report_${selectedDate}.pdf has been saved.` });
     } catch (e) {
       console.error('PDF generation error:', e);
+      toast({ title: 'PDF Error', description: 'Could not generate PDF. Please try again.', variant: 'destructive' });
+    } finally {
+      // Always restore download buttons visibility regardless of success or error
+      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'visible'));
     }
   };
 
@@ -641,7 +643,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
         {/* Day Detail Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent id="emi-day-report-printable" className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-6 bg-white">
+          <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-6 bg-white">
             <DialogHeader className="flex flex-row items-center justify-between pr-6">
               <DialogTitle className="flex items-center gap-2 text-lg">
                 <Calendar className="h-5.5 w-5.5 text-purple-500" />
@@ -673,7 +675,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
 
               return (
-                <div className="space-y-3.5 py-2">
+                <div id="emi-day-report-printable" className="space-y-3.5 py-2">
                   {allDayEmis.length > 0 && (
                     <div className="p-4 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200">
                       <div className="flex items-center justify-between flex-wrap gap-2">
