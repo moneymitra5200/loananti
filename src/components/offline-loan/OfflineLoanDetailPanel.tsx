@@ -232,43 +232,37 @@ export default function OfflineLoanDetailPanel({
 
     setUploading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        
-        // 1. Upload to S3/local
-        const uploadRes = await fetch('/api/upload/document', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            file: base64,
-            filename: file.name,
-            documentType: selectedDocType,
-            fileType: file.type
-          })
-        });
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('docType', selectedDocType);
+      formData.append('documentType', selectedDocType);
+      formData.append('loanId', loan.id);
 
-        const uploadData = await uploadRes.json();
-        if (!uploadRes.ok) throw new Error(uploadData.error || 'Upload failed');
+      // 1. Upload file
+      const uploadRes = await fetch('/api/upload/document', {
+        method: 'POST',
+        body: formData
+      });
 
-        // 2. Save document URL to OfflineLoan
-        const saveRes = await fetch('/api/loan/document', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            loanId: loan.id,
-            documentField: selectedDocType,
-            documentUrl: uploadData.url
-          })
-        });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData.success) throw new Error(uploadData.error || 'Upload failed');
 
-        const saveData = await saveRes.json();
-        if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save document link');
+      // 2. Save document URL to OfflineLoan
+      const saveRes = await fetch('/api/loan/document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          loanId: loan.id,
+          documentField: selectedDocType,
+          documentUrl: uploadData.url
+        })
+      });
 
-        toast({ title: 'Success', description: 'Document uploaded successfully' });
-        await fetchLoanDetails();
-      };
-      reader.readAsDataURL(file);
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveData.error || 'Failed to save document link');
+
+      toast({ title: 'Success', description: 'Document uploaded successfully' });
+      await fetchLoanDetails();
     } catch (error: any) {
       console.error('Upload error:', error);
       toast({ title: 'Error', description: error.message || 'Failed to upload document', variant: 'destructive' });

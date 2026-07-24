@@ -225,22 +225,29 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
       const pageWidth = doc.internal.pageSize.getWidth(); // 210 mm
+      const margin = 14;
+      const contentWidth = pageWidth - (margin * 2); // 182 mm
       let y = 14;
 
-      // 1. Header Banner Box
-      doc.setFillColor(91, 33, 182); // #5b21b6 (Purple)
-      doc.roundedRect(12, y, pageWidth - 24, 26, 3, 3, 'F');
+      const formatPdfCurrency = (val: number) => `Rs. ${new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(val)}`;
 
+      // 1. Header Banner Box (Sleek Deep Indigo/Purple)
+      doc.setFillColor(88, 28, 135); // #581c87 (Rich Deep Purple)
+      doc.roundedRect(margin, y, contentWidth, 28, 3, 3, 'F');
+
+      // White Header Title
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('MONEY MITRA FINANCIAL ADVISOR', 18, y + 10);
+      doc.text('MONEY MITRA FINANCIAL ADVISOR', margin + 6, y + 11);
 
+      // Subtitle & Date
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      doc.text(`Daily EMI Collection Report — ${formatDate(selectedDate)}`, 18, y + 18);
+      doc.setFontSize(10);
+      doc.setTextColor(233, 213, 255); // #e9d5ff
+      doc.text(`DAILY EMI COLLECTION REPORT  |  DATE: ${formatDate(selectedDate).toUpperCase()}`, margin + 6, y + 20);
 
-      y += 32;
+      y += 34;
 
       // 2. Collection Summary Box
       const dayTotalPrincipal = allDayEmis.reduce((s, e) => s + (e.principalAmount || 0), 0);
@@ -255,48 +262,65 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
       const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
 
+      // Summary Card Background
       doc.setFillColor(250, 245, 255); // #faf5ff
-      doc.setDrawColor(233, 213, 255); // #e9d5ff
-      doc.roundedRect(12, y, pageWidth - 24, 30, 3, 3, 'FD');
+      doc.setDrawColor(216, 180, 254); // #d8b4fe
+      doc.setLineWidth(0.4);
+      doc.roundedRect(margin, y, contentWidth, 38, 3, 3, 'FD');
 
+      // Top Row: Title & Recovery Badge
       doc.setTextColor(107, 33, 168); // #6b21a8
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text('DAY COLLECTION SUMMARY', 18, y + 8);
+      doc.setFontSize(9);
+      doc.text('DAY COLLECTION SUMMARY', margin + 6, y + 8);
 
-      doc.setTextColor(20, 83, 45); // Green recovery
-      doc.text(`Recovery Rate: ${dayRecoveryPct}%`, pageWidth - 60, y + 8);
+      // Recovery Rate Pill Badge on the right
+      doc.setFillColor(220, 252, 231); // light green
+      doc.setDrawColor(134, 239, 172);
+      doc.roundedRect(margin + contentWidth - 48, y + 4, 42, 6, 1.5, 1.5, 'FD');
+      doc.setTextColor(22, 101, 52); // green text
+      doc.setFontSize(8);
+      doc.text(`Recovery Rate: ${dayRecoveryPct}%`, margin + contentWidth - 27, y + 8, { align: 'center' });
 
-      doc.setTextColor(30, 27, 75); // Dark purple
+      // Total Due Big Number
+      doc.setTextColor(15, 23, 42); // slate-900
       doc.setFontSize(16);
-      doc.text(formatCurrency(dayTotalAmount), 18, y + 17);
+      doc.setFont('helvetica', 'bold');
+      doc.text(formatPdfCurrency(dayTotalAmount), margin + 6, y + 18);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(107, 33, 168);
+      doc.text(`(Principal: ${formatPdfCurrency(dayTotalPrincipal)}  +  Interest: ${formatPdfCurrency(dayTotalInterest)})`, margin + 6, y + 24);
+
+      // Bottom Row Stats: Collected & Pending cleanly spaced across 2 columns
+      doc.setDrawColor(233, 213, 255);
+      doc.line(margin + 6, y + 28, margin + contentWidth - 6, y + 28);
 
       doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(76, 29, 149);
-      doc.text(`Principal: ${formatCurrency(dayTotalPrincipal)} + Interest: ${formatCurrency(dayTotalInterest)}`, 18, y + 24);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(22, 101, 52); // Green
+      doc.text(`Collected: ${formatPdfCurrency(dayTotalCollected)}`, margin + 6, y + 34);
 
-      doc.setTextColor(22, 101, 52);
-      doc.text(`Collected: ${formatCurrency(dayTotalCollected)}`, pageWidth - 90, y + 24);
+      doc.setTextColor(180, 83, 9); // Amber/Red
+      doc.text(`Pending: ${formatPdfCurrency(dayTotalPending)}`, margin + (contentWidth / 2) + 10, y + 34);
 
-      doc.setTextColor(146, 64, 14);
-      doc.text(`Pending: ${formatCurrency(dayTotalPending)}`, pageWidth - 45, y + 24);
-
-      y += 36;
+      y += 44;
 
       // 3. Section Header
-      doc.setTextColor(51, 65, 85);
+      doc.setTextColor(30, 41, 59);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(`SCHEDULED EMIS FOR THE DAY (${allDayEmis.length})`, 12, y);
+      doc.setFontSize(10.5);
+      doc.text(`SCHEDULED EMIS FOR THE DAY (${allDayEmis.length})`, margin, y);
 
-      doc.setDrawColor(226, 232, 240);
-      doc.line(12, y + 2, pageWidth - 12, y + 2);
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y + 2, margin + contentWidth, y + 2);
       y += 8;
 
-      // 4. EMI Cards Breakdown
+      // 4. EMI Breakdown Cards
       allDayEmis.forEach((emi) => {
-        if (y > 260) {
+        if (y > 255) {
           doc.addPage();
           y = 15;
         }
@@ -315,62 +339,65 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
         const isPaid = emi.paymentStatus === 'PAID';
         const isOverdue = emi.paymentStatus === 'OVERDUE';
 
+        // Card Colors
         if (isPaid) {
-          doc.setFillColor(240, 253, 244);
-          doc.setDrawColor(134, 239, 172);
+          doc.setFillColor(240, 253, 244); // light green
+          doc.setDrawColor(187, 247, 208);
         } else if (isOverdue) {
-          doc.setFillColor(254, 242, 242);
-          doc.setDrawColor(252, 165, 165);
+          doc.setFillColor(254, 242, 242); // light red
+          doc.setDrawColor(254, 202, 202);
         } else {
-          doc.setFillColor(255, 251, 235);
-          doc.setDrawColor(253, 224, 71);
+          doc.setFillColor(255, 251, 235); // light amber
+          doc.setDrawColor(253, 230, 138);
         }
 
-        doc.roundedRect(12, y, pageWidth - 24, 24, 2, 2, 'FD');
+        const cardHeight = 26;
+        doc.roundedRect(margin, y, contentWidth, cardHeight, 2, 2, 'FD');
 
-        // Type Badge
+        // Type Pill Badge
         doc.setFillColor(type === 'offline' ? 226 : 219, type === 'offline' ? 232 : 234, type === 'offline' ? 240 : 254);
-        doc.roundedRect(16, y + 4, 18, 5, 1, 1, 'F');
+        doc.roundedRect(margin + 4, y + 4, 18, 5, 1, 1, 'F');
         doc.setTextColor(type === 'offline' ? 51 : 30, type === 'offline' ? 65 : 64, type === 'offline' ? 85 : 175);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(7);
-        doc.text(type.toUpperCase(), 18, y + 7.5);
+        doc.text(type.toUpperCase(), margin + 13, y + 7.5, { align: 'center' });
 
-        // Status Line
-        doc.setTextColor(isPaid ? 21 : isOverdue ? 185 : 180, isPaid ? 128 : isOverdue ? 28 : 83, isPaid ? 61 : isOverdue ? 28 : 9);
+        // Status Tag
+        doc.setTextColor(isPaid ? 22 : isOverdue ? 185 : 180, isPaid ? 101 : isOverdue ? 28 : 83, isPaid ? 52 : isOverdue ? 28 : 9);
         doc.setFontSize(8);
-        doc.text(`Status: ${emi.paymentStatus.replace('_', ' ')}  |  EMI #${emi.installmentNumber}`, 38, y + 7.5);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`STATUS: ${emi.paymentStatus.replace('_', ' ')}   |   EMI #${emi.installmentNumber}`, margin + 26, y + 7.5);
 
         // Customer Name
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(11);
         doc.setFont('helvetica', 'bold');
-        doc.text(customerName, 16, y + 14);
+        doc.text(customerName, margin + 4, y + 15);
 
-        // Details Line
+        // Sub details line (Loan No & Phone)
         doc.setTextColor(71, 85, 105);
         doc.setFontSize(8.5);
         doc.setFont('helvetica', 'normal');
-        doc.text(`Loan: ${loanNo}${phone ? ` • Phone: ${phone}` : ''}`, 16, y + 19.5);
+        doc.text(`Loan: ${loanNo}${phone ? `   •   Phone: ${phone}` : ''}`, margin + 4, y + 21);
 
-        // Right Side Total Amount
+        // Right side Amount Block
         doc.setTextColor(15, 23, 42);
         doc.setFontSize(13);
         doc.setFont('helvetica', 'bold');
-        doc.text(formatCurrency(emi.totalAmount), pageWidth - 16, y + 11, { align: 'right' });
+        doc.text(formatPdfCurrency(emi.totalAmount), margin + contentWidth - 6, y + 13, { align: 'right' });
 
         doc.setFontSize(8);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(4, 120, 87);
-        doc.text(`P: ${formatCurrency(emi.principalAmount)} + I: ${formatCurrency(emi.interestAmount)}`, pageWidth - 16, y + 17, { align: 'right' });
+        doc.text(`P: ${formatPdfCurrency(emi.principalAmount)}  +  I: ${formatPdfCurrency(emi.interestAmount)}`, margin + contentWidth - 6, y + 19, { align: 'right' });
 
-        y += 28;
+        y += cardHeight + 4;
       });
 
       // Footer
       doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Generated on ${new Date().toLocaleString('en-IN')} • Money Mitra Financial Portal`, 12, 287);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Generated on ${new Date().toLocaleString('en-IN')}  •  Money Mitra Financial Portal`, margin, 287);
 
       doc.save(`EMI_Report_${selectedDate}.pdf`);
       toast({ title: 'PDF Downloaded', description: `EMI_Report_${selectedDate}.pdf generated successfully.` });
