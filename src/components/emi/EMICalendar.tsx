@@ -30,6 +30,8 @@ interface EMIItem {
   paidPrincipal: number;
   paidInterest: number;
   outstandingPrincipal: number;
+  loanApplicationId?: string;
+  offlineLoanId?: string;
   loanApplication?: {
     id: string;
     applicationNo: string;
@@ -223,7 +225,9 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       ? emi.offlineLoan?.customerPhone
       : emi.loanApplication?.phone;
     const canPay = emi.paymentStatus !== 'PAID';
-    const loanId = type === 'offline' ? emi.offlineLoan?.id : emi.loanApplication?.id;
+    const loanId = type === 'offline' 
+      ? (emi.offlineLoan?.id || emi.offlineLoanId) 
+      : (emi.loanApplication?.id || emi.loanApplicationId);
 
     const handleOpenLoan = () => {
       if (onSelectLoan && loanId) {

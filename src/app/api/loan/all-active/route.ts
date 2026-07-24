@@ -225,7 +225,7 @@ export async function GET(request: NextRequest) {
         const unpaidOnlineEmis = await db.eMISchedule.findMany({
           where: {
             loanApplicationId: { in: allOnlineIdsForOutstanding },
-            paymentStatus: { not: 'PAID' }
+            paymentStatus: { notIn: ['PAID', 'WAIVED'] }
           },
           select: {
             loanApplicationId: true,
@@ -235,7 +235,7 @@ export async function GET(request: NextRequest) {
         });
         unpaidOnlineEmis.forEach(emi => {
           const current = onlineOutstandingMap.get(emi.loanApplicationId) || 0;
-          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          const remaining = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
           onlineOutstandingMap.set(emi.loanApplicationId, current + remaining);
         });
       }
@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
         const unpaidOfflineEmis = await db.offlineLoanEMI.findMany({
           where: {
             offlineLoanId: { in: allOfflineIdsForOutstanding },
-            paymentStatus: { not: 'PAID' }
+            paymentStatus: { notIn: ['PAID', 'WAIVED'] }
           },
           select: {
             offlineLoanId: true,
@@ -254,7 +254,7 @@ export async function GET(request: NextRequest) {
         });
         unpaidOfflineEmis.forEach(emi => {
           const current = offlineOutstandingMap.get(emi.offlineLoanId) || 0;
-          const remaining = (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0);
+          const remaining = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
           offlineOutstandingMap.set(emi.offlineLoanId, current + remaining);
         });
       }

@@ -98,46 +98,60 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Interest Rate</p>
-                <p className="font-semibold">{loanDetails.sessionForm.interestRate}% p.a.</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Tenure</p>
-                <p className="font-semibold">
-                  {loanDetails.status === 'ACTIVE_INTEREST_ONLY' ? 'Interest Only Phase' : `${loanDetails.sessionForm.tenure} months`}
+                <p className="text-xs text-gray-500 font-medium">Interest Rate & Tenure</p>
+                <p className="font-semibold text-gray-900">
+                  {loanDetails.sessionForm.interestRate}% p.a. ({loanDetails.status === 'ACTIVE_INTEREST_ONLY' ? 'Interest Only' : `${loanDetails.sessionForm.tenure} mo`})
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">EMI Amount</p>
-                <p className="font-semibold text-emerald-600">{formatCurrency(loanDetails.sessionForm.emiAmount)}</p>
+                <p className="text-xs text-gray-500 font-medium">EMI Amount</p>
+                <p className="font-semibold text-emerald-600">{formatCurrency(loanDetails.sessionForm.emiAmount)}/mo</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Total Interest</p>
-                <p className="font-semibold">{formatCurrency(loanDetails.sessionForm.totalInterest)}</p>
+                <p className="text-xs text-gray-500 font-medium">Total Principal</p>
+                <p className="font-semibold text-gray-900">{formatCurrency(loanDetails.sessionForm.approvedAmount || loanDetails.disbursedAmount || loanDetails.requestedAmount)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Total Amount</p>
-                <p className="font-semibold">{formatCurrency(loanDetails.sessionForm.totalAmount)}</p>
+                <p className="text-xs text-gray-500 font-medium">Total Interest</p>
+                <p className="font-semibold text-gray-900">{formatCurrency(loanDetails.sessionForm.totalInterest)}</p>
               </div>
-
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Total Amount</p>
+                <p className="font-semibold text-blue-700">{formatCurrency(loanDetails.sessionForm.totalAmount)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Total Paid</p>
+                <p className="font-semibold text-emerald-600">
+                  {formatCurrency(
+                    loanDetails.totalPaidAmount !== undefined 
+                      ? loanDetails.totalPaidAmount 
+                      : (loanDetails.emiSchedules || []).reduce((s: number, e: any) => s + (Number(e.paidAmount) || 0), 0)
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Outstanding Balance</p>
+                <p className="font-bold text-orange-600">
+                  {formatCurrency(
+                    loanDetails.outstandingAmount !== undefined
+                      ? loanDetails.outstandingAmount
+                      : Math.max(
+                          0,
+                          (loanDetails.emiSchedules || []).length > 0
+                            ? (loanDetails.emiSchedules || [])
+                                .filter((e: any) => e.status !== 'PAID' && e.status !== 'WAIVED' && e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED')
+                                .reduce((s: number, e: any) => s + ((Number(e.emiAmount) || Number(e.totalAmount) || 0) - (Number(e.paidAmount) || 0)), 0)
+                            : (loanDetails.sessionForm.totalAmount - ((loanDetails as any).totalPaidAmount || 0))
+                        )
+                  )}
+                </p>
+              </div>
               {loanDetails.sessionForm.startDate && (
                 <div>
-                  <p className="text-xs text-gray-500">Start Date</p>
-                  <p className="font-semibold">{formatDate(loanDetails.sessionForm.startDate)}</p>
-                </div>
-              )}
-              {loanDetails.sessionForm.moratoriumPeriod && loanDetails.sessionForm.moratoriumPeriod > 0 && (
-                <div>
-                  <p className="text-xs text-gray-500">Moratorium</p>
-                  <p className="font-semibold">{loanDetails.sessionForm.moratoriumPeriod} months</p>
-                </div>
-              )}
-              {loanDetails.sessionForm.latePaymentPenalty && (
-                <div>
-                  <p className="text-xs text-gray-500">Late Fee</p>
-                  <p className="font-semibold">{loanDetails.sessionForm.latePaymentPenalty}%</p>
+                  <p className="text-xs text-gray-500 font-medium">Start Date</p>
+                  <p className="font-semibold text-gray-900">{formatDate(loanDetails.sessionForm.startDate)}</p>
                 </div>
               )}
             </div>

@@ -821,22 +821,28 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                           </CardHeader>
                           <CardContent className="p-4 space-y-4">
                             {/* Loan Details Grid */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm bg-gray-50 p-3 rounded-lg border border-gray-100">
                               <div>
-                                <p className="text-xs text-gray-400">Loan Amount</p>
+                                <p className="text-[11px] text-gray-500 font-medium">Principal Amount</p>
                                 <p className="font-semibold text-gray-900">{formatCurrency(loan.loanAmount)}</p>
                               </div>
                               <div>
-                                <p className="text-xs text-gray-400">Interest Rate</p>
-                                <p className="font-semibold text-gray-900">{loan.interestRate}%</p>
+                                <p className="text-[11px] text-gray-500 font-medium font-medium">Interest & Tenure</p>
+                                <p className="font-semibold text-gray-900">{loan.interestRate}% ({loan.tenure} mo)</p>
                               </div>
                               <div>
-                                <p className="text-xs text-gray-400">Tenure</p>
-                                <p className="font-semibold text-gray-900">{loan.tenure} Months</p>
+                                <p className="text-[11px] text-gray-500 font-medium">Total Amount</p>
+                                <p className="font-semibold text-gray-900">{formatCurrency(loan.totalAmount || loan.loanAmount)}</p>
                               </div>
                               <div>
-                                <p className="text-xs text-gray-400">EMI Amount</p>
-                                <p className="font-semibold text-emerald-600">{formatCurrency(loan.emiAmount)}</p>
+                                <p className="text-[11px] text-gray-500 font-medium">Total Paid</p>
+                                <p className="font-semibold text-emerald-600">{formatCurrency(loan.totalPaid || 0)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[11px] text-gray-500 font-medium">Outstanding</p>
+                                <p className="font-bold text-orange-600">
+                                  {formatCurrency(loan.outstandingAmount !== undefined ? loan.outstandingAmount : (loan.loanAmount || 0))}
+                                </p>
                               </div>
                             </div>
 

@@ -834,6 +834,11 @@ export default function AgentDashboard() {
               onPaymentComplete={() => {
                 fetchData(true); // FIX-29: Refresh all loan data after payment
               }}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
             />
           </div>
         );

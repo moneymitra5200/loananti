@@ -1174,7 +1174,17 @@ export default function CompanyDashboard() {
         );
 
       case 'emi-collection':
-        return <EMICollectionSection userId={user?.id || ''} userRole={user?.role || 'COMPANY'} />;
+        return (
+          <EMICollectionSection
+            userId={user?.id || ''}
+            userRole={user?.role || 'COMPANY'}
+            onSelectLoan={(loanId, loanType) => {
+              setSelectedLoanId(loanId);
+              setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+              setShowLoanDetailPanel(true);
+            }}
+          />
+        );
       
       case 'emi-calendar':
         return (

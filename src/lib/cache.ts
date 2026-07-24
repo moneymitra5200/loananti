@@ -237,6 +237,7 @@ export function invalidateLoanCache(loanId?: string): void {
     cache.deletePattern(`emi:schedule:${loanId}`);
   }
   cache.deletePattern('loans:');
+  cache.deletePattern('active-loans:');
   cache.deletePattern('dashboard:stats:');
 }
 
@@ -244,6 +245,7 @@ export function invalidatePaymentCache(): void {
   cache.delete('settings:payment');
   cache.deletePattern('emi:');
   cache.deletePattern('credit:');
+  cache.deletePattern('active-loans:');
   cache.deletePattern('dashboard:stats:');
 }
 

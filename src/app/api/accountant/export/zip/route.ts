@@ -44,11 +44,13 @@ function toCSV(rows: Record<string, any>[]): string {
   const headers = Object.keys(rows[0]);
   const escape = (v: any) => {
     if (v === null || v === undefined) return '';
-    const s = String(v);
+    let s = String(v);
+    s = s.replace(/—/g, '-').replace(/₹/g, 'Rs.');
     return s.includes(',') || s.includes('"') || s.includes('\n')
       ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  return [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const bom = '\uFEFF';
+  return bom + [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
 }
 
 /**
@@ -817,6 +819,7 @@ export async function GET(request: NextRequest) {
       });
 
       const ledgerEntries: any[] = [];
+      const accruedEmiNumbers = new Set<number>();
 
       for (const loan of loans) {
         const loanJEs = mergedJEs.filter(je => je.lines.some((l: any) => l.loanId === loan.id));
@@ -831,6 +834,7 @@ export async function GET(request: NextRequest) {
 
         const disbursementDate = loan.type === 'ONLINE' ? loan.disbursedAt : (loan as any).disbursementDate;
         const loanNumber = loan.type === 'ONLINE' ? loan.applicationNo : (loan as any).loanNumber;
+        const customerName = customerInfo.name || 'Customer';
 
         // Synthetic disbursement row if missing
         if (!hasDisbursement && loanAmount > 0) {
@@ -841,8 +845,8 @@ export async function GET(request: NextRequest) {
             loanId: loan.id,
             loanNumber,
             entryNumber: 'Auto',
-            narration: `Loan Disbursed — ${loanNumber}`,
-            description: `Loan Disbursed — ${loanNumber}`,
+            narration: `Loan Disbursed - ${loanNumber}`,
+            description: `Loan Disbursed - ${loanNumber}`,
             debit: loanAmount,
             credit: 0
           });
@@ -857,37 +861,7 @@ export async function GET(request: NextRequest) {
           const isPFAccrual = je.referenceType === 'PROCESSING_FEE_ACCRUAL';
           const isPFPayment = je.referenceType === 'PROCESSING_FEE_COLLECTION' || je.referenceType === 'PROCESSING_FEE';
           const isAccrual = je.referenceType === 'INTEREST_ACCRUAL' || je.referenceType === 'INTEREST_RECLASSIFICATION';
-          const isPayment = je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT' || je.referenceType === 'INTEREST_ONLY_PAYMENT' || je.referenceType === 'PARTIAL_EMI_PAYMENT';
-          const isClose = je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' || je.referenceType === 'OFFLINE_LOAN_FORECLOSURE' || je.referenceType === 'LOAN_FORECLOSURE' || je.referenceType === 'LOSS_WRITE_OFF';
           const isDisbursement = je.referenceType === 'LOAN_DISBURSEMENT' || je.referenceType === 'MIRROR_LOAN_DISBURSEMENT';
-
-          let debit = 0;
-          let credit = 0;
-
-          if (isDisbursement) {
-            const lrLines = loanLines.filter((l: any) => ['1200', '1201', '1210'].includes(l.account?.accountCode || ''));
-            debit = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
-          } else if (isPFAccrual) {
-            const pfLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
-            debit = pfLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
-          } else if (isPFPayment) {
-            const pfLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
-            credit = pfLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-          } else if (isAccrual) {
-            const interestLines = loanLines.filter((l: any) => ['1301', '1305'].includes(l.account?.accountCode || ''));
-            debit = interestLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
-          } else if (isPayment || isClose) {
-            const lrLines = loanLines.filter((l: any) => ['1200', '1201', '1210'].includes(l.account?.accountCode || ''));
-            credit = lrLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-
-            const intLines = loanLines.filter((l: any) => ['1301', '1305'].includes(l.account?.accountCode || ''));
-            credit += intLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-          } else {
-            // General lines
-            const debitLines = loanLines.filter((l: any) => ['1200', '1201', '1210', '1301', '1305', '1302'].includes(l.account?.accountCode || ''));
-            debit = debitLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
-            credit = debitLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
-          }
 
           const emiMatch = je.narration?.match(/#(\d+)/);
           let emiNumber = emiMatch ? parseInt(emiMatch[1]) : undefined;
@@ -895,27 +869,157 @@ export async function GET(request: NextRequest) {
             emiNumber = paymentToEmiNumber.get(je.referenceId) || offlineEmiIdToNumber.get(je.referenceId);
           }
 
-          let desc = je.narration || je.referenceType || 'Transaction';
-          if (je.referenceType === 'EMI_PAYMENT' || je.referenceType === 'MIRROR_EMI_PAYMENT') {
-            desc = `EMI Payment #${emiNumber || ''} — ${loanNumber}`;
-          } else if (je.referenceType === 'INTEREST_ACCRUAL') {
-            desc = `Interest Charged #${emiNumber || ''} — ${loanNumber}`;
-          } else if (isDisbursement) {
-            desc = `Loan Disbursed — ${loanNumber}`;
+          if (isDisbursement) {
+            const lrLines = loanLines.filter((l: any) => ['1200', '1201', '1210'].includes(l.account?.accountCode || ''));
+            const debit = lrLines.reduce((s: number, l: any) => s + l.debitAmount, 0) || loanAmount;
+            ledgerEntries.push({
+              id: je.id,
+              date: je.entryDate,
+              referenceType: je.referenceType,
+              loanId: loan.id,
+              loanNumber,
+              entryNumber: je.entryNumber,
+              narration: je.narration || '',
+              description: `Loan Disbursed - ${loanNumber}`,
+              debit,
+              credit: 0
+            });
+            continue;
           }
 
-          ledgerEntries.push({
-            id: je.id,
-            date: je.entryDate,
-            referenceType: je.referenceType,
-            loanId: loan.id,
-            loanNumber,
-            entryNumber: je.entryNumber,
-            narration: je.narration || '',
-            description: desc,
-            debit,
-            credit
-          });
+          if (isPFAccrual) {
+            const pfLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
+            const pfDebit = pfLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+            if (pfDebit > 0) {
+              ledgerEntries.push({
+                id: je.id,
+                date: je.entryDate,
+                referenceType: je.referenceType,
+                loanId: loan.id,
+                loanNumber,
+                entryNumber: je.entryNumber,
+                narration: je.narration || '',
+                description: `To-PROCESSING FEE (Accrued)`,
+                debit: pfDebit,
+                credit: 0
+              });
+            }
+            continue;
+          }
+
+          if (isPFPayment) {
+            const pfLines = loanLines.filter((l: any) => l.account?.accountCode === '1302');
+            const pfCredit = pfLines.reduce((s: number, l: any) => s + l.creditAmount, 0);
+            if (pfCredit > 0) {
+              const paymentMethod = je.narration?.toLowerCase().includes('bank') || je.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
+              ledgerEntries.push({
+                id: je.id,
+                date: je.entryDate,
+                referenceType: je.referenceType,
+                loanId: loan.id,
+                loanNumber,
+                entryNumber: je.entryNumber,
+                narration: je.narration || '',
+                description: `${paymentMethod} - Processing Fee Collected`,
+                debit: 0,
+                credit: pfCredit
+              });
+            }
+            continue;
+          }
+
+          if (isAccrual) {
+            const interestLines = loanLines.filter((l: any) => ['1301', '1305'].includes(l.account?.accountCode || ''));
+            const debit = interestLines.reduce((s: number, l: any) => s + l.debitAmount, 0);
+            if (debit > 0) {
+              if (emiNumber !== undefined) accruedEmiNumbers.add(emiNumber);
+              ledgerEntries.push({
+                id: je.id,
+                date: je.entryDate,
+                referenceType: je.referenceType,
+                loanId: loan.id,
+                loanNumber,
+                entryNumber: je.entryNumber,
+                narration: je.narration || '',
+                description: `To-INTEREST Normal Dr. Int. (Accrued)`,
+                debit,
+                credit: 0
+              });
+            }
+            continue;
+          }
+
+          // EMI Payments / Repayments / Write-offs
+          const interestIncomeLine = loanLines.find((l: any) => ['4110', '4100', '4001', '4002'].includes(l.account?.accountCode || '') && l.creditAmount > 0);
+          const interestIncomeAmount = interestIncomeLine ? interestIncomeLine.creditAmount : 0;
+
+          const interest1301Credit = loanLines
+            .filter((l: any) => (l.account?.accountCode === '1301' || l.account?.accountCode === '1305') && l.creditAmount > 0)
+            .reduce((s: number, l: any) => s + l.creditAmount, 0);
+
+          const effectiveInterestAmt = interestIncomeAmount || interest1301Credit || 0;
+
+          const hasPriorAccrual = (emiNumber !== undefined && accruedEmiNumbers.has(emiNumber)) ||
+            loanJEs.some(e =>
+              (e.referenceType === 'INTEREST_ACCRUAL' || e.referenceType === 'INTEREST_RECLASSIFICATION') &&
+              Math.abs(new Date(e.entryDate).getTime() - new Date(je.entryDate).getTime()) < 10000
+            );
+
+          if (interestIncomeAmount > 0 && !hasPriorAccrual) {
+            ledgerEntries.push({
+              id: `${je.id}-interest-dr`,
+              date: je.entryDate,
+              referenceType: 'INTEREST_CHARGE',
+              loanId: loan.id,
+              loanNumber,
+              entryNumber: je.entryNumber,
+              narration: je.narration || '',
+              description: `To-INTEREST Normal Dr. Int.`,
+              debit: interestIncomeAmount,
+              credit: 0
+            });
+          }
+
+          const principalCredit = loanLines
+            .filter((l: any) => ['1200', '1201', '1210'].includes(l.account?.accountCode || ''))
+            .reduce((s: number, l: any) => s + l.creditAmount, 0);
+
+          const paymentMethod = je.narration?.toLowerCase().includes('bank') || je.narration?.toLowerCase().includes('online') ? 'By-TRANSFER' : 'By-CASH';
+          const baseDesc = `Loan EMI - ${customerName} (P+I)`;
+
+          if (effectiveInterestAmt > 0) {
+            const isInterestWriteOff = je.referenceType === 'PRINCIPAL_ONLY_PAYMENT' || je.referenceType === 'LOSS_WRITE_OFF' || je.narration?.toLowerCase().includes('waived') || je.narration?.toLowerCase().includes('written off');
+            const interestMethod = isInterestWriteOff ? 'By-WAIVER / WRITE-OFF' : paymentMethod;
+            ledgerEntries.push({
+              id: `${je.id}-interest-cr`,
+              date: je.entryDate,
+              referenceType: je.referenceType,
+              loanId: loan.id,
+              loanNumber,
+              entryNumber: je.entryNumber,
+              narration: je.narration || '',
+              description: `${interestMethod} - ${baseDesc} (Interest)`,
+              debit: 0,
+              credit: effectiveInterestAmt
+            });
+          }
+
+          if (principalCredit > 0) {
+            const isPrincipalWriteOff = je.referenceType === 'LOSS_WRITE_OFF' || (je.referenceType === 'LOAN_FORECLOSURE' && je.narration?.toLowerCase().includes('write-off'));
+            const principalMethod = isPrincipalWriteOff ? 'By-WRITE-OFF' : paymentMethod;
+            ledgerEntries.push({
+              id: `${je.id}-principal-cr`,
+              date: je.entryDate,
+              referenceType: je.referenceType,
+              loanId: loan.id,
+              loanNumber,
+              entryNumber: je.entryNumber,
+              narration: je.narration || '',
+              description: `${principalMethod} - ${baseDesc} (Principal)`,
+              debit: 0,
+              credit: principalCredit
+            });
+          }
         }
 
         // Add synthetic accruals for interest not in JEs
@@ -942,8 +1046,8 @@ export async function GET(request: NextRequest) {
               loanId: loan.id,
               loanNumber,
               entryNumber: 'Auto',
-              narration: `Interest Charged — Monthly EMI #${emi.installmentNumber}`,
-              description: `Interest Charged #${emi.installmentNumber} — ${loanNumber}`,
+              narration: `Interest Charged - Monthly EMI #${emi.installmentNumber}`,
+              description: `To-INTEREST Normal Dr. Int. (Accrued)`,
               debit: emi.interestAmount,
               credit: 0
             });
@@ -995,7 +1099,7 @@ export async function GET(request: NextRequest) {
           particulars: row.description,
           debit: row.debit || 0,
           credit: row.credit || 0,
-          balance: balance,
+          balance: Number(balance.toFixed(2)),
           narration: row.narration || '',
           loan_number: row.loanNumber
         };

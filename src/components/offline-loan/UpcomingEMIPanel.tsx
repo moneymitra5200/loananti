@@ -50,6 +50,11 @@ interface UpcomingEMIPanelProps {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+const tomorrow = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
 
 export default function UpcomingEMIPanel({ userId, userRole, companyId, onSelectLoan }: UpcomingEMIPanelProps) {
   const [fromDate, setFromDate] = useState(today());
@@ -188,7 +193,7 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId, onSelect
           <Button
             size="sm"
             variant="outline"
-            className="border-violet-300 text-violet-700 self-center"
+            className={`border-violet-300 self-center ${fromDate === today() && toDate === today() ? 'bg-violet-600 text-white hover:bg-violet-700' : 'text-violet-700'}`}
             onClick={() => {
               const t = today();
               setFromDate(t);
@@ -197,6 +202,20 @@ export default function UpcomingEMIPanel({ userId, userRole, companyId, onSelect
             }}
           >
             Today
+          </Button>
+          {/* Quick: tomorrow */}
+          <Button
+            size="sm"
+            variant="outline"
+            className={`border-violet-300 self-center ${fromDate === tomorrow() && toDate === tomorrow() ? 'bg-violet-600 text-white hover:bg-violet-700' : 'text-violet-700'}`}
+            onClick={() => {
+              const tom = tomorrow();
+              setFromDate(tom);
+              setToDate(tom);
+              fetchUpcomingEMIs(tom, tom);
+            }}
+          >
+            Tomorrow
           </Button>
         </div>
 

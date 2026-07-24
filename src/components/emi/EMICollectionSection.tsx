@@ -42,6 +42,7 @@ interface EMIItem {
   penaltyPaid?: number;
   daysOverdue?: number;
   loanApplicationId?: string;
+  offlineLoanId?: string;
   loanApplication?: {
     id: string;
     applicationNo: string;
@@ -65,9 +66,10 @@ interface EMICollectionSectionProps {
   userId: string;
   userRole: string;
   onPaymentComplete?: () => void;
+  onSelectLoan?: (loanId: string, type: 'online' | 'offline') => void;
 }
 
-export default function EMICollectionSection({ userId, userRole, onPaymentComplete }: EMICollectionSectionProps) {
+export default function EMICollectionSection({ userId, userRole, onPaymentComplete, onSelectLoan }: EMICollectionSectionProps) {
   const { settings } = useSystemSettings();
   const [loading, setLoading] = useState(false);
   const todayIST = () => {
@@ -419,6 +421,10 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
       statusBadge = <Badge className="bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">Pending</Badge>;
     }
 
+    const loanId = type === 'offline' 
+      ? (emi.offlineLoan?.id || emi.offlineLoanId) 
+      : (emi.loanApplication?.id || emi.loanApplicationId);
+
     return (
       <motion.div
         key={emi.id}
@@ -436,13 +442,19 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
               {statusBadge}
             </div>
 
-            <div className="flex items-center gap-2 mb-1">
+            <div
+              className={`flex items-center gap-2 mb-1 ${onSelectLoan && loanId ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+              onClick={() => onSelectLoan && loanId && onSelectLoan(loanId, type)}
+            >
               <User className="h-4 w-4 text-gray-400" />
               <span className="font-medium text-gray-900">{customerName}</span>
             </div>
 
             <div className="text-sm text-gray-500 space-y-1">
-              <div className="flex items-center gap-2">
+              <div
+                className={`flex items-center gap-2 ${onSelectLoan && loanId ? 'cursor-pointer hover:text-purple-700 transition-colors' : ''}`}
+                onClick={() => onSelectLoan && loanId && onSelectLoan(loanId, type)}
+              >
                 <Receipt className="h-3 w-3" />
                 <span>{loanNumber}</span>
               </div>
@@ -499,7 +511,13 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 <Button
                   size="sm"
                   className="bg-emerald-500 hover:bg-emerald-600"
-                  onClick={() => openPaymentDialog(emi, type)}
+                  onClick={() => {
+                    if (onSelectLoan && loanId) {
+                      onSelectLoan(loanId, type);
+                    } else {
+                      openPaymentDialog(emi, type);
+                    }
+                  }}
                 >
                   <IndianRupee className="h-4 w-4 mr-1" />
                   Pay

@@ -77,6 +77,8 @@ export interface LoanDetails {
   housePhotoDoc?: string;
   otherDocs?: string;
   disbursedAmount?: number;
+  totalPaidAmount?: number;
+  outstandingAmount?: number;
   disbursedAt?: string;
   disbursementMode?: string;
   disbursementRef?: string;

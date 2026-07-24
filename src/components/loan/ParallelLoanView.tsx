@@ -44,6 +44,9 @@ interface LoanData {
   loanAmount?: number;
   approvedAmount?: number;
   disbursedAmount?: number;
+  totalAmount?: number;
+  totalInterest?: number;
+  totalPrincipal?: number;
   interestRate: number;
   tenure: number;
   emiAmount: number;

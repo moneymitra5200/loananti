@@ -164,37 +164,59 @@ export async function GET(request: NextRequest) {
           activeLoans: offlineLoans.filter(l => l.status !== 'CLOSED').length,
           emiSchedules: offlineLoans.reduce((sum, l) => sum + l.emis.length, 0),
           payments: offlineLoans.reduce((sum, l) => sum + l.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length, 0),
-          offlineLoans: offlineLoans.map(l => ({
-            id: l.id,
-            loanNumber: l.loanNumber,
-            loanAmount: l.loanAmount,
-            interestRate: l.interestRate,
-            tenure: l.tenure,
-            emiAmount: l.emiAmount,
-            status: l.status,
-            disbursementDate: l.disbursementDate.toISOString(),
-            createdAt: l.createdAt.toISOString(),
-            isInterestOnlyLoan: l.isInterestOnlyLoan,
-            interestOnlyMonthlyAmount: l.interestOnlyMonthlyAmount,
-            totalInterestPaid: l.totalInterestPaid,
-            reference1Name: l.reference1Name,
-            reference1Phone: l.reference1Phone,
-            reference1Relation: l.reference1Relation,
-            reference2Name: l.reference2Name,
-            reference2Phone: l.reference2Phone,
-            reference2Relation: l.reference2Relation,
-            panCardDoc: l.panCardDoc,
-            aadhaarFrontDoc: l.aadhaarFrontDoc,
-            aadhaarBackDoc: l.aadhaarBackDoc,
-            incomeProofDoc: l.incomeProofDoc,
-            addressProofDoc: l.addressProofDoc,
-            photoDoc: l.photoDoc,
-            electionCardDoc: l.electionCardDoc,
-            housePhotoDoc: l.housePhotoDoc,
-            guarantorPhotoDoc: l.guarantorPhotoDoc,
-            passbookPhotoDoc: l.passbookPhotoDoc,
-            otherDocs: l.otherDocs
-          }))
+          offlineLoans: offlineLoans.map(l => {
+            const totalPaid = l.emis.reduce((s, e) => s + (Number(e.paidAmount) || 0), 0) + (Number(l.totalInterestPaid) || 0);
+            const totalScheduledPrincipal = l.emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0) || (Number(l.loanAmount) || 0);
+            const totalScheduledInterest = l.emis.reduce((s, e) => s + (Number(e.interestAmount) || 0), 0);
+            const totalAmount = totalScheduledPrincipal + totalScheduledInterest;
+            let outstandingAmount: number;
+            if (l.isInterestOnlyLoan || l.status === 'INTEREST_ONLY') {
+              outstandingAmount = Number(l.loanAmount) || 0;
+            } else {
+              outstandingAmount = Math.max(
+                0,
+                l.emis
+                  .filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED')
+                  .reduce((s, e) => s + ((Number(e.totalAmount) || 0) - (Number(e.paidAmount) || 0)), 0)
+              );
+            }
+            return {
+              id: l.id,
+              loanNumber: l.loanNumber,
+              loanAmount: l.loanAmount,
+              interestRate: l.interestRate,
+              tenure: l.tenure,
+              emiAmount: l.emiAmount,
+              status: l.status,
+              disbursementDate: l.disbursementDate.toISOString(),
+              createdAt: l.createdAt.toISOString(),
+              isInterestOnlyLoan: l.isInterestOnlyLoan,
+              interestOnlyMonthlyAmount: l.interestOnlyMonthlyAmount,
+              totalInterestPaid: l.totalInterestPaid,
+              totalPrincipal: totalScheduledPrincipal,
+              totalInterest: totalScheduledInterest,
+              totalAmount: totalAmount,
+              totalPaid: totalPaid,
+              outstandingAmount: outstandingAmount,
+              reference1Name: l.reference1Name,
+              reference1Phone: l.reference1Phone,
+              reference1Relation: l.reference1Relation,
+              reference2Name: l.reference2Name,
+              reference2Phone: l.reference2Phone,
+              reference2Relation: l.reference2Relation,
+              panCardDoc: l.panCardDoc,
+              aadhaarFrontDoc: l.aadhaarFrontDoc,
+              aadhaarBackDoc: l.aadhaarBackDoc,
+              incomeProofDoc: l.incomeProofDoc,
+              addressProofDoc: l.addressProofDoc,
+              photoDoc: l.photoDoc,
+              electionCardDoc: l.electionCardDoc,
+              housePhotoDoc: l.housePhotoDoc,
+              guarantorPhotoDoc: l.guarantorPhotoDoc,
+              passbookPhotoDoc: l.passbookPhotoDoc,
+              otherDocs: l.otherDocs
+            };
+          })
         },
         loanAnalytics: {
           totalLoanAmount: offlineLoans.reduce((sum, l) => sum + l.loanAmount, 0),

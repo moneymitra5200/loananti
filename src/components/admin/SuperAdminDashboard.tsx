@@ -1562,6 +1562,7 @@ export default function SuperAdminDashboard() {
               onPaymentComplete={() => {
                 toast({ title: 'Payment Collected', description: 'EMI payment collected and credit updated' });
               }}
+              onSelectLoan={handleOpenLoanFromEMI}
             />
             {/* EMI Today Report - SuperAdmin only */}
             <EmiTodayReport userRole={user?.role || 'SUPER_ADMIN'} />
