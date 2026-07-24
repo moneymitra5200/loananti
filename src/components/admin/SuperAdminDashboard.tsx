@@ -1588,6 +1588,24 @@ export default function SuperAdminDashboard() {
           </div>
         );
 
+      case 'upcoming-emi':
+      case 'upcoming-emis':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Upcoming EMI Schedule</h2>
+              <p className="text-gray-500">Track and manage upcoming EMI payments</p>
+            </div>
+            <Suspense fallback={<div className="flex items-center justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-violet-600" /></div>}>
+              <UpcomingEMIPanel 
+                userId={user?.id}
+                userRole={user?.role || 'SUPER_ADMIN'}
+                onSelectLoan={handleOpenLoanFromEMI}
+              />
+            </Suspense>
+          </div>
+        );
+
       case 'offline-loans':
         return (
           <div className="space-y-6">

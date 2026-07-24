@@ -2914,6 +2914,7 @@ export default function UnifiedAccountantDashboard() {
         );
       case 'payment-audit':
         return <JournalEntriesSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
+      case 'upcoming-emi':
       case 'upcoming-emis':
         return (
           <UpcomingEMIPanel

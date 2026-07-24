@@ -1199,6 +1199,27 @@ export default function CompanyDashboard() {
           />
         );
       
+      case 'upcoming-emi':
+      case 'upcoming-emis':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-3xl font-bold">Upcoming EMI Schedule</h1>
+              <p className="text-muted-foreground">Track and manage upcoming EMI payments</p>
+            </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'COMPANY'}
+              companyId={getCompanyId() || undefined}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
+            />
+          </div>
+        );
+
       case 'offline-loans':
         return (
           <div className="space-y-6">

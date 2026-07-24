@@ -21,6 +21,7 @@ import SecondaryPaymentPageSection from '@/components/shared/SecondaryPaymentPag
 import { LoanFormStepContent } from '@/components/staff/modules';
 import ClosedLoansTab from '@/components/admin/modules/ClosedLoansTab';
 const OfflineLoanDetailPanel = lazy(() => import('@/components/offline-loan/OfflineLoanDetailPanel'));
+import UpcomingEMIPanel from '@/components/offline-loan/UpcomingEMIPanel';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 import DirectMessaging from '@/components/messaging/DirectMessaging';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -785,6 +786,25 @@ export default function StaffDashboard() {
               onOpenLoanDetail={(loanId) => { setSelectedLoanId(loanId); setShowLoanDetailPanel(true); }}
             />
             <ActiveLoansTab activeLoans={activeOnlyLoans} setSelectedLoanId={setSelectedLoanId} setShowLoanDetailPanel={setShowLoanDetailPanel} />
+          </div>
+        );
+      case 'upcoming-emi':
+      case 'upcoming-emis':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Upcoming EMI Schedule</h2>
+              <p className="text-gray-500">Track and manage upcoming EMI payments</p>
+            </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'STAFF'}
+              onSelectLoan={(loanId, loanType) => {
+                setSelectedLoanId(loanId);
+                setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+                setShowLoanDetailPanel(true);
+              }}
+            />
           </div>
         );
       case 'field':
