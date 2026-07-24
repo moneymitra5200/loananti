@@ -137,7 +137,12 @@ export async function GET(request: NextRequest) {
     let onlineMirrorLoanMap = new Map<string, any>();
     let offlineMirrorLoanMap = new Map<string, any>();
     const onlineOutstandingMap = new Map<string, number>();
+    const onlineOutstandingPrincipalMap = new Map<string, number>();
+    const onlineOutstandingInterestMap = new Map<string, number>();
+
     const offlineOutstandingMap = new Map<string, number>();
+    const offlineOutstandingPrincipalMap = new Map<string, number>();
+    const offlineOutstandingInterestMap = new Map<string, number>();
     const allLoanIds = [
       ...onlineLoans.map(l => l.id),
       ...offlineLoans.map(l => l.id)
@@ -230,13 +235,25 @@ export async function GET(request: NextRequest) {
           select: {
             loanApplicationId: true,
             totalAmount: true,
-            paidAmount: true
+            paidAmount: true,
+            principalAmount: true,
+            paidPrincipal: true,
+            interestAmount: true,
+            paidInterest: true
           }
         });
         unpaidOnlineEmis.forEach(emi => {
-          const current = onlineOutstandingMap.get(emi.loanApplicationId) || 0;
-          const remaining = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
-          onlineOutstandingMap.set(emi.loanApplicationId, current + remaining);
+          const currentTotal = onlineOutstandingMap.get(emi.loanApplicationId) || 0;
+          const remainingTotal = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
+          onlineOutstandingMap.set(emi.loanApplicationId, currentTotal + remainingTotal);
+
+          const currentPrin = onlineOutstandingPrincipalMap.get(emi.loanApplicationId) || 0;
+          const remainingPrin = Math.max(0, (Number(emi.principalAmount) || 0) - (Number(emi.paidPrincipal) || 0));
+          onlineOutstandingPrincipalMap.set(emi.loanApplicationId, currentPrin + remainingPrin);
+
+          const currentInt = onlineOutstandingInterestMap.get(emi.loanApplicationId) || 0;
+          const remainingInt = Math.max(0, (Number(emi.interestAmount) || 0) - (Number(emi.paidInterest) || 0));
+          onlineOutstandingInterestMap.set(emi.loanApplicationId, currentInt + remainingInt);
         });
       }
 
@@ -249,13 +266,25 @@ export async function GET(request: NextRequest) {
           select: {
             offlineLoanId: true,
             totalAmount: true,
-            paidAmount: true
+            paidAmount: true,
+            principalAmount: true,
+            paidPrincipal: true,
+            interestAmount: true,
+            paidInterest: true
           }
         });
         unpaidOfflineEmis.forEach(emi => {
-          const current = offlineOutstandingMap.get(emi.offlineLoanId) || 0;
-          const remaining = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
-          offlineOutstandingMap.set(emi.offlineLoanId, current + remaining);
+          const currentTotal = offlineOutstandingMap.get(emi.offlineLoanId) || 0;
+          const remainingTotal = Math.max(0, (Number(emi.totalAmount) || 0) - (Number(emi.paidAmount) || 0));
+          offlineOutstandingMap.set(emi.offlineLoanId, currentTotal + remainingTotal);
+
+          const currentPrin = offlineOutstandingPrincipalMap.get(emi.offlineLoanId) || 0;
+          const remainingPrin = Math.max(0, (Number(emi.principalAmount) || 0) - (Number(emi.paidPrincipal) || 0));
+          offlineOutstandingPrincipalMap.set(emi.offlineLoanId, currentPrin + remainingPrin);
+
+          const currentInt = offlineOutstandingInterestMap.get(emi.offlineLoanId) || 0;
+          const remainingInt = Math.max(0, (Number(emi.interestAmount) || 0) - (Number(emi.paidInterest) || 0));
+          offlineOutstandingInterestMap.set(emi.offlineLoanId, currentInt + remainingInt);
         });
       }
     }
@@ -336,6 +365,8 @@ export async function GET(request: NextRequest) {
           }
           return outstanding;
         })(),
+        remainingPrincipal: onlineOutstandingPrincipalMap.get(loan.id) || 0,
+        remainingInterest: onlineOutstandingInterestMap.get(loan.id) || 0,
         interestRate: loan.sessionForm?.interestRate || 0,
         tenure: loan.sessionForm?.tenure || 0,
         emiAmount: loan.sessionForm?.emiAmount || 0,
@@ -425,6 +456,8 @@ export async function GET(request: NextRequest) {
           }
           return outstanding;
         })(),
+        remainingPrincipal: offlineOutstandingPrincipalMap.get(loan.id) || 0,
+        remainingInterest: offlineOutstandingInterestMap.get(loan.id) || 0,
         interestRate: loan.interestRate,
         tenure: loan.tenure,
         emiAmount: loan.emiAmount,

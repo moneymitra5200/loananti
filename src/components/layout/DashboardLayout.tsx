@@ -16,7 +16,7 @@ import DashboardAlertPopup from '@/components/notification/DashboardAlertPopup';
 import {
   Home, FileText, CheckCircle, Clock, Users, Wallet, Shield, Building2, BarChart3,
   Settings, LogOut, Menu, Search, Edit, Calculator, MapPin, AlertTriangle, PieChart,
-  CreditCard, Banknote, User, ClipboardCheck, Calendar, Receipt, TrendingUp,
+  CreditCard, Banknote, User, ClipboardCheck, Calendar, Receipt, TrendingUp, CalendarClock,
   Target, FileCheck, Activity, Briefcase, BookOpen, IndianRupee, Landmark, Percent,
   FileSpreadsheet, Globe, RefreshCw, Bell, Sparkles, MessageSquare, MessageCircle, TrendingDown
 } from 'lucide-react';
@@ -739,6 +739,7 @@ export const ROLE_MENU_ITEMS: Record<string, MenuItem[]> = {
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'emi-collection', label: 'EMI Collection', icon: Wallet },
     { id: 'emi-calendar', label: 'EMI Calendar', icon: Calendar },
+    { id: 'upcoming-emi', label: 'Upcoming EMI', icon: CalendarClock },
     { id: 'pending', label: 'Pending Disbursement', icon: Clock },
     { id: 'expense', label: 'Expense Requests', icon: TrendingDown },
     { id: 'paymentRequests', label: 'Payment Requests', icon: FileText },

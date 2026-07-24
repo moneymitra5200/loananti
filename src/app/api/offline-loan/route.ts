@@ -257,14 +257,10 @@ export async function GET(request: NextRequest) {
         outstandingInterest  = 0;
         outstandingAmount    = outstandingPrincipal;
       } else {
-        const totalPaidPrincipal = loan.emis.reduce((s, e) => s + (Number(e.paidPrincipal) || 0), 0);
-        const totalPaidInterest  = loan.emis.reduce((s, e) => s + (Number(e.paidInterest)  || 0), 0);
+        const unpaidEmis = loan.emis.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED');
 
-        const totalScheduledPrincipal = loan.emis.reduce((s, e) => s + (Number(e.principalAmount) || 0), 0);
-        const totalScheduledInterest  = loan.emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
-
-        outstandingPrincipal = Math.max(0, totalScheduledPrincipal - totalPaidPrincipal);
-        outstandingInterest  = Math.max(0, totalScheduledInterest  - totalPaidInterest);
+        outstandingPrincipal = unpaidEmis.reduce((s, e) => s + Math.max(0, (Number(e.principalAmount) || 0) - (Number(e.paidPrincipal) || 0)), 0);
+        outstandingInterest  = unpaidEmis.reduce((s, e) => s + Math.max(0, (Number(e.interestAmount) || 0) - (Number(e.paidInterest) || 0)), 0);
         outstandingAmount    = outstandingPrincipal + outstandingInterest;
       }
 

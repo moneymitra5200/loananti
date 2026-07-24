@@ -2252,6 +2252,22 @@ export async function POST(request: NextRequest) {
       }).catch(err => console.error('[EMI Pay] ActionLog create failed:', err));
     });
 
+    try {
+      const { invalidateLoanCache, invalidatePaymentCache } = await import('@/lib/cache');
+      const { emitDashboardRefresh } = await import('@/lib/socket-emit');
+      invalidateLoanCache(loanId);
+      if (mirrorMapping?.mirrorLoanId) {
+        invalidateLoanCache(mirrorMapping.mirrorLoanId);
+      }
+      invalidatePaymentCache();
+      emitDashboardRefresh({ companyId: companyId || undefined });
+      if (mirrorMapping?.mirrorCompanyId) {
+        emitDashboardRefresh({ companyId: mirrorMapping.mirrorCompanyId });
+      }
+    } catch (cacheErr) {
+      console.error('[EMI Pay] Cache invalidation error:', cacheErr);
+    }
+
     return NextResponse.json({
 
       success: true,

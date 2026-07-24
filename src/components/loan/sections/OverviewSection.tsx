@@ -148,6 +148,30 @@ const OverviewSection = memo(function OverviewSection({ loanDetails }: OverviewS
                   )}
                 </p>
               </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Remaining Principal</p>
+                <p className="font-semibold text-amber-700">
+                  {formatCurrency(
+                    loanDetails.outstandingPrincipal !== undefined
+                      ? loanDetails.outstandingPrincipal
+                      : (loanDetails.emiSchedules || [])
+                          .filter((e: any) => e.status !== 'PAID' && e.status !== 'WAIVED' && e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED')
+                          .reduce((s: number, e: any) => s + Math.max(0, (Number(e.principalAmount) || 0) - (Number(e.paidPrincipal) || 0)), 0)
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Remaining Interest</p>
+                <p className="font-semibold text-amber-700">
+                  {formatCurrency(
+                    loanDetails.outstandingInterest !== undefined
+                      ? loanDetails.outstandingInterest
+                      : (loanDetails.emiSchedules || [])
+                          .filter((e: any) => e.status !== 'PAID' && e.status !== 'WAIVED' && e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED')
+                          .reduce((s: number, e: any) => s + Math.max(0, (Number(e.interestAmount) || 0) - (Number(e.paidInterest) || 0)), 0)
+                  )}
+                </p>
+              </div>
               {loanDetails.sessionForm.startDate && (
                 <div>
                   <p className="text-xs text-gray-500 font-medium">Start Date</p>

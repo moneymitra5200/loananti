@@ -79,6 +79,8 @@ export interface LoanDetails {
   disbursedAmount?: number;
   totalPaidAmount?: number;
   outstandingAmount?: number;
+  outstandingPrincipal?: number;
+  outstandingInterest?: number;
   disbursedAt?: string;
   disbursementMode?: string;
   disbursementRef?: string;

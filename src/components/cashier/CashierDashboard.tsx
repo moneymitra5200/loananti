@@ -1122,6 +1122,23 @@ export default function CashierDashboard() {
           </Card>
         );
 
+      case 'upcoming-emi':
+      case 'upcoming-emis':
+        return (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Upcoming EMI Schedule</h2>
+              <p className="text-gray-500">Track and manage upcoming EMI payments</p>
+            </div>
+            <UpcomingEMIPanel
+              userId={user?.id}
+              userRole={user?.role || 'CASHIER'}
+              companyId={user?.companyId || undefined}
+              onSelectLoan={handleOpenLoanFromEMI}
+            />
+          </div>
+        );
+
       case 'offline-loans':
         return (
           <div className="space-y-6">

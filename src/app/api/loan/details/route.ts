@@ -294,6 +294,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
     }
 
+    const unpaidSchedules = loan.emiSchedules.filter(s => s.paymentStatus !== 'PAID' && s.paymentStatus !== 'INTEREST_ONLY_PAID' && s.paymentStatus !== 'WAIVED');
+    const outstandingPrincipal = unpaidSchedules.reduce((sum, s) => sum + Math.max(0, (Number(s.principalAmount) || 0) - (Number(s.paidPrincipal) || 0)), 0);
+    const outstandingInterest  = unpaidSchedules.reduce((sum, s) => sum + Math.max(0, (Number(s.interestAmount) || 0) - (Number(s.paidInterest) || 0)), 0);
+    const outstandingAmount    = outstandingPrincipal + outstandingInterest;
+
     // Calculate EMI summary - include INTEREST_ONLY_PAID in paid count
     const emiSummary = {
       totalEMIs: loan.emiSchedules.length,
@@ -305,6 +310,9 @@ export async function GET(request: NextRequest) {
       totalAmount: loan.emiSchedules.reduce((sum, s) => sum + s.totalAmount, 0),
       totalPaid: loan.emiSchedules.reduce((sum, s) => sum + (s.paidAmount || 0), 0),
       totalPenalty: loan.emiSchedules.reduce((sum, s) => sum + (s.penaltyAmount || 0), 0),
+      outstandingAmount,
+      outstandingPrincipal,
+      outstandingInterest,
       nextDueDate: null as Date | null,
       nextDueAmount: 0
     };
@@ -329,7 +337,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      loan: { ...loan, creditScore },
+      loan: { ...loan, creditScore, outstandingAmount, outstandingPrincipal, outstandingInterest },
       emiSummary,
       workflowPipeline
     });
