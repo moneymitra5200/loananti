@@ -219,161 +219,63 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     const allDayEmis = [...selectedEmis.offline, ...selectedEmis.online];
     if (allDayEmis.length === 0) return;
 
-    const dayTotalPrincipal = allDayEmis.reduce((s, e) => s + (e.principalAmount || 0), 0);
-    const dayTotalInterest = allDayEmis.reduce((s, e) => s + (e.interestAmount || 0), 0);
-    const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
-
-    const dayTotalCollected = allDayEmis.reduce((s, e) => {
-      if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
-      if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
-      return s;
-    }, 0);
-    const dayTotalPending = Math.max(0, dayTotalAmount - dayTotalCollected);
-    const dayRecoveryPct = dayTotalAmount > 0 ? ((dayTotalCollected / dayTotalAmount) * 100).toFixed(1) : '0';
-
-    const emiCardsHTML = allDayEmis.map((emi) => {
-      const type = emi.offlineLoanId ? 'offline' : 'online';
-      const customerName = type === 'offline'
-        ? (emi.offlineLoan?.customerName || 'Offline Customer')
-        : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim();
-      const loanNo = type === 'offline'
-        ? (emi.offlineLoan?.loanNumber || '')
-        : (emi.loanApplication?.applicationNo || '');
-      const phone = type === 'offline'
-        ? emi.offlineLoan?.customerPhone
-        : emi.loanApplication?.phone;
-
-      const isPaid = emi.paymentStatus === 'PAID';
-      const isOverdue = emi.paymentStatus === 'OVERDUE';
-      const statusBg = isPaid ? '#dcfce7' : isOverdue ? '#fee2e2' : '#fef3c7';
-      const statusText = isPaid ? '#15803d' : isOverdue ? '#b91c1c' : '#b45309';
-
-      return `
-        <div style="background: ${isPaid ? '#f0fdf4' : isOverdue ? '#fef2f2' : '#fffbeb'}; border: 1.5px solid ${isPaid ? '#86efac' : isOverdue ? '#fca5a5' : '#fde047'}; border-radius: 10px; padding: 14px 18px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-              <span style="background: ${type === 'offline' ? '#e2e8f0' : '#dbeafe'}; color: ${type === 'offline' ? '#334155' : '#1e40af'}; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px; text-transform: uppercase;">${type}</span>
-              <span style="background: ${statusBg}; color: ${statusText}; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 4px;">${emi.paymentStatus.replace('_', ' ')}</span>
-              <span style="font-size: 12px; font-weight: 700; color: #64748b;">EMI #${emi.installmentNumber}</span>
-            </div>
-
-            <div style="font-size: 17px; font-weight: 800; color: #0f172a; margin-bottom: 3px;">${customerName}</div>
-            
-            <div style="font-size: 13px; color: #475569; font-weight: 600; margin-bottom: 6px;">
-              Loan No: ${loanNo} ${phone ? `• Phone: ${phone}` : ''}
-            </div>
-
-            <div style="background: #ffffff; border: 1px solid rgba(0,0,0,0.08); padding: 4px 10px; border-radius: 6px; display: inline-block; font-size: 13px; font-weight: 700; color: #047857;">
-              Principal: ${formatCurrency(emi.principalAmount)} + Interest: ${formatCurrency(emi.interestAmount)} = <strong>Total: ${formatCurrency(emi.totalAmount)}</strong>
-            </div>
-          </div>
-
-          <div style="text-align: right; min-width: 140px;">
-            <div style="font-size: 22px; font-weight: 900; color: #0f172a; margin-bottom: 2px;">${formatCurrency(emi.totalAmount)}</div>
-            ${isPaid ? `<div style="font-size: 12px; color: #166534; font-weight: 700;">Paid: ${formatCurrency(emi.paidAmount)}</div>` : ''}
-            ${emi.paymentStatus === 'PARTIALLY_PAID' ? `<div style="font-size: 12px; color: #b45309; font-weight: 700;">Remaining: ${formatCurrency(emi.totalAmount - emi.paidAmount)}</div>` : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    const currentScrollY = typeof window !== 'undefined' ? (window.scrollY || document.documentElement.scrollTop || 0) : 0;
-    const pdfContainer = document.createElement('div');
-    pdfContainer.style.position = 'absolute';
-    pdfContainer.style.left = '0px';
-    pdfContainer.style.top = `${currentScrollY}px`;
-    pdfContainer.style.width = '790px';
-    pdfContainer.style.boxSizing = 'border-box';
-    pdfContainer.style.fontFamily = 'system-ui, -apple-system, sans-serif';
-    pdfContainer.style.background = '#ffffff';
-    pdfContainer.style.zIndex = '99999';
-
-    pdfContainer.innerHTML = `
-      <div style="padding: 24px; color: #0f172a; background: #ffffff;">
-        <!-- Header Banner -->
-        <div style="background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%); color: #ffffff; padding: 22px; border-radius: 12px; margin-bottom: 20px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div>
-              <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px;">MONEY MITRA FINANCIAL ADVISOR</h1>
-              <p style="margin: 6px 0 0 0; font-size: 16px; color: #f3e8ff; font-weight: 600;">Daily EMI Collection Report — ${formatDate(selectedDate)}</p>
-            </div>
-            <div style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; color: #ffffff;">
-              ${allDayEmis.length} Scheduled EMIs
-            </div>
-          </div>
-        </div>
-
-        <!-- Summary Card -->
-        <div style="background: #faf5ff; border: 1.5px solid #e9d5ff; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 13px; font-weight: 800; color: #6b21a8; text-transform: uppercase; letter-spacing: 0.5px;">Day Collection Summary</span>
-            <span style="background: #dcfce7; color: #14532d; border: 1px solid #86efac; font-size: 13px; font-weight: 800; padding: 5px 14px; border-radius: 20px;">
-              ✓ ${dayRecoveryPct}% Recovery Rate
-            </span>
-          </div>
-
-          <div style="font-size: 30px; font-weight: 900; color: #1e1b4b; margin-bottom: 14px;">
-            ${formatCurrency(dayTotalAmount)}
-          </div>
-
-          <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #f0abfc;">
-            <div style="background: #ffffff; border: 1px solid #d8b4fe; padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #4c1d95;">
-              Principal: ${formatCurrency(dayTotalPrincipal)} + Interest: ${formatCurrency(dayTotalInterest)} = <strong>Total: ${formatCurrency(dayTotalAmount)}</strong>
-            </div>
-            <div style="font-size: 13px; font-weight: 700;">
-              <span style="color: #166534; margin-right: 12px;">Collected: <strong>${formatCurrency(dayTotalCollected)}</strong> (${dayRecoveryPct}%)</span>
-              <span style="color: #92400e;">Pending: <strong>${formatCurrency(dayTotalPending)}</strong></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Scheduled EMIs Section -->
-        <div style="font-size: 14px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; border-bottom: 2px solid #e2e8f0; padding-bottom: 6px;">
-          Scheduled EMIs for the Day (${allDayEmis.length})
-        </div>
-
-        <!-- EMI Cards List -->
-        <div>
-          ${emiCardsHTML}
-        </div>
-
-        <!-- Footer -->
-        <div style="margin-top: 24px; padding-top: 14px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748b;">
-          <span>Generated on ${new Date().toLocaleString('en-IN')}</span>
-          <span style="font-weight: 700; color: #7c3aed;">Money Mitra Financial Portal</span>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(pdfContainer);
-
     try {
-      // Allow browser to paint the DOM element before html2pdf captures canvas
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // Target the active rendered dialog element that the user sees on screen
+      const targetElement = document.getElementById('emi-day-report-printable') || document.querySelector('[role="dialog"]');
+      if (!targetElement) return;
 
-      const html2pdfModule = (await import('html2pdf.js')).default;
-      const opt = {
-        margin: 8,
-        filename: `EMI_Report_${selectedDate}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { 
-          scale: 2, 
-          useCORS: true, 
-          letterRendering: true,
-          logging: false,
-          scrollY: 0,
-          scrollX: 0
-        },
-        jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const }
-      };
+      // Temporarily hide the PDF download action buttons during screenshot capture
+      const downloadBtns = targetElement.querySelectorAll('.pdf-download-btn');
+      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'hidden'));
 
-      await html2pdfModule().set(opt).from(pdfContainer).save();
+      const html2canvasModule = (await import('html2canvas')).default;
+      const canvas = await html2canvasModule(targetElement as HTMLElement, {
+        scale: 2.5,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      // Restore download buttons visibility
+      downloadBtns.forEach(b => ((b as HTMLElement).style.visibility = 'visible'));
+
+      // Convert Canvas directly into high quality JPEG Image Data URL
+      const imgData = canvas.toDataURL('image/jpeg', 0.98);
+
+      // Create PDF and embed the image
+      const { jsPDF } = await import('jspdf');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+      const pdfHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+      const margin = 8;
+      const imgWidth = pdfWidth - (margin * 2); // 194 mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (imgHeight <= pdfHeight - (margin * 2)) {
+        pdf.addImage(imgData, 'JPEG', margin, margin, imgWidth, imgHeight);
+      } else {
+        let heightLeft = imgHeight;
+        let position = margin;
+
+        pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+        heightLeft -= (pdfHeight - (margin * 2));
+
+        while (heightLeft > 0) {
+          position = heightLeft - imgHeight + margin;
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
+          heightLeft -= (pdfHeight - (margin * 2));
+        }
+      }
+
+      pdf.save(`EMI_Report_${selectedDate}.pdf`);
     } catch (e) {
       console.error('PDF generation error:', e);
-    } finally {
-      if (document.body.contains(pdfContainer)) {
-        document.body.removeChild(pdfContainer);
-      }
     }
   };
 
@@ -739,7 +641,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
         {/* Day Detail Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-6">
+          <DialogContent id="emi-day-report-printable" className="sm:max-w-3xl max-h-[85vh] overflow-y-auto p-6 bg-white">
             <DialogHeader className="flex flex-row items-center justify-between pr-6">
               <DialogTitle className="flex items-center gap-2 text-lg">
                 <Calendar className="h-5.5 w-5.5 text-purple-500" />
@@ -749,7 +651,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                 <Button
                   size="sm"
                   onClick={downloadDaySummaryPDF}
-                  className="bg-purple-600 hover:bg-purple-700 text-white gap-1.5 shadow-2xs text-xs font-semibold px-3 py-1.5"
+                  className="pdf-download-btn bg-purple-600 hover:bg-purple-700 text-white gap-1.5 shadow-2xs text-xs font-semibold px-3 py-1.5"
                 >
                   <Download className="h-4 w-4" /> Download PDF
                 </Button>
@@ -788,7 +690,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                             size="sm"
                             variant="outline"
                             onClick={downloadDaySummaryPDF}
-                            className="bg-white hover:bg-purple-50 text-purple-700 border-purple-300 gap-1.5 h-8 text-xs font-semibold shadow-2xs"
+                            className="pdf-download-btn bg-white hover:bg-purple-50 text-purple-700 border-purple-300 gap-1.5 h-8 text-xs font-semibold shadow-2xs"
                           >
                             <Download className="h-3.5 w-3.5" /> PDF
                           </Button>
