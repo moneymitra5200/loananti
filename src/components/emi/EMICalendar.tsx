@@ -294,8 +294,8 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                 {emi.offlineLoan.company.name}
               </div>
             )}
-            <div className="text-xs text-gray-500 mt-1">
-              Principal: {formatCurrency(emi.principalAmount)} | Interest: {formatCurrency(emi.interestAmount)}
+            <div className="text-xs text-gray-600 font-medium mt-1">
+              P: {formatCurrency(emi.principalAmount)} + I: {formatCurrency(emi.interestAmount)} = <span className="font-bold text-emerald-700">Total: {formatCurrency(emi.totalAmount)}</span>
             </div>
           </div>
           <div className="text-right">
@@ -345,8 +345,27 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
   // Calculate summary
   const totalEmis = calendar.reduce((sum, d) => sum + d.online.length + d.offline.length, 0);
-  const totalAmount = calendar.reduce((sum, d) => sum + d.total, 0);
-  const totalPaid = calendar.reduce((sum, d) => sum + d.paid, 0);
+
+  let totalPrincipal = 0;
+  let totalInterest = 0;
+  let paidPrincipal = 0;
+  let paidInterest = 0;
+
+  calendar.forEach(d => {
+    [...d.online, ...d.offline].forEach(emi => {
+      totalPrincipal += (emi.principalAmount || 0);
+      totalInterest += (emi.interestAmount || 0);
+      if (emi.paymentStatus === 'PAID') {
+        paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
+        paidInterest += (emi.paidInterest || emi.interestAmount || 0);
+      }
+    });
+  });
+
+  const toCollectPrincipal = Math.max(0, totalPrincipal - paidPrincipal);
+  const toCollectInterest = Math.max(0, totalInterest - paidInterest);
+  const toCollectTotal = toCollectPrincipal + toCollectInterest;
+  const collectedTotal = paidPrincipal + paidInterest;
 
   return (
     <>
@@ -399,18 +418,31 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           </div>
 
           {/* Summary */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="text-center p-2 rounded-lg bg-purple-50 border border-purple-100">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-purple-50 border border-purple-100 flex flex-col justify-between text-center">
               <p className="text-xs text-purple-600 font-medium">Total EMIs</p>
-              <p className="text-lg font-bold text-purple-700">{totalEmis}</p>
+              <p className="text-2xl font-bold text-purple-700">{totalEmis}</p>
+              <p className="text-[11px] text-purple-500 mt-1">Scheduled for this month</p>
             </div>
-            <div className="text-center p-2 rounded-lg bg-blue-50 border border-blue-100">
-              <p className="text-xs text-blue-600 font-medium">To Collect</p>
-              <p className="text-lg font-bold text-blue-700">{formatCurrency(totalAmount - totalPaid)}</p>
+            <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 flex flex-col justify-between">
+              <div className="flex justify-between items-center mb-1">
+                <p className="text-xs text-blue-600 font-semibold">To Collect</p>
+                <p className="text-lg font-bold text-blue-700">{formatCurrency(toCollectTotal)}</p>
+              </div>
+              <div className="text-[11px] text-blue-600/90 pt-1.5 border-t border-blue-200/60 flex justify-between font-medium">
+                <span>P: {formatCurrency(toCollectPrincipal)}</span>
+                <span>+ I: {formatCurrency(toCollectInterest)}</span>
+              </div>
             </div>
-            <div className="text-center p-2 rounded-lg bg-green-50 border border-green-100">
-              <p className="text-xs text-green-600 font-medium">Collected</p>
-              <p className="text-lg font-bold text-green-700">{formatCurrency(totalPaid)}</p>
+            <div className="p-3 rounded-lg bg-green-50 border border-green-100 flex flex-col justify-between">
+              <div className="flex justify-between items-center mb-1">
+                <p className="text-xs text-green-600 font-semibold">Collected</p>
+                <p className="text-lg font-bold text-green-700">{formatCurrency(collectedTotal)}</p>
+              </div>
+              <div className="text-[11px] text-green-600/90 pt-1.5 border-t border-green-200/60 flex justify-between font-medium">
+                <span>P: {formatCurrency(paidPrincipal)}</span>
+                <span>+ I: {formatCurrency(paidInterest)}</span>
+              </div>
             </div>
           </div>
 

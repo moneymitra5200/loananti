@@ -286,6 +286,10 @@ export async function GET(request: NextRequest) {
         offline: typeof offlineEmis;
         total: number;
         paid: number;
+        totalPrincipal: number;
+        totalInterest: number;
+        paidPrincipal: number;
+        paidInterest: number;
       }
 
       const calendar: Record<string, CalendarDay> = {};
@@ -293,24 +297,52 @@ export async function GET(request: NextRequest) {
       for (const emi of onlineEmis) {
         const dateKey = new Date(emi.dueDate).toISOString().slice(0, 10);
         if (!calendar[dateKey]) {
-          calendar[dateKey] = { date: dateKey, online: [], offline: [], total: 0, paid: 0 };
+          calendar[dateKey] = {
+            date: dateKey,
+            online: [],
+            offline: [],
+            total: 0,
+            paid: 0,
+            totalPrincipal: 0,
+            totalInterest: 0,
+            paidPrincipal: 0,
+            paidInterest: 0
+          };
         }
         calendar[dateKey].online.push(emi);
         calendar[dateKey].total += emi.totalAmount;
+        calendar[dateKey].totalPrincipal += (emi.principalAmount || 0);
+        calendar[dateKey].totalInterest += (emi.interestAmount || 0);
         if (emi.paymentStatus === 'PAID') {
-          calendar[dateKey].paid += emi.paidAmount;
+          calendar[dateKey].paid += (emi.paidAmount || 0);
+          calendar[dateKey].paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
+          calendar[dateKey].paidInterest += (emi.paidInterest || emi.interestAmount || 0);
         }
       }
 
       for (const emi of offlineEmis) {
         const dateKey = new Date(emi.dueDate).toISOString().slice(0, 10);
         if (!calendar[dateKey]) {
-          calendar[dateKey] = { date: dateKey, online: [], offline: [], total: 0, paid: 0 };
+          calendar[dateKey] = {
+            date: dateKey,
+            online: [],
+            offline: [],
+            total: 0,
+            paid: 0,
+            totalPrincipal: 0,
+            totalInterest: 0,
+            paidPrincipal: 0,
+            paidInterest: 0
+          };
         }
         calendar[dateKey].offline.push(emi);
         calendar[dateKey].total += emi.totalAmount;
+        calendar[dateKey].totalPrincipal += (emi.principalAmount || 0);
+        calendar[dateKey].totalInterest += (emi.interestAmount || 0);
         if (emi.paymentStatus === 'PAID') {
-          calendar[dateKey].paid += emi.paidAmount;
+          calendar[dateKey].paid += (emi.paidAmount || 0);
+          calendar[dateKey].paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
+          calendar[dateKey].paidInterest += (emi.paidInterest || emi.interestAmount || 0);
         }
       }
 

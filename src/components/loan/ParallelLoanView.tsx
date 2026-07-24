@@ -259,15 +259,50 @@ export function ParallelLoanView({
         </div>
 
         {/* Amount Info */}
-        <div className="flex items-end justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1">
             <p className="text-lg font-bold text-gray-900">{formatCurrency(getLoanAmount(loan))}</p>
             {loan.outstandingAmount !== undefined && (
-              <p className="text-xs text-orange-600 font-semibold mt-0.5">
-                Outstanding: {formatCurrency(loan.outstandingAmount)}
-              </p>
+              <div className="mt-1 pt-1 border-t border-orange-200/60">
+                <p className="text-xs text-orange-600 font-semibold">
+                  Outstanding: {formatCurrency(loan.outstandingAmount)}
+                </p>
+                {(() => {
+                  const p = loan.totalPrincipal || getLoanAmount(loan) || 0;
+                  let i = loan.totalInterest;
+                  if (i === undefined || i === null || i === 0) {
+                    if (loan.emiAmount > 0 && loan.tenure > 0) {
+                      const tenure = (loan as any)._count?.emiSchedules || loan.tenure;
+                      i = Math.max(0, (loan.emiAmount * tenure) - p);
+                    } else if (loan.interestOnlyMonthlyAmount) {
+                      i = loan.interestOnlyMonthlyAmount * loan.tenure;
+                    } else {
+                      const tenure = (loan as any)._count?.emiSchedules || loan.tenure;
+                      i = Math.max(0, Math.round((p * (loan.interestRate || 0) / 100 / 12) * tenure));
+                    }
+                  }
+                  const total = loan.totalAmount || (p + i);
+
+                  return (
+                    <div className="text-[11px] text-gray-600 font-medium mt-1 space-y-0.5 bg-white/80 p-1.5 rounded border border-gray-200 shadow-xs">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-500">Total P:</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(p)}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-gray-500">Total I:</span>
+                        <span className="font-semibold text-gray-800">{formatCurrency(i)}</span>
+                      </div>
+                      <div className="flex justify-between gap-2 pt-0.5 border-t border-gray-200 text-emerald-700 font-bold">
+                        <span>Total (P+I):</span>
+                        <span>{formatCurrency(total)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             )}
-            <p className="text-xs text-gray-500 mt-0.5">
+            <p className="text-xs text-gray-500 mt-1">
               {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
                 `@${loan.interestRate}% (Interest Only Phase)`
               ) : (
