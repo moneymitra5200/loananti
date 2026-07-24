@@ -240,7 +240,10 @@ async function getProfitAndLoss(companyId: string | null, startDate?: string | n
       const targetCode = cbMapping[entry.referenceType] || '4300';
       const existingAcct = income.find(a => a.accountCode === targetCode);
       if (existingAcct) {
-        existingAcct.amount += (entry.amount || 0);
+        // Only inject cashbook fallback if journal entries haven't already posted to this income account
+        if (existingAcct.amount === 0) {
+          existingAcct.amount += (entry.amount || 0);
+        }
       } else {
         income.push({ accountCode: targetCode, accountName: `${entry.referenceType.replace(/_/g, ' ')} (Cash)`, amount: entry.amount || 0 });
       }

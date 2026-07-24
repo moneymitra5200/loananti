@@ -165,7 +165,7 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
     // Add days of current month
     for (let day = 1; day <= lastDay.getDate(); day++) {
       const date = new Date(year, month, day);
-      const dateKey = date.toISOString().slice(0, 10);
+      const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dayEmis = calendar.find(d => d.date === dateKey);
       days.push({ date, day, isCurrentMonth: true, emis: dayEmis });
     }
@@ -182,7 +182,8 @@ export default function EMICalendar({ userId, userRole }: EMICalendarProps) {
 
   const handleDayClick = (day: { date: Date; emis?: CalendarDay }) => {
     if (day.emis && (day.emis.online.length > 0 || day.emis.offline.length > 0)) {
-      setSelectedDate(day.date.toISOString().slice(0, 10));
+      const dateKey = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
+      setSelectedDate(dateKey);
       setSelectedEmis({ online: day.emis.online, offline: day.emis.offline });
       setDialogOpen(true);
     }
