@@ -1033,7 +1033,7 @@ export async function POST(request: NextRequest) {
           tenure: isInterestOnlyLoan ? 0 : (tenure || 0),
           emiAmount: calculatedEmiAmount,
           processingFee: effectiveProcessingFee,
-          disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
+          disbursementDate: startDate ? requiredDate(startDate, 'startDate') : requiredDate(disbursementDate, 'disbursementDate'),
           disbursementMode: finalDisbursementMode,
           disbursementRef,
           status: isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE',
@@ -1230,7 +1230,7 @@ export async function POST(request: NextRequest) {
             // Using mirrorCalc.mirrorLoan.emiAmount gives the correct mirror-loan EMI amount.
             emiAmount: mirrorCalc.mirrorLoan.emiAmount,
             processingFee: 0, // No processing fee for mirror
-            disbursementDate: requiredDate(disbursementDate, 'disbursementDate'),
+            disbursementDate: startDate ? requiredDate(startDate, 'startDate') : requiredDate(disbursementDate, 'disbursementDate'),
             // FIX: Preserve the actual disbursement mode instead of hardcoding BANK_TRANSFER
             disbursementMode: disbursementMode || 'BANK_TRANSFER',
             status: 'ACTIVE',
