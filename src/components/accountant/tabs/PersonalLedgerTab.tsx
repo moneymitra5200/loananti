@@ -22,6 +22,39 @@ import { exportPersonalLedgerCSV, exportAsPDF, exportAsImage, exportAsWord, prin
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 
+const formatExportDate = (dInput: string | Date | null | undefined): string => {
+  if (!dInput) return '';
+  const d = new Date(dInput);
+  if (isNaN(d.getTime())) return String(dInput);
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayStr = String(d.getDate()).padStart(2, '0');
+  const dateStr = `${dayStr}-${monthNames[d.getMonth()]}-${d.getFullYear()}`;
+  const hours = d.getHours();
+  const minutes = d.getMinutes();
+  const seconds = d.getSeconds();
+  const isDefaultTime = (hours === 5 && minutes === 30 && seconds === 0) || (hours === 0 && minutes === 0 && seconds === 0);
+  if (isDefaultTime) return dateStr;
+  const hStr = String(hours).padStart(2, '0');
+  const mStr = String(minutes).padStart(2, '0');
+  const sStr = String(seconds).padStart(2, '0');
+  return `${dateStr} ${hStr}:${mStr}:${sStr}`;
+};
+
+const renderDateTime = (dateStr: string) => {
+  if (!dateStr) return <span>—</span>;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return <span>{dateStr}</span>;
+  const dateFormatted = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
+  const timeFormatted = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const isDefaultTime = timeFormatted === '05:30:00' || timeFormatted === '00:00:00';
+  return (
+    <div className="flex flex-col">
+      <span>{dateFormatted}</span>
+      {!isDefaultTime && <span className="text-xs text-slate-500">{timeFormatted}</span>}
+    </div>
+  );
+};
+
 interface PersonalLedgerTabProps {
   selectedCompanyIds: string[];
   formatCurrency: (amount: number) => string;
@@ -680,7 +713,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                 }
                 exportPersonalLedgerCSV(
                   filteredRows.map(r => ({
-                    date: r.date ? format(new Date(r.date), 'dd/MM/yyyy HH:mm:ss') : '',
+                    date: formatExportDate(r.date),
                     narration: r.description,
                     referenceNo: r.entryNumber || 'Auto',
                     debit: r.debit || 0,
@@ -787,10 +820,7 @@ function PersonalLedgerTabComponent({ selectedCompanyIds, formatCurrency, format
                       }`}
                     >
                       <TableCell className="text-sm py-2 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span>{new Date(row.date).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                          <span className="text-xs text-slate-500">{new Date(row.date).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
-                        </div>
+                        {renderDateTime(row.date)}
                       </TableCell>
                       <TableCell className="text-sm font-mono text-slate-700 py-2">
                         {row.entryNumber || '—'}

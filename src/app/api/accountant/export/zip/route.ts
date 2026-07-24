@@ -21,49 +21,19 @@ function formatIST(date: Date | null | undefined, formatStr: 'date' | 'time' | '
   const d = new Date(date);
   if (isNaN(d.getTime())) return '';
 
-  const options: Intl.DateTimeFormatOptions = {
-    timeZone: 'Asia/Kolkata',
-  };
+  const dateFormatted = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
+  const timeFormatted = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  const isDefaultTime = timeFormatted === '05:30:00' || timeFormatted === '00:00:00';
 
-  if (formatStr === 'date') {
-    options.year = 'numeric';
-    options.month = '2-digit';
-    options.day = '2-digit';
-    const parts = new Intl.DateTimeFormat('en-IN', options).formatToParts(d);
-    const day = parts.find(p => p.type === 'day')?.value;
-    const month = parts.find(p => p.type === 'month')?.value;
-    const year = parts.find(p => p.type === 'year')?.value;
-    return `${year}-${month}-${day}`;
+  if (formatStr === 'date' || (formatStr === 'datetime' && isDefaultTime)) {
+    return dateFormatted;
   }
 
   if (formatStr === 'time') {
-    options.hour = '2-digit';
-    options.minute = '2-digit';
-    options.second = '2-digit';
-    options.hour12 = false;
-    const parts = new Intl.DateTimeFormat('en-IN', options).formatToParts(d);
-    const hour = parts.find(p => p.type === 'hour')?.value;
-    const minute = parts.find(p => p.type === 'minute')?.value;
-    const second = parts.find(p => p.type === 'second')?.value;
-    return `${hour}:${minute}:${second}`;
+    return isDefaultTime ? '' : timeFormatted;
   }
 
-  // datetime
-  options.year = 'numeric';
-  options.month = '2-digit';
-  options.day = '2-digit';
-  options.hour = '2-digit';
-  options.minute = '2-digit';
-  options.second = '2-digit';
-  options.hour12 = false;
-  const parts = new Intl.DateTimeFormat('en-IN', options).formatToParts(d);
-  const day = parts.find(p => p.type === 'day')?.value;
-  const month = parts.find(p => p.type === 'month')?.value;
-  const year = parts.find(p => p.type === 'year')?.value;
-  const hour = parts.find(p => p.type === 'hour')?.value;
-  const minute = parts.find(p => p.type === 'minute')?.value;
-  const second = parts.find(p => p.type === 'second')?.value;
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+  return `${dateFormatted} ${timeFormatted}`;
 }
 
 /**

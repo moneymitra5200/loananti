@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { runAllAutoFixScanners } from '@/lib/auto-fix-scanner';
 
 export interface ReconciliationResult {
   companyId: string;
@@ -6,6 +7,7 @@ export interface ReconciliationResult {
   fixedJELines: number;
   updatedCoaCount: number;
   auditedLoansCount: number;
+  scanDetails?: string[];
   status: string;
 }
 
@@ -24,6 +26,9 @@ export async function runAutoReconciliation(companyId?: string) {
 
     for (const comp of companies) {
       const cId = comp.id;
+
+      // 0. Run auto-fix scanners (self-healing missing disbursements, EMI payments, bank/cash syncs)
+      const scanReport = await runAllAutoFixScanners(cId);
 
       // 1. Audit Loans & EMIs (Offline + Online)
       const offlineLoans = await db.offlineLoan.findMany({ where: { companyId: cId } });

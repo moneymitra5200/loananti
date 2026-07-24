@@ -9,7 +9,7 @@
  */
 
 import { db } from './db';
-import { ACCOUNT_CODES, DEFAULT_CHART_OF_ACCOUNTS } from './accounting-service';
+import { ACCOUNT_CODES, DEFAULT_CHART_OF_ACCOUNTS, AccountingService } from './accounting-service';
 
 // Account types as strings (not enum in schema)
 type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
@@ -78,6 +78,11 @@ export async function runAllAutoFixScanners(companyId: string): Promise<FullScan
     scans.push(loanDisbursementSync);
     totalIssuesFound += loanDisbursementSync.issuesFound;
     totalIssuesFixed += loanDisbursementSync.issuesFixed;
+
+    const emiPaymentSync = await scanAndFixEMIPayments(companyId);
+    scans.push(emiPaymentSync);
+    totalIssuesFound += emiPaymentSync.issuesFound;
+    totalIssuesFixed += emiPaymentSync.issuesFixed;
 
     return {
       success: true,
@@ -718,7 +723,7 @@ async function scanAndFixEquityBalance(companyId: string): Promise<ScanResult> {
 /**
  * SCANNER 5: Loan Disbursement Sync
  * Detects: Loan disbursements missing journal entries
- * Fixes: Creates missing journal entries
+ * Fixes: Creates missing journal entries automatically via AccountingService
  */
 async function scanAndFixLoanDisbursements(companyId: string): Promise<ScanResult> {
   const result: ScanResult = {
@@ -731,35 +736,127 @@ async function scanAndFixLoanDisbursements(companyId: string): Promise<ScanResul
   };
 
   try {
-    // Find disbursed loans
-    const disbursedLoans = await db.loanApplication.findMany({
+    const acct = new AccountingService(companyId);
+
+    // Find disbursed online loans
+    const onlineLoans = await db.loanApplication.findMany({
       where: {
         companyId,
-        status: { in: ['DISBURSED', 'ACTIVE'] },
-        disbursedAmount: { not: null }
-      }
+        status: { in: ['DISBURSED', 'ACTIVE', 'ACTIVE_INTEREST_ONLY', 'CLOSED'] },
+        disbursedAmount: { not: null, gt: 0 }
+      },
+      include: { customer: true }
     });
 
-    for (const loan of disbursedLoans) {
-      // Check if journal entry exists
+    for (const loan of onlineLoans) {
       const existingEntry = await db.journalEntry.findFirst({
         where: {
           companyId,
           referenceType: 'LOAN_DISBURSEMENT',
-          referenceId: loan.id
+          referenceId: loan.id,
+          isReversed: false
         }
       });
 
       if (!existingEntry && loan.disbursedAmount) {
         result.issuesFound++;
-        result.details.push(`Loan ${loan.applicationNo}: Missing journal entry for ₹${loan.disbursedAmount}`);
-        // Note: Creating journal entries requires AccountingService - skip for now
-        result.details.push(`Loan ${loan.applicationNo}: Requires manual fix or re-disbursement`);
+        try {
+          await acct.recordLoanDisbursement({
+            loanId: loan.id,
+            customerId: loan.customerId || '',
+            customerName: loan.customer?.name || 'Customer',
+            amount: loan.disbursedAmount,
+            disbursementDate: loan.disbursedAt || loan.createdAt,
+            createdById: (loan as any).userId || (loan as any).createdById || 'SYSTEM',
+            paymentMode: 'BANK_TRANSFER',
+          });
+          result.issuesFixed++;
+          result.details.push(`Loan ${loan.applicationNo}: Auto-created missing disbursement JE for ₹${loan.disbursedAmount}`);
+        } catch (err: any) {
+          result.details.push(`Loan ${loan.applicationNo}: Error auto-creating JE: ${err.message}`);
+        }
       }
     }
 
     if (result.issuesFound === 0) {
-      result.details.push('All loan disbursements have journal entries');
+      result.details.push('All loan disbursements have valid journal entries');
+    }
+
+  } catch (error) {
+    result.details.push(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  return result;
+}
+
+/**
+ * SCANNER 6: EMI Payment Sync
+ * Detects: Paid EMI schedules missing journal entries
+ * Fixes: Creates missing journal entries for paid EMIs
+ */
+async function scanAndFixEMIPayments(companyId: string): Promise<ScanResult> {
+  const result: ScanResult = {
+    scanName: 'EMI Payment Sync',
+    description: 'Creates missing journal entries for paid EMI schedules',
+    issuesFound: 0,
+    issuesFixed: 0,
+    details: [],
+    timestamp: new Date()
+  };
+
+  try {
+    const acct = new AccountingService(companyId);
+
+    // Find paid online EMI schedules
+    const paidEMIs = await db.eMISchedule.findMany({
+      where: {
+        paymentStatus: 'PAID',
+        paidAmount: { gt: 0 },
+        loanApplication: { companyId }
+      },
+      include: {
+        loanApplication: {
+          include: { customer: true }
+        }
+      }
+    });
+
+    for (const emi of paidEMIs) {
+      const existingEntry = await db.journalEntry.findFirst({
+        where: {
+          companyId,
+          referenceType: { in: ['EMI_PAYMENT', 'MIRROR_EMI_PAYMENT'] },
+          referenceId: emi.id,
+          isReversed: false
+        }
+      });
+
+      if (!existingEntry) {
+        result.issuesFound++;
+        try {
+          await acct.recordEMIPayment({
+            loanId: emi.loanApplicationId,
+            customerId: emi.loanApplication.customerId || '',
+            customerName: emi.loanApplication.customer?.name || 'Customer',
+            paymentId: emi.id,
+            totalAmount: emi.paidAmount || emi.totalAmount,
+            principalComponent: emi.paidPrincipal || emi.principalAmount,
+            interestComponent: emi.paidInterest || emi.interestAmount,
+            penaltyComponent: (emi as any).paidPenalty || (emi as any).penaltyAmount || 0,
+            paymentDate: emi.paidDate || new Date(),
+            createdById: (emi.loanApplication as any).userId || (emi.loanApplication as any).createdById || 'SYSTEM',
+            paymentMode: (emi as any).paymentMode || 'CASH',
+          });
+          result.issuesFixed++;
+          result.details.push(`EMI Schedule ${emi.installmentNumber} (${emi.loanApplication.applicationNo}): Auto-created missing payment JE for ₹${emi.paidAmount}`);
+        } catch (err: any) {
+          result.details.push(`EMI Schedule ${emi.installmentNumber}: Error auto-creating payment JE: ${err.message}`);
+        }
+      }
+    }
+
+    if (result.issuesFound === 0) {
+      result.details.push('All paid EMIs have valid journal entries');
     }
 
   } catch (error) {
