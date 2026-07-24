@@ -2383,6 +2383,30 @@ function BalanceSheetSection({
     toast.success('Balance Sheet exported');
   };
 
+  const [reconciling, setReconciling] = useState(false);
+
+  const handleSuperReconcile = async () => {
+    setReconciling(true);
+    try {
+      const res = await fetch('/api/accounting/reconcile-auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: selectedCompanyId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`A to Z Accounting Reconciled! Audited ${data.results?.[0]?.auditedLoansCount || 0} loans. System is 100% balanced.`);
+        loadBalanceSheet();
+      } else {
+        toast.error('Reconciliation failed');
+      }
+    } catch (e) {
+      toast.error('Reconciliation error');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -2390,7 +2414,17 @@ function BalanceSheetSection({
           <FileSpreadsheet className="h-5 w-5" />
           Balance Sheet
         </h2>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
+          <Button
+            variant="default"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+            onClick={handleSuperReconcile}
+            disabled={reconciling}
+          >
+            {reconciling ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wrench className="h-4 w-4 mr-2" />}
+            Fix & Reconcile All Loans
+          </Button>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">As of:</span>
             <Input
