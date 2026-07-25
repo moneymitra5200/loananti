@@ -78,7 +78,8 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMIItem | null>(null);
   const [selectedType, setSelectedType] = useState<'online' | 'offline'>('online');
-  const [dueFilterTab, setDueFilterTab] = useState<'ALL' | 'PENDING' | 'OVERDUE' | 'PAID'>('PENDING');
+  const [dueFilterTab, setDueFilterTab] = useState<'ALL' | 'PENDING' | 'OVERDUE' | 'PAID'>('OVERDUE');
+  const [historicalOverdue, setHistoricalOverdue] = useState<Array<EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }>>([]);
 
   useEffect(() => {
     fetchCalendar();
@@ -90,11 +91,37 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
       
-      const res = await fetch(`/api/emi-reminder?action=calendar&userId=${userId}&userRole=${userRole}&year=${year}&month=${month}`);
-      if (res.ok) {
-        const data = await res.json();
+      const [calRes, overdueRes] = await Promise.all([
+        fetch(`/api/emi-reminder?action=calendar&userId=${userId}&userRole=${userRole}&year=${year}&month=${month}`),
+        fetch(`/api/emi-reminder?action=today-tomorrow&userId=${userId}&userRole=${userRole}`)
+      ]);
+
+      if (calRes.ok) {
+        const data = await calRes.json();
         if (data.success) {
           setCalendar(data.calendar);
+        }
+      }
+
+      if (overdueRes.ok) {
+        const oData = await overdueRes.json();
+        if (oData.success && oData.overdueEmis) {
+          const list: Array<EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }> = [];
+          oData.overdueEmis.online?.forEach((e: any) => {
+            list.push({
+              ...e,
+              loanTypeLabel: 'online',
+              dateStr: e.dueDate ? new Date(e.dueDate).toISOString().split('T')[0] : ''
+            });
+          });
+          oData.overdueEmis.offline?.forEach((e: any) => {
+            list.push({
+              ...e,
+              loanTypeLabel: 'offline',
+              dateStr: e.dueDate ? new Date(e.dueDate).toISOString().split('T')[0] : ''
+            });
+          });
+          setHistoricalOverdue(list);
         }
       }
     } catch (error) {
@@ -792,7 +819,13 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             });
 
             const pendingList = allEmisInMonth.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED');
-            const overdueList = pendingList.filter(e => e.dateStr < todayStr);
+            
+            // Combine current month overdue + historical past overdue EMIs across all previous months!
+            const overdueMap = new Map<string, EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }>();
+            historicalOverdue.forEach(e => overdueMap.set(`${e.loanTypeLabel}-${e.id}`, e));
+            pendingList.filter(e => e.dateStr < todayStr).forEach(e => overdueMap.set(`${e.loanTypeLabel}-${e.id}`, e));
+
+            const overdueList = Array.from(overdueMap.values()).sort((a, b) => (a.dateStr > b.dateStr ? 1 : -1));
             const paidList = allEmisInMonth.filter(e => e.paymentStatus === 'PAID');
 
             let displayList = allEmisInMonth;
@@ -808,11 +841,20 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                       <Calendar className="h-5 w-5 text-purple-600" />
                       All Due EMIs ({getMonthName(currentDate)})
                     </h3>
-                    <p className="text-xs text-slate-500">Quickly view and collect payments for all EMIs in this month</p>
+                    <p className="text-xs text-slate-500">Quickly view and collect payments for all EMIs</p>
                   </div>
 
                   {/* Filter Tabs */}
                   <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setDueFilterTab('OVERDUE')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                        dueFilterTab === 'OVERDUE' ? 'bg-red-600 text-white shadow-2xs animate-pulse' : 'text-red-700 bg-red-50 hover:bg-red-100'
+                      }`}
+                    >
+                      🚨 All Past Overdue ({overdueList.length})
+                    </button>
                     <button
                       type="button"
                       onClick={() => setDueFilterTab('PENDING')}
@@ -821,15 +863,6 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                       }`}
                     >
                       Pending ({pendingList.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDueFilterTab('OVERDUE')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        dueFilterTab === 'OVERDUE' ? 'bg-red-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Overdue ({overdueList.length})
                     </button>
                     <button
                       type="button"
@@ -847,7 +880,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                         dueFilterTab === 'ALL' ? 'bg-purple-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      All ({allEmisInMonth.length})
+                      All Month ({allEmisInMonth.length})
                     </button>
                   </div>
                 </div>
