@@ -31,6 +31,14 @@ interface EMIItem {
   paidPrincipal: number;
   paidInterest: number;
   outstandingPrincipal: number;
+  paidDate?: string;
+  paymentMode?: string;
+  paymentReference?: string;
+  penaltyAmount?: number;
+  penaltyPaid?: number;
+  waivedAmount?: number;
+  updatedAt?: string;
+  daysOverdue?: number;
   loanApplicationId?: string;
   offlineLoanId?: string;
   loanApplication?: {
@@ -78,8 +86,17 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMIItem | null>(null);
   const [selectedType, setSelectedType] = useState<'online' | 'offline'>('online');
-  const [dueFilterTab, setDueFilterTab] = useState<'ALL' | 'PENDING' | 'OVERDUE' | 'PAID'>('OVERDUE');
+  const [dueFilterTab, setDueFilterTab] = useState<'ALL' | 'PENDING' | 'OVERDUE' | 'PAID'>('PENDING');
   const [historicalOverdue, setHistoricalOverdue] = useState<Array<EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }>>([]);
+
+  // View Paid EMI details modal state
+  const [viewPaidModalOpen, setViewPaidModalOpen] = useState(false);
+  const [selectedPaidEmi, setSelectedPaidEmi] = useState<(EMIItem & { loanTypeLabel?: string }) | null>(null);
+
+  const handleViewPaidEmi = (emi: EMIItem, type: 'online' | 'offline') => {
+    setSelectedPaidEmi({ ...emi, loanTypeLabel: type });
+    setViewPaidModalOpen(true);
+  };
 
   useEffect(() => {
     fetchCalendar();
@@ -808,7 +825,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             </div>
           </div>
 
-          {/* Due EMIs List Section at Bottom of Calendar */}
+          {/* Due EMIs List Section & Standalone Past Overdue Section at Bottom of Calendar */}
           {(() => {
             const todayStr = new Date().toISOString().split('T')[0];
             const allEmisInMonth: Array<EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }> = [];
@@ -830,123 +847,222 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
             let displayList = allEmisInMonth;
             if (dueFilterTab === 'PENDING') displayList = pendingList;
-            if (dueFilterTab === 'OVERDUE') displayList = overdueList;
             if (dueFilterTab === 'PAID') displayList = paidList;
+            if (dueFilterTab === 'ALL') displayList = allEmisInMonth;
 
             return (
-              <div className="mt-8 pt-6 border-t border-slate-200">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                      <Calendar className="h-5 w-5 text-purple-600" />
-                      All Due EMIs ({getMonthName(currentDate)})
-                    </h3>
-                    <p className="text-xs text-slate-500">Quickly view and collect payments for all EMIs</p>
+              <div className="mt-8 space-y-8">
+                {/* ── SECTION 1: Current Month Due EMIs Breakdown ───────────────────────── */}
+                <div className="pt-6 border-t border-slate-200">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <Calendar className="h-5 w-5 text-purple-600" />
+                        All Due EMIs ({getMonthName(currentDate)})
+                      </h3>
+                      <p className="text-xs text-slate-500">Quickly view and collect payments for all EMIs in this month</p>
+                    </div>
+
+                    {/* Filter Tabs for Current Month */}
+                    <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setDueFilterTab('PENDING')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          dueFilterTab === 'PENDING' ? 'bg-amber-500 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Pending ({pendingList.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDueFilterTab('PAID')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          dueFilterTab === 'PAID' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Paid ({paidList.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDueFilterTab('ALL')}
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          dueFilterTab === 'ALL' ? 'bg-purple-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        All Month ({allEmisInMonth.length})
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Filter Tabs */}
-                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => setDueFilterTab('OVERDUE')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                        dueFilterTab === 'OVERDUE' ? 'bg-red-600 text-white shadow-2xs animate-pulse' : 'text-red-700 bg-red-50 hover:bg-red-100'
-                      }`}
-                    >
-                      🚨 All Past Overdue ({overdueList.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDueFilterTab('PENDING')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        dueFilterTab === 'PENDING' ? 'bg-amber-500 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Pending ({pendingList.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDueFilterTab('PAID')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        dueFilterTab === 'PAID' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      Paid ({paidList.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDueFilterTab('ALL')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                        dueFilterTab === 'ALL' ? 'bg-purple-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      All Month ({allEmisInMonth.length})
-                    </button>
-                  </div>
+                  {displayList.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100 text-slate-500 text-sm">
+                      No EMIs matching "{dueFilterTab.toLowerCase()}" in this month.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[420px] overflow-y-auto pr-1">
+                      {displayList.map((emi) => {
+                        const customerName = emi.loanTypeLabel === 'offline'
+                          ? (emi.offlineLoan?.customerName || 'N/A')
+                          : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+                        const loanNo = emi.loanTypeLabel === 'offline'
+                          ? (emi.offlineLoan?.loanNumber || 'N/A')
+                          : (emi.loanApplication?.applicationNo || 'N/A');
+
+                        return (
+                          <div key={`${emi.loanTypeLabel}-${emi.id}`} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs hover:border-purple-300 transition-all flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  emi.loanTypeLabel === 'offline' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+                                }`}>
+                                  {emi.loanTypeLabel.toUpperCase()} • {loanNo}
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  emi.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : emi.dateStr < todayStr
+                                    ? 'bg-red-100 text-red-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {emi.paymentStatus === 'PAID' ? 'PAID' : emi.dateStr < todayStr ? 'OVERDUE' : 'DUE'}
+                                </span>
+                              </div>
+
+                              <p className="text-sm font-bold text-slate-900 truncate">{customerName}</p>
+                              <p className="text-xs text-slate-500 flex items-center justify-between mt-1">
+                                <span>Due: <strong className="text-slate-700">{formatDate(emi.dueDate || emi.dateStr)}</strong></span>
+                                <span>Inst. #{emi.installmentNumber}</span>
+                              </p>
+                            </div>
+
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                              <div>
+                                <p className="text-[10px] text-slate-400 font-medium">EMI Amount</p>
+                                <p className="text-base font-extrabold text-slate-900">{formatCurrency(emi.totalAmount)}</p>
+                              </div>
+
+                              {emi.paymentStatus !== 'PAID' ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handlePayEmi(emi, emi.loanTypeLabel)}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs font-bold px-3 rounded-lg shadow-2xs gap-1 cursor-pointer"
+                                >
+                                  <CreditCard className="h-3.5 w-3.5" /> Pay
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleViewPaidEmi(emi, emi.loanTypeLabel)}
+                                  className="border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 h-8 text-xs font-bold px-3 rounded-lg shadow-2xs gap-1 cursor-pointer"
+                                >
+                                  <Eye className="h-3.5 w-3.5" /> View Details
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
-                {displayList.length === 0 ? (
-                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100 text-slate-500 text-sm">
-                    No EMIs matching "{dueFilterTab.toLowerCase()}" in this month.
+                {/* ── SECTION 2: Standalone All Past Overdue EMIs Section ───────────────── */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-red-50/90 via-orange-50/50 to-white border-2 border-red-200/80 shadow-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-red-200/60">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-red-600 animate-pulse" />
+                        <h3 className="text-lg font-extrabold text-red-950 flex items-center gap-2">
+                          🚨 All Past Overdue EMIs (All Months)
+                        </h3>
+                        <span className="text-xs font-black bg-red-600 text-white px-2.5 py-0.5 rounded-full shadow-2xs">
+                          {overdueList.length}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-red-700 mt-1">
+                        All uncollected past due EMIs across all historical billing periods requiring urgent collection
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
-                    {displayList.map((emi) => {
-                      const customerName = emi.loanTypeLabel === 'offline'
-                        ? (emi.offlineLoan?.customerName || 'N/A')
-                        : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
-                      const loanNo = emi.loanTypeLabel === 'offline'
-                        ? (emi.offlineLoan?.loanNumber || 'N/A')
-                        : (emi.loanApplication?.applicationNo || 'N/A');
 
-                      return (
-                        <div key={`${emi.loanTypeLabel}-${emi.id}`} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs hover:border-purple-300 transition-all flex flex-col justify-between">
-                          <div>
-                            <div className="flex items-center justify-between gap-2 mb-2">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                emi.loanTypeLabel === 'offline' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-200'
-                              }`}>
-                                {emi.loanTypeLabel.toUpperCase()} • {loanNo}
-                              </span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                emi.paymentStatus === 'PAID'
-                                  ? 'bg-emerald-100 text-emerald-800'
-                                  : emi.dateStr < todayStr
-                                  ? 'bg-red-100 text-red-800'
-                                  : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                {emi.paymentStatus === 'PAID' ? 'PAID' : emi.dateStr < todayStr ? 'OVERDUE' : 'DUE'}
-                              </span>
-                            </div>
+                  {overdueList.length === 0 ? (
+                    <div className="p-6 text-center bg-white/80 rounded-xl border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center justify-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-emerald-600" />
+                      🎉 Excellent! No past overdue EMIs across all months.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
+                      {overdueList.map((emi) => {
+                        const customerName = emi.loanTypeLabel === 'offline'
+                          ? (emi.offlineLoan?.customerName || 'N/A')
+                          : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+                        const loanNo = emi.loanTypeLabel === 'offline'
+                          ? (emi.offlineLoan?.loanNumber || 'N/A')
+                          : (emi.loanApplication?.applicationNo || 'N/A');
 
-                            <p className="text-sm font-bold text-slate-900 truncate">{customerName}</p>
-                            <p className="text-xs text-slate-500 flex items-center justify-between mt-1">
-                              <span>Due: <strong className="text-slate-700">{formatDate(emi.dueDate || emi.dateStr)}</strong></span>
-                              <span>Inst. #{emi.installmentNumber}</span>
-                            </p>
-                          </div>
+                        return (
+                          <div
+                            key={`overdue-${emi.loanTypeLabel}-${emi.id}`}
+                            className="bg-white p-4 rounded-xl border-2 border-red-300 shadow-xs hover:border-red-500 transition-all flex flex-col justify-between relative overflow-hidden"
+                          >
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 to-amber-500" />
 
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
                             <div>
-                              <p className="text-[10px] text-slate-400 font-medium">EMI Amount</p>
-                              <p className="text-base font-extrabold text-slate-900">{formatCurrency(emi.totalAmount)}</p>
+                              <div className="flex items-center justify-between gap-2 mb-2">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  emi.loanTypeLabel === 'offline' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+                                }`}>
+                                  {emi.loanTypeLabel.toUpperCase()} • {loanNo}
+                                </span>
+                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 animate-pulse">
+                                  🔴 OVERDUE
+                                </span>
+                              </div>
+
+                              <p className="text-sm font-extrabold text-slate-900 truncate">{customerName}</p>
+                              
+                              <div className="text-xs font-semibold text-slate-600 space-y-1 mt-1.5 bg-red-50/70 p-2 rounded-lg border border-red-100">
+                                <div className="flex justify-between">
+                                  <span className="text-slate-500">Original Due Date:</span>
+                                  <span className="font-bold text-red-700">{formatDate(emi.dueDate || emi.dateStr)}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-slate-500">Installment:</span>
+                                  <span className="font-bold text-slate-800">#{emi.installmentNumber}</span>
+                                </div>
+                                {(emi as any).daysOverdue !== undefined && (emi as any).daysOverdue > 0 && (
+                                  <div className="flex justify-between text-red-600 font-bold">
+                                    <span>Days Overdue:</span>
+                                    <span>{(emi as any).daysOverdue} days</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
 
-                            {emi.paymentStatus !== 'PAID' && (
+                            <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                              <div>
+                                <p className="text-[10px] text-slate-400 font-bold">Total Amount Due</p>
+                                <p className="text-base font-black text-red-700">
+                                  {formatCurrency(emi.totalAmount + ((emi as any).penaltyAmount || 0))}
+                                </p>
+                              </div>
+
                               <Button
                                 size="sm"
                                 onClick={() => handlePayEmi(emi, emi.loanTypeLabel)}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs font-bold px-3 rounded-lg shadow-2xs gap-1 cursor-pointer"
+                                className="bg-red-600 hover:bg-red-700 text-white h-8 text-xs font-extrabold px-3 rounded-lg shadow-2xs gap-1 cursor-pointer animate-bounce"
                               >
-                                <CreditCard className="h-3.5 w-3.5" /> Pay
+                                <CreditCard className="h-3.5 w-3.5" /> Collect Payment
                               </Button>
-                            )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -1057,6 +1173,151 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
         userRole={userRole}
         onPaymentComplete={handlePaymentComplete}
       />
+
+      {/* Paid EMI Details Modal */}
+      <Dialog open={viewPaidModalOpen} onOpenChange={setViewPaidModalOpen}>
+        <DialogContent className="sm:max-w-lg p-6 bg-white rounded-2xl border-0 shadow-2xl">
+          {selectedPaidEmi && (() => {
+            const isOffline = selectedPaidEmi.loanTypeLabel === 'offline';
+            const customerName = isOffline
+              ? (selectedPaidEmi.offlineLoan?.customerName || 'N/A')
+              : (`${selectedPaidEmi.loanApplication?.firstName || ''} ${selectedPaidEmi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+            const customerPhone = isOffline
+              ? (selectedPaidEmi.offlineLoan?.customerPhone || 'N/A')
+              : (selectedPaidEmi.loanApplication?.phone || 'N/A');
+            const loanNo = isOffline
+              ? (selectedPaidEmi.offlineLoan?.loanNumber || 'N/A')
+              : (selectedPaidEmi.loanApplication?.applicationNo || 'N/A');
+
+            const dueDate = new Date(selectedPaidEmi.dueDate);
+            const paidDate = selectedPaidEmi.paidDate ? new Date(selectedPaidEmi.paidDate) : new Date(selectedPaidEmi.updatedAt || new Date());
+
+            const isPaidOnTime = paidDate <= dueDate;
+            const daysDiff = Math.floor((paidDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+
+            const paidPrincipal = selectedPaidEmi.paidPrincipal || selectedPaidEmi.principalAmount || 0;
+            const paidInterest = selectedPaidEmi.paidInterest || selectedPaidEmi.interestAmount || 0;
+            const penaltyPaid = selectedPaidEmi.penaltyPaid || selectedPaidEmi.penaltyAmount || 0;
+            const totalPaid = selectedPaidEmi.paidAmount || (paidPrincipal + paidInterest + penaltyPaid);
+
+            return (
+              <div className="space-y-4">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-black text-lg">
+                      ✓
+                    </div>
+                    <div>
+                      <DialogTitle className="text-lg font-bold text-gray-900">EMI Payment Details</DialogTitle>
+                      <p className="text-xs text-emerald-600 font-bold flex items-center gap-1">
+                        <CheckCircle className="h-3.5 w-3.5" /> Verified Receipt • Fully Paid
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Customer & Loan Card */}
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                        {isOffline ? 'OFFLINE LOAN' : 'ONLINE LOAN'} • {loanNo}
+                      </span>
+                      <h4 className="text-base font-bold text-slate-900 mt-1">{customerName}</h4>
+                      <p className="text-xs text-slate-500 font-medium">Phone: {customerPhone}</p>
+                    </div>
+                    <span className="text-xs font-bold bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700">
+                      Installment #{selectedPaidEmi.installmentNumber}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Timing & Advantage Status */}
+                <div className={`p-3 rounded-xl border ${isPaidOnTime ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      {isPaidOnTime
+                        ? '🟢 Paid On Time / In Advance (Early Advantage)'
+                        : `🟡 Paid After Due Date (Overdue by ${daysDiff > 0 ? daysDiff : 1} days)`}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs pt-2 border-t border-black/10">
+                    <div>
+                      <span className="text-slate-500 font-medium block">Scheduled Due Date:</span>
+                      <span className="font-bold">{formatDate(selectedPaidEmi.dueDate)}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 font-medium block">Payment Date & Time:</span>
+                      <span className="font-bold">{paidDate.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment Mode & Recorded By */}
+                <div className="grid grid-cols-2 gap-3 text-xs bg-white p-3 rounded-xl border border-gray-200">
+                  <div>
+                    <span className="text-gray-500 font-medium block">Payment Mode:</span>
+                    <span className="font-extrabold text-gray-900 uppercase">{selectedPaidEmi.paymentMode || 'CASH / DIRECT'}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500 font-medium block">Recorded By:</span>
+                    <span className="font-bold text-gray-800">Cashier / Staff Agent</span>
+                  </div>
+                  {selectedPaidEmi.paymentReference && (
+                    <div className="col-span-2 pt-1 border-t border-gray-100">
+                      <span className="text-gray-500 font-medium block">Reference / UTR:</span>
+                      <span className="font-mono text-gray-900 font-bold">{selectedPaidEmi.paymentReference}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Financial Breakdown Table */}
+                <div className="bg-slate-900 text-white p-4 rounded-xl space-y-2">
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Financial Breakdown</p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Paid Principal:</span>
+                      <span className="font-semibold text-white">{formatCurrency(paidPrincipal)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-300">
+                      <span>Paid Interest:</span>
+                      <span className="font-semibold text-white">{formatCurrency(paidInterest)}</span>
+                    </div>
+                    {penaltyPaid > 0 && (
+                      <div className="flex justify-between text-amber-400 font-bold">
+                        <span>Penalty Paid:</span>
+                        <span>{formatCurrency(penaltyPaid)}</span>
+                      </div>
+                    )}
+                    {(selectedPaidEmi.waivedAmount || 0) > 0 && (
+                      <div className="flex justify-between text-blue-400 font-bold">
+                        <span>Waived Amount:</span>
+                        <span>{formatCurrency(selectedPaidEmi.waivedAmount || 0)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between pt-2 border-t border-slate-700 text-emerald-400 font-extrabold text-sm">
+                      <span>Total Paid Amount:</span>
+                      <span>{formatCurrency(totalPaid)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="flex justify-end pt-2">
+                  <Button
+                    onClick={() => setViewPaidModalOpen(false)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-5 h-9 rounded-xl cursor-pointer"
+                  >
+                    Close Receipt
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
