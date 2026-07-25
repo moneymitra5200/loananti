@@ -109,10 +109,9 @@ export default function DashboardAlertPopup() {
     const alreadyShown = sessionStorage.getItem(SESSION_KEY);
     if (alreadyShown === user.id) return;
 
-    fetchAlerts();
-    // Open after a short delay so the dashboard renders first
-    const t = setTimeout(() => setOpen(true), 1200);
-    return () => clearTimeout(t);
+    fetchAlerts().then(() => {
+      setOpen(true);
+    });
   }, [user?.id, fetchAlerts]);
 
   const handleClose = () => {

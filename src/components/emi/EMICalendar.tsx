@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   ChevronLeft, ChevronRight, Calendar, IndianRupee, CheckCircle,
-  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye, Download
+  Clock, AlertTriangle, User, Phone, Wallet, Building2, Filter, Eye, Download, CreditCard
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import EMIPaymentDialog from './EMIPaymentDialog';
@@ -77,7 +77,8 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
   // Payment dialog state
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [selectedEmi, setSelectedEmi] = useState<EMIItem | null>(null);
-  const [selectedType, setSelectedType] = useState<'online' | 'offline'>('offline');
+  const [selectedType, setSelectedType] = useState<'online' | 'offline'>('online');
+  const [dueFilterTab, setDueFilterTab] = useState<'ALL' | 'PENDING' | 'OVERDUE' | 'PAID'>('PENDING');
 
   useEffect(() => {
     fetchCalendar();
@@ -703,6 +704,14 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                 const hasPending = day.emis && day.emis.paid < day.emis.total && hasEmis;
                 const emiCount = hasEmis ? (day.emis!.online.length + day.emis!.offline.length) : 0;
 
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const dayDate = new Date(day.date);
+                dayDate.setHours(0, 0, 0, 0);
+
+                const isPast = dayDate < today;
+                const isOverdueUnpaid = isPast && hasPending;
+
                 return (
                   <motion.button
                     key={index}
@@ -713,12 +722,14 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                     className={`h-16 rounded-lg flex flex-col items-center justify-between p-1.5 relative transition-all border ${
                       !day.isCurrentMonth
                         ? 'text-gray-300 bg-gray-50/40 border-transparent'
+                        : isOverdueUnpaid
+                        ? 'bg-red-50 hover:bg-red-100 border-red-400 text-red-700 animate-pulse font-bold shadow-md cursor-pointer'
+                        : isPaid
+                        ? 'bg-emerald-50 hover:bg-emerald-100 border-emerald-300 text-emerald-800 font-bold shadow-2xs cursor-pointer'
                         : isToday(day.date)
-                        ? 'bg-purple-100 text-purple-700 font-bold border-purple-300 shadow-2xs'
+                        ? 'bg-purple-100 text-purple-700 font-bold border-purple-300 shadow-2xs cursor-pointer'
                         : hasEmis
-                        ? isPaid
-                          ? 'bg-green-50 hover:bg-green-100 border-green-200 cursor-pointer shadow-2xs'
-                          : 'bg-amber-50 hover:bg-amber-100 border-amber-200 cursor-pointer shadow-2xs'
+                        ? 'bg-amber-50 hover:bg-amber-100 border-amber-200 text-amber-800 cursor-pointer shadow-2xs'
                         : 'bg-white hover:bg-gray-50 border-gray-100'
                     }`}
                   >
@@ -732,7 +743,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                           <div className="w-1.5 h-1.5 rounded-full bg-purple-500" title="Offline Loan EMI" />
                         )}
                         <span className={`text-[10px] font-bold ${
-                          isPaid ? 'text-green-700' : 'text-amber-700'
+                          isOverdueUnpaid ? 'text-red-700 font-extrabold' : isPaid ? 'text-emerald-700' : 'text-amber-700'
                         }`}>
                           {emiCount} {emiCount === 1 ? 'EMI' : 'EMIs'}
                         </span>
@@ -757,14 +768,155 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               <span className="text-xs text-gray-500">Offline Loan</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-green-50 border border-green-200" />
-              <span className="text-xs text-gray-500">Paid</span>
+              <div className="w-3 h-3 rounded bg-emerald-50 border border-emerald-300" />
+              <span className="text-xs text-emerald-700 font-medium">All Paid (Green Light)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded bg-red-100 border border-red-400 animate-pulse" />
+              <span className="text-xs text-red-700 font-medium">Overdue Unpaid (Red Blink)</span>
             </div>
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded bg-amber-50 border border-amber-200" />
-              <span className="text-xs text-gray-500">Pending</span>
+              <span className="text-xs text-gray-500">Pending Due</span>
             </div>
           </div>
+
+          {/* Due EMIs List Section at Bottom of Calendar */}
+          {(() => {
+            const todayStr = new Date().toISOString().split('T')[0];
+            const allEmisInMonth: Array<EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }> = [];
+
+            calendar.forEach(day => {
+              day.offline.forEach(emi => allEmisInMonth.push({ ...emi, loanTypeLabel: 'offline', dateStr: day.date }));
+              day.online.forEach(emi => allEmisInMonth.push({ ...emi, loanTypeLabel: 'online', dateStr: day.date }));
+            });
+
+            const pendingList = allEmisInMonth.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED');
+            const overdueList = pendingList.filter(e => e.dateStr < todayStr);
+            const paidList = allEmisInMonth.filter(e => e.paymentStatus === 'PAID');
+
+            let displayList = allEmisInMonth;
+            if (dueFilterTab === 'PENDING') displayList = pendingList;
+            if (dueFilterTab === 'OVERDUE') displayList = overdueList;
+            if (dueFilterTab === 'PAID') displayList = paidList;
+
+            return (
+              <div className="mt-8 pt-6 border-t border-slate-200">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-purple-600" />
+                      All Due EMIs ({getMonthName(currentDate)})
+                    </h3>
+                    <p className="text-xs text-slate-500">Quickly view and collect payments for all EMIs in this month</p>
+                  </div>
+
+                  {/* Filter Tabs */}
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setDueFilterTab('PENDING')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        dueFilterTab === 'PENDING' ? 'bg-amber-500 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Pending ({pendingList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDueFilterTab('OVERDUE')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        dueFilterTab === 'OVERDUE' ? 'bg-red-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Overdue ({overdueList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDueFilterTab('PAID')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        dueFilterTab === 'PAID' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Paid ({paidList.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDueFilterTab('ALL')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        dueFilterTab === 'ALL' ? 'bg-purple-600 text-white shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      All ({allEmisInMonth.length})
+                    </button>
+                  </div>
+                </div>
+
+                {displayList.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 rounded-xl border border-slate-100 text-slate-500 text-sm">
+                    No EMIs matching "{dueFilterTab.toLowerCase()}" in this month.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 max-h-[500px] overflow-y-auto pr-1">
+                    {displayList.map((emi) => {
+                      const customerName = emi.loanTypeLabel === 'offline'
+                        ? (emi.offlineLoan?.customerName || 'N/A')
+                        : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+                      const loanNo = emi.loanTypeLabel === 'offline'
+                        ? (emi.offlineLoan?.loanNumber || 'N/A')
+                        : (emi.loanApplication?.applicationNo || 'N/A');
+
+                      return (
+                        <div key={`${emi.loanTypeLabel}-${emi.id}`} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs hover:border-purple-300 transition-all flex flex-col justify-between">
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                emi.loanTypeLabel === 'offline' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+                              }`}>
+                                {emi.loanTypeLabel.toUpperCase()} • {loanNo}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                emi.paymentStatus === 'PAID'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : emi.dateStr < todayStr
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {emi.paymentStatus === 'PAID' ? 'PAID' : emi.dateStr < todayStr ? 'OVERDUE' : 'DUE'}
+                              </span>
+                            </div>
+
+                            <p className="text-sm font-bold text-slate-900 truncate">{customerName}</p>
+                            <p className="text-xs text-slate-500 flex items-center justify-between mt-1">
+                              <span>Due: <strong className="text-slate-700">{formatDate(emi.dueDate || emi.dateStr)}</strong></span>
+                              <span>Inst. #{emi.installmentNumber}</span>
+                            </p>
+                          </div>
+
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                            <div>
+                              <p className="text-[10px] text-slate-400 font-medium">EMI Amount</p>
+                              <p className="text-base font-extrabold text-slate-900">{formatCurrency(emi.totalAmount)}</p>
+                            </div>
+
+                            {emi.paymentStatus !== 'PAID' && (
+                              <Button
+                                size="sm"
+                                onClick={() => handlePayEmi(emi, emi.loanTypeLabel)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 text-xs font-bold px-3 rounded-lg shadow-2xs gap-1 cursor-pointer"
+                              >
+                                <CreditCard className="h-3.5 w-3.5" /> Pay
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
 
         {/* Day Detail Dialog */}

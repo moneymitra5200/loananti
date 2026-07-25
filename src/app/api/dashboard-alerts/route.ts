@@ -1,159 +1,112 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-export async function GET(request: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const dateStr = searchParams.get('date') || new Date().toISOString().split('T')[0];
-    const agentId = searchParams.get('agentId') || undefined;
-    const cashierId = searchParams.get('cashierId') || undefined;
+    const { searchParams } = new URL(req.url);
+    const dateParam = searchParams.get('date');
 
-    const dayStart = new Date(`${dateStr}T00:00:00.000Z`);
-    const dayEnd   = new Date(`${dateStr}T23:59:59.999Z`);
-    // Tomorrow window
-    const tmrStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    const tmrEnd   = new Date(dayEnd.getTime()   + 24 * 60 * 60 * 1000);
+    const nowIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+    const todayStr = dateParam || nowIST.toISOString().split('T')[0];
 
-    // Get all online mirror loan IDs to exclude them
-    const mirrorMappings = await db.mirrorLoanMapping.findMany({
-      where: { mirrorLoanId: { not: null } },
-      select: { mirrorLoanId: true }
-    });
-    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+    const todayStart = new Date(`${todayStr}T00:00:00+05:30`);
+    const todayEnd   = new Date(`${todayStr}T23:59:59+05:30`);
 
-    // Optionally scope EMI / loan queries to a specific agent
-    const onlineLoanWhere: any = agentId ? { 
-      OR: [
-        { currentHandlerId: agentId },
-        { sessionForm: { agentId: agentId } }
-      ]
-    } : {};
+    const tomorrowStart = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    const tomorrowEnd   = new Date(todayEnd.getTime() + 24 * 60 * 60 * 1000);
 
-    if (mirrorLoanIds.length > 0) {
-      onlineLoanWhere.id = { notIn: mirrorLoanIds };
-    }
+    const paidStatuses = ['PAID', 'INTEREST_ONLY_PAID', 'WAIVED'];
 
-    const offlineLoanWhere: any = agentId
-      ? { createdById: agentId, isMirrorLoan: false }
-      : { isMirrorLoan: false };
+    const [
+      onlineToday,
+      offlineToday,
+      onlineTomorrow,
+      offlineTomorrow,
+      onlineOverdue,
+      offlineOverdue,
+      pendingApps,
+      approvedApps
+    ] = await Promise.all([
+      // Today's online EMIs
+      db.eMISchedule.findMany({
+        where: {
+          dueDate: { gte: todayStart, lte: todayEnd },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // Today's offline EMIs
+      db.offlineLoanEMI.findMany({
+        where: {
+          dueDate: { gte: todayStart, lte: todayEnd },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // Tomorrow's online EMIs
+      db.eMISchedule.findMany({
+        where: {
+          dueDate: { gte: tomorrowStart, lte: tomorrowEnd },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // Tomorrow's offline EMIs
+      db.offlineLoanEMI.findMany({
+        where: {
+          dueDate: { gte: tomorrowStart, lte: tomorrowEnd },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // Overdue online EMIs
+      db.eMISchedule.findMany({
+        where: {
+          dueDate: { lt: todayStart },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // Overdue offline EMIs
+      db.offlineLoanEMI.findMany({
+        where: {
+          dueDate: { lt: todayStart },
+          paymentStatus: { notIn: paidStatuses as any },
+        },
+        select: { totalAmount: true, paidAmount: true }
+      }),
+      // New Applications pending review
+      db.loanApplication.count({
+        where: { status: 'SUBMITTED' }
+      }),
+      // Approved loans pending disbursement
+      db.loanApplication.count({
+        where: { status: 'FINAL_APPROVED' }
+      })
+    ]);
 
-    // Run all queries SEQUENTIALLY — prevents connection starvation on connection_limit=3
-    // Each query has its own try-catch for fault tolerance (same as Promise.allSettled)
-    const todayEMIs = await db.eMISchedule.findMany({
-      where: {
-        dueDate: { gte: dayStart, lte: dayEnd },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        loanApplication: onlineLoanWhere,
-      },
-      select: { totalAmount: true },
-    }).catch(() => [] as any[]);
+    const todayDueEMIs = onlineToday.length + offlineToday.length;
+    const todayDueAmount = [...onlineToday, ...offlineToday].reduce((sum, e) => sum + (e.totalAmount - (e.paidAmount || 0)), 0);
 
-    const overdueEMIs = await db.eMISchedule.findMany({
-      where: {
-        dueDate: { lt: dayStart },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-        loanApplication: onlineLoanWhere,
-      },
-      select: { totalAmount: true },
-    }).catch(() => [] as any[]);
+    const tomorrowDueEMIs = onlineTomorrow.length + offlineTomorrow.length;
+    const tomorrowDueAmount = [...onlineTomorrow, ...offlineTomorrow].reduce((sum, e) => sum + (e.totalAmount - (e.paidAmount || 0)), 0);
 
-    const newAppsOnline = await db.loanApplication.count({
-      where: {
-        createdAt: { gte: dayStart, lte: dayEnd },
-        status: { in: ['SUBMITTED', 'SA_APPROVED', 'COMPANY_APPROVED', 'AGENT_APPROVED_STAGE1'] as any[] },
-        ...onlineLoanWhere,
-      },
-    }).catch(() => 0);
-
-    const newAppsOffline = await db.offlineLoan.count({
-      where: {
-        createdAt: { gte: dayStart, lte: dayEnd },
-        status: 'PENDING_APPROVAL' as any,
-        ...offlineLoanWhere,
-      },
-    }).catch(() => 0);
-
-    const pendingDisbOnline = await db.loanApplication.count({
-      where: {
-        status: 'FINAL_APPROVED' as any,
-        ...onlineLoanWhere,
-      },
-    }).catch(() => 0);
-
-    const pendingDisbOffline = await db.offlineLoan.count({
-      where: { 
-        status: 'PENDING_APPROVAL' as any,
-        ...offlineLoanWhere,
-      },
-    }).catch(() => 0);
-
-    const offlineTodayEMIs = await db.offlineLoanEMI.findMany({
-      where: {
-        dueDate: { gte: dayStart, lte: dayEnd },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
-      },
-      select: { totalAmount: true, paidAmount: true },
-    }).catch(() => [] as any[]);
-
-    const offlineOverdueEMIs = await db.offlineLoanEMI.findMany({
-      where: {
-        dueDate: { lt: dayStart },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID', 'OVERDUE'] as any[] },
-        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
-      },
-      select: { totalAmount: true, paidAmount: true },
-    }).catch(() => [] as any[]);
-
-
-
-    // Tomorrow EMIs (online + offline)
-    const tomorrowOnlineEMIs = await db.eMISchedule.findMany({
-      where: {
-        dueDate: { gte: tmrStart, lte: tmrEnd },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        loanApplication: onlineLoanWhere,
-      },
-      select: { totalAmount: true },
-    }).catch(() => [] as any[]);
-
-    const tomorrowOfflineEMIs = await db.offlineLoanEMI.findMany({
-      where: {
-        dueDate: { gte: tmrStart, lte: tmrEnd },
-        paymentStatus: { in: ['PENDING', 'PARTIALLY_PAID'] as any[] },
-        offlineLoan: Object.keys(offlineLoanWhere).length > 0 ? offlineLoanWhere : undefined,
-      },
-      select: { totalAmount: true, paidAmount: true },
-    }).catch(() => [] as any[]);
+    const overdueEMIs = onlineOverdue.length + offlineOverdue.length;
+    const overdueAmount = [...onlineOverdue, ...offlineOverdue].reduce((sum, e) => sum + (e.totalAmount - (e.paidAmount || 0)), 0);
 
     return NextResponse.json({
-      success:              true,
-      date:                 dateStr,
-      todayDueEMIs:         todayEMIs.length + offlineTodayEMIs.length,
-      todayDueAmount:       todayEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
-                          + offlineTodayEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
-      tomorrowDueEMIs:      tomorrowOnlineEMIs.length + tomorrowOfflineEMIs.length,
-      tomorrowDueAmount:    tomorrowOnlineEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
-                          + tomorrowOfflineEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
-      overdueEMIs:          overdueEMIs.length + offlineOverdueEMIs.length,
-      overdueAmount:        overdueEMIs.reduce((s, e) => s + (e.totalAmount || 0), 0)
-                          + offlineOverdueEMIs.reduce((s, e) => s + ((e.totalAmount || 0) - (Number(e.paidAmount) || 0)), 0),
-      newApplications:      newAppsOnline + newAppsOffline,
-      pendingDisbursements: pendingDisbOnline + pendingDisbOffline,
+      success: true,
+      todayDueEMIs,
+      todayDueAmount,
+      tomorrowDueEMIs,
+      tomorrowDueAmount,
+      overdueEMIs,
+      overdueAmount,
+      newApplications: pendingApps,
+      pendingDisbursements: approvedApps
     });
-
-  } catch (error: any) {
-    console.error('[Dashboard Alerts] Fatal error:', error.message);
-    // Return zeros so the dashboard UI does not break / show a crash
-    return NextResponse.json({
-      success:              false,
-      error:                error.message,
-      todayDueEMIs:         0,
-      todayDueAmount:       0,
-      overdueEMIs:          0,
-      overdueAmount:        0,
-      newApplications:      0,
-      pendingDisbursements: 0,
-    });
+  } catch (error) {
+    console.error('Error fetching dashboard alerts:', error);
+    return NextResponse.json({ success: false, error: 'Failed to fetch dashboard alerts' }, { status: 500 });
   }
 }
