@@ -259,52 +259,13 @@ export function ParallelLoanView({
         </div>
 
         {/* Amount Info */}
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div className="flex-1">
             <p className="text-lg font-bold text-gray-900">{formatCurrency(getLoanAmount(loan))}</p>
             {loan.outstandingAmount !== undefined && (
-              <div className="mt-1 pt-1 border-t border-orange-200/60">
-                <p className="text-xs text-orange-600 font-semibold">
-                  Outstanding: {formatCurrency(loan.outstandingAmount)}
-                </p>
-                {(() => {
-                  const outstanding = loan.outstandingAmount || 0;
-                  let remP: number;
-                  let remI: number;
-
-                  if ((loan as any).remainingPrincipal !== undefined && (loan as any).remainingInterest !== undefined) {
-                    remP = (loan as any).remainingPrincipal;
-                    remI = (loan as any).remainingInterest;
-                  } else {
-                    const origPrincipal = getLoanAmount(loan) || 0;
-                    if (outstanding <= origPrincipal) {
-                      remP = outstanding;
-                      remI = 0;
-                    } else {
-                      remP = origPrincipal;
-                      remI = outstanding - origPrincipal;
-                    }
-                  }
-                  const totalRem = remP + remI;
-
-                  return (
-                    <div className="text-[11px] text-gray-600 font-medium mt-1 space-y-0.5 bg-white/90 p-1.5 rounded border border-gray-200 shadow-2xs max-w-[210px] w-full">
-                      <div className="flex justify-between gap-3">
-                        <span className="text-gray-500">Remaining P:</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(remP)}</span>
-                      </div>
-                      <div className="flex justify-between gap-3">
-                        <span className="text-gray-500">Remaining I:</span>
-                        <span className="font-semibold text-gray-800">{formatCurrency(remI)}</span>
-                      </div>
-                      <div className="flex justify-between gap-3 pt-0.5 border-t border-gray-200 text-emerald-700 font-bold">
-                        <span>Total (P+I):</span>
-                        <span>{formatCurrency(totalRem)}</span>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
+              <p className="text-xs text-orange-600 font-bold mt-1">
+                Outstanding: {formatCurrency(loan.outstandingAmount)}
+              </p>
             )}
             <p className="text-xs text-gray-500 mt-1">
               {loan.status === 'ACTIVE_INTEREST_ONLY' || loan.status === 'INTEREST_ONLY' ? (
@@ -314,7 +275,7 @@ export function ParallelLoanView({
               )}
             </p>
             {loan.emiAmount > 0 && (
-              <p className="text-xs text-emerald-600 font-medium">
+              <p className="text-xs text-emerald-600 font-bold">
                 EMI: {formatCurrency(loan.emiAmount)}/mo
               </p>
             )}
@@ -333,33 +294,74 @@ export function ParallelLoanView({
                 monthlyInterest = loan.interestOnlyMonthlyAmount ?? null;
               }
               return monthlyInterest ? (
-                <p className="text-xs text-purple-600 font-medium">
+                <p className="text-xs text-purple-600 font-bold">
                   Monthly Interest: {formatCurrency(monthlyInterest)}
                 </p>
               ) : null;
             })()}
           </div>
           
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            {/* Pay button ONLY on Original side — Mirror is read-only */}
-            {showPayButton && onPayEmi && isOriginal && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY' || loan.status === 'ACTIVE_INTEREST_ONLY') && (
+          {/* Right Side: Action Buttons & Remaining P+I Summary Box at Bottom Right */}
+          <div className="flex flex-col items-end gap-2 sm:min-w-[190px]">
+            <div className="flex gap-2">
+              {/* Pay button ONLY on Original side — Mirror is read-only */}
+              {showPayButton && onPayEmi && isOriginal && (loan.status === 'ACTIVE' || loan.status === 'INTEREST_ONLY' || loan.status === 'ACTIVE_INTEREST_ONLY') && (
+                <Button
+                  size="sm"
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold"
+                  onClick={() => onPayEmi(loan, isOriginal)}
+                >
+                  <IndianRupee className="h-3 w-3 mr-1" /> Pay
+                </Button>
+              )}
               <Button
                 size="sm"
-                className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                onClick={() => onPayEmi(loan, isOriginal)}
+                variant="outline"
+                onClick={isOriginal ? onViewOriginal : onViewMirror}
+                className="text-gray-700 font-bold"
               >
-                <IndianRupee className="h-3 w-3 mr-1" /> Pay
+                <Eye className="h-3 w-3 mr-1" /> View
               </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={isOriginal ? onViewOriginal : onViewMirror}
-              className="text-gray-600"
-            >
-              <Eye className="h-3 w-3 mr-1" /> View
-            </Button>
+            </div>
+
+            {/* Remaining P + I = Total Box (Bottom Right, BOLD text) */}
+            {loan.outstandingAmount !== undefined && (() => {
+              const outstanding = loan.outstandingAmount || 0;
+              let remP: number;
+              let remI: number;
+
+              if ((loan as any).remainingPrincipal !== undefined && (loan as any).remainingInterest !== undefined) {
+                remP = (loan as any).remainingPrincipal;
+                remI = (loan as any).remainingInterest;
+              } else {
+                const origPrincipal = getLoanAmount(loan) || 0;
+                if (outstanding <= origPrincipal) {
+                  remP = outstanding;
+                  remI = 0;
+                } else {
+                  remP = origPrincipal;
+                  remI = outstanding - origPrincipal;
+                }
+              }
+              const totalRem = remP + remI;
+
+              return (
+                <div className="text-[11px] font-bold text-gray-900 space-y-1 bg-white p-2 rounded-lg border border-gray-300 shadow-xs w-full text-right mt-1">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-gray-800 font-bold">Remaining P:</span>
+                    <span className="font-extrabold text-gray-900">{formatCurrency(remP)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-gray-800 font-bold">Remaining I:</span>
+                    <span className="font-extrabold text-gray-900">{formatCurrency(remI)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 pt-1 border-t border-gray-300 text-emerald-800 font-black text-xs">
+                    <span>Total (P+I):</span>
+                    <span>{formatCurrency(totalRem)}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
