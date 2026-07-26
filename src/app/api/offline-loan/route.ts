@@ -268,12 +268,21 @@ export async function GET(request: NextRequest) {
       const totalInterest  = loan.emis.reduce((s, e) => s + (Number(e.interestAmount)  || 0), 0);
       const totalAmount    = totalPrincipal + totalInterest;
 
+      const todayDate = new Date();
+      todayDate.setHours(0, 0, 0, 0);
+
       // Calculate summary
       const summary = {
         totalEMIs: loan.emis.length,
-        paidEMIs: loan.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length,
+        paidEMIs: loan.emis.filter(e => e.paymentStatus === 'PAID').length,
         pendingEMIs: loan.emis.filter(e => e.paymentStatus === 'PENDING').length,
-        overdueEMIs: loan.emis.filter(e => e.paymentStatus === 'OVERDUE').length,
+        overdueEMIs: loan.emis.filter(e => {
+          if (e.paymentStatus === 'PAID' || e.paymentStatus === 'WAIVED') return false;
+          if (e.paymentStatus === 'OVERDUE') return true;
+          const d = new Date(e.dueDate);
+          d.setHours(0, 0, 0, 0);
+          return d <= todayDate;
+        }).length,
         totalAmount,
         totalPaid: loan.emis.reduce((sum, e) => sum + e.paidAmount, 0),
         totalOutstanding: outstandingAmount
