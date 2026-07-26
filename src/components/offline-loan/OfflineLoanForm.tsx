@@ -165,6 +165,79 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [loadingSecPages, setLoadingSecPages] = useState(false);
   const [allowInterestOnly, setAllowInterestOnly] = useState(true);
 
+  // Customer suggestions state
+  const [customerSuggestions, setCustomerSuggestions] = useState<any[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestField, setActiveSuggestField] = useState<'customerName' | 'customerPhone' | null>(null);
+
+  const fetchCustomerSuggestions = async (query: string, field: 'customerName' | 'customerPhone') => {
+    if (!query || query.trim().length < 1) {
+      setCustomerSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    setLoadingSuggestions(true);
+    setActiveSuggestField(field);
+    try {
+      const res = await fetch(`/api/customer/suggest?query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (data.success && Array.isArray(data.customers)) {
+        setCustomerSuggestions(data.customers);
+        setShowSuggestions(data.customers.length > 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch customer suggestions', err);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
+
+  const handleSelectCustomer = (customer: any) => {
+    setFormData(prev => ({
+      ...prev,
+      customerName: customer.name || prev.customerName,
+      customerPhone: customer.phone || prev.customerPhone,
+      customerEmail: customer.email || prev.customerEmail,
+      customerPan: customer.pan || prev.customerPan,
+      customerAadhaar: customer.aadhaar || prev.customerAadhaar,
+      customerAddress: customer.address || prev.customerAddress,
+      customerCity: customer.city || prev.customerCity,
+      customerState: customer.state || prev.customerState,
+      customerPincode: customer.pincode || prev.customerPincode,
+      customerDOB: customer.dob || prev.customerDOB,
+      customerOccupation: customer.occupation || prev.customerOccupation,
+      customerMonthlyIncome: customer.monthlyIncome || prev.customerMonthlyIncome,
+      reference1Name: customer.reference1Name || prev.reference1Name,
+      reference1Phone: customer.reference1Phone || prev.reference1Phone,
+      reference1Relation: customer.reference1Relation || prev.reference1Relation,
+      reference2Name: customer.reference2Name || prev.reference2Name,
+      reference2Phone: customer.reference2Phone || prev.reference2Phone,
+      reference2Relation: customer.reference2Relation || prev.reference2Relation,
+    }));
+
+    // Auto populate uploaded documents if present
+    if (customer.documents && Object.keys(customer.documents).length > 0) {
+      const newDocs: Record<string, UploadedDoc> = { ...uploadedDocs };
+      Object.entries(customer.documents).forEach(([docKey, docData]: [string, any]) => {
+        if (docData && docData.url) {
+          newDocs[docKey] = {
+            url: docData.url,
+            name: docData.name || docKey,
+            uploading: false,
+          };
+        }
+      });
+      setUploadedDocs(newDocs);
+    }
+
+    setShowSuggestions(false);
+    toast({
+      title: '✨ Customer Selected & Details Auto-Filled',
+      description: `Successfully loaded details and ${customer.docCount || 0} document(s) for ${customer.name || 'Customer'}.`,
+    });
+  };
+
   // Extra EMI always goes to personal credit (no secondary payment page for offline loans)
 
   // Form data - declared before useMemo hooks that depend on it
@@ -649,6 +722,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
+    if (field === 'customerName' || field === 'customerPhone') {
+      fetchCustomerSuggestions(value, field);
+    }
+
     // When company changes, reset mirror only if the NEW company is the same as the current mirror company
     // (can't mirror to yourself). Do NOT reset based on company code — backend validates this.
     if (field === 'companyId' && mirrorCompanyId && mirrorCompanyId === value) {
@@ -1476,11 +1553,111 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             </div>
 
             {/* Customer Details */}
-            <div className="space-y-4">
-              <h3 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> Customer Details</h3>
+            <div className="space-y-4 relative">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <User className="h-4 w-4 text-emerald-600" /> Customer Details
+                </h3>
+                {loadingSuggestions && (
+                  <span className="text-xs text-emerald-600 flex items-center gap-1 font-medium animate-pulse">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Searching existing customers...
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div className="space-y-2"><Label>Customer Name *</Label><Input value={formData.customerName} onChange={(e) => handleInputChange('customerName', e.target.value)} placeholder="Full name" /></div>
-                <div className="space-y-2"><Label>Phone Number *</Label><Input value={formData.customerPhone} onChange={(e) => handleInputChange('customerPhone', e.target.value)} placeholder="10-digit number" /></div>
+                {/* Customer Name input with dropdown suggestions */}
+                <div className="space-y-2 relative">
+                  <Label>Customer Name *</Label>
+                  <Input
+                    value={formData.customerName}
+                    onChange={(e) => handleInputChange('customerName', e.target.value)}
+                    onFocus={() => {
+                      if (formData.customerName && customerSuggestions.length > 0) setShowSuggestions(true);
+                    }}
+                    placeholder="Full name"
+                  />
+                  {showSuggestions && activeSuggestField === 'customerName' && customerSuggestions.length > 0 && (
+                    <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-emerald-200 max-h-64 overflow-y-auto divide-y divide-gray-100">
+                      <div className="px-3 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex justify-between items-center sticky top-0 z-10 border-b border-emerald-100">
+                        <span>✨ Existing Customer Profiles</span>
+                        <button type="button" onClick={() => setShowSuggestions(false)} className="hover:text-emerald-950 p-1"><X className="h-3.5 w-3.5" /></button>
+                      </div>
+                      {customerSuggestions.map((item, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => handleSelectCustomer(item)}
+                          className="p-3 hover:bg-emerald-50/80 cursor-pointer transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-gray-900 group-hover:text-emerald-700">{item.name}</span>
+                            {item.docCount > 0 ? (
+                              <Badge className="bg-emerald-100 text-emerald-800 text-[11px] border border-emerald-300 font-semibold">
+                                📁 {item.docCount} Docs Auto-Attachable
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-gray-500 text-[10px]">
+                                {item.source === 'USER_REGISTERED' ? 'Registered User' : 'Existing Customer'}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                            {item.phone && <span>📞 {item.phone}</span>}
+                            {item.email && <span className="truncate max-w-[140px]">✉️ {item.email}</span>}
+                            {item.city && <span>📍 {item.city}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Phone Number input with dropdown suggestions */}
+                <div className="space-y-2 relative">
+                  <Label>Phone Number *</Label>
+                  <Input
+                    value={formData.customerPhone}
+                    onChange={(e) => handleInputChange('customerPhone', e.target.value)}
+                    onFocus={() => {
+                      if (formData.customerPhone && customerSuggestions.length > 0) setShowSuggestions(true);
+                    }}
+                    placeholder="10-digit number"
+                  />
+                  {showSuggestions && activeSuggestField === 'customerPhone' && customerSuggestions.length > 0 && (
+                    <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-emerald-200 max-h-64 overflow-y-auto divide-y divide-gray-100">
+                      <div className="px-3 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex justify-between items-center sticky top-0 z-10 border-b border-emerald-100">
+                        <span>✨ Existing Customer Profiles</span>
+                        <button type="button" onClick={() => setShowSuggestions(false)} className="hover:text-emerald-950 p-1"><X className="h-3.5 w-3.5" /></button>
+                      </div>
+                      {customerSuggestions.map((item, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => handleSelectCustomer(item)}
+                          className="p-3 hover:bg-emerald-50/80 cursor-pointer transition-colors group"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-sm text-gray-900 group-hover:text-emerald-700">{item.name}</span>
+                            {item.docCount > 0 ? (
+                              <Badge className="bg-emerald-100 text-emerald-800 text-[11px] border border-emerald-300 font-semibold">
+                                📁 {item.docCount} Docs Auto-Attachable
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-gray-500 text-[10px]">
+                                {item.source === 'USER_REGISTERED' ? 'Registered User' : 'Existing Customer'}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                            {item.phone && <span>📞 {item.phone}</span>}
+                            {item.email && <span className="truncate max-w-[140px]">✉️ {item.email}</span>}
+                            {item.city && <span>📍 {item.city}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-2"><Label>Email</Label><Input type="email" value={formData.customerEmail} onChange={(e) => handleInputChange('customerEmail', e.target.value)} /></div>
                 <div className="space-y-2"><Label>PAN Number</Label><Input value={formData.customerPan} onChange={(e) => handleInputChange('customerPan', e.target.value.toUpperCase())} maxLength={10} /></div>
                 <div className="space-y-2"><Label>Aadhaar Number</Label><Input value={formData.customerAadhaar} onChange={(e) => handleInputChange('customerAadhaar', e.target.value)} maxLength={12} /></div>
