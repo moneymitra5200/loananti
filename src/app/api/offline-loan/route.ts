@@ -2296,6 +2296,102 @@ export async function POST(request: NextRequest) {
       cache.deletePattern('active-loans:');
     } catch { /* non-critical */ }
 
+    // ============ GLOBAL CUSTOMER PROFILE SYNC ============
+    // Ensure any new or updated customer details (address, PAN, Aadhaar, DOB, phone, etc.)
+    // are synchronized globally across the User table and historical OfflineLoan records.
+    try {
+      const cleanPhone = customerPhone?.trim();
+      const cleanEmail = customerEmail?.trim();
+
+      // 1. Update registered User record if exists
+      if (cleanPhone || cleanEmail || customerId) {
+        const userOrConditions: any[] = [];
+        if (customerId) userOrConditions.push({ id: customerId });
+        if (cleanPhone) userOrConditions.push({ phone: cleanPhone });
+        if (cleanEmail) userOrConditions.push({ email: cleanEmail });
+
+        const existingUser = await db.user.findFirst({
+          where: { OR: userOrConditions }
+        });
+
+        if (existingUser) {
+          const userUpdateData: any = {};
+          if (customerName) userUpdateData.name = customerName;
+          if (cleanPhone) userUpdateData.phone = cleanPhone;
+          if (cleanEmail) userUpdateData.email = cleanEmail;
+          if (customerPan) userUpdateData.panNumber = customerPan.toUpperCase();
+          if (customerAadhaar) userUpdateData.aadhaarNumber = customerAadhaar;
+          if (customerAddress) userUpdateData.address = customerAddress;
+          if (customerCity) userUpdateData.city = customerCity;
+          if (customerState) userUpdateData.state = customerState;
+          if (customerPincode) userUpdateData.pincode = customerPincode;
+          if (customerDOB) userUpdateData.dateOfBirth = safeDate(customerDOB, 'customerDOB');
+          if (customerOccupation) userUpdateData.employmentType = customerOccupation;
+          if (customerMonthlyIncome) userUpdateData.monthlyIncome = parseFloat(customerMonthlyIncome) || 0;
+
+          if (Object.keys(userUpdateData).length > 0) {
+            await db.user.update({
+              where: { id: existingUser.id },
+              data: userUpdateData
+            });
+            console.log(`[Global Customer Sync] Updated User record ${existingUser.id} (${existingUser.name}) globally.`);
+          }
+        }
+      }
+
+      // 2. Synchronize customer information across all historical OfflineLoans
+      if (cleanPhone || cleanEmail || customerId) {
+        const loanOrConditions: any[] = [];
+        if (customerId) loanOrConditions.push({ customerId });
+        if (cleanPhone) loanOrConditions.push({ customerPhone: cleanPhone });
+        if (cleanEmail) loanOrConditions.push({ customerEmail: cleanEmail });
+
+        const loanUpdateData: any = {};
+        if (customerName) loanUpdateData.customerName = customerName;
+        if (cleanPhone) loanUpdateData.customerPhone = cleanPhone;
+        if (cleanEmail) loanUpdateData.customerEmail = cleanEmail;
+        if (customerPan) loanUpdateData.customerPan = customerPan.toUpperCase();
+        if (customerAadhaar) loanUpdateData.customerAadhaar = customerAadhaar;
+        if (customerAddress) loanUpdateData.customerAddress = customerAddress;
+        if (customerCity) loanUpdateData.customerCity = customerCity;
+        if (customerState) loanUpdateData.customerState = customerState;
+        if (customerPincode) loanUpdateData.customerPincode = customerPincode;
+        if (customerDOB) loanUpdateData.customerDOB = safeDate(customerDOB, 'customerDOB');
+        if (customerOccupation) loanUpdateData.customerOccupation = customerOccupation;
+        if (customerMonthlyIncome) loanUpdateData.customerMonthlyIncome = customerMonthlyIncome;
+        if (reference1Name) loanUpdateData.reference1Name = reference1Name;
+        if (reference1Phone) loanUpdateData.reference1Phone = reference1Phone;
+        if (reference1Relation) loanUpdateData.reference1Relation = reference1Relation;
+        if (reference2Name) loanUpdateData.reference2Name = reference2Name;
+        if (reference2Phone) loanUpdateData.reference2Phone = reference2Phone;
+        if (reference2Relation) loanUpdateData.reference2Relation = reference2Relation;
+
+        if (docUrls.panCardDoc) loanUpdateData.panCardDoc = docUrls.panCardDoc;
+        if (docUrls.aadhaarFrontDoc) loanUpdateData.aadhaarFrontDoc = docUrls.aadhaarFrontDoc;
+        if (docUrls.aadhaarBackDoc) loanUpdateData.aadhaarBackDoc = docUrls.aadhaarBackDoc;
+        if (docUrls.incomeProofDoc) loanUpdateData.incomeProofDoc = docUrls.incomeProofDoc;
+        if (docUrls.addressProofDoc) loanUpdateData.addressProofDoc = docUrls.addressProofDoc;
+        if (docUrls.photoDoc) loanUpdateData.photoDoc = docUrls.photoDoc;
+        if (docUrls.electionCardDoc) loanUpdateData.electionCardDoc = docUrls.electionCardDoc;
+        if (docUrls.housePhotoDoc) loanUpdateData.housePhotoDoc = docUrls.housePhotoDoc;
+        if (docUrls.guarantorPhotoDoc) loanUpdateData.guarantorPhotoDoc = docUrls.guarantorPhotoDoc;
+        if (docUrls.passbookPhotoDoc) loanUpdateData.passbookPhotoDoc = docUrls.passbookPhotoDoc;
+
+        if (Object.keys(loanUpdateData).length > 0) {
+          const updatedLoansCount = await db.offlineLoan.updateMany({
+            where: {
+              OR: loanOrConditions,
+              id: { not: loan.id }
+            },
+            data: loanUpdateData
+          });
+          console.log(`[Global Customer Sync] Updated ${updatedLoansCount.count} historical offline loan records for customer ${customerName}.`);
+        }
+      }
+    } catch (syncError) {
+      console.error('[Global Customer Sync] Error syncing customer data globally:', syncError);
+    }
+
     return NextResponse.json({
 
       success: true,
