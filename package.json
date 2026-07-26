@@ -108,5 +108,11 @@
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "websocket-driver": "^0.7.5",
+    "protobufjs": "^7.5.5",
+    "brace-expansion": "^2.0.2",
+    "postcss": "^8.4.38"
   }
 }
