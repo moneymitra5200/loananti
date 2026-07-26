@@ -305,15 +305,7 @@ export async function GET(request: NextRequest) {
       paidEMIs: loan.emiSchedules.filter(s => s.paymentStatus === 'PAID' || s.paymentStatus === 'INTEREST_ONLY_PAID').length,
       interestOnlyPaid: loan.emiSchedules.filter(s => s.paymentStatus === 'INTEREST_ONLY_PAID').length,
       pendingEMIs: loan.emiSchedules.filter(s => s.paymentStatus === 'PENDING').length,
-      overdueEMIs: loan.emiSchedules.filter(s => {
-        if (s.paymentStatus === 'PAID' || s.paymentStatus === 'WAIVED') return false;
-        if (s.paymentStatus === 'OVERDUE') return true;
-        const d = new Date(s.dueDate);
-        d.setHours(0, 0, 0, 0);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        return d <= today;
-      }).length,
+      overdueEMIs: loan.emiSchedules.filter(s => s.paymentStatus === 'OVERDUE').length,
       partiallyPaid: loan.emiSchedules.filter(s => s.paymentStatus === 'PARTIALLY_PAID').length,
       totalAmount: loan.emiSchedules.reduce((sum, s) => sum + s.totalAmount, 0),
       totalPaid: loan.emiSchedules.reduce((sum, s) => sum + (s.paidAmount || 0), 0),

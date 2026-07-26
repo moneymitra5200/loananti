@@ -60,17 +60,17 @@ export const metadata: Metadata = {
   // Open Graph
   openGraph: {
     type: "website",
-    siteName: "Money Mitra Financial Advisor",
-    title: "Money Mitra Financial Advisor - Quick Loans | Personal, Business & Home Loans",
+    siteName: "Money Mitra Financial Services",
+    title: "Money Mitra - Quick Loans | Personal, Business & Home Loans",
     description: "Get instant personal loans, business loans, home loans at lowest interest rates. Quick approval in 59 minutes. Apply online now!",
-    url: "https://moneymitrafinancialadvisor.com",
+    url: "https://moneymitra.com",
     locale: "en_IN",
     images: [
       {
         url: "/logo-square.png",
         width: 512,
         height: 512,
-        alt: "Money Mitra Financial Advisor - Quick Loan Approval",
+        alt: "Money Mitra - Quick Loan Approval",
       },
     ],
   },
@@ -79,7 +79,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     site: "@moneymitra",
-    title: "Money Mitra Financial Advisor - Quick Loans at Lowest Interest Rates",
+    title: "Money Mitra - Quick Loans at Lowest Interest Rates",
     description: "Get instant personal loans, business loans, home loans starting from 8% p.a. Quick approval in 59 minutes.",
     images: ["/logo-square.png"],
   },
@@ -104,7 +104,7 @@ export const metadata: Metadata = {
   
   // Alternates
   alternates: {
-    canonical: "https://moneymitrafinancialadvisor.com",
+    canonical: "https://moneymitra.com",
   },
   
   // Category
@@ -131,34 +131,12 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  // Schema.org Structured Data for Google Rich Snippets
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "FinancialService",
-    "name": "Money Mitra Financial Advisor",
-    "url": "https://moneymitrafinancialadvisor.com",
-    "logo": "https://moneymitrafinancialadvisor.com/logo-circle.png",
-    "image": "https://moneymitrafinancialadvisor.com/logo-square.png",
-    "description": "Leading digital lending & loan advisory platform offering instant personal loans, business loans, and flexible EMI payment schedules across India.",
-    "priceRange": "₹10,000 - ₹50,00,000",
-    "currenciesAccepted": "INR",
-    "paymentAccepted": "Cash, Credit Card, UPI, Net Banking",
-    "areaServed": "India",
-    "knowsAbout": ["Personal Loans", "Business Loans", "Home Loans", "EMI Calculations", "Financial Advisory"]
-  };
-
   return (
     <html lang="en">
       <head>
         {/* Favicon — brand logo */}
         <link rel="icon" href="/mm-logo.png" type="image/png" />
         <link rel="shortcut icon" href="/mm-logo.png" type="image/png" />
-
-        {/* Structured Data (JSON-LD) for Google SEO */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
         
         {/* PWA Meta Tags */}
         <meta name="application-name" content="Money Mitra" />
@@ -174,6 +152,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/mm-logo.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/mm-logo.png" />
         
+        {/* Splash screens for iOS */}
         {/* Performance: preconnect to Google Fonts CDN */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

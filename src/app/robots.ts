@@ -16,6 +16,6 @@ export default function robots(): MetadataRoute.Robots {
         '/accountant/',
       ],
     },
-    sitemap: 'https://moneymitrafinancialadvisor.com/sitemap.xml',
+    sitemap: 'https://moneymitra.com/sitemap.xml',
   };
 }

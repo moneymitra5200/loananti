@@ -113,7 +113,7 @@ const EMISection = memo(function EMISection({
 
   // FIX-22: Single source-of-truth for which EMIs can be selected/paid.
   // This MUST match the checkbox render condition at line ~252 exactly.
-  const isPayableStatus = (s: string) => s !== 'PAID';
+  const isPayableStatus = (s: string) => s !== 'PAID' && s !== 'INTEREST_ONLY_PAID';
   const payableEMIs = emiSchedules.filter(e => isPayableStatus(e.status));
 
   // FIX-33: Accountant may view loans but CANNOT pay any EMI
@@ -308,22 +308,12 @@ const EMISection = memo(function EMISection({
           ) : (
             <div className="space-y-3">
               {emiSchedules.map((emi) => {
-                const isFullyPaid = emi.status === 'PAID';
-                const isInterestOnlyPaid = emi.status === 'INTEREST_ONLY_PAID';
-                const isPaid = isFullyPaid;
+                const isPaid = emi.status === 'PAID' || emi.status === 'INTEREST_ONLY_PAID';
                 const isSelected = selectedEMIs.has(emi.id);
                 
                 // Calculate penalty for overdue EMIs
-                const emiDueDateObj = new Date(emi.dueDate);
-                emiDueDateObj.setHours(0,0,0,0);
-                const todayDateObj = new Date();
-                todayDateObj.setHours(0,0,0,0);
-
-                const isOverdue = !isFullyPaid && (
-                  emi.status === 'OVERDUE' || 
-                  emiDueDateObj <= todayDateObj
-                );
-                const penaltyInfo = (isOverdue && !isFullyPaid && loanAmount > 0) 
+                const isOverdue = emi.status === 'OVERDUE' || (emi.status === 'PENDING' && new Date(emi.dueDate) < new Date());
+                const penaltyInfo = (isOverdue && !isPaid && loanAmount > 0) 
                   ? calculatePenaltyInfo(emi.dueDate, loanAmount) 
                   : null;
                 const isPrincipalOnly = emi.status === 'PAID'
@@ -335,12 +325,12 @@ const EMISection = memo(function EMISection({
                 return (
                 <motion.div 
                   key={emi.id}
-                  className={`p-4 border rounded-xl relative transition-all ${
+                  className={`p-4 border rounded-xl relative ${
                     isPrincipalOnly ? 'bg-emerald-50 border-emerald-200' :
-                    isFullyPaid ? 'bg-green-50 border-green-200' :
-                    isOverdue ? 'bg-red-50/90 border-2 border-red-500 shadow-md animate-pulse' :
-                    isInterestOnlyPaid ? 'bg-blue-50 border-blue-200' :
+                    emi.status === 'PAID' ? 'bg-green-50 border-green-200' :
+                    emi.status === 'INTEREST_ONLY_PAID' ? 'bg-blue-50 border-blue-200' :
                     isSelected ? 'bg-emerald-50 border-emerald-300' :
+                    isOverdue ? 'bg-red-50 border-red-300' :
                     emi.status === 'PARTIALLY_PAID' ? 'bg-orange-50 border-orange-200' :
                     'bg-white'
                   }`}
@@ -487,15 +477,15 @@ const EMISection = memo(function EMISection({
                           />
                         )}
                         {/* Mirror loans are read-only - no payment buttons. ACCOUNTANT is read-only too. */}
-                        {!isMirrorLoan && canPayEMI && !isFullyPaid && (
+                        {/* Also hide Pay button for INTEREST_ONLY_PAID EMIs */}
+                        {!isMirrorLoan && canPayEMI && !isPaid && (
                           <>
                             <Button 
                               size="sm" 
-                              className={isOverdue || penaltyInfo ? "bg-red-600 hover:bg-red-700 text-white font-bold animate-pulse" : "bg-emerald-500 hover:bg-emerald-600"}
+                              className="bg-emerald-500 hover:bg-emerald-600"
                               onClick={() => onPayEMI(emi)}
                             >
-                              <IndianRupee className="h-4 w-4 mr-1" />
-                              {isInterestOnlyPaid ? 'Pay Principal' : penaltyInfo ? 'Pay + Penalty' : 'Pay'}
+                              <IndianRupee className="h-4 w-4 mr-1" /> Pay
                             </Button>
                             {/* Removed individual EMI Change Date button as requested */}
                           </>
