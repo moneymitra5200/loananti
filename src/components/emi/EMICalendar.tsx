@@ -905,6 +905,9 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                         const customerName = emi.loanTypeLabel === 'offline'
                           ? (emi.offlineLoan?.customerName || 'N/A')
                           : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+                        const customerPhone = emi.loanTypeLabel === 'offline'
+                          ? (emi.offlineLoan?.customerPhone || (emi as any).customerPhone || (emi as any).phone || '')
+                          : (emi.loanApplication?.phone || (emi.loanApplication as any)?.mobileNumber || (emi.loanApplication as any)?.user?.phone || (emi as any).customerPhone || (emi as any).phone || '');
                         const loanNo = emi.loanTypeLabel === 'offline'
                           ? (emi.offlineLoan?.loanNumber || 'N/A')
                           : (emi.loanApplication?.applicationNo || 'N/A');
@@ -930,6 +933,12 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                               </div>
 
                               <p className="text-sm font-bold text-slate-900 truncate">{customerName}</p>
+                              {customerPhone && (
+                                <p className="text-xs text-slate-600 font-medium flex items-center gap-1.5 mt-0.5">
+                                  <Phone className="h-3 w-3 text-slate-400" />
+                                  <span>{customerPhone}</span>
+                                </p>
+                              )}
                               <p className="text-xs text-slate-500 flex items-center justify-between mt-1">
                                 <span>Due: <strong className="text-slate-700">{formatDate(emi.dueDate || emi.dateStr)}</strong></span>
                                 <span>Inst. #{emi.installmentNumber}</span>
@@ -1017,6 +1026,9 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                             const customerName = emi.loanTypeLabel === 'offline'
                               ? (emi.offlineLoan?.customerName || 'N/A')
                               : (`${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`.trim() || 'N/A');
+                            const customerPhone = emi.loanTypeLabel === 'offline'
+                              ? (emi.offlineLoan?.customerPhone || (emi as any).customerPhone || (emi as any).phone || '')
+                              : (emi.loanApplication?.phone || (emi.loanApplication as any)?.mobileNumber || (emi.loanApplication as any)?.user?.phone || (emi as any).customerPhone || (emi as any).phone || '');
                             const loanNo = emi.loanTypeLabel === 'offline'
                               ? (emi.offlineLoan?.loanNumber || 'N/A')
                               : (emi.loanApplication?.applicationNo || 'N/A');
@@ -1057,6 +1069,12 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                                   </div>
 
                                   <p className="text-sm font-extrabold text-slate-900 truncate">{customerName}</p>
+                                  {customerPhone && (
+                                    <p className="text-xs text-slate-600 font-semibold flex items-center gap-1.5 mt-0.5">
+                                      <Phone className="h-3 w-3 text-red-500" />
+                                      <span>{customerPhone}</span>
+                                    </p>
+                                  )}
                                   
                                   <div className="text-xs font-semibold text-slate-600 space-y-1 mt-1.5 bg-red-50/70 p-2 rounded-lg border border-red-100">
                                     <div className="flex justify-between">
