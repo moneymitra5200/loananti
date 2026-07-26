@@ -129,18 +129,21 @@ export function ParallelLoanView({
   const getLoanIdentifier = (loan: LoanData) => loan.loanNumber || loan.identifier || loan.applicationNo || 'N/A';
   const getLoanAmount = (loan: LoanData) => loan.loanAmount || loan.approvedAmount || loan.disbursedAmount || 0;
 
-  // Check if due date is near (within 3 days)
-  const isDueDateNear = (nextDueDate?: string) => {
+  // Check if loan has any overdue or due EMI (due today or past due)
+  const checkOverdueOrDue = (loan?: LoanData | null) => {
+    if (!loan) return false;
+    if (loan.summary?.overdueEMIs && loan.summary.overdueEMIs > 0) return true;
+    const nextDueDate = loan.summary?.nextDueEMI || loan.nextEmi?.dueDate;
     if (!nextDueDate) return false;
     const dueDate = new Date(nextDueDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     dueDate.setHours(0, 0, 0, 0);
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 3 && diffDays >= 0;
+    const diffDays = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
+    return diffDays <= 0;
   };
 
-  const shouldBlink = isDueDateNear(originalLoan.summary?.nextDueEMI || originalLoan.nextEmi?.dueDate);
+  const hasDueOrOverdue = checkOverdueOrDue(originalLoan) || checkOverdueOrDue(mirrorLoan);
 
   // Render a single loan card (for either original or mirror side)
   const renderLoanSide = (loan: LoanData | null | undefined, type: 'original' | 'mirror') => {
@@ -394,26 +397,35 @@ export function ParallelLoanView({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className={`border rounded-xl overflow-hidden bg-white ${shouldBlink ? 'animate-pulse ring-2 ring-red-400' : ''}`}
+      className={`border-2 rounded-xl overflow-hidden bg-white transition-all ${
+        hasDueOrOverdue
+          ? 'animate-pulse border-red-500 ring-4 ring-red-400/50 shadow-xl shadow-red-200/50'
+          : 'border-gray-200'
+      }`}
       style={{
         borderLeftWidth: '4px',
-        borderLeftColor: hexColor
+        borderLeftColor: hasDueOrOverdue ? '#EF4444' : hexColor
       }}
     >
       {/* Pair Header - Only show if there's a mirror mapping */}
       {mirrorMapping && (
         <div
-          className="px-4 py-2 flex items-center justify-between border-b bg-gray-50"
-          style={{ backgroundColor: `${hexColor}10` }}
+          className={`px-4 py-2 flex items-center justify-between border-b ${hasDueOrOverdue ? 'bg-red-50' : 'bg-gray-50'}`}
+          style={{ backgroundColor: hasDueOrOverdue ? '#FEF2F2' : `${hexColor}10` }}
         >
           <div className="flex items-center gap-2">
             <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: hexColor }}
+              className={`w-3 h-3 rounded-full ${hasDueOrOverdue ? 'bg-red-600 animate-ping' : ''}`}
+              style={{ backgroundColor: hasDueOrOverdue ? '#DC2626' : hexColor }}
             />
             <span className="text-sm font-medium text-gray-700">
               Mirror Pair #{getLoanIdentifier(originalLoan)}
             </span>
+            {hasDueOrOverdue && (
+              <Badge className="bg-red-600 text-white font-extrabold animate-bounce text-[10px]">
+                🚨 EMI DUE / OVERDUE
+              </Badge>
+            )}
             {mirrorMapping.extraEMICount && mirrorMapping.extraEMICount > 0 && (
               <Badge variant="secondary" className="text-xs bg-emerald-100 text-emerald-700">
                 +{mirrorMapping.extraEMICount} Extra EMIs
