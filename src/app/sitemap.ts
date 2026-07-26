@@ -1,7 +1,7 @@
 import { MetadataRoute } from 'next';
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://moneymitra.com';
+  const baseUrl = 'https://moneymitrafinancialadvisor.com';
   
   return [
     {
