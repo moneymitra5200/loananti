@@ -428,7 +428,7 @@ export default function OfflineLoanDetailPanel({
       customerPan:     loan.customerPan     || '',
       customerAadhaar: loan.customerAadhaar || '',
       loanType:        loan.loanType        || '',
-      narration:       (loan as any).narration || '',
+      narration:       (loan as any).notes || (loan as any).narration || '',
     });
     setEditDialogOpen(true);
   };

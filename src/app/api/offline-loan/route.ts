@@ -2477,8 +2477,9 @@ export async function PUT(request: NextRequest) {
           ...(customerEmail   !== undefined ? { customerEmail }   : {}),
           ...(customerAddress !== undefined ? { customerAddress } : {}),
           ...(customerPan     !== undefined ? { customerPan }     : {}),
+          ...(customerAadhaar !== undefined ? { customerAadhaar } : {}),
           ...(loanType        ? { loanType }        : {}),
-          ...(narration       !== undefined ? { narration: narration || null } as any : {}),
+          ...(narration       !== undefined ? { notes: narration || null } : {}),
         }
       });
 

@@ -165,6 +165,9 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [loadingSecPages, setLoadingSecPages] = useState(false);
   const [allowInterestOnly, setAllowInterestOnly] = useState(true);
 
+  // Field-level error messages state
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
   // Customer suggestions state
   const [customerSuggestions, setCustomerSuggestions] = useState<any[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -720,6 +723,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   };
 
   const handleInputChange = (field: string, value: string) => {
+    setFieldErrors(prev => ({ ...prev, [field]: '' }));
     setFormData(prev => ({ ...prev, [field]: value }));
     
     if (field === 'customerName' || field === 'customerPhone') {
@@ -826,103 +830,66 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
     let finalVehicleLoanDetail: any = null;
     let finalSilverLoanDetail: any = null;
 
+    const errors: Record<string, string> = {};
+
     // 1. Company Selection Validation
     if (!formData.companyId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Company does not have a proper value. Please select a company.',
-        variant: 'destructive'
-      });
-      return;
+      errors.companyId = 'Company selection is required';
     }
 
     // 2. Product Selection Validation
     if (!formData.productId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Loan Product does not have a proper value. Please select a product.',
-        variant: 'destructive'
-      });
-      return;
+      errors.productId = 'Loan Product selection is required';
     }
 
     // 3. Customer Details Validation
     if (!formData.customerName || !formData.customerName.trim()) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Customer Name does not have a proper value.',
-        variant: 'destructive'
-      });
-      return;
+      errors.customerName = 'Customer Name is required';
     }
 
     if (!formData.customerPhone || !formData.customerPhone.trim()) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Customer Phone does not have a proper value.',
-        variant: 'destructive'
-      });
-      return;
+      errors.customerPhone = 'Customer Phone is required';
     }
 
     if (!formData.customerAddress || !formData.customerAddress.trim()) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Customer Address does not have a proper value.',
-        variant: 'destructive'
-      });
-      return;
+      errors.customerAddress = 'Customer Address is required';
     }
 
     // 4. Loan Details Validation
     const loanAmountNum = parseFloat(formData.loanAmount);
     if (isNaN(loanAmountNum) || loanAmountNum <= 0) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Loan Amount does not have a proper value. It must be greater than 0.',
-        variant: 'destructive'
-      });
-      return;
+      errors.loanAmount = 'Loan Amount must be greater than 0';
     }
 
     const interestRateNum = parseFloat(formData.interestRate);
     if (isNaN(interestRateNum) || interestRateNum < 0) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Interest Rate does not have a proper value.',
-        variant: 'destructive'
-      });
-      return;
+      errors.interestRate = 'Valid Interest Rate is required';
     }
 
     const requiresTenure = !isInterestOnly && (!formData.tenure || parseInt(formData.tenure) <= 0);
     if (requiresTenure) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Tenure does not have a proper value. It must be greater than 0.',
-        variant: 'destructive'
-      });
-      return;
+      errors.tenure = 'Tenure must be greater than 0';
     }
 
     // 5. Dates Validation
     if (!formData.disbursementDate) {
-      toast({
-        title: 'Validation Error',
-        description: 'Error: Disbursement Date does not have a proper value.',
-        variant: 'destructive'
-      });
-      return;
+      errors.disbursementDate = 'Disbursement Date is required';
     }
 
     if (!formData.startDate) {
+      errors.startDate = 'EMI Start Date is required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
       toast({
         title: 'Validation Error',
-        description: 'Error: EMI Start Date does not have a proper value.',
+        description: 'Please correct the highlighted field errors below.',
         variant: 'destructive'
       });
       return;
     }
+    setFieldErrors({});
 
     // 6. Gold Loan Receipt — only validate if user chose to add it (any loan type)
     const hasGoldReceipt = showGoldReceipt || formData.loanType === 'GOLD';
@@ -1487,8 +1454,10 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                   ))}
                 </SelectContent>
               </Select>
-              {!formData.companyId && (
-                <p className="text-xs text-red-500 mt-1">Company selection is required</p>
+              {fieldErrors.companyId && (
+                <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.companyId}
+                </p>
               )}
             </div>
 
@@ -1504,7 +1473,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               ) : (
                 <>
                   <Select value={formData.productId} onValueChange={(v) => handleInputChange('productId', v)}>
-                    <SelectTrigger className={formData.productId ? '' : 'border-red-300'}>
+                    <SelectTrigger className={fieldErrors.productId ? 'border-red-500 bg-red-50/50' : (formData.productId ? '' : 'border-red-300')}>
                       <SelectValue placeholder="Select loan product..." />
                     </SelectTrigger>
                     <SelectContent>
@@ -1523,6 +1492,11 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       ))}
                     </SelectContent>
                   </Select>
+                  {fieldErrors.productId && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.productId}
+                    </p>
+                  )}
                   
                   {selectedProduct && (
                     <div className="mt-3 p-3 bg-white rounded-lg border text-sm">
@@ -1576,7 +1550,13 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       if (formData.customerName && customerSuggestions.length > 0) setShowSuggestions(true);
                     }}
                     placeholder="Full name"
+                    className={fieldErrors.customerName ? 'border-red-500 bg-red-50/30' : ''}
                   />
+                  {fieldErrors.customerName && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.customerName}
+                    </p>
+                  )}
                   {showSuggestions && activeSuggestField === 'customerName' && customerSuggestions.length > 0 && (
                     <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-emerald-200 max-h-64 overflow-y-auto divide-y divide-gray-100">
                       <div className="px-3 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex justify-between items-center sticky top-0 z-10 border-b border-emerald-100">
@@ -1622,7 +1602,13 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                       if (formData.customerPhone && customerSuggestions.length > 0) setShowSuggestions(true);
                     }}
                     placeholder="10-digit number"
+                    className={fieldErrors.customerPhone ? 'border-red-500 bg-red-50/30' : ''}
                   />
+                  {fieldErrors.customerPhone && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.customerPhone}
+                    </p>
+                  )}
                   {showSuggestions && activeSuggestField === 'customerPhone' && customerSuggestions.length > 0 && (
                     <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-2xl border border-emerald-200 max-h-64 overflow-y-auto divide-y divide-gray-100">
                       <div className="px-3 py-2 bg-gradient-to-r from-emerald-50 to-teal-50 text-[11px] font-bold text-emerald-800 uppercase tracking-wider flex justify-between items-center sticky top-0 z-10 border-b border-emerald-100">
@@ -1665,7 +1651,19 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 <div className="space-y-2"><Label>Monthly Income</Label><Input type="number" value={formData.customerMonthlyIncome} onChange={(e) => handleInputChange('customerMonthlyIncome', e.target.value)} /></div>
                 <div className="space-y-2"><Label>Date of Birth</Label><Input type="date" value={formData.customerDOB} onChange={(e) => handleInputChange('customerDOB', e.target.value)} /></div>
               </div>
-              <div className="space-y-2"><Label>Address *</Label><Input value={formData.customerAddress} onChange={(e) => handleInputChange('customerAddress', e.target.value)} /></div>
+              <div className="space-y-2">
+                <Label>Address *</Label>
+                <Input
+                  value={formData.customerAddress}
+                  onChange={(e) => handleInputChange('customerAddress', e.target.value)}
+                  className={fieldErrors.customerAddress ? 'border-red-500 bg-red-50/30' : ''}
+                />
+                {fieldErrors.customerAddress && (
+                  <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.customerAddress}
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 <div className="space-y-2"><Label>City</Label><Input value={formData.customerCity} onChange={(e) => handleInputChange('customerCity', e.target.value)} /></div>
                 <div className="space-y-2"><Label>State</Label><Input value={formData.customerState} onChange={(e) => handleInputChange('customerState', e.target.value)} /></div>
@@ -1681,8 +1679,35 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                   <Label>Loan Type</Label>
                   <Input value={selectedProduct?.title || formData.loanType} disabled className="bg-gray-50" />
                 </div>
-                <div className="space-y-2"><Label>Loan Amount *</Label><Input type="number" value={formData.loanAmount} onChange={(e) => handleInputChange('loanAmount', e.target.value)} /></div>
-                <div className="space-y-2"><Label>Interest Rate (% p.a.) *</Label><Input type="number" step="0.1" value={formData.interestRate} onChange={(e) => handleInputChange('interestRate', e.target.value)} /></div>
+                <div className="space-y-2">
+                  <Label>Loan Amount *</Label>
+                  <Input
+                    type="number"
+                    value={formData.loanAmount}
+                    onChange={(e) => handleInputChange('loanAmount', e.target.value)}
+                    className={fieldErrors.loanAmount ? 'border-red-500 bg-red-50/30' : ''}
+                  />
+                  {fieldErrors.loanAmount && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.loanAmount}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>Interest Rate (% p.a.) *</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={formData.interestRate}
+                    onChange={(e) => handleInputChange('interestRate', e.target.value)}
+                    className={fieldErrors.interestRate ? 'border-red-500 bg-red-50/30' : ''}
+                  />
+                  {fieldErrors.interestRate && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.interestRate}
+                    </p>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <Label>Interest Type</Label>
                   <Select value={formData.interestType || 'FLAT'} onValueChange={(v) => handleInputChange('interestType', v)}>
@@ -1702,7 +1727,20 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
                 </div>
                 {/* Hide tenure field for Interest Only loans - will be asked at Start Loan time */}
                 {!isInterestOnly && (
-                  <div className="space-y-2"><Label>Tenure (months) *</Label><Input type="number" value={formData.tenure} onChange={(e) => handleInputChange('tenure', e.target.value)} /></div>
+                  <div className="space-y-2">
+                    <Label>Tenure (months) *</Label>
+                    <Input
+                      type="number"
+                      value={formData.tenure}
+                      onChange={(e) => handleInputChange('tenure', e.target.value)}
+                      className={fieldErrors.tenure ? 'border-red-500 bg-red-50/30' : ''}
+                    />
+                    {fieldErrors.tenure && (
+                      <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                        <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.tenure}
+                      </p>
+                    )}
+                  </div>
                 )}
                 {/* Show tenure info for Interest Only loans */}
                 {isInterestOnly && (
@@ -2245,8 +2283,34 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
             <div className="space-y-4 pt-4 border-t">
               <h3 className="font-semibold flex items-center gap-2"><Calendar className="h-4 w-4" /> Dates & Disbursement</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Disbursement Date *</Label><Input type="date" value={formData.disbursementDate} onChange={(e) => handleInputChange('disbursementDate', e.target.value)} /></div>
-                <div className="space-y-2"><Label>EMI Start Date *</Label><Input type="date" value={formData.startDate} onChange={(e) => handleInputChange('startDate', e.target.value)} /></div>
+                <div className="space-y-2">
+                  <Label>Disbursement Date *</Label>
+                  <Input
+                    type="date"
+                    value={formData.disbursementDate}
+                    onChange={(e) => handleInputChange('disbursementDate', e.target.value)}
+                    className={fieldErrors.disbursementDate ? 'border-red-500 bg-red-50/30' : ''}
+                  />
+                  {fieldErrors.disbursementDate && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.disbursementDate}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label>EMI Start Date *</Label>
+                  <Input
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => handleInputChange('startDate', e.target.value)}
+                    className={fieldErrors.startDate ? 'border-red-500 bg-red-50/30' : ''}
+                  />
+                  {fieldErrors.startDate && (
+                    <p className="text-xs text-red-500 font-semibold mt-1 flex items-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5" /> {fieldErrors.startDate}
+                    </p>
+                  )}
+                </div>
               </div>
               
               {/* Bank Account / Cashbook Selection */}
