@@ -800,10 +800,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
   if (isNameGroupId && groupName) {
     // Fetch customer info from offline loan with matching name and phone
+    const phoneDigits = (groupPhone || '').match(/\d{10}/g) || [];
     const sampleLoan = await db.offlineLoan.findFirst({
       where: {
         customerName: { contains: groupName },
-        ...(groupPhone ? { customerPhone: { contains: groupPhone } } : {})
+        ...(phoneDigits.length > 0
+          ? { OR: phoneDigits.map(num => ({ customerPhone: { contains: num } })) }
+          : groupPhone ? { customerPhone: { contains: groupPhone } } : {})
       },
       select: { customerName: true, customerPhone: true, customerEmail: true }
     });
@@ -833,13 +836,13 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   let targetPhone = '';
   if (customer) {
     targetName = (customer.name || '').trim().toLowerCase();
-    const cleanDigits = (customer.phone || '').trim().replace(/\D/g, '');
-    targetPhone = cleanDigits || (customer.phone || '').trim().toLowerCase();
+    targetPhone = (customer.phone || '').trim().toLowerCase();
   } else if (groupName) {
     targetName = groupName.trim().toLowerCase();
-    const cleanDigits = (groupPhone || '').trim().replace(/\D/g, '');
-    targetPhone = cleanDigits || (groupPhone || '').trim().toLowerCase();
+    targetPhone = (groupPhone || '').trim().toLowerCase();
   }
+
+  const targetPhoneDigits: string[] = targetPhone.match(/\d{10}/g) || [];
 
   // Find all matching registered user IDs with the same name and phone
   const matchingUserIds = new Set<string>();
@@ -847,12 +850,12 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     matchingUserIds.add(customerId);
   }
 
-  if (targetName && targetPhone) {
+  if (targetName) {
     const usersWithNameOrPhone = await db.user.findMany({
       where: {
         OR: [
           { name: { contains: targetName } },
-          { phone: { contains: targetPhone } }
+          ...(targetPhoneDigits.length > 0 ? targetPhoneDigits.map(num => ({ phone: { contains: num } })) : [])
         ]
       },
       select: { id: true, name: true, phone: true }
@@ -860,9 +863,10 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
 
     for (const u of usersWithNameOrPhone) {
       const uName = (u.name || '').trim().toLowerCase();
-      const cleanDigits = (u.phone || '').trim().replace(/\D/g, '');
-      const uPhone = cleanDigits || (u.phone || '').trim().toLowerCase();
-      if (uName === targetName && uPhone === targetPhone) {
+      const uPhoneDigits = (u.phone || '').match(/\d{10}/g) || [];
+      const nameMatch = uName.includes(targetName) || targetName.includes(uName);
+      const phoneMatch = targetPhoneDigits.length === 0 || uPhoneDigits.some(d => targetPhoneDigits.includes(d));
+      if (nameMatch && phoneMatch) {
         matchingUserIds.add(u.id);
       }
     }
@@ -894,13 +898,17 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
   if (matchingUserIds.size > 0) {
     orConditions.push({ customerId: { in: Array.from(matchingUserIds) } });
   }
-  if (targetName && targetPhone) {
-    orConditions.push({
-      AND: [
-        { customerName: { contains: targetName } },
-        { customerPhone: { contains: targetPhone } }
-      ]
-    });
+  if (targetName) {
+    if (targetPhoneDigits.length > 0) {
+      orConditions.push({
+        AND: [
+          { customerName: { contains: targetName } },
+          { OR: targetPhoneDigits.map(num => ({ customerPhone: { contains: num } })) }
+        ]
+      });
+    } else {
+      orConditions.push({ customerName: { contains: targetName } });
+    }
   }
 
   if (orConditions.length > 0) {
@@ -924,15 +932,20 @@ async function getPersonalLedger(customerId: string, companyId: string | null) {
     }
   });
 
-  // Strict in-memory clean & match check for phone numbers and names
+  // Flexible in-memory clean & match check for phone numbers and names
   const allOfflineLoans = candidateOfflineLoans.filter(l => {
     if (l.customerId && matchingUserIds.has(l.customerId)) {
       return true;
     }
     const lName = (l.customerName || '').trim().toLowerCase();
-    const cleanDigits = (l.customerPhone || '').trim().replace(/\D/g, '');
-    const lPhone = cleanDigits || (l.customerPhone || '').trim().toLowerCase();
-    return lName === targetName && lPhone === targetPhone;
+    const nameMatch = lName.includes(targetName) || targetName.includes(lName);
+
+    const lPhoneDigits = (l.customerPhone || '').match(/\d{10}/g) || [];
+    let phoneMatch = true;
+    if (lPhoneDigits.length > 0 && targetPhoneDigits.length > 0) {
+      phoneMatch = lPhoneDigits.some(d => targetPhoneDigits.includes(d));
+    }
+    return nameMatch && phoneMatch;
   });
 
 

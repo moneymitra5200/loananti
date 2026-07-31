@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
       const where: Record<string, unknown> = {
         canUndo: true,
         isUndone: false,
-        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // last 24h
+        createdAt: { gte: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) } // last 10 days
       };
       // Non-admin: only their own
       // if (userId && userRole !== 'SUPER_ADMIN') where.userId = userId;

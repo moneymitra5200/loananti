@@ -2761,9 +2761,9 @@ export default function OfflineLoanDetailPanel({
                                               By User ID: {log.userId} ({log.userRole}) {log.isUndone ? '• Undone' : ''}
                                             </p>
                                           </div>
-                                          {/* Undo Button — only for undoable, not-yet-undone logs within 24h */}
+                                          {/* Undo Button — only for undoable, not-yet-undone logs within 10 days */}
                                           {log.canUndo && !log.isUndone && (
-                                            new Date().getTime() - new Date(log.createdAt).getTime() < 24 * 60 * 60 * 1000
+                                            new Date().getTime() - new Date(log.createdAt).getTime() < 10 * 24 * 60 * 60 * 1000
                                           ) && (
                                             <Button
                                               size="sm"
@@ -4315,7 +4315,7 @@ export default function OfflineLoanDetailPanel({
                     <SelectItem value="BUSINESS">Business</SelectItem>
                     <SelectItem value="GOLD">Gold</SelectItem>
                     <SelectItem value="VEHICLE">Vehicle</SelectItem>
-                    <SelectItem value="IO">Interest Only (IO)</SelectItem>
+                    <SelectItem value="INTEREST_ONLY">Interest Only (IO)</SelectItem>
                     <SelectItem value="OTHER">Other</SelectItem>
                   </SelectContent>
                 </Select>

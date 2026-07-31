@@ -427,7 +427,7 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false, hide
               Undoable Actions
             </CardTitle>
             <CardDescription>
-              Actions taken in the last 24 hours that can be reversed. Undo will restore the previous state exactly.
+              Actions taken in the last 10 days that can be reversed. Undo will restore the previous state exactly.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -499,7 +499,7 @@ export default function RoleAuditPanel({ userId, userRole, isAdmin = false, hide
                 })}
                 <p className="text-xs text-gray-400 text-center pt-2">
                   <AlertTriangle className="h-3 w-3 inline mr-1" />
-                  Undo actions are available for 24 hours only. After that, changes are permanent.
+                  Undo actions are available for 10 days only. After that, changes are permanent.
                 </p>
               </div>
             )}

@@ -2460,27 +2460,86 @@ export async function PUT(request: NextRequest) {
 
       const existing = await db.offlineLoan.findUnique({
         where: { id: loanId },
-        select: { id: true, isMirrorLoan: true, loanNumber: true, customerName: true,
+        select: { id: true, isMirrorLoan: true, originalLoanId: true, loanNumber: true, customerName: true,
                   customerPhone: true, customerEmail: true, customerAddress: true,
-                  customerPan: true, customerAadhaar: true, loanType: true }
+                  customerPan: true, customerAadhaar: true, loanType: true, customerId: true }
       });
       if (!existing) return NextResponse.json({ error: 'Loan not found' }, { status: 404 });
-      if (existing.isMirrorLoan) {
-        return NextResponse.json({ error: 'Cannot edit a mirror loan directly — edit the original loan' }, { status: 400 });
+
+      // Collect all linked offline loan IDs (both original loan and mirror loan)
+      const targetLoanIds = new Set<string>();
+      targetLoanIds.add(loanId);
+
+      const rootOriginalId = existing.isMirrorLoan && existing.originalLoanId ? existing.originalLoanId : existing.id;
+      targetLoanIds.add(rootOriginalId);
+
+      // Find any mirror loans referencing rootOriginalId
+      const mirrorLoans = await db.offlineLoan.findMany({
+        where: { originalLoanId: rootOriginalId },
+        select: { id: true }
+      });
+      mirrorLoans.forEach(m => targetLoanIds.add(m.id));
+
+      // Also check MirrorLoanMapping table for offline loan mappings
+      const mappings = await db.mirrorLoanMapping.findMany({
+        where: {
+          isOfflineLoan: true,
+          OR: [
+            { originalLoanId: rootOriginalId },
+            { mirrorLoanId: rootOriginalId },
+            { originalLoanId: loanId },
+            { mirrorLoanId: loanId }
+          ]
+        },
+        select: { originalLoanId: true, mirrorLoanId: true }
+      });
+      mappings.forEach(m => {
+        if (m.originalLoanId) targetLoanIds.add(m.originalLoanId);
+        if (m.mirrorLoanId) targetLoanIds.add(m.mirrorLoanId);
+      });
+
+      const updateIds = Array.from(targetLoanIds);
+
+      let safeLoanType = loanType;
+      if (loanType === 'IO') safeLoanType = 'INTEREST_ONLY';
+
+      const updateData: any = {
+        ...(customerName    ? { customerName }    : {}),
+        ...(customerPhone   ? { customerPhone }   : {}),
+        ...(customerEmail   !== undefined ? { customerEmail }   : {}),
+        ...(customerAddress !== undefined ? { customerAddress } : {}),
+        ...(customerPan     !== undefined ? { customerPan }     : {}),
+        ...(customerAadhaar !== undefined ? { customerAadhaar } : {}),
+        ...(safeLoanType    ? { loanType: safeLoanType } : {}),
+        ...(narration       !== undefined ? { notes: narration || null } : {}),
+      };
+
+      await db.offlineLoan.updateMany({
+        where: { id: { in: updateIds } },
+        data: updateData
+      });
+
+      // Also update linked User profile if customerId is set on any of the target loans
+      if (customerName || customerPhone || customerEmail) {
+        const loansWithUser = await db.offlineLoan.findMany({
+          where: { id: { in: updateIds }, customerId: { not: null } },
+          select: { customerId: true }
+        });
+        const userIds = Array.from(new Set(loansWithUser.map(l => l.customerId!).filter(Boolean)));
+        if (userIds.length > 0) {
+          const userUpdate: any = {};
+          if (customerName) userUpdate.name = customerName;
+          if (customerPhone) userUpdate.phone = customerPhone;
+          if (customerEmail) userUpdate.email = customerEmail;
+          await db.user.updateMany({
+            where: { id: { in: userIds } },
+            data: userUpdate
+          });
+        }
       }
 
-      const updated = await db.offlineLoan.update({
-        where: { id: loanId },
-        data: {
-          ...(customerName    ? { customerName }    : {}),
-          ...(customerPhone   ? { customerPhone }   : {}),
-          ...(customerEmail   !== undefined ? { customerEmail }   : {}),
-          ...(customerAddress !== undefined ? { customerAddress } : {}),
-          ...(customerPan     !== undefined ? { customerPan }     : {}),
-          ...(customerAadhaar !== undefined ? { customerAadhaar } : {}),
-          ...(loanType        ? { loanType }        : {}),
-          ...(narration       !== undefined ? { notes: narration || null } : {}),
-        }
+      const updated = await db.offlineLoan.findUnique({
+        where: { id: loanId }
       });
 
       // Audit log
@@ -2493,8 +2552,8 @@ export async function PUT(request: NextRequest) {
           recordType: 'OfflineLoan',
           previousData: JSON.stringify({ customerName: existing.customerName, customerPhone: existing.customerPhone,
                                          customerEmail: existing.customerEmail, loanType: existing.loanType }),
-          newData:      JSON.stringify({ customerName, customerPhone, customerEmail, loanType }),
-          description:  `Updated loan details for ${existing.loanNumber}`,
+          newData:      JSON.stringify({ customerName, customerPhone, customerEmail, loanType: safeLoanType }),
+          description:  `Updated loan details for ${existing.loanNumber} (synced across ${updateIds.length} linked loans)`,
           canUndo: false
         }
       });
