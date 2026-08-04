@@ -407,7 +407,14 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
     displayColor: loan.displayColor,
     summary: loan.summary,
     _count: { emiSchedules: loan.summary?.totalEMIs || loan.tenure },
-    outstandingAmount: (loan as any).outstandingAmount
+    outstandingAmount: (loan as any).outstandingAmount,
+    outstandingPrincipal: (loan as any).outstandingPrincipal,
+    outstandingInterest: (loan as any).outstandingInterest,
+    remainingPrincipal: (loan as any).outstandingPrincipal ?? (loan as any).remainingPrincipal,
+    remainingInterest: (loan as any).outstandingInterest ?? (loan as any).remainingInterest,
+    totalPrincipal: (loan as any).totalPrincipal,
+    totalInterest: (loan as any).totalInterest,
+    totalAmount: (loan as any).totalAmount
   });
 
   // Filter loans - show only original loans (not mirror loans separately)

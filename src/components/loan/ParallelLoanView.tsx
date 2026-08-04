@@ -329,13 +329,21 @@ export function ParallelLoanView({
 
             {/* Remaining P + I = Total Box (Bottom Right, BOLD text) */}
             {loan.outstandingAmount !== undefined && (() => {
+              const lObj = loan as any;
               const outstanding = loan.outstandingAmount || 0;
               let remP: number;
               let remI: number;
 
-              if ((loan as any).remainingPrincipal !== undefined && (loan as any).remainingInterest !== undefined) {
-                remP = (loan as any).remainingPrincipal;
-                remI = (loan as any).remainingInterest;
+              const explicitRemP = lObj.remainingPrincipal ?? lObj.outstandingPrincipal;
+              const explicitRemI = lObj.remainingInterest ?? lObj.outstandingInterest;
+
+              if (explicitRemP !== undefined && explicitRemI !== undefined) {
+                remP = Number(explicitRemP) || 0;
+                remI = Number(explicitRemI) || 0;
+              } else if (loan.emiSchedules && loan.emiSchedules.length > 0) {
+                const pending = loan.emiSchedules.filter((e: any) => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID' && e.paymentStatus !== 'WAIVED');
+                remP = pending.reduce((s: number, e: any) => s + Math.max(0, (Number(e.principalAmount) || 0) - (Number(e.paidPrincipal) || 0)), 0);
+                remI = pending.reduce((s: number, e: any) => s + Math.max(0, (Number(e.interestAmount) || 0) - (Number(e.paidInterest) || 0)), 0);
               } else {
                 const origPrincipal = getLoanAmount(loan) || 0;
                 if (outstanding <= origPrincipal) {
