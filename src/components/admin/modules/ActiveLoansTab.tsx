@@ -9,7 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Wallet, RefreshCw, Eye, Trash2, FileText, Receipt, DollarSign, Copy, Lock, 
-  PlayCircle, Loader2, Calculator, AlertCircle, Clock, Search, IndianRupee
+  PlayCircle, Loader2, Calculator, AlertCircle, Clock, Search, IndianRupee,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -132,6 +133,8 @@ export default function ActiveLoansTab({
   onPaymentComplete
 }: ActiveLoansTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
   
   // ── EMI Payment Dialog State ───────────────────────────────────────────────
@@ -744,11 +747,31 @@ export default function ActiveLoansTab({
               </Button>
             </div>
           ) : (
-            <div className="space-y-4 pr-2">
-              <AnimatePresence>
-                {filteredActiveLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
-              </AnimatePresence>
-            </div>
+            <>
+              <div className="space-y-4 pr-2">
+                <AnimatePresence>
+                  {filteredActiveLoans
+                    .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+                    .map((loan, index) => renderLoanInParallelView(loan, index))}
+                </AnimatePresence>
+              </div>
+
+              {filteredActiveLoans.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <p className="text-sm text-gray-500">
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredActiveLoans.length)} of {filteredActiveLoans.length} loans (Page {page} of {Math.ceil(filteredActiveLoans.length / PAGE_SIZE)})
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={page >= Math.ceil(filteredActiveLoans.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)}>
+                      Next <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

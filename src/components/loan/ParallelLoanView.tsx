@@ -407,7 +407,7 @@ export function ParallelLoanView({
       exit={{ opacity: 0, y: -10 }}
       className={`border-2 rounded-xl overflow-hidden bg-white transition-all ${
         hasDueOrOverdue
-          ? 'animate-pulse border-red-500 ring-4 ring-red-400/50 shadow-xl shadow-red-200/50'
+          ? 'border-red-500 ring-2 ring-red-400/40 shadow-md bg-red-50/10'
           : 'border-gray-200'
       }`}
       style={{
@@ -423,14 +423,14 @@ export function ParallelLoanView({
         >
           <div className="flex items-center gap-2">
             <div
-              className={`w-3 h-3 rounded-full ${hasDueOrOverdue ? 'bg-red-600 animate-ping' : ''}`}
+              className="w-3 h-3 rounded-full bg-red-600"
               style={{ backgroundColor: hasDueOrOverdue ? '#DC2626' : hexColor }}
             />
             <span className="text-sm font-medium text-gray-700">
               Mirror Pair #{getLoanIdentifier(originalLoan)}
             </span>
             {hasDueOrOverdue && (
-              <Badge className="bg-red-600 text-white font-extrabold animate-bounce text-[10px]">
+              <Badge className="bg-red-600 text-white font-extrabold text-[10px]">
                 🚨 EMI DUE / OVERDUE
               </Badge>
             )}

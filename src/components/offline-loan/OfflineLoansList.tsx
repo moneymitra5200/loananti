@@ -215,7 +215,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const fetchLoans = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      let url = `/api/offline-loan?page=${page}&limit=10`;
+      let url = `/api/offline-loan?page=${page}&limit=20`;
       // Pass userId + userRole so the backend applies role-based visibility
       if (userId) url += `&userId=${userId}`;
       if (userRole) url += `&userRole=${userRole}`;
@@ -617,14 +617,14 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
           </div>
 
           {/* Pagination */}
-          {total > 10 && (
+          {total > 20 && (
             <div className="flex items-center justify-between pt-4 border-t">
-              <p className="text-sm text-gray-500">Page {page} of {Math.ceil(total / 10)}</p>
+              <p className="text-sm text-gray-500">Page {page} of {Math.ceil(total / 20)}</p>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Button size="sm" variant="outline" disabled={page >= Math.ceil(total / 10)} onClick={() => setPage(p => p + 1)}>
+                <Button size="sm" variant="outline" disabled={page >= Math.ceil(total / 20)} onClick={() => setPage(p => p + 1)}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
