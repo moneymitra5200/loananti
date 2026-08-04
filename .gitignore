@@ -13,9 +13,9 @@ node_modules
 # testing
 /coverage
 
-# next.js build output - allow standalone build to be committed for Hostinger
-/.next/cache/
-/.next/dev/
+# next.js build output
+.next/
+/.next/
 /out/
 
 # production

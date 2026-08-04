@@ -1,3 +1,0 @@
-{
-  "/api/cron/accrue-interest/route": "app/api/cron/accrue-interest/route.js"
-}
