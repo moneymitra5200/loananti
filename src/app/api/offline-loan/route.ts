@@ -2339,17 +2339,11 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // 2. Synchronize customer information across all historical OfflineLoans
-      if (cleanPhone || cleanEmail || customerId) {
-        const loanOrConditions: any[] = [];
-        if (customerId) loanOrConditions.push({ customerId });
-        if (cleanPhone) loanOrConditions.push({ customerPhone: cleanPhone });
-        if (cleanEmail) loanOrConditions.push({ customerEmail: cleanEmail });
-
+      // 2. Synchronize customer profile attributes (PAN, Aadhaar, address, etc.) across historical OfflineLoans ONLY if customerId is linked
+      // NOTE: customerName must NEVER be updated globally across unrelated loans — each loan retains its own customer identity!
+      if (customerId) {
         const loanUpdateData: any = {};
-        if (customerName) loanUpdateData.customerName = customerName;
-        if (cleanPhone) loanUpdateData.customerPhone = cleanPhone;
-        if (cleanEmail) loanUpdateData.customerEmail = cleanEmail;
+        // DO NOT sync customerName globally across historical loans — loan names are unique to each agreement!
         if (customerPan) loanUpdateData.customerPan = customerPan.toUpperCase();
         if (customerAadhaar) loanUpdateData.customerAadhaar = customerAadhaar;
         if (customerAddress) loanUpdateData.customerAddress = customerAddress;
@@ -2380,12 +2374,12 @@ export async function POST(request: NextRequest) {
         if (Object.keys(loanUpdateData).length > 0) {
           const updatedLoansCount = await db.offlineLoan.updateMany({
             where: {
-              OR: loanOrConditions,
+              customerId,
               id: { not: loan.id }
             },
             data: loanUpdateData
           });
-          console.log(`[Global Customer Sync] Updated ${updatedLoansCount.count} historical offline loan records for customer ${customerName}.`);
+          console.log(`[Global Customer Sync] Synced profile details for ${updatedLoansCount.count} loans belonging to customerId ${customerId}.`);
         }
       }
     } catch (syncError) {
