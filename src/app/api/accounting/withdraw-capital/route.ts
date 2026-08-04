@@ -193,22 +193,37 @@ export async function POST(request: NextRequest) {
     // ACID: Wrap all financial writes in one atomic transaction
     // If any write fails (journalEntry, CoA update, bankTx, cashBook) everything rolls back.
     const accountingService = new AccountingService(companyId);
-    const entryNumber = await accountingService.generateEntryNumber();
     const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
     const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
     const je = await withRetry(() => db.$transaction(async (tx) => {
-      const journalEntry = await tx.journalEntry.create({
-        data: {
-          companyId, entryNumber, entryDate,
-          referenceType: 'CAPITAL_WITHDRAWAL',
-          referenceId: companyId + '-CW-' + Date.now(),
-          narration: description || 'Owners Capital Withdrawal - Cash: ' + cash + ', Bank: ' + bank,
-          totalDebit, totalCredit, isAutoEntry: true, isApproved: true,
-          createdById: createdById || 'system',
-          paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-          lines: { create: lines },
-        },
-      });
+      let entryNumber = await accountingService.generateEntryNumber(tx);
+      let journalEntry;
+      let retries = 5;
+      while (retries > 0) {
+        try {
+          journalEntry = await tx.journalEntry.create({
+            data: {
+              companyId, entryNumber, entryDate,
+              referenceType: 'CAPITAL_WITHDRAWAL',
+              referenceId: companyId + '-CW-' + Date.now(),
+              narration: description || 'Owners Capital Withdrawal - Cash: ' + cash + ', Bank: ' + bank,
+              totalDebit, totalCredit, isAutoEntry: true, isApproved: true,
+              createdById: createdById || 'system',
+              paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+              lines: { create: lines },
+            },
+          });
+          break;
+        } catch (err: any) {
+          if (err?.code === 'P2002' && (err?.meta?.target?.includes('entryNumber') || err?.message?.includes('entryNumber') || err?.message?.includes('JournalEntry_companyId_entryNumber_key'))) {
+            retries--;
+            if (retries === 0) throw err;
+            entryNumber = await accountingService.generateEntryNumber(tx);
+          } else {
+            throw err;
+          }
+        }
+      }
       await tx.chartOfAccount.update({ where: { id: capitalAcc.id }, data: { currentBalance: { decrement: totalWithdrawal } } });
       if (cash > 0 && cashAcc) { await tx.chartOfAccount.update({ where: { id: cashAcc.id }, data: { currentBalance: { decrement: cash } } }); }
       if (bank > 0 && bankChartAcc) { await tx.chartOfAccount.update({ where: { id: bankChartAcc.id }, data: { currentBalance: { decrement: bank } } }); }
@@ -237,7 +252,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       journalEntryId: je.id,
-      entryNumber,
+      entryNumber: je.entryNumber,
       summary: {
         cashWithdrawn: cash,
         bankWithdrawn: bank,

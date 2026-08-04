@@ -150,6 +150,7 @@ export async function POST(request: NextRequest) {
     // Create the journal entry
     console.log('[add-equity] Step 3: Creating journal entry, lines:', JSON.stringify(lines));
     let journalEntryId: string;
+    let finalEntryNumber: string = '';
     try {
       // Use direct DB write to bypass cache issues with dynamic account codes
       const accountCodes = lines.map(l => l.accountCode);
@@ -166,40 +167,57 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const jeCount = await db.journalEntry.count({ where: { companyId } });
-      const entryNum = `JE${String(jeCount + 1).padStart(6, '0')}`;
-
       const totalDebit  = lines.reduce((s, l) => s + l.debitAmount,  0);
       const totalCredit = lines.reduce((s, l) => s + l.creditAmount, 0);
 
       // ACID: Wrap ALL financial writes atomically in one transaction
       // journal + CoA balances + bank account + bank transaction + cashbook entry + cashbook update
       // If any write fails everything rolls back — no orphaned journal entries possible.
+      finalEntryNumber = entryNumber;
       const atomicResult = await withRetry(() => db.$transaction(async (tx) => {
-        const je = await tx.journalEntry.create({
-          data: {
-            companyId,
-            entryNumber: entryNum,
-            entryDate,
-            referenceType: 'EQUITY_INVESTMENT',
-            referenceId: `${companyId}-EQ-${Date.now()}`,
-            narration: description || `Owner's Equity Investment - Cash: Rs.${cash.toLocaleString()}, Bank: Rs.${bank.toLocaleString()}`,
-            totalDebit,
-            totalCredit,
-            isAutoEntry: true,
-            isApproved: true,
-            createdById: createdById || 'system',
-            paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
-            lines: {
-              create: lines.map(l => ({
-                accountId: accMap.get(l.accountCode)!,
-                debitAmount:  l.debitAmount,
-                creditAmount: l.creditAmount,
-                narration: l.narration || ''
-              }))
+        let entryNum = await accountingService.generateEntryNumber(tx);
+        let je;
+        let createRetries = 5;
+        while (createRetries > 0) {
+          try {
+            je = await tx.journalEntry.create({
+              data: {
+                companyId,
+                entryNumber: entryNum,
+                entryDate,
+                referenceType: 'EQUITY_INVESTMENT',
+                referenceId: `${companyId}-EQ-${Date.now()}`,
+                narration: description || `Owner's Equity Investment - Cash: Rs.${cash.toLocaleString()}, Bank: Rs.${bank.toLocaleString()}`,
+                totalDebit,
+                totalCredit,
+                isAutoEntry: true,
+                isApproved: true,
+                createdById: createdById || 'system',
+                paymentMode: bank > 0 ? 'BANK_TRANSFER' : 'CASH',
+                lines: {
+                  create: lines.map(l => ({
+                    accountId: accMap.get(l.accountCode)!,
+                    debitAmount:  l.debitAmount,
+                    creditAmount: l.creditAmount,
+                    narration: l.narration || ''
+                  }))
+                }
+              }
+            });
+            break;
+          } catch (err: any) {
+            if (err?.code === 'P2002' && (err?.meta?.target?.includes('entryNumber') || err?.message?.includes('entryNumber') || err?.message?.includes('JournalEntry_companyId_entryNumber_key'))) {
+              createRetries--;
+              if (createRetries === 0) throw err;
+              console.warn(`[add-equity] entryNumber ${entryNum} collision, retrying with new entry number...`);
+              entryNum = await accountingService.generateEntryNumber(tx);
+            } else {
+              throw err;
             }
           }
-        });
+        }
+
+        finalEntryNumber = je.entryNumber;
 
         // Update chart of account balances
         const accountTypeMap = new Map(accounts.map(a => [a.accountCode, a.accountType as string]));
@@ -265,11 +283,12 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        return je.id;
+        return { id: je.id, entryNumber: je.entryNumber };
       })); // end withRetry + $transaction
 
-      journalEntryId = atomicResult;
-      console.log('[add-equity] All writes committed atomically. JE:', journalEntryId);
+      journalEntryId = atomicResult.id;
+      finalEntryNumber = atomicResult.entryNumber;
+      console.log('[add-equity] All writes committed atomically. JE:', journalEntryId, finalEntryNumber);
     } catch (jeErr) {
       console.error('[add-equity] Step 3 FAILED:', jeErr);
       throw jeErr;
@@ -287,7 +306,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       journalEntryId,
-      entryNumber,
+      entryNumber: finalEntryNumber || entryNumber,
       summary: {
         cashAdded: cash,
         bankAdded: bank,
