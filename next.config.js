@@ -1,5 +1,13 @@
 // @ts-check
+const fs = require("fs");
+const path = require("path");
 const withPWAInit = require("next-pwa");
+
+// Ensure .next/diagnostics directory exists to prevent Next.js open error on Windows
+const diagnosticsDir = path.join(__dirname, ".next", "diagnostics");
+if (!fs.existsSync(diagnosticsDir)) {
+  fs.mkdirSync(diagnosticsDir, { recursive: true });
+}
 
 const withPWA = withPWAInit({
   dest: "public",
