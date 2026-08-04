@@ -535,6 +535,12 @@
       "namedRegex": "^/api/accounting/recalculate\\-balances(?:/)?$"
     },
     {
+      "page": "/api/accounting/reconcile-auto",
+      "regex": "^/api/accounting/reconcile\\-auto(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/accounting/reconcile\\-auto(?:/)?$"
+    },
+    {
       "page": "/api/accounting/reports",
       "regex": "^/api/accounting/reports(?:/)?$",
       "routeKeys": {},
@@ -827,6 +833,18 @@
       "regex": "^/api/customer/payment(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/api/customer/payment(?:/)?$"
+    },
+    {
+      "page": "/api/customer/suggest",
+      "regex": "^/api/customer/suggest(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/customer/suggest(?:/)?$"
+    },
+    {
+      "page": "/api/customer/update",
+      "regex": "^/api/customer/update(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/customer/update(?:/)?$"
     },
     {
       "page": "/api/dashboard/today-collection",

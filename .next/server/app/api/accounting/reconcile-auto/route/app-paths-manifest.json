@@ -1,0 +1,3 @@
+{
+  "/api/accounting/reconcile-auto/route": "app/api/accounting/reconcile-auto/route.js"
+}
