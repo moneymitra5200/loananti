@@ -5,11 +5,23 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const companyId = searchParams.get('companyId');
-    const account   = searchParams.get('account') || 'CASH';
+    let account = searchParams.get('account') || 'CASH';
     const startDate = searchParams.get('startDate');
     const endDate   = searchParams.get('endDate');
 
     if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 });
+
+    // Normalize Account Code Aliases so Chart of Accounts selections map to rich ground truths
+    const accountUpper = account.toUpperCase().trim();
+    if (['1101', '1001', 'CASH_IN_HAND'].includes(accountUpper)) account = 'CASH';
+    else if (['1102', '1103', '1104', '1400', '1002', 'BANK_ACCOUNTS'].includes(accountUpper)) account = 'BANK';
+    else if (['1200', '1201', '1210', '1100', 'LOANS_RECEIVABLE'].includes(accountUpper)) account = 'LOANS';
+    else if (['3001', '3002', 'CAPITAL', 'OWNERS_CAPITAL'].includes(accountUpper)) account = 'CAPITAL';
+    else if (['4001', '4110', '4111', 'INTEREST_INCOME'].includes(accountUpper)) account = 'INTEREST';
+    else if (['4003', '4121', 'PROCESSING_FEE'].includes(accountUpper)) account = 'PROCESSING';
+    else if (['4004', '4122', '4125', 'PENALTY_INCOME'].includes(accountUpper)) account = 'PENALTY';
+    else if (['5000', '5100', '5200', '5201', '5203', 'EXPENSES'].includes(accountUpper)) account = 'EXPENSES';
+    else if (['3003', 'RETAINED', 'RETAINED_EARNINGS'].includes(accountUpper)) account = 'RETAINED';
 
     const periodStart = startDate ? new Date(new Date(startDate).setHours(0, 0, 0, 0)) : new Date(new Date().setMonth(new Date().getMonth() - 1));
     const periodEnd   = endDate   ? new Date(new Date(endDate).setHours(23, 59, 59, 999)) : new Date();
@@ -260,7 +272,7 @@ export async function GET(request: NextRequest) {
         });
 
         if (periodJournals.length > 0) {
-          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const journalMap = new Map<string, any>(periodJournals.map(j => [j.id, j]));
           const periodLines = await db.journalEntryLine.findMany({
             where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
             select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
@@ -336,7 +348,7 @@ export async function GET(request: NextRequest) {
         });
 
         if (periodJournals.length > 0) {
-          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const journalMap = new Map<string, any>(periodJournals.map(j => [j.id, j]));
           const periodLines = await db.journalEntryLine.findMany({
             where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
             select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
@@ -395,7 +407,7 @@ export async function GET(request: NextRequest) {
         });
 
         if (periodJournals.length > 0) {
-          const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+          const journalMap = new Map<string, any>(periodJournals.map(j => [j.id, j]));
           const periodLines = await db.journalEntryLine.findMany({
             where: { journalEntryId: { in: periodJournals.map(j => j.id) }, accountId: { in: accountIds } },
             select: { journalEntryId: true, debitAmount: true, creditAmount: true, narration: true }
@@ -510,7 +522,7 @@ export async function GET(request: NextRequest) {
           orderBy: { entryDate: 'asc' },
           select: { id: true, entryDate: true, narration: true, entryNumber: true }
         });
-        const journalMap = new Map(periodJournals.map(j => [j.id, j]));
+        const journalMap = new Map<string, any>(periodJournals.map(j => [j.id, j]));
 
         if (periodJournals.length > 0) {
           const periodIds = periodJournals.map(j => j.id);
@@ -555,6 +567,114 @@ export async function GET(request: NextRequest) {
       const expenses = await db.expense.findMany({ where: { companyId, paymentDate: { gte: periodStart, lte: periodEnd } }, orderBy: { paymentDate: 'asc' } });
       let bal = 0;
       for (const e of expenses) { bal += e.amount; totDr += e.amount; txns.push({ date: e.paymentDate.toISOString(), particulars: `${e.expenseType.replace(/_/g, ' ')} – ${e.description}`, referenceNo: e.expenseNumber, debit: e.amount, credit: 0, balance: bal }); }
+    }
+
+    // ─── RETAINED EARNINGS (3003) ──────────────────────────────────────────────
+    else if (account === 'RETAINED') {
+      accountName = 'Retained Earnings';
+      accountCode = '3003';
+      accountType = 'EQUITY';
+
+      const computeREAsOf = async (asOfDate: Date) => {
+        const cb = await db.cashBook.findUnique({ where: { companyId } });
+        const [cbCr, cbDr] = await Promise.all([
+          db.cashBookEntry.aggregate({ where: { cashBook: { companyId }, entryDate: { lte: asOfDate }, entryType: 'CREDIT' }, _sum: { amount: true } }),
+          db.cashBookEntry.aggregate({ where: { cashBook: { companyId }, entryDate: { lte: asOfDate }, entryType: 'DEBIT' }, _sum: { amount: true } })
+        ]);
+        const cash = (cb?.openingBalance || 0) + (cbCr._sum.amount || 0) - (cbDr._sum.amount || 0);
+
+        const bankAccounts = await db.bankAccount.findMany({ where: { companyId, isActive: true } });
+        let bankTotal = 0;
+        for (const b of bankAccounts) {
+          const [txCr, txDr] = await Promise.all([
+            db.bankTransaction.aggregate({ where: { bankAccountId: b.id, transactionDate: { lte: asOfDate }, transactionType: 'CREDIT' }, _sum: { amount: true } }),
+            db.bankTransaction.aggregate({ where: { bankAccountId: b.id, transactionDate: { lte: asOfDate }, transactionType: 'DEBIT' }, _sum: { amount: true } })
+          ]);
+          bankTotal += b.openingBalance + (txCr._sum.amount || 0) - (txDr._sum.amount || 0);
+        }
+
+        const onlineLoans = await db.loanApplication.findMany({
+          where: { companyId, status: { in: ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'] }, disbursedAt: { lte: asOfDate } },
+          select: { disbursedAmount: true, emiSchedules: { where: { paidDate: { lte: asOfDate } }, select: { paidPrincipal: true } } }
+        });
+        const onlineOut = onlineLoans.reduce((s, l) => s + Math.max(0, (l.disbursedAmount || 0) - l.emiSchedules.reduce((p, e) => p + (e.paidPrincipal || 0), 0)), 0);
+
+        const offlineLoans = await db.offlineLoan.findMany({
+          where: { companyId, status: { in: ['ACTIVE', 'INTEREST_ONLY', 'DEFAULTED', 'RESTRUCTURED'] }, disbursementDate: { lte: asOfDate } },
+          select: { loanAmount: true, emis: { where: { paidDate: { lte: asOfDate } }, select: { paidPrincipal: true } } }
+        });
+        const offlineOut = offlineLoans.reduce((s, l) => s + Math.max(0, (l.loanAmount || 0) - l.emis.reduce((p, e) => p + (e.paidPrincipal || 0), 0)), 0);
+
+        const totalAssets = cash + bankTotal + onlineOut + offlineOut;
+
+        const equityEntries = await db.equityEntry.findMany({ where: { companyId } });
+        const capital = equityEntries
+          .filter(e => new Date(e.entryDate || e.createdAt) <= asOfDate)
+          .reduce((s, e) => e.entryType === 'WITHDRAWAL' ? s - (e.amount || 0) : s + (e.amount || 0), 0);
+
+        const journalLines = await db.journalEntryLine.findMany({
+          where: { journalEntry: { companyId, entryDate: { lte: asOfDate }, isApproved: true, isReversed: false } },
+          include: { account: { select: { accountType: true } } }
+        });
+        let inc = 0, exp = 0;
+        for (const l of journalLines) {
+          if (l.account.accountType === 'INCOME') inc += (l.creditAmount || 0) - (l.debitAmount || 0);
+          if (l.account.accountType === 'EXPENSE') exp += (l.debitAmount || 0) - (l.creditAmount || 0);
+        }
+        const netProfit = inc - exp;
+
+        return totalAssets - (capital + netProfit);
+      };
+
+      opening = await computeREAsOf(periodStart);
+      const closingRE = await computeREAsOf(periodEnd);
+      const diff = closingRE - opening;
+
+      if (diff !== 0) {
+        if (diff < 0) {
+          totDr = Math.abs(diff);
+          txns.push({
+            date: periodEnd.toISOString(),
+            particulars: 'Accumulated Deficit / Prior Period Deficit Adjustment',
+            referenceNo: 'RETAINED-EARNINGS',
+            debit: Math.abs(diff),
+            credit: 0,
+            balance: closingRE
+          });
+        } else {
+          totCr = diff;
+          txns.push({
+            date: periodEnd.toISOString(),
+            particulars: 'Accumulated Profit / Prior Period Retained Profit',
+            referenceNo: 'RETAINED-EARNINGS',
+            debit: 0,
+            credit: diff,
+            balance: closingRE
+          });
+        }
+      } else if (closingRE !== 0) {
+        if (closingRE < 0) {
+          totDr = Math.abs(closingRE);
+          txns.push({
+            date: periodEnd.toISOString(),
+            particulars: 'Accumulated Prior Period Deficit (Balance Sheet Plug)',
+            referenceNo: 'RETAINED-EARNINGS',
+            debit: Math.abs(closingRE),
+            credit: 0,
+            balance: closingRE
+          });
+        } else {
+          totCr = closingRE;
+          txns.push({
+            date: periodEnd.toISOString(),
+            particulars: 'Accumulated Prior Period Profit (Balance Sheet Plug)',
+            referenceNo: 'RETAINED-EARNINGS',
+            debit: 0,
+            credit: closingRE,
+            balance: closingRE
+          });
+        }
+      }
     }
 
     // ─── DYNAMIC CHARTOFACCOUNT LOOKUP (ANY OTHER ACCOUNT HEAD) ───────────────
