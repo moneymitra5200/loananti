@@ -106,13 +106,20 @@ export async function GET(request: NextRequest) {
     let fyStart: Date;
     let fyEnd: Date;
     
-    if (year) {
+    if (year && year !== 'ALL') {
       const yearNum = parseInt(year);
-      // Indian Financial Year: April 1 to March 31
-      fyStart = new Date(yearNum, 3, 1); // April 1
-      fyEnd = new Date(yearNum + 1, 2, 31); // March 31
+      if (!isNaN(yearNum)) {
+        // Indian Financial Year: April 1 to March 31
+        fyStart = new Date(yearNum, 3, 1); // April 1
+        fyEnd = new Date(yearNum + 1, 2, 31); // March 31
+      } else {
+        const now = new Date();
+        const currentYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+        fyStart = new Date(currentYear, 3, 1);
+        fyEnd = new Date(currentYear + 1, 2, 31);
+      }
     } else {
-      // Current financial year
+      // Current financial year or All Time
       const now = new Date();
       const currentYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
       fyStart = new Date(currentYear, 3, 1);

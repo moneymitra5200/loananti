@@ -2419,7 +2419,7 @@ function BalanceSheetSection({
     try {
       // Always fetch fresh — add timestamp to bust any CDN/browser cache
       let url = `/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}&_t=${Date.now()}`;
-      if (selectedYear) {
+      if (selectedYear && selectedYear !== 'ALL') {
         url += `&year=${selectedYear}`;
       }
       const res = await fetch(url, {

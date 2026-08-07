@@ -40,10 +40,12 @@ export async function GET(request: NextRequest) {
     const companyId = await getValidCompanyId(providedCompanyId);
 
     let effectiveAsOfDate: Date | undefined = endDate ? new Date(endDate) : undefined;
-    if (year && !endDate) {
+    if (year && year !== 'ALL' && !endDate) {
       const yearNum = parseInt(year);
-      // FY end date is March 31 of (year + 1)
-      effectiveAsOfDate = new Date(yearNum + 1, 2, 31, 23, 59, 59);
+      if (!isNaN(yearNum)) {
+        // FY end date is March 31 of (year + 1)
+        effectiveAsOfDate = new Date(yearNum + 1, 2, 31, 23, 59, 59);
+      }
     }
 
     switch (reportType) {
