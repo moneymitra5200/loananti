@@ -965,13 +965,16 @@ export default function OfflineLoanDetailPanel({
       const splitCash   = parseFloat(splitCashPayment)   || 0;
       const splitOnline = parseFloat(splitOnlinePayment) || 0;
 
-      // Calculate penalty if EMI is overdue
+      // Calculate penalty if EMI/Interest payment is overdue
       // grossPenalty = full penalty before any waiver (send to backend as penaltyAmount)
       // netPenalty = grossPenalty - waiver (used for UI display only)
       let grossPenalty = 0;
       let netPenalty = 0;
-      if (selectedEmi && loan && isEMIOverdue(selectedEmi)) {
-        const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+      const targetEmiForPenalty = selectedEmi || (isInterestOnlyLoanPayment ? (loan?.emis?.find(e => e.paymentStatus === 'PENDING') || loan?.emis?.[0]) : null);
+      const dueDateForPenalty = targetEmiForPenalty?.dueDate || (isInterestOnlyLoanPayment ? (loan?.interestOnlyStartDate || loan?.disbursementDate) : null);
+
+      if (targetEmiForPenalty && dueDateForPenalty && loan && isEMIOverdue(targetEmiForPenalty || { dueDate: dueDateForPenalty, paymentStatus: 'PENDING' })) {
+        const penaltyInfo = calculatePenaltyInfo(dueDateForPenalty, loan.loanAmount);
         grossPenalty = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
         netPenalty = Math.max(0, grossPenalty - penaltyWaiver);
       }
@@ -1620,7 +1623,11 @@ export default function OfflineLoanDetailPanel({
                             </div>
 
                             <div>
-                              <p className="text-xs text-gray-500">Disbursement Date</p>
+                              <p className="text-xs text-gray-500">Loan Created Date</p>
+                              <p className="font-medium">{loan.createdAt ? formatDate(loan.createdAt) : 'N/A'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-gray-500">EMI Start / Disbursement Date</p>
                               <p className="font-medium">{formatDate(loan.disbursementDate)}</p>
                             </div>
                             <div>
@@ -1924,29 +1931,32 @@ export default function OfflineLoanDetailPanel({
                                 {(() => {
                                   const pendingEmi = loan.emis.find(e => e.paymentStatus === 'PENDING' && e.isInterestOnly);
                                   if (pendingEmi) {
+                                    const isOverdue = isEMIOverdue(pendingEmi);
                                     return (
-                                      <div className="p-4 bg-white rounded-lg border-2 border-amber-300 shadow-sm">
+                                      <div className={`p-4 rounded-lg border-2 shadow-sm ${isOverdue ? 'bg-red-50 border-red-300' : 'bg-white border-amber-300'}`}>
                                         <div className="flex items-center justify-between mb-3">
                                           <div>
                                             <p className="font-semibold text-gray-900">
                                               Interest Payment #{pendingEmi.installmentNumber}
                                             </p>
-                                            <p className="text-sm text-gray-500">
-                                              Due: {formatDate(pendingEmi.dueDate)}
+                                            <p className={`text-sm ${isOverdue ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                                              Due: {formatDate(pendingEmi.dueDate)} {isOverdue && '(OVERDUE)'}
                                             </p>
                                           </div>
-                                          <Badge className="bg-amber-100 text-amber-700">Pending</Badge>
+                                          <Badge className={isOverdue ? 'bg-red-100 text-red-700 border-red-200 font-bold' : 'bg-amber-100 text-amber-700'}>
+                                            {isOverdue ? 'Overdue' : 'Pending'}
+                                          </Badge>
                                         </div>
                                         <div className="flex items-center justify-between">
                                           <div>
-                                            <p className="text-2xl font-bold text-amber-600">
+                                            <p className={`text-2xl font-bold ${isOverdue ? 'text-red-600' : 'text-amber-600'}`}>
                                               {formatCurrency(pendingEmi.totalAmount)}
                                             </p>
                                             <p className="text-xs text-gray-500">Interest Amount Due</p>
                                           </div>
                                           {!loan.isMirrorLoan ? (
                                             <Button
-                                              className="bg-amber-500 hover:bg-amber-600"
+                                              className={isOverdue ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-500 hover:bg-amber-600'}
                                               onClick={() => {
                                                 setSelectedEmi(pendingEmi);
                                                 setPaymentType('INTEREST_ONLY');
@@ -3549,10 +3559,14 @@ export default function OfflineLoanDetailPanel({
             )}
 
             {/* ── PENALTY UI - ALWAYS visible, ACTIVE only after EMI due date ── */}
-            {!isInterestOnlyPayment && !isMultiEmiPayment && selectedEmi && loan && (
+            {!isMultiEmiPayment && loan && (selectedEmi || isInterestOnlyPayment) && (
               (() => {
-                const isPenaltyOverdue = isEMIOverdue(selectedEmi);
-                const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+                const targetEmi = selectedEmi || loan.emis?.find((e: any) => e.paymentStatus === 'PENDING') || loan.emis?.[0];
+                const dueDate = targetEmi?.dueDate || loan.interestOnlyStartDate || loan.disbursementDate;
+                if (!dueDate) return null;
+
+                const isPenaltyOverdue = isEMIOverdue(targetEmi || { dueDate, paymentStatus: 'PENDING' });
+                const penaltyInfo = calculatePenaltyInfo(dueDate, loan.loanAmount);
                 const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
                 const netPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
 
@@ -3561,7 +3575,7 @@ export default function OfflineLoanDetailPanel({
                     <div className="flex items-center gap-2 mb-2">
                       <AlertTriangle className={`h-5 w-5 ${isPenaltyOverdue ? 'text-rose-600' : 'text-gray-400'}`} />
                       <span className={`font-semibold ${isPenaltyOverdue ? 'text-rose-700' : 'text-gray-500'}`}>
-                        Penalty {isPenaltyOverdue ? 'for Overdue EMI' : '(Not Applicable)'}
+                        Penalty {isPenaltyOverdue ? 'for Overdue Payment' : '(Not Applicable)'}
                       </span>
                       <span className={`ml-auto px-2 py-1 text-xs font-medium rounded ${isPenaltyOverdue ? 'bg-rose-200 text-rose-800' : 'bg-gray-200 text-gray-600'}`}>
                         {isPenaltyOverdue ? `${penaltyInfo.daysOverdue} day(s) overdue` : 'Due date not passed'}
@@ -3741,8 +3755,11 @@ export default function OfflineLoanDetailPanel({
             {(() => {
               // Calculate penalty for summary
               let summaryNetPenalty = 0;
-              if (selectedEmi && loan && !isInterestOnlyPayment && !isMultiEmiPayment && isEMIOverdue(selectedEmi)) {
-                const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+              const targetEmiForSummary = selectedEmi || (isInterestOnlyPayment ? (loan?.emis?.find((e: any) => e.paymentStatus === 'PENDING') || loan?.emis?.[0]) : null);
+              const dueDateForSummary = targetEmiForSummary?.dueDate || (isInterestOnlyPayment ? (loan?.interestOnlyStartDate || loan?.disbursementDate) : null);
+
+              if (targetEmiForSummary && dueDateForSummary && loan && !isMultiEmiPayment && isEMIOverdue(targetEmiForSummary || { dueDate: dueDateForSummary, paymentStatus: 'PENDING' })) {
+                const penaltyInfo = calculatePenaltyInfo(dueDateForSummary, loan.loanAmount);
                 const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
                 summaryNetPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
               }
@@ -3786,8 +3803,11 @@ export default function OfflineLoanDetailPanel({
                 (() => {
                   // Calculate penalty for button
                   let buttonNetPenalty = 0;
-                  if (selectedEmi && loan && !isInterestOnlyPayment && !isMultiEmiPayment && isEMIOverdue(selectedEmi)) {
-                    const penaltyInfo = calculatePenaltyInfo(selectedEmi.dueDate, loan.loanAmount);
+                  const targetEmiForButton = selectedEmi || (isInterestOnlyPayment ? (loan?.emis?.find((e: any) => e.paymentStatus === 'PENDING') || loan?.emis?.[0]) : null);
+                  const dueDateForButton = targetEmiForButton?.dueDate || (isInterestOnlyPayment ? (loan?.interestOnlyStartDate || loan?.disbursementDate) : null);
+
+                  if (targetEmiForButton && dueDateForButton && loan && !isMultiEmiPayment && isEMIOverdue(targetEmiForButton || { dueDate: dueDateForButton, paymentStatus: 'PENDING' })) {
+                    const penaltyInfo = calculatePenaltyInfo(dueDateForButton, loan.loanAmount);
                     const penaltyAmount = editedPenaltyAmount !== '' ? parseFloat(editedPenaltyAmount) || 0 : penaltyInfo.penaltyAmount;
                     buttonNetPenalty = Math.max(0, penaltyAmount - penaltyWaiver);
                   }

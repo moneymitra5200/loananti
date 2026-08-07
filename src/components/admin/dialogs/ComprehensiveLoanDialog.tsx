@@ -353,12 +353,16 @@ export default function ComprehensiveLoanDialog({
                         <div className="space-y-4">
                           <div className="grid grid-cols-2 gap-4 text-sm">
                             <div>
-                              <p className="text-gray-500">Disbursed Amount</p>
-                              <p className="font-bold text-lg">{formatCurrency(loanDetails.loan.disbursedAmount || loanDetails.loan.sessionForm?.approvedAmount || 0)}</p>
+                              <p className="text-gray-500">Loan Created Date</p>
+                              <p className="font-medium">{loanDetails.loan.createdAt ? formatDate(loanDetails.loan.createdAt) : 'N/A'}</p>
                             </div>
                             <div>
-                              <p className="text-gray-500">Disbursement Date</p>
+                              <p className="text-gray-500">EMI Start / Disbursement Date</p>
                               <p className="font-medium">{loanDetails.loan.disbursedAt ? formatDate(loanDetails.loan.disbursedAt) : 'N/A'}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500">Disbursed Amount</p>
+                              <p className="font-bold text-lg">{formatCurrency(loanDetails.loan.disbursedAmount || loanDetails.loan.sessionForm?.approvedAmount || 0)}</p>
                             </div>
                             <div>
                               <p className="text-gray-500">Mode</p>

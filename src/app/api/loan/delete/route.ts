@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+
 import { db } from '@/lib/db';
-import { Prisma } from '@prisma/client';
 
 // ============================================================
 // ONLINE-ONLY: Reverse bank / cashbook running balances BEFORE

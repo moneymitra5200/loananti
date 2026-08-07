@@ -713,7 +713,7 @@ const OfflineEMIPaymentDialog = memo(function OfflineEMIPaymentDialog({
           </div>
 
           {/* ── PENALTY UI - ALWAYS visible, ACTIVE only after EMI due date ── */}
-          {!isInterestOnlyLoan && !isMultiMode && (
+          {!isMultiMode && (
             <div className={`p-4 rounded-lg border-2 space-y-3 ${isPenaltyOverdue ? 'bg-rose-50 border-rose-200' : 'bg-gray-50 border-gray-200 opacity-60'}`}>
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle className={`h-5 w-5 ${isPenaltyOverdue ? 'text-rose-600' : 'text-gray-400'}`} />
