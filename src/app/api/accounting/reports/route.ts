@@ -363,8 +363,6 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
   });
   const mirroredOriginalIds = new Set(mirrorMappings.map(m => m.originalLoanId));
 
-  // Compute historical ground truths up to dateFilter
-  
   // 1. Cash Balance up to dateFilter
   const cbWhere: any = { entryDate: { lte: dateFilter } };
   if (companyId) cbWhere.cashBook = { companyId };
@@ -374,10 +372,37 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
   ]);
   const openingCash = cashBook?.openingBalance || 0;
   const historicalCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
-  const isCurrentPeriod = dateFilter >= new Date(new Date().setHours(0, 0, 0, 0));
-  const actualCash = (isCurrentPeriod && cashBook?.currentBalance !== undefined && cashBook.currentBalance !== 0)
-    ? cashBook.currentBalance
-    : historicalCash;
+  const isCurrentPeriod = !asOfDate || dateFilter >= new Date(new Date().setHours(0, 0, 0, 0));
+
+  // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
+  const drMap: Record<string, number> = {};
+  const crMap: Record<string, number> = {};
+  for (const line of journalLines) {
+    drMap[line.accountId] = (drMap[line.accountId] || 0) + line.debitAmount;
+    crMap[line.accountId] = (crMap[line.accountId] || 0) + line.creditAmount;
+  }
+
+  // ─── 5. COMPUTE BALANCES FOR ALL ACCOUNTS ───────────────────────────────
+  const accountBalances: Record<string, number> = {};
+  for (const acc of accounts) {
+    const dr = drMap[acc.id] || 0;
+    const cr = crMap[acc.id] || 0;
+    const op = acc.openingBalance || 0;
+    const isDrNormal = acc.accountType === 'ASSET' || acc.accountType === 'EXPENSE';
+    
+    let balance = isDrNormal ? op + dr - cr : op + cr - dr;
+
+    if (acc.accountCode === '1200') balance = 0;
+    accountBalances[acc.accountCode] = balance;
+  }
+
+  const cashAccount = accounts.find(a => a.accountCode === '1101');
+  const glCashBalance = cashAccount ? (accountBalances['1101'] || 0) : 0;
+  const actualCash = isCurrentPeriod
+    ? (cashBook?.currentBalance !== undefined && cashBook.currentBalance !== 0 ? cashBook.currentBalance : (historicalCash !== 0 ? historicalCash : glCashBalance))
+    : (historicalCash !== 0 ? historicalCash : glCashBalance);
+
+  accountBalances['1101'] = actualCash;
 
   // 2. Bank Balance up to dateFilter
   let actualBankTotal = 0;
@@ -391,14 +416,24 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
         where: { bankAccountId: bank.id, transactionDate: { lte: dateFilter }, transactionType: 'DEBIT' },
         _sum: { amount: true }
       });
-      const historicalBalance = bank.openingBalance + (txCredits._sum.amount || 0) - (txDebits._sum.amount || 0);
-      actualBankTotal += historicalBalance;
+      const historicalTxBalance = bank.openingBalance + (txCredits._sum.amount || 0) - (txDebits._sum.amount || 0);
+
+      const matchingAccount = accounts.find(a => a.accountName.toUpperCase().includes(bank.bankName.toUpperCase()) || a.accountCode === '1401');
+      const glBankBalance = matchingAccount ? (accountBalances[matchingAccount.accountCode] || 0) : 0;
+
+      const finalBankBalance = isCurrentPeriod
+        ? (bank.currentBalance !== 0 ? bank.currentBalance : (historicalTxBalance !== 0 ? historicalTxBalance : glBankBalance))
+        : (historicalTxBalance !== 0 ? historicalTxBalance : (glBankBalance !== 0 ? glBankBalance : bank.currentBalance));
+
+      actualBankTotal += finalBankBalance;
       return {
         ...bank,
-        currentBalance: historicalBalance
+        currentBalance: finalBankBalance
       };
     })
   );
+
+  accountBalances['1102'] = actualBankTotal;
 
   // 3. Capital (Equity) up to dateFilter
   const actualCapital = equityEntries
@@ -423,39 +458,10 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
       return sum + Math.max(0, disbursed - paidPrincipal);
     }, 0);
 
-  // ─── 4. AGGREGATE JOURNAL ACTIVITY ──────────────────────────────────────
-  const drMap: Record<string, number> = {};
-  const crMap: Record<string, number> = {};
-  for (const line of journalLines) {
-    drMap[line.accountId] = (drMap[line.accountId] || 0) + line.debitAmount;
-    crMap[line.accountId] = (crMap[line.accountId] || 0) + line.creditAmount;
-  }
-
-  // ─── 5. COMPUTE BALANCES FOR ALL ACCOUNTS ───────────────────────────────
-  const accountBalances: Record<string, number> = {};
-  for (const acc of accounts) {
-    const dr = drMap[acc.id] || 0;
-    const cr = crMap[acc.id] || 0;
-    const op = acc.openingBalance || 0;
-    const isDrNormal = acc.accountType === 'ASSET' || acc.accountType === 'EXPENSE';
-    
-    let balance = isDrNormal ? op + dr - cr : op + cr - dr;
-
-    // Apply ground truth overrides
-    if (acc.accountCode === '1101') balance = actualCash;
-    if (acc.accountCode === '1102') balance = actualBankTotal;
-    if (acc.accountCode === '1201') balance = actualOnlineLoans;
-    if (acc.accountCode === '1210') balance = actualOfflineLoans;
-    if (acc.accountCode === '3002') {
-      // Always use EquityEntry-derived actualCapital (source of truth) instead of stale CoA balance
-      balance = actualCapital !== 0 ? actualCapital : balance;
-    }
-    // NOTE: 1200 is a parent/summary account. Its sub-accounts (1201 Online Loans, 1210 Offline Loans)
-    // are listed individually in the balance sheet assets array. Setting 1200 to 0 here prevents
-    // double-counting the loan portfolio in totalAssets. The individual sub-account lines carry the value.
-    if (acc.accountCode === '1200') balance = 0;
-
-    accountBalances[acc.accountCode] = balance;
+  accountBalances['1201'] = actualOnlineLoans;
+  accountBalances['1210'] = actualOfflineLoans;
+  if (actualCapital !== 0) {
+    accountBalances['3002'] = actualCapital;
   }
 
   // ─── 6. BUILD BALANCE SHEET SECTIONS ────────────────────────────────────
