@@ -2375,13 +2375,18 @@ function BalanceSheetSection({
   const [balanceSheet, setBalanceSheet] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedYear, setSelectedYear] = useState<string>('');
 
   const loadBalanceSheet = useCallback(async () => {
     if (!selectedCompanyId) return;
     setLoading(true);
     try {
       // Always fetch fresh — add timestamp to bust any CDN/browser cache
-      const res = await fetch(`/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}&_t=${Date.now()}`, {
+      let url = `/api/accounting/reports?type=balance-sheet&companyId=${selectedCompanyId}&_t=${Date.now()}`;
+      if (selectedYear) {
+        url += `&year=${selectedYear}`;
+      }
+      const res = await fetch(url, {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
       });
@@ -2392,7 +2397,7 @@ function BalanceSheetSection({
     } finally {
       setLoading(false);
     }
-  }, [selectedCompanyId, refreshKey]);
+  }, [selectedCompanyId, selectedYear, refreshKey]);
 
 
   useEffect(() => {
@@ -2472,6 +2477,23 @@ function BalanceSheetSection({
             {reconciling ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wrench className="h-4 w-4 mr-2" />}
             Fix & Reconcile All Loans
           </Button>
+          {/* Financial Year Selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-700">Financial Year:</span>
+            <Select value={selectedYear || 'CURRENT'} onValueChange={(val) => setSelectedYear(val === 'CURRENT' ? '' : val)}>
+              <SelectTrigger className="w-48 bg-white border-gray-300 font-medium">
+                <SelectValue placeholder="Current FY" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="CURRENT">FY 2026-27 (Current)</SelectItem>
+                <SelectItem value="2025">FY 2025-26</SelectItem>
+                <SelectItem value="2024">FY 2024-25</SelectItem>
+                <SelectItem value="2023">FY 2023-24</SelectItem>
+                <SelectItem value="2022">FY 2022-23</SelectItem>
+                <SelectItem value="2021">FY 2021-22</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-500">As of:</span>
             <Input

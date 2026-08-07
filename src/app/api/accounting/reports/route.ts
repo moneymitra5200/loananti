@@ -36,16 +36,24 @@ export async function GET(request: NextRequest) {
     const providedCompanyId = searchParams.get('companyId') || 'default';
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const year = searchParams.get('year');
 
     const companyId = await getValidCompanyId(providedCompanyId);
 
+    let effectiveAsOfDate: Date | undefined = endDate ? new Date(endDate) : undefined;
+    if (year && !endDate) {
+      const yearNum = parseInt(year);
+      // FY end date is March 31 of (year + 1)
+      effectiveAsOfDate = new Date(yearNum + 1, 2, 31, 23, 59, 59);
+    }
+
     switch (reportType) {
       case 'trial-balance':
-        return await getTrialBalance(companyId, endDate ? new Date(endDate) : undefined);
+        return await getTrialBalance(companyId, effectiveAsOfDate);
       case 'profit-loss':
         return await getProfitAndLoss(companyId, startDate, endDate);
       case 'balance-sheet':
-        return await getBalanceSheet(companyId, endDate ? new Date(endDate) : undefined);
+        return await getBalanceSheet(companyId, effectiveAsOfDate);
       case 'portfolio':
         return await getLoanPortfolioReport(companyId);
       case 'cash-flow':
