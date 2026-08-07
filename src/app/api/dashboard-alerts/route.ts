@@ -17,6 +17,30 @@ export async function GET(req: NextRequest) {
 
     const paidStatuses = ['PAID', 'INTEREST_ONLY_PAID', 'WAIVED'];
 
+    const mirrorMappings = await db.mirrorLoanMapping.findMany({
+      where: { mirrorLoanId: { not: null } },
+      select: { mirrorLoanId: true }
+    });
+    const mirrorLoanIds = mirrorMappings.map(m => m.mirrorLoanId).filter(Boolean) as string[];
+
+    const onlineBaseWhere: Record<string, unknown> = {
+      paymentStatus: { notIn: paidStatuses as any },
+      loanApplication: {
+        status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] }
+      }
+    };
+    if (mirrorLoanIds.length > 0) {
+      onlineBaseWhere.loanApplicationId = { notIn: mirrorLoanIds };
+    }
+
+    const offlineBaseWhere: Record<string, unknown> = {
+      paymentStatus: { notIn: paidStatuses as any },
+      offlineLoan: {
+        isMirrorLoan: false,
+        status: { in: ['ACTIVE', 'INTEREST_ONLY'] }
+      }
+    };
+
     const [
       onlineToday,
       offlineToday,
@@ -30,48 +54,48 @@ export async function GET(req: NextRequest) {
       // Today's online EMIs
       db.eMISchedule.findMany({
         where: {
+          ...onlineBaseWhere,
           dueDate: { gte: todayStart, lte: todayEnd },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),
       // Today's offline EMIs
       db.offlineLoanEMI.findMany({
         where: {
+          ...offlineBaseWhere,
           dueDate: { gte: todayStart, lte: todayEnd },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),
       // Tomorrow's online EMIs
       db.eMISchedule.findMany({
         where: {
+          ...onlineBaseWhere,
           dueDate: { gte: tomorrowStart, lte: tomorrowEnd },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),
       // Tomorrow's offline EMIs
       db.offlineLoanEMI.findMany({
         where: {
+          ...offlineBaseWhere,
           dueDate: { gte: tomorrowStart, lte: tomorrowEnd },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),
       // Overdue online EMIs
       db.eMISchedule.findMany({
         where: {
+          ...onlineBaseWhere,
           dueDate: { lt: todayStart },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),
       // Overdue offline EMIs
       db.offlineLoanEMI.findMany({
         where: {
+          ...offlineBaseWhere,
           dueDate: { lt: todayStart },
-          paymentStatus: { notIn: paidStatuses as any },
         },
         select: { totalAmount: true, paidAmount: true }
       }),

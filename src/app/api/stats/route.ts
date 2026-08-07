@@ -73,15 +73,15 @@ export async function GET(request: NextRequest) {
       where: {
         dueDate: { gte: todayStart, lte: todayEnd },
         paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-        offlineLoan: { isMirrorLoan: false },
+        offlineLoan: { isMirrorLoan: false, status: { in: ['ACTIVE', 'INTEREST_ONLY'] } },
       },
     }).catch(() => 0);
 
     const overdueEMIs = await db.offlineLoanEMI.count({
       where: {
         dueDate: { lt: todayStart },
-        paymentStatus: 'PENDING',
-        offlineLoan: { isMirrorLoan: false },
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        offlineLoan: { isMirrorLoan: false, status: { in: ['ACTIVE', 'INTEREST_ONLY'] } },
       },
     }).catch(() => 0);
 

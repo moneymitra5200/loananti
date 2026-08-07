@@ -68,7 +68,10 @@ export async function GET(request: NextRequest) {
 
       // Get online loan EMIs with loan amount for penalty calculation
       const onlineEmiWhere: Record<string, unknown> = {
-        paymentStatus: { in: ['PENDING', 'OVERDUE'] }
+        paymentStatus: { in: ['PENDING', 'OVERDUE'] },
+        loanApplication: {
+          status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] }
+        }
       };
       if (mirrorLoanIds.length > 0) {
         onlineEmiWhere.loanApplicationId = { notIn: mirrorLoanIds };
@@ -77,6 +80,7 @@ export async function GET(request: NextRequest) {
       // For agents, filter by their loans
       if (userRole === 'AGENT') {
         onlineEmiWhere.loanApplication = {
+          status: { in: ['ACTIVE', 'DISBURSED', 'ACTIVE_INTEREST_ONLY'] },
           sessionForm: { agentId: userId }
         };
       }
@@ -104,11 +108,18 @@ export async function GET(request: NextRequest) {
       // duplicates of the original loan and must never be double-counted in alerts.
       const offlineEmiWhere: Record<string, unknown> = {
         paymentStatus: { in: ['PENDING', 'OVERDUE'] },
-        offlineLoan: { isMirrorLoan: false }
+        offlineLoan: {
+          isMirrorLoan: false,
+          status: { in: ['ACTIVE', 'INTEREST_ONLY'] }
+        }
       };
 
       if (userRole === 'AGENT') {
-        offlineEmiWhere.offlineLoan = { isMirrorLoan: false, createdById: userId };
+        offlineEmiWhere.offlineLoan = {
+          isMirrorLoan: false,
+          status: { in: ['ACTIVE', 'INTEREST_ONLY'] },
+          createdById: userId
+        };
       }
 
       const offlineEmis = await db.offlineLoanEMI.findMany({
@@ -128,8 +139,12 @@ export async function GET(request: NextRequest) {
         }
       });
 
+      // Exclude EMIs where remaining balance is 0 or paidAmount >= totalAmount
+      const activeOnlineEmis = onlineEmis.filter(e => (e.totalAmount - (e.paidAmount || 0)) > 0.01);
+      const activeOfflineEmis = offlineEmis.filter(e => (e.totalAmount - (e.paidAmount || 0)) > 0.01);
+
       // Add penalty info to online EMIs
-      const onlineEmisWithPenalty = onlineEmis.map(e => {
+      const onlineEmisWithPenalty = activeOnlineEmis.map(e => {
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return {
@@ -142,7 +157,7 @@ export async function GET(request: NextRequest) {
       });
 
       // Add penalty info to offline EMIs
-      const offlineEmisWithPenalty = offlineEmis.map(e => {
+      const offlineEmisWithPenalty = activeOfflineEmis.map(e => {
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return {
