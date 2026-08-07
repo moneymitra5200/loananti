@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { LoanStatus, EMIPaymentStatus } from '@prisma/client';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 const LoanStatusConst = {
-  ACTIVE: LoanStatus.ACTIVE,
-  ACTIVE_INTEREST_ONLY: LoanStatus.ACTIVE_INTEREST_ONLY,
-  DISBURSED: LoanStatus.DISBURSED,
-  CLOSED: LoanStatus.CLOSED,
+  ACTIVE: 'ACTIVE',
+  ACTIVE_INTEREST_ONLY: 'ACTIVE_INTEREST_ONLY',
+  DISBURSED: 'DISBURSED',
+  CLOSED: 'CLOSED',
 };
 
 const EMIPaymentStatusConst = {
-  OVERDUE: EMIPaymentStatus.OVERDUE,
+  OVERDUE: 'OVERDUE',
 };
 
 // Helper to get valid company ID
@@ -572,11 +571,11 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
 async function getLoanPortfolioReport(companyId: string | null) {
   try {
     // Build where clause
-    const loanWhere = companyId 
+    const loanWhere: any = companyId 
       ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } } 
       : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED, LoanStatusConst.CLOSED] } };
     
-    const activeLoanWhere = companyId 
+    const activeLoanWhere: any = companyId 
       ? { companyId, status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED] } } 
       : { status: { in: [LoanStatusConst.ACTIVE, LoanStatusConst.ACTIVE_INTEREST_ONLY, LoanStatusConst.DISBURSED] } };
 
@@ -596,7 +595,7 @@ async function getLoanPortfolioReport(companyId: string | null) {
     ]);
 
     // Get EMI statistics
-    const emiWhere = companyId 
+    const emiWhere: any = companyId 
       ? { loanApplication: { companyId } } 
       : {};
     
@@ -623,9 +622,9 @@ async function getLoanPortfolioReport(companyId: string | null) {
     ]);
 
     return NextResponse.json({
-      totalDisbursed: totalDisbursed._sum.disbursedAmount || 0,
-      totalOutstanding: totalOutstanding._sum.disbursedAmount || 0,
-      totalInterestCollected: collectedInterest._sum.interestAmount || 0,
+      totalDisbursed: (totalDisbursed._sum as any)?.disbursedAmount || 0,
+      totalOutstanding: (totalOutstanding._sum as any)?.disbursedAmount || 0,
+      totalInterestCollected: (collectedInterest._sum as any)?.interestAmount || 0,
       pendingEMIs,
       overdueEMIs,
       activeLoans,
@@ -686,9 +685,9 @@ async function getReceivablesAging(companyId: string | null) {
   const now = new Date();
   
   try {
-    const emiWhere = companyId 
-      ? { paymentStatus: EMIPaymentStatusConst.OVERDUE, loanApplication: { companyId } } 
-      : { paymentStatus: EMIPaymentStatusConst.OVERDUE };
+    const emiWhere: any = companyId 
+      ? { paymentStatus: 'OVERDUE', loanApplication: { companyId } } 
+      : { paymentStatus: 'OVERDUE' };
     
     const overdueEMIs = await db.eMISchedule.findMany({
       where: emiWhere,
@@ -715,11 +714,11 @@ async function getReceivablesAging(companyId: string | null) {
     let days90Total = 0;
     let over90Total = 0;
 
-    for (const emi of overdueEMIs) {
+    for (const emi of overdueEMIs as any[]) {
       const daysOverdue = Math.floor((now.getTime() - new Date(emi.dueDate).getTime()) / (1000 * 60 * 60 * 24));
       const item = {
-        loanNo: emi.loanApplication.applicationNo,
-        customer: emi.loanApplication.customer?.name || 'Unknown',
+        loanNo: emi.loanApplication?.applicationNo || '',
+        customer: emi.loanApplication?.customer?.name || 'Unknown',
         emiNo: emi.installmentNumber,
         dueDate: emi.dueDate,
         amount: emi.totalAmount,
