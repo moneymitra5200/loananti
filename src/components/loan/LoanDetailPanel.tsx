@@ -988,8 +988,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 <Pencil className="h-4 w-4" />
               </Button>
             )}
-            {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
-            {(currentUserRole === 'SUPER_ADMIN' || user?.role === 'SUPER_ADMIN') && !isMirrorLoan && loanDetails && (
+            {/* Delete Loan - SUPER_ADMIN, ADMIN, COMPANY, CASHIER */}
+            {(currentUserRole === 'SUPER_ADMIN' || user?.role === 'SUPER_ADMIN' || currentUserRole === 'COMPANY' || user?.role === 'COMPANY' || currentUserRole === 'CASHIER' || user?.role === 'CASHIER' || currentUserRole === 'ADMIN' || !currentUserRole) && !isMirrorLoan && loanDetails && (
               <Button
                 size="sm"
                 variant="destructive"

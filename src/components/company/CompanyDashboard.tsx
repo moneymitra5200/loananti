@@ -1657,8 +1657,11 @@ export default function CompanyDashboard() {
         <LoanDetailPanel
           open={showLoanDetailPanel}
           loanId={selectedLoanId}
+          userRole={user?.role || 'COMPANY'}
+          userId={user?.id || ''}
           onClose={() => { setShowLoanDetailPanel(false); setSelectedLoanId(null); }}
           onEMIPaid={() => fetchData()}
+          onPaymentSuccess={() => fetchData()}
         />
       ))}
       
