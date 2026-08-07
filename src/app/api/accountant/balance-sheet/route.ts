@@ -234,7 +234,8 @@ export async function GET(request: NextRequest) {
       select: {
         accountId: true,
         debitAmount: true,
-        creditAmount: true
+        creditAmount: true,
+        journalEntry: { select: { entryDate: true } }
       }
     });
 
@@ -316,12 +317,27 @@ export async function GET(request: NextRequest) {
     const openingBalanceEquity = coaCapital3001;
     const currentYearProfit   = getAccountBalance(ACCOUNT_CODES.CURRENT_YEAR_PROFIT);
 
-    // Calculate total income and expenses for P&L
+
+
+    // Calculate total income and expenses for P&L strictly within current FY (from fyStart to fyEnd)
     const incomeAccounts = accounts.filter(a => a.accountType === 'INCOME');
     const expenseAccounts = accounts.filter(a => a.accountType === 'EXPENSE');
-    
-    const totalIncome = incomeAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
-    const totalExpenses = expenseAccounts.reduce((sum, a) => sum + a.currentBalance, 0);
+
+    let totalIncome = 0;
+    let totalExpenses = 0;
+
+    for (const acc of incomeAccounts) {
+      const lines = journalLines.filter(l => l.accountId === acc.id && l.journalEntry.entryDate >= fyStart);
+      const inc = lines.reduce((s, l) => s + (l.creditAmount || 0) - (l.debitAmount || 0), 0);
+      totalIncome += inc;
+    }
+
+    for (const acc of expenseAccounts) {
+      const lines = journalLines.filter(l => l.accountId === acc.id && l.journalEntry.entryDate >= fyStart);
+      const exp = lines.reduce((s, l) => s + (l.debitAmount || 0) - (l.creditAmount || 0), 0);
+      totalExpenses += exp;
+    }
+
     const profitLoss = totalIncome - totalExpenses;
 
     // ── DYNAMIC RETAINED EARNINGS COMPUTATION ──────────────────────────────
