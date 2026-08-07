@@ -989,14 +989,16 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
               </Button>
             )}
             {/* Delete Loan - SUPER_ADMIN only, non-mirror */}
-            {currentUserRole === 'SUPER_ADMIN' && !isMirrorLoan && loanDetails && (
+            {(currentUserRole === 'SUPER_ADMIN' || user?.role === 'SUPER_ADMIN') && !isMirrorLoan && loanDetails && (
               <Button
                 size="sm"
-                variant="ghost"
-                className="bg-red-500/20 text-white hover:bg-red-500/40 border border-red-300/30 shrink-0"
+                variant="destructive"
+                className="bg-red-600 hover:bg-red-700 text-white gap-1 font-medium shadow-sm shrink-0"
                 onClick={() => setShowDeleteDialog(true)}
+                title="Delete this loan and all associated entries"
               >
-                <Trash2 className="h-4 w-4 mr-1" /> Delete
+                <Trash2 className="h-4 w-4" />
+                <span>Delete Loan</span>
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={onClose} className="hidden sm:flex text-white hover:bg-white/20 shrink-0">
