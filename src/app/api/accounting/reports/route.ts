@@ -513,19 +513,12 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
 
   // LIABILITIES (Keep structure permanent even if 0)
   const liabilities: any[] = accounts
-    .filter(a => a.accountType === 'LIABILITY') // Include all liabilities (including Investor Capital 2110)
+    .filter(a => a.accountType === 'LIABILITY') // Include all liabilities
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
-    
-  // Add Owner's Capital to Liabilities instead of Equity
-  liabilities.push({
-    accountCode: '3002',
-    accountName: "Owner's Capital",
-    amount: accountBalances['3002'] || 0
-  });
 
   // EQUITY (Keep structure permanent even if 0)
   const equity: any[] = accounts
-    .filter(a => a.accountType === 'EQUITY' && !['3004', '3002'].includes(a.accountCode))
+    .filter(a => a.accountType === 'EQUITY' && a.accountCode !== '3004')
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
   // Current Financial Year Start Date (April 1)
