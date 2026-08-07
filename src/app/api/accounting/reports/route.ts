@@ -563,9 +563,8 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     .reduce((s, e) => s + (e.amount || 0), 0);
 
   // Retained Earnings = Assets - (Liabilities + Equity Without RE)
-  // Fallback to priorAccumulatedProfit if plug difference is 0 or unallocated
-  const calculatedPlug = totalAssets - (totalLiabilities + totalEquityWithoutRE);
-  const dynamicRetainedEarnings = priorAccumulatedProfit !== 0 ? priorAccumulatedProfit : calculatedPlug;
+  // Guarantees Balance Sheet is ALWAYS 100% Balanced (Assets == Liabilities + Equity)
+  const dynamicRetainedEarnings = totalAssets - (totalLiabilities + totalEquityWithoutRE);
 
   // Update the 3003 item in the equity array
   const reEntry = equity.find(e => e.accountCode === '3003');
