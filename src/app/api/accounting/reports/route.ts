@@ -371,7 +371,8 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     db.cashBookEntry.aggregate({ where: { ...cbWhere, entryType: 'DEBIT' }, _sum: { amount: true } })
   ]);
   const openingCash = cashBook?.openingBalance || 0;
-  const actualCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
+  const historicalCash = openingCash + (cbCredits._sum.amount || 0) - (cbDebits._sum.amount || 0);
+  const actualCash = (cashBook?.currentBalance !== undefined && cashBook.currentBalance !== 0) ? cashBook.currentBalance : historicalCash;
 
   // 2. Bank Balance up to dateFilter
   let actualBankTotal = 0;
