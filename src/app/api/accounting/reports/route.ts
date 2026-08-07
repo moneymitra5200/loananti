@@ -525,13 +525,35 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
   const fyStartYear = dateFilter.getMonth() >= 3 ? dateFilter.getFullYear() : dateFilter.getFullYear() - 1;
   const fyStartDate = new Date(fyStartYear, 3, 1, 0, 0, 0);
 
-  // Current Year P&L (strictly from fyStartDate to dateFilter)
+  // 1. Prior Years' Accumulated Profit (P&L before fyStartDate)
+  const priorPeriodLines = await db.journalEntryLine.findMany({
+    where: {
+      journalEntry: {
+        companyId,
+        isApproved: true,
+        isReversed: false,
+        entryDate: { lt: fyStartDate }
+      },
+      account: { accountType: { in: ['INCOME', 'EXPENSE'] } }
+    },
+    include: { account: true }
+  });
+
+  let priorIncome = 0;
+  let priorExpense = 0;
+  for (const line of priorPeriodLines) {
+    if (line.account.accountType === 'INCOME') priorIncome += (line.creditAmount - line.debitAmount);
+    if (line.account.accountType === 'EXPENSE') priorExpense += (line.debitAmount - line.creditAmount);
+  }
+  const priorAccumulatedProfit = priorIncome - priorExpense;
+
+  // 2. Current Year P&L (strictly from fyStartDate to dateFilter)
   const pnlRes = await getProfitAndLoss(companyId, fyStartDate.toISOString(), dateFilter.toISOString());
   const pnlData = await pnlRes.json();
   const currentYearProfit = pnlData.netProfit || 0;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
 
-  // ── TOTALS & DYNAMIC RETAINED EARNINGS PLUG ────────────────────────────────────
+  // ── TOTALS & DYNAMIC RETAINED EARNINGS ────────────────────────────────────
   const totalAssets = assets.filter(a => !a.isSection).reduce((s, a) => s + (a.amount || 0), 0);
   const totalLiabilities = liabilities.reduce((s, a) => s + (a.amount || 0), 0);
   
@@ -541,7 +563,9 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     .reduce((s, e) => s + (e.amount || 0), 0);
 
   // Retained Earnings = Assets - (Liabilities + Equity Without RE)
-  const dynamicRetainedEarnings = totalAssets - (totalLiabilities + totalEquityWithoutRE);
+  // Fallback to priorAccumulatedProfit if plug difference is 0 or unallocated
+  const calculatedPlug = totalAssets - (totalLiabilities + totalEquityWithoutRE);
+  const dynamicRetainedEarnings = priorAccumulatedProfit !== 0 ? priorAccumulatedProfit : calculatedPlug;
 
   // Update the 3003 item in the equity array
   const reEntry = equity.find(e => e.accountCode === '3003');
