@@ -273,9 +273,10 @@ export async function GET(request: NextRequest) {
 
     // Helper function to get account balance by code
     const getAccountBalance = (code: string): number => {
-      // For Bank Account (1102) and Cash in Hand (1101), use actual balances from CashBook/BankAccount
-      if (code === '1101') return actualCashBalance !== 0 ? actualCashBalance : actualCashBalanceFromGL;
-      if (code === '1102') return actualBankBalance !== 0 ? actualBankBalance : actualBankBalanceFromGL;
+      const isCurrentPeriod = fyEnd >= new Date(new Date().setHours(0, 0, 0, 0));
+      // For Bank Account (1102) and Cash in Hand (1101), use actual balances from CashBook/BankAccount for current period, GL for past period
+      if (code === '1101') return (isCurrentPeriod && actualCashBalance !== 0) ? actualCashBalance : actualCashBalanceFromGL;
+      if (code === '1102') return (isCurrentPeriod && actualBankBalance !== 0) ? actualBankBalance : actualBankBalanceFromGL;
       if (code === '1201') return actualOnlineLoansFromGL !== 0 ? actualOnlineLoansFromGL : actualOnlineLoans;
       if (code === '1210') return actualOfflineLoansFromGL !== 0 ? actualOfflineLoansFromGL : actualOfflineLoans;
       if (code === '1200') return totalLoansReceivableFromGL !== 0 ? totalLoansReceivableFromGL : (actualOnlineLoans + actualOfflineLoans);
