@@ -398,9 +398,11 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
 
   const cashAccount = accounts.find(a => a.accountCode === '1101');
   const glCashBalance = cashAccount ? (accountBalances['1101'] || 0) : 0;
-  const actualCash = isCurrentPeriod
-    ? (cashBook?.currentBalance !== undefined && cashBook.currentBalance !== 0 ? cashBook.currentBalance : (historicalCash !== 0 ? historicalCash : glCashBalance))
-    : (historicalCash !== 0 ? historicalCash : glCashBalance);
+  const actualCash = glCashBalance !== 0 
+    ? glCashBalance 
+    : (isCurrentPeriod
+        ? (cashBook?.currentBalance !== undefined && cashBook.currentBalance !== 0 ? cashBook.currentBalance : historicalCash)
+        : (historicalCash !== 0 ? historicalCash : 0));
 
   accountBalances['1101'] = actualCash;
 
