@@ -517,8 +517,12 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
     .filter(a => a.accountType === 'EQUITY' && !['3004', '3002'].includes(a.accountCode))
     .map(a => ({ accountCode: a.accountCode, accountName: a.accountName, amount: accountBalances[a.accountCode] || 0 }));
 
-  // Current Year P&L
-  const pnlRes = await getProfitAndLoss(companyId, null, dateFilter.toISOString());
+  // Current Financial Year Start Date (April 1)
+  const fyStartYear = dateFilter.getMonth() >= 3 ? dateFilter.getFullYear() : dateFilter.getFullYear() - 1;
+  const fyStartDate = new Date(fyStartYear, 3, 1, 0, 0, 0);
+
+  // Current Year P&L (strictly from fyStartDate to dateFilter)
+  const pnlRes = await getProfitAndLoss(companyId, fyStartDate.toISOString(), dateFilter.toISOString());
   const pnlData = await pnlRes.json();
   const currentYearProfit = pnlData.netProfit || 0;
   equity.push({ accountCode: 'PL', accountName: 'Current Year Profit/(Loss)', amount: currentYearProfit });
