@@ -1872,16 +1872,29 @@ function TrialBalanceSection({
   selectedCompanyId,
   formatCurrency,
   refreshKey = 0,
-  formatDate
+  formatDate,
+  selectedYear
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
   refreshKey?: number;
+  selectedYear?: string;
 }) {
   const [trialBalance, setTrialBalance] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  useEffect(() => {
+    if (selectedYear === 'ALL') {
+      setAsOfDate(format(new Date(), 'yyyy-MM-dd'));
+    } else if (selectedYear) {
+      const yr = parseInt(selectedYear);
+      if (!isNaN(yr)) {
+        setAsOfDate(`${yr + 1}-03-31`);
+      }
+    }
+  }, [selectedYear]);
 
   const loadTrialBalance = useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -2091,12 +2104,14 @@ function ProfitLossSection({
   selectedCompanyId,
   formatCurrency,
   refreshKey = 0,
-  formatDate
+  formatDate,
+  selectedYear
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
   refreshKey?: number;
+  selectedYear?: string;
 }) {
   const [profitLoss, setProfitLoss] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -2108,6 +2123,19 @@ function ProfitLossSection({
 
   const [startDate, setStartDate] = useState(getFYStartDate());
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  useEffect(() => {
+    if (selectedYear === 'ALL') {
+      setStartDate('2020-01-01');
+      setEndDate(format(new Date(), 'yyyy-MM-dd'));
+    } else if (selectedYear) {
+      const yr = parseInt(selectedYear);
+      if (!isNaN(yr)) {
+        setStartDate(`${yr}-04-01`);
+        setEndDate(`${yr + 1}-03-31`);
+      }
+    }
+  }, [selectedYear]);
 
   const setPeriodFY = () => {
     setStartDate(getFYStartDate());
@@ -2365,17 +2393,25 @@ function BalanceSheetSection({
   selectedCompanyId,
   formatCurrency,
   refreshKey = 0,
-  formatDate
+  formatDate,
+  selectedYear: headerSelectedYear
 }: {
   selectedCompanyId: string;
   formatCurrency: (amount: number) => string;
   formatDate: (date: Date | string) => string;
   refreshKey?: number;
+  selectedYear?: string;
 }) {
   const [balanceSheet, setBalanceSheet] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [selectedYear, setSelectedYear] = useState<string>('');
+  const [selectedYear, setSelectedYear] = useState<string>(headerSelectedYear || '');
+
+  useEffect(() => {
+    if (headerSelectedYear !== undefined) {
+      setSelectedYear(headerSelectedYear);
+    }
+  }, [headerSelectedYear]);
 
   const loadBalanceSheet = useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -2795,6 +2831,7 @@ export default function UnifiedAccountantDashboard() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const selectedCompany = companies.find(c => c.id === selectedCompanyId);
+  const [globalSelectedFY, setGlobalSelectedFY] = useState<string>('2026');
   const [refreshKey, setRefreshKey] = useState(0);
   const triggerRefresh = useCallback(() => {
     console.log('[AccountantDashboard] Real-time refresh triggered');
@@ -2946,9 +2983,9 @@ export default function UnifiedAccountantDashboard() {
           />
         );
       case 'day-book':
-        return <TradDayBookSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
+        return <TradDayBookSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} selectedYear={globalSelectedFY} />;
       case 'ledger':
-        return <LedgerSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} />;
+        return <LedgerSection selectedCompanyId={selectedCompanyId} refreshKey={refreshKey} selectedYear={globalSelectedFY} />;
       case 'personal-ledger':
         return (
           <PersonalLedgerTab
@@ -2993,6 +3030,7 @@ export default function UnifiedAccountantDashboard() {
             formatCurrency={formatCurrency}
             refreshKey={refreshKey}
             formatDate={formatDate}
+            selectedYear={globalSelectedFY}
           />
         );
       case 'profit-loss':
@@ -3002,6 +3040,7 @@ export default function UnifiedAccountantDashboard() {
             formatCurrency={formatCurrency}
             refreshKey={refreshKey}
             formatDate={formatDate}
+            selectedYear={globalSelectedFY}
           />
         );
       case 'balance-sheet':
@@ -3011,6 +3050,7 @@ export default function UnifiedAccountantDashboard() {
             formatCurrency={formatCurrency}
             refreshKey={refreshKey}
             formatDate={formatDate}
+            selectedYear={globalSelectedFY}
           />
         );
       case 'expenses':
@@ -3093,6 +3133,23 @@ export default function UnifiedAccountantDashboard() {
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* Financial Year Selector */}
+              <div className="flex items-center gap-1">
+                <Calendar className="h-4 w-4 text-emerald-200" />
+                <Select value={globalSelectedFY} onValueChange={setGlobalSelectedFY}>
+                  <SelectTrigger className="w-40 h-8 bg-white/10 border-white/20 text-white text-xs font-semibold">
+                    <SelectValue placeholder="Financial Year" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Financial Years</SelectItem>
+                    <SelectItem value="2026">FY 2026-27 (Current)</SelectItem>
+                    <SelectItem value="2025">FY 2025-26</SelectItem>
+                    <SelectItem value="2024">FY 2024-25</SelectItem>
+                    <SelectItem value="2023">FY 2023-24</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
               {/* Manual Entry Button */}
               <Button 

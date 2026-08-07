@@ -36,7 +36,7 @@ interface LedgerData {
 }
 interface COAItem { code: string; label: string; type: string; desc: string; }
 
-export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
+export default function LedgerSection({ selectedCompanyId, refreshKey = 0, selectedYear }: { selectedCompanyId: string; refreshKey?: number; selectedYear?: string }) {
   const getFYStartDate = () => {
     const now = new Date();
     const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
@@ -49,6 +49,19 @@ export default function LedgerSection({ selectedCompanyId, refreshKey = 0 }: { s
   const [ledger, setLedger] = useState<LedgerData | null>(null);
   const [loading, setLoading] = useState(false);
   const [dbAccounts, setDbAccounts] = useState<COAItem[]>([]);
+
+  useEffect(() => {
+    if (selectedYear === 'ALL') {
+      setStartDate('2020-01-01');
+      setEndDate(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+    } else if (selectedYear) {
+      const yr = parseInt(selectedYear);
+      if (!isNaN(yr)) {
+        setStartDate(`${yr}-04-01`);
+        setEndDate(`${yr + 1}-03-31`);
+      }
+    }
+  }, [selectedYear]);
 
   const setPeriodFY = () => {
     setStartDate(getFYStartDate());

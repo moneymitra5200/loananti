@@ -335,13 +335,26 @@ const PER_PAGE = 7;
 // ─────────────────────────────────────────────────
 // COMPONENT
 // ─────────────────────────────────────────────────
-export default function TradDayBookSection({ selectedCompanyId, refreshKey = 0 }: { selectedCompanyId: string; refreshKey?: number }) {
+export default function TradDayBookSection({ selectedCompanyId, refreshKey = 0, selectedYear }: { selectedCompanyId: string; refreshKey?: number; selectedYear?: string }) {
   const [entries, setEntries] = useState<DayEntry[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (selectedYear === 'ALL') {
+      setStartDate('2020-01-01');
+      setEndDate(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+    } else if (selectedYear) {
+      const yr = parseInt(selectedYear);
+      if (!isNaN(yr)) {
+        setStartDate(`${yr}-04-01`);
+        setEndDate(`${yr + 1}-03-31`);
+      }
+    }
+  }, [selectedYear]);
 
   const load = useCallback(async () => {
     if (!selectedCompanyId) return;
