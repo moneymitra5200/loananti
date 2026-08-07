@@ -1194,11 +1194,13 @@ export default function OfflineLoanDetailPanel({
   };
 
   const handleDeleteLoan = async () => {
-    if (!loanId || !userId || userRole !== 'SUPER_ADMIN') return;
+    const effectiveUserId = userId || user?.id || '';
+    const effectiveRole = userRole || user?.role || '';
+    if (!loanId || effectiveRole !== 'SUPER_ADMIN') return;
 
     setDeleting(true);
     try {
-      const res = await fetch(`/api/offline-loan?loanId=${loanId}&userRole=${userRole}&userId=${userId}&force=true`, {
+      const res = await fetch(`/api/offline-loan?loanId=${loanId}&userRole=${effectiveRole}&userId=${effectiveUserId}&force=true`, {
         method: 'DELETE'
       });
 
@@ -1382,9 +1384,16 @@ export default function OfflineLoanDetailPanel({
                     <Pencil className="h-4 w-4" />
                   </Button>
                 )}
-                {userRole === 'SUPER_ADMIN' && (
-                  <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={() => setDeleteDialogOpen(true)}>
+                {(userRole === 'SUPER_ADMIN' || user?.role === 'SUPER_ADMIN') && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="bg-red-600 hover:bg-red-700 text-white gap-1 font-medium shadow-sm"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    title="Delete this loan and all associated entries"
+                  >
                     <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Delete Loan</span>
                   </Button>
                 )}
                 {/* Close Loan button — visible for ACTIVE loans */}
@@ -4356,6 +4365,47 @@ export default function OfflineLoanDetailPanel({
             >
               {editSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Delete Confirmation Dialog ───────────────────────────── */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Trash2 className="h-5 w-5" /> Delete Loan Confirmation
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete loan <span className="font-semibold text-gray-900">{loan?.loanNumber}</span>?
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-sm text-gray-600 bg-red-50 p-3 rounded-lg border border-red-100">
+            <p className="font-semibold text-red-800 flex items-center gap-1">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              This action cannot be undone!
+            </p>
+            <ul className="list-disc list-inside space-y-1 text-xs text-red-700">
+              <li>This loan record and all EMI schedules will be permanently deleted.</li>
+              {loan?.isMirrored && <li>Associated mirror loan and mapping will also be removed.</li>}
+              <li>All associated cashbook, bank transactions, and ledger entries will be reversed.</li>
+            </ul>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={handleDeleteLoan}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+              Permanently Delete Loan
             </Button>
           </DialogFooter>
         </DialogContent>

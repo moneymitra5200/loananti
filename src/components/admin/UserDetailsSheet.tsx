@@ -230,8 +230,8 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
               <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
             </div>
           ) : user ? (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-              <div className="border-b px-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="border-b px-6 shrink-0">
                 <TabsList className="h-12 bg-transparent">
                   <TabsTrigger value="overview" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Overview</TabsTrigger>
                   <TabsTrigger value="analytics" className="data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700">Analytics</TabsTrigger>
@@ -243,7 +243,7 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                 </TabsList>
               </div>
 
-              <ScrollArea className="flex-1">
+              <ScrollArea className="flex-1 min-h-0 h-full">
                 <div className="p-6 space-y-6">
                   {/* Overview Tab */}
                   <TabsContent value="overview" className="mt-0 space-y-6">

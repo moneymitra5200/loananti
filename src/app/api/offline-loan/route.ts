@@ -4502,7 +4502,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Check if any EMIs are paid
-    const paidEmis = loan.emis.filter(e => e.paymentStatus === 'PAID').length;
+    const paidEmis = loan.emis.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID').length;
 
     if (paidEmis > 0 && !force) {
       return NextResponse.json({

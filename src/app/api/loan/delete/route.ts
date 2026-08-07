@@ -609,12 +609,12 @@ export async function DELETE(request: NextRequest) {
     console.error('Error deleting loan:', error);
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const isPrismaError = error instanceof Prisma.PrismaClientKnownRequestError;
+    const errorCode = (error as any)?.code;
     
     return NextResponse.json({ 
       error: 'Failed to delete loan',
       details: errorMessage,
-      code: isPrismaError ? (error as Prisma.PrismaClientKnownRequestError).code : undefined
+      code: errorCode
     }, { status: 500 });
   }
 }
