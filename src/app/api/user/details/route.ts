@@ -405,36 +405,88 @@ export async function GET(request: NextRequest) {
     }
 
     if (user.role === 'CUSTOMER') {
-      // Get customer's loan applications
+      // Get customer's online loan applications
       const loanApplications = await db.loanApplication.findMany({
-        where: { customerId: user.id },
+        where: { customerId: user.id, isMirrorLoan: false },
         select: {
           id: true,
           applicationNo: true,
           status: true,
           requestedAmount: true,
           loanType: true,
+          createdAt: true,
+          disbursedAt: true,
+          sessionForm: {
+            select: {
+              approvedAmount: true,
+              interestRate: true,
+              tenure: true,
+              emiAmount: true,
+              totalAmount: true,
+              totalInterest: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20
+      });
+      
+      // Get customer's offline loans (by customerId or phone)
+      const offlineLoans = await db.offlineLoan.findMany({
+        where: {
+          OR: [
+            { customerId: user.id },
+            ...(user.phone ? [{ customerPhone: user.phone }, { customerPhone: { contains: user.phone } }] : [])
+          ],
+          isMirrorLoan: false
+        },
+        select: {
+          id: true,
+          loanNumber: true,
+          status: true,
+          loanAmount: true,
+          interestRate: true,
+          tenure: true,
+          emiAmount: true,
+          disbursementDate: true,
           createdAt: true
         },
         orderBy: { createdAt: 'desc' },
-        take: 10
+        take: 20
       });
-      
-      // Get EMI schedules
-      const emiSchedules = await db.eMISchedule.count({
-        where: { loanApplication: { customerId: user.id } }
+
+      // Get payments history
+      const paymentRecords = await db.payment.findMany({
+        where: { customerId: user.id, status: 'COMPLETED' },
+        select: {
+          id: true,
+          amount: true,
+          paymentMode: true,
+          status: true,
+          createdAt: true,
+          receiptNumber: true,
+          loanApplication: { select: { applicationNo: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20
       });
-      
-      // Get payments made
-      const payments = await db.payment.count({
-        where: { customerId: user.id }
-      });
-      
+
+      // Calculate totals
+      const onlineDisbursed = loanApplications.reduce((sum, l) => sum + (l.sessionForm?.approvedAmount || l.requestedAmount || 0), 0);
+      const offlineDisbursed = offlineLoans.reduce((sum, l) => sum + (l.loanAmount || 0), 0);
+      const totalDisbursed = onlineDisbursed + offlineDisbursed;
+      const totalPaid = paymentRecords.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
       roleSpecificData = {
         loanApplications,
-        totalLoans: loanApplications.length,
-        emiSchedules,
-        payments
+        offlineLoans,
+        paymentRecords,
+        totalLoans: loanApplications.length + offlineLoans.length,
+        onlineLoansCount: loanApplications.length,
+        offlineLoansCount: offlineLoans.length,
+        totalDisbursedAmount: totalDisbursed,
+        totalPaidAmount: totalPaid,
+        totalPaymentsCount: paymentRecords.length
       };
     }
 

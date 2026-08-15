@@ -75,19 +75,18 @@ function CustomersSection({
     return matchesCustomerInfo || matchesLoanNumber;
   });
 
-  // Count unique loans per customer (mirror loans should be grouped with original)
-  const getUniqueLoanCount = (customerId: string) => {
-    const customerLoans = loans.filter(l => l.customer?.id === customerId);
-    // Filter out mirror loans that have a mirrorLoanId (they're duplicates)
-    const uniqueLoans = customerLoans.filter(loan => !loan.isMirrorLoan && !loan.mirrorLoanId);
-    // Count unique loans (original + non-mirror loans)
-    return uniqueLoans.length;
+  const getUniqueLoans = (customer: CustomerItem) => {
+    return loans.filter(l => {
+      if (l.isMirrorLoan) return false;
+      if (l.customer?.id === customer.id || (l as any).customerId === customer.id) return true;
+      if (customer.phone && (l as any).customerPhone && (l as any).customerPhone === customer.phone) return true;
+      if (customer.email && (l as any).customerEmail && (l as any).customerEmail === customer.email) return true;
+      return false;
+    });
   };
 
-  const getUniqueLoans = (customerId: string) => {
-    const customerLoans = loans.filter(l => l.customer?.id === customerId);
-    // Return only non-mirror loans for counting purposes
-    return customerLoans.filter(loan => !loan.isMirrorLoan);
+  const getUniqueLoanCount = (customer: CustomerItem) => {
+    return getUniqueLoans(customer).length;
   };
 
   // Count active loans for stats
@@ -237,10 +236,13 @@ function CustomersSection({
                 </TableHeader>
                 <TableBody>
                   {filteredCustomers.map((customer) => {
-                    const customerLoans = getUniqueLoans(customer.id);
+                    const customerLoans = getUniqueLoans(customer);
                     const activeLoan = customerLoans.find(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
-                    const totalBorrowed = customerLoans.reduce((sum, l) => sum + (l.sessionForm?.approvedAmount || l.requestedAmount), 0);
-                    const uniqueLoanCount = getUniqueLoanCount(customer.id);
+                    const totalBorrowed = customerLoans.reduce((sum, l) => {
+                      const amt = Number(l.sessionForm?.approvedAmount || (l as any).approvedAmount || (l as any).loanAmount || l.requestedAmount || 0);
+                      return sum + (isNaN(amt) ? 0 : amt);
+                    }, 0);
+                    const uniqueLoanCount = getUniqueLoanCount(customer);
                     
                     return (
                       <TableRow key={customer.id}>

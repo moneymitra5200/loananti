@@ -218,59 +218,196 @@ export default function UserDetailsDialog({
               </Card>
             )}
             
-            {/* Role-Specific Stats */}
-            {selectedUserDetails.roleSpecificData && Object.keys(selectedUserDetails.roleSpecificData).length > 0 && (
+            {/* Customer Personal & Financial Information */}
+            {(selectedUserDetails.panNumber || selectedUserDetails.aadhaarNumber || selectedUserDetails.bankAccountNumber || selectedUserDetails.employmentType) && (
               <Card className="border-0 shadow-sm">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Role-Specific Statistics</CardTitle>
+                  <CardTitle className="text-base">KYC & Banking Information</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {Object.entries(selectedUserDetails.roleSpecificData).map(([key, value]) => (
-                      <div key={key}>
-                        <p className="text-xs text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
-                        <p className="text-lg font-bold text-gray-900">
-                          {typeof value === 'number' ? value.toLocaleString() : 
-                           Array.isArray(value) ? value.length : 
-                           String(value)}
-                        </p>
+                    {selectedUserDetails.panNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">PAN Number</p>
+                        <p className="text-sm font-semibold text-gray-900">{selectedUserDetails.panNumber}</p>
                       </div>
-                    ))}
+                    )}
+                    {selectedUserDetails.aadhaarNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Aadhaar Number</p>
+                        <p className="text-sm font-semibold text-gray-900">{selectedUserDetails.aadhaarNumber}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.dateOfBirth && (
+                      <div>
+                        <p className="text-xs text-gray-500">Date of Birth</p>
+                        <p className="text-sm font-medium">{formatDate(selectedUserDetails.dateOfBirth)}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.employmentType && (
+                      <div>
+                        <p className="text-xs text-gray-500">Employment Type</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.employmentType}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.monthlyIncome > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-500">Monthly Income</p>
+                        <p className="text-sm font-medium text-emerald-600">{formatCurrency(selectedUserDetails.monthlyIncome)}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.bankName && (
+                      <div>
+                        <p className="text-xs text-gray-500">Bank Name</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.bankName}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.bankAccountNumber && (
+                      <div>
+                        <p className="text-xs text-gray-500">Account Number</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.bankAccountNumber}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.bankIfsc && (
+                      <div>
+                        <p className="text-xs text-gray-500">IFSC Code</p>
+                        <p className="text-sm font-medium">{selectedUserDetails.bankIfsc}</p>
+                      </div>
+                    )}
+                    {selectedUserDetails.address && (
+                      <div className="col-span-2">
+                        <p className="text-xs text-gray-500">Address</p>
+                        <p className="text-sm font-medium">{[selectedUserDetails.address, selectedUserDetails.city, selectedUserDetails.state, selectedUserDetails.pincode].filter(Boolean).join(', ')}</p>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             )}
-            
-            {/* Activity Counts */}
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Activity Summary</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{selectedUserDetails._count?.loanApplications || 0}</p>
-                    <p className="text-xs text-gray-500">Loan Applications</p>
+
+            {/* Customer Financial Overview */}
+            {selectedUserDetails.role === 'CUSTOMER' && selectedUserDetails.roleSpecificData && (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <Card className="border-0 shadow-sm border-l-4 border-l-emerald-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Loans</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">
+                      {selectedUserDetails.roleSpecificData.totalLoans || 0}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {selectedUserDetails.roleSpecificData.onlineLoansCount || 0} Online | {selectedUserDetails.roleSpecificData.offlineLoansCount || 0} Offline
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-0 shadow-sm border-l-4 border-l-blue-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Borrowed / Disbursed</p>
+                    <p className="text-2xl font-bold text-blue-600 mt-1">
+                      {formatCurrency(selectedUserDetails.roleSpecificData.totalDisbursedAmount || 0)}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border-0 shadow-sm border-l-4 border-l-purple-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-gray-500">Total Amount Paid</p>
+                    <p className="text-2xl font-bold text-purple-600 mt-1">
+                      {formatCurrency(selectedUserDetails.roleSpecificData.totalPaidAmount || 0)}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {selectedUserDetails.roleSpecificData.totalPaymentsCount || 0} Payments Made
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Loans Table for Customer */}
+            {selectedUserDetails.role === 'CUSTOMER' && (
+              (selectedUserDetails.roleSpecificData?.loanApplications?.length > 0 || selectedUserDetails.roleSpecificData?.offlineLoans?.length > 0) ? (
+                <Card className="border-0 shadow-sm">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Customer Loans</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <div className="min-w-full inline-block align-middle">
+                        <table className="min-w-full divide-y divide-gray-200 text-sm">
+                          <thead>
+                            <tr className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              <th className="px-3 py-2">Loan # / App #</th>
+                              <th className="px-3 py-2">Type</th>
+                              <th className="px-3 py-2">Amount</th>
+                              <th className="px-3 py-2">EMI</th>
+                              <th className="px-3 py-2">Status</th>
+                              <th className="px-3 py-2">Created</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 bg-white">
+                            {(selectedUserDetails.roleSpecificData.loanApplications || []).map((loan: any) => (
+                              <tr key={loan.id}>
+                                <td className="px-3 py-2 font-semibold text-emerald-700">{loan.applicationNo}</td>
+                                <td className="px-3 py-2"><Badge className="bg-blue-100 text-blue-700">ONLINE</Badge></td>
+                                <td className="px-3 py-2 font-medium">{formatCurrency(loan.sessionForm?.approvedAmount || loan.requestedAmount || 0)}</td>
+                                <td className="px-3 py-2">{loan.sessionForm?.emiAmount ? formatCurrency(loan.sessionForm.emiAmount) : 'N/A'}</td>
+                                <td className="px-3 py-2"><Badge variant="outline">{loan.status}</Badge></td>
+                                <td className="px-3 py-2 text-xs text-gray-500">{formatDate(loan.createdAt)}</td>
+                              </tr>
+                            ))}
+                            {(selectedUserDetails.roleSpecificData.offlineLoans || []).map((loan: any) => (
+                              <tr key={loan.id}>
+                                <td className="px-3 py-2 font-semibold text-purple-700">{loan.loanNumber}</td>
+                                <td className="px-3 py-2"><Badge className="bg-purple-100 text-purple-700">OFFLINE</Badge></td>
+                                <td className="px-3 py-2 font-medium">{formatCurrency(loan.loanAmount || 0)}</td>
+                                <td className="px-3 py-2">{loan.emiAmount ? formatCurrency(loan.emiAmount) : 'N/A'}</td>
+                                <td className="px-3 py-2"><Badge variant="outline">{loan.status}</Badge></td>
+                                <td className="px-3 py-2 text-xs text-gray-500">{formatDate(loan.createdAt)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : null
+            )}
+
+            {/* Payments History Table for Customer */}
+            {selectedUserDetails.role === 'CUSTOMER' && selectedUserDetails.roleSpecificData?.paymentRecords?.length > 0 && (
+              <Card className="border-0 shadow-sm">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Payment History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 text-sm">
+                      <thead>
+                        <tr className="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <th className="px-3 py-2">Receipt #</th>
+                          <th className="px-3 py-2">Loan #</th>
+                          <th className="px-3 py-2">Amount</th>
+                          <th className="px-3 py-2">Mode</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {selectedUserDetails.roleSpecificData.paymentRecords.map((payment: any) => (
+                          <tr key={payment.id}>
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{payment.receiptNumber || payment.id.slice(-6)}</td>
+                            <td className="px-3 py-2 font-medium text-slate-700">{payment.loanApplication?.applicationNo || 'N/A'}</td>
+                            <td className="px-3 py-2 font-semibold text-emerald-600">{formatCurrency(payment.amount)}</td>
+                            <td className="px-3 py-2"><Badge variant="outline">{payment.paymentMode || 'CASH'}</Badge></td>
+                            <td className="px-3 py-2"><Badge className="bg-green-100 text-green-700">{payment.status}</Badge></td>
+                            <td className="px-3 py-2 text-xs text-gray-500">{formatDate(payment.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{selectedUserDetails._count?.disbursedLoans || 0}</p>
-                    <p className="text-xs text-gray-500">Disbursed Loans</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{selectedUserDetails._count?.payments || 0}</p>
-                    <p className="text-xs text-gray-500">Payments</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{selectedUserDetails._count?.auditLogs || 0}</p>
-                    <p className="text-xs text-gray-500">Audit Logs</p>
-                  </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <p className="text-2xl font-bold text-gray-900">{selectedUserDetails._count?.notifications || 0}</p>
-                    <p className="text-xs text-gray-500">Notifications</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            )}
             
             {/* Recent Activity */}
             {selectedUserDetails.recentActivity?.length > 0 && (
