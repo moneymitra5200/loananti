@@ -118,12 +118,12 @@ interface ActiveLoansTabProps {
 }
 
 export default function ActiveLoansTab({
-  allActiveLoans,
-  activeLoanFilter,
+  allActiveLoans = [],
+  activeLoanFilter = 'all',
   setActiveLoanFilter,
-  activeLoanStats,
-  loading,
-  fetchAllActiveLoans,
+  activeLoanStats = { totalOnline: 0, totalOffline: 0, totalOnlineAmount: 0, totalOfflineAmount: 0 },
+  loading = false,
+  fetchAllActiveLoans = () => {},
   setLoanToDelete,
   setShowDeleteLoanDialog,
   setSelectedLoanId,
@@ -679,28 +679,45 @@ export default function ActiveLoansTab({
                 Consolidated stats for all active loans (original loans counted; mirror duplicates excluded).
               </p>
             </div>
-            <div className="flex flex-wrap gap-8 w-full md:w-auto">
-              <div className="border-l-2 border-emerald-500 pl-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Principal (P)</p>
-                <p className="text-2xl font-bold text-slate-100 mt-1">
-                  {formatCurrency(filteredActiveLoans.reduce((sum, l) => sum + (l.approvedAmount || 0), 0))}
-                </p>
-              </div>
-              <div className="border-l-2 border-amber-500 pl-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Interest (I)</p>
-                <p className="text-2xl font-bold text-slate-100 mt-1">
-                  {formatCurrency(filteredActiveLoans.reduce((sum, l) => sum + ((l as any).totalInterest || 0), 0))}
-                </p>
-              </div>
-              <div className="border-l-2 border-blue-500 pl-4">
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Value (P + I)</p>
-                <p className="text-2xl font-bold text-slate-100 mt-1">
-                  {formatCurrency(
-                    filteredActiveLoans.reduce((sum, l) => sum + (l.approvedAmount || 0) + ((l as any).totalInterest || 0), 0)
-                  )}
-                </p>
-              </div>
-            </div>
+              {(() => {
+                const totalP = filteredActiveLoans.reduce((sum, l: any) => {
+                  const val = Number(l?.approvedAmount || l?.loanAmount || l?.requestedAmount || l?.disbursedAmount || 0);
+                  return sum + (isNaN(val) ? 0 : val);
+                }, 0);
+                const totalI = filteredActiveLoans.reduce((sum, l: any) => {
+                  let val = Number(l?.totalInterest);
+                  if (isNaN(val) || !val) {
+                    const p = Number(l?.approvedAmount || l?.loanAmount || l?.requestedAmount || l?.disbursedAmount || 0);
+                    const r = Number(l?.interestRate || l?.sessionForm?.interestRate || 0);
+                    const t = Number(l?.tenure || l?.sessionForm?.tenure || 0);
+                    val = (p > 0 && r > 0 && t > 0) ? (p * (r / 100) * (t / 12)) : 0;
+                  }
+                  return sum + (isNaN(val) ? 0 : val);
+                }, 0);
+                const totalVal = totalP + totalI;
+                return (
+                  <>
+                    <div className="border-l-2 border-emerald-500 pl-4">
+                      <p className="text-xs text-slate-400 uppercase tracking-wider">Total Principal (P)</p>
+                      <p className="text-2xl font-bold text-slate-100 mt-1">
+                        {formatCurrency(totalP)}
+                      </p>
+                    </div>
+                    <div className="border-l-2 border-amber-500 pl-4">
+                      <p className="text-xs text-slate-400 uppercase tracking-wider">Total Interest (I)</p>
+                      <p className="text-2xl font-bold text-slate-100 mt-1">
+                        {formatCurrency(totalI)}
+                      </p>
+                    </div>
+                    <div className="border-l-2 border-blue-500 pl-4">
+                      <p className="text-xs text-slate-400 uppercase tracking-wider">Total Value (P + I)</p>
+                      <p className="text-2xl font-bold text-slate-100 mt-1">
+                        {formatCurrency(totalVal)}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
           </div>
         </CardContent>
       </Card>
