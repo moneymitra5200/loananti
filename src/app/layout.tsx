@@ -149,7 +149,7 @@ export default function RootLayout({
   };
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Favicon — brand logo */}
         <link rel="icon" href="/mm-logo.png" type="image/png" />
@@ -181,7 +181,7 @@ export default function RootLayout({
         {/* Noto Sans — full ₹ rupee symbol support on Android, iOS, Windows */}
         <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {/* Inject admin-configured theme color as CSS variables */}
         <ThemeColorProvider />
         <QueryProvider>

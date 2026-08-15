@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import LandingPage from "@/components/landing/LandingPage";
@@ -12,10 +13,15 @@ import CustomerDashboard from "@/components/customer/CustomerDashboard";
 import AccountantDashboard from "@/components/accountant/AccountantDashboard";
 
 function AppContent() {
+  const [mounted, setMounted] = useState(false);
   const { user, loading } = useAuth();
 
-  // Show loading state during SSR and initial hydration
-  if (loading) {
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Show loading state during SSR and initial hydration to match server output
+  if (!mounted || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50">
         <div className="flex flex-col items-center gap-4">
