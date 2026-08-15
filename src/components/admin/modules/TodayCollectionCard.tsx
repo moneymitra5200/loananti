@@ -39,6 +39,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 export default function TodayCollectionCard() {
+  const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(false);
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -53,7 +54,12 @@ export default function TodayCollectionCard() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchData(date); }, [date, fetchData]);
+  useEffect(() => {
+    setMounted(true);
+    fetchData(date);
+  }, [date, fetchData]);
+
+  if (!mounted) return null;
 
   const isToday = date === new Date().toISOString().split('T')[0];
 

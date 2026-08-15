@@ -26,6 +26,7 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
     return new Date(now.getTime() + istOffset).toISOString().split('T')[0];
   };
 
+  const [mounted, setMounted] = useState(false);
   const [todayCreditDate, setTodayCreditDate] = useState(() => getISTDate());
   const [todayCreditData, setTodayCreditData] = useState<any>(null);
   const [todayCreditLoading, setTodayCreditLoading] = useState(false);
@@ -54,8 +55,11 @@ export default function TodayCreditPanel({ userRole, userId, className = '' }: T
 
   // Initial load
   useEffect(() => {
+    setMounted(true);
     fetchTodayCredit(todayCreditDate);
   }, []);
+
+  if (!mounted) return null;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {

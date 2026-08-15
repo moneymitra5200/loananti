@@ -18,6 +18,8 @@ interface EMIDueAlertBannerProps {
 }
 
 export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, onOpenEmiList }: EMIDueAlertBannerProps) {
+  const [mounted, setMounted] = useState(false);
+  const [formattedDate, setFormattedDate] = useState('');
   const [summary, setSummary] = useState<EMISummary | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [emis, setEmis] = useState<{
@@ -27,6 +29,8 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, 
   } | null>(null);
 
   useEffect(() => {
+    setMounted(true);
+    setFormattedDate(new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' }));
     if (!userId) return;
     fetch(`/api/emi-reminder?action=today-tomorrow&userId=${userId}&userRole=${userRole}`)
       .then(r => r.json())
@@ -43,7 +47,7 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, 
       .catch(() => {});
   }, [userId, userRole]);
 
-  if (!summary || dismissed) return null;
+  if (!mounted || !summary || dismissed) return null;
   const { today, tomorrow, overdue } = summary;
   const hasAlert = today.count > 0 || tomorrow.count > 0 || overdue.count > 0;
   if (!hasAlert) return null;
@@ -83,7 +87,7 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, 
       >
         <div className="flex items-center gap-2 font-semibold text-sm">
           <Bell className="h-4 w-4 animate-pulse" />
-          EMI Due Alert — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
+          EMI Due Alert — {formattedDate}
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); setDismissed(true); }}
