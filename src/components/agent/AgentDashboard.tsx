@@ -1006,6 +1006,20 @@ export default function AgentDashboard() {
       gradient="bg-gradient-to-br from-cyan-600 to-blue-700"
       logoIcon={User}
     >
+      {/* EMI Due Alert Banner */}
+      {user?.id && (
+        <EMIDueAlertBanner 
+          userId={user.id} 
+          userRole={user.role || 'AGENT'}
+          onOpenLoanDetail={(loanId, loanType) => {
+            setSelectedLoanId(loanId);
+            setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+            setShowLoanDetailPanel(true);
+          }}
+          onOpenEmiList={() => setActiveTab('emi-collection')}
+        />
+      )}
+
       {renderContent()}
 
       {/* Approval Dialog */}

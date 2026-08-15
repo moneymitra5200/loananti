@@ -1942,6 +1942,7 @@ export default function SuperAdminDashboard() {
           userId={user.id} 
           userRole="SUPER_ADMIN"
           onOpenLoanDetail={handleOpenLoanFromEMI}
+          onOpenEmiList={() => setActiveTab('emi-collection')}
         />
       )}
 

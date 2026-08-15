@@ -1494,6 +1494,7 @@ export default function CashierDashboard() {
                 userId={user.id} 
                 userRole={user.role || 'CASHIER'}
                 onOpenLoanDetail={handleOpenLoanFromEMI}
+                onOpenEmiList={() => setActiveTab('emi-collection')}
               />
             )}
 

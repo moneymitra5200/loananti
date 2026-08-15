@@ -528,24 +528,27 @@ async function getBalanceSheet(companyId: string | null, asOfDate?: Date) {
   const fyStartDate = new Date(fyStartYear, 3, 1, 0, 0, 0);
 
   // 1. Prior Years' Accumulated Profit (P&L before fyStartDate)
-  const priorPeriodLines = await db.journalEntryLine.findMany({
+  const incomeAccountIds = new Set(accounts.filter(a => a.accountType === 'INCOME').map(a => a.id));
+  const expenseAccountIds = new Set(accounts.filter(a => a.accountType === 'EXPENSE').map(a => a.id));
+  const incExpAccountIds = Array.from(new Set([...incomeAccountIds, ...expenseAccountIds]));
+
+  const priorPeriodLines = incExpAccountIds.length > 0 ? await db.journalEntryLine.findMany({
     where: {
       journalEntry: {
-        companyId,
+        ...(companyId ? { companyId } : {}),
         isApproved: true,
         isReversed: false,
         entryDate: { lt: fyStartDate }
       },
-      account: { accountType: { in: ['INCOME', 'EXPENSE'] } }
-    },
-    include: { account: true }
-  });
+      accountId: { in: incExpAccountIds }
+    }
+  }) : [];
 
   let priorIncome = 0;
   let priorExpense = 0;
   for (const line of priorPeriodLines) {
-    if (line.account.accountType === 'INCOME') priorIncome += (line.creditAmount - line.debitAmount);
-    if (line.account.accountType === 'EXPENSE') priorExpense += (line.debitAmount - line.creditAmount);
+    if (incomeAccountIds.has(line.accountId)) priorIncome += (line.creditAmount - line.debitAmount);
+    if (expenseAccountIds.has(line.accountId)) priorExpense += (line.debitAmount - line.creditAmount);
   }
   const priorAccumulatedProfit = priorIncome - priorExpense;
 

@@ -716,6 +716,7 @@ export default function CompanyDashboard() {
               userId={user?.id || ''}
               userRole={user?.role || 'COMPANY'}
               onPaymentComplete={() => fetchData(true)}
+              onSelectLoan={handleOpenLoanFromEMI}
             />
           </div>
         );
@@ -1385,6 +1386,12 @@ export default function CompanyDashboard() {
     }
   };
 
+  const handleOpenLoanFromEMI = (loanId: string, loanType?: string) => {
+    setSelectedLoanId(loanId);
+    setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+    setShowLoanDetailPanel(true);
+  };
+
   return (
     <DashboardLayout
       title="Company Dashboard"
@@ -1396,6 +1403,16 @@ export default function CompanyDashboard() {
       gradient="bg-gradient-to-br from-teal-600 to-emerald-700"
       logoIcon={Building2}
     >
+      {/* EMI Due Alert Banner for Company */}
+      {user?.id && (
+        <EMIDueAlertBanner 
+          userId={user.id} 
+          userRole={user.role || 'COMPANY'}
+          onOpenLoanDetail={handleOpenLoanFromEMI}
+          onOpenEmiList={() => setActiveTab('active')}
+        />
+      )}
+
       {renderContent()}
 
       {/* Approval Dialog */}

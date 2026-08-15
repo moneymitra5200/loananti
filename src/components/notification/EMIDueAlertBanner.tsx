@@ -14,9 +14,10 @@ interface EMIDueAlertBannerProps {
   userId: string;
   userRole: string;
   onOpenLoanDetail?: (loanId: string, loanType: 'online' | 'offline') => void;
+  onOpenEmiList?: (type?: 'overdue' | 'today' | 'tomorrow') => void;
 }
 
-export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail }: EMIDueAlertBannerProps) {
+export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, onOpenEmiList }: EMIDueAlertBannerProps) {
   const [summary, setSummary] = useState<EMISummary | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [emis, setEmis] = useState<{
@@ -62,6 +63,10 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail }
   };
 
   const handleClick = (type: 'overdue' | 'today' | 'tomorrow') => {
+    if (onOpenEmiList) {
+      onOpenEmiList(type);
+      return;
+    }
     if (!onOpenLoanDetail) return;
     const firstLoan = getFirstLoan(type);
     if (firstLoan) {
@@ -72,13 +77,16 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail }
   return (
     <div className="mx-4 mt-3 mb-1 rounded-xl overflow-hidden shadow-md border border-amber-200">
       {/* Header */}
-      <div className="bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 flex items-center justify-between text-white">
+      <div 
+        onClick={() => handleClick('today')}
+        className={`bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 flex items-center justify-between text-white ${onOpenEmiList || onOpenLoanDetail ? 'cursor-pointer hover:from-amber-600 hover:to-orange-600 transition-colors' : ''}`}
+      >
         <div className="flex items-center gap-2 font-semibold text-sm">
           <Bell className="h-4 w-4 animate-pulse" />
           EMI Due Alert — {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}
         </div>
         <button
-          onClick={() => setDismissed(true)}
+          onClick={(e) => { e.stopPropagation(); setDismissed(true); }}
           className="text-white/80 hover:text-white text-xs px-2 py-0.5 rounded bg-white/20 hover:bg-white/30"
         >
           <X className="h-3 w-3" />

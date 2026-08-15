@@ -865,6 +865,20 @@ export default function StaffDashboard() {
       gradient="bg-gradient-to-br from-orange-500 to-red-600"
       logoIcon={User}
     >
+      {/* EMI Due Alert Banner */}
+      {user?.id && (
+        <EMIDueAlertBanner 
+          userId={user.id} 
+          userRole={user.role || 'STAFF'}
+          onOpenLoanDetail={(loanId, loanType) => {
+            setSelectedLoanId(loanId);
+            setSelectedLoanType(loanType === 'offline' ? 'OFFLINE' : 'ONLINE');
+            setShowLoanDetailPanel(true);
+          }}
+          onOpenEmiList={() => setActiveTab('upcoming-emi')}
+        />
+      )}
+
       {renderContent()}
 
       {/* Loan Form Wizard Dialog */}
