@@ -28,7 +28,7 @@ import {
   Calendar, IndianRupee, Clock, AlertTriangle, CheckCircle,
   Phone, MapPin, User, Wallet, CreditCard, Banknote, Receipt,
   Upload, FileCheck, Building2, Info, X, ImageIcon,
-  ChevronDown, ChevronUp, Bell, AlertCircle
+  ChevronDown, ChevronUp, Bell, AlertCircle, Search, Eye
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { formatCurrency, formatDate } from '@/utils/helpers';
@@ -71,13 +71,23 @@ interface EMIDueListProps {
   userId: string;
   userRole: string;
   onPaymentComplete?: () => void;
+  initialFilter?: 'overdue' | 'today' | 'tomorrow' | 'all';
+  onSelectLoan?: (loanId: string, loanType: 'online' | 'offline') => void;
 }
 
-export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMIDueListProps) {
+export default function EMIDueList({ userId, userRole, onPaymentComplete, initialFilter = 'all', onSelectLoan }: EMIDueListProps) {
   const [loading, setLoading] = useState(true);
   const [todayEmis, setTodayEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
   const [tomorrowEmis, setTomorrowEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
   const [overdueEmis, setOverdueEmis] = useState<{ online: EMIItem[]; offline: EMIItem[] }>({ online: [], offline: [] });
+  const [activeFilter, setActiveFilter] = useState<'overdue' | 'today' | 'tomorrow' | 'all'>(initialFilter);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (initialFilter) {
+      setActiveFilter(initialFilter);
+    }
+  }, [initialFilter]);
   
   // Payment dialog
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
@@ -313,6 +323,41 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
     setPaymentDialogOpen(true);
   };
 
+  const filterEmiList = (items: EMIItem[], type: 'online' | 'offline') => {
+    if (!searchQuery.trim()) return items;
+    const q = searchQuery.toLowerCase().trim();
+    return items.filter(emi => {
+      const name = (type === 'offline'
+        ? (emi.offlineLoan?.customerName || '')
+        : `${emi.loanApplication?.firstName || ''} ${emi.loanApplication?.lastName || ''}`).toLowerCase();
+      const phone = (type === 'offline'
+        ? (emi.offlineLoan?.customerPhone || '')
+        : (emi.loanApplication?.phone || ''));
+      const loanNo = (type === 'offline'
+        ? (emi.offlineLoan?.loanNumber || '')
+        : (emi.loanApplication?.applicationNo || '')).toLowerCase();
+      return name.includes(q) || phone.includes(q) || loanNo.includes(q);
+    });
+  };
+
+  const filteredOverdue = {
+    online: filterEmiList(overdueEmis.online, 'online'),
+    offline: filterEmiList(overdueEmis.offline, 'offline'),
+  };
+  const filteredToday = {
+    online: filterEmiList(todayEmis.online, 'online'),
+    offline: filterEmiList(todayEmis.offline, 'offline'),
+  };
+  const filteredTomorrow = {
+    online: filterEmiList(tomorrowEmis.online, 'online'),
+    offline: filterEmiList(tomorrowEmis.offline, 'offline'),
+  };
+
+  const overdueTotalCount = filteredOverdue.online.length + filteredOverdue.offline.length;
+  const todayTotalCount = filteredToday.online.length + filteredToday.offline.length;
+  const tomorrowTotalCount = filteredTomorrow.online.length + filteredTomorrow.offline.length;
+  const grandTotalCount = overdueTotalCount + todayTotalCount + tomorrowTotalCount;
+
   const toggleSection = (section: string) => {
     setExpandedSections(prev => 
       prev.includes(section) 
@@ -334,6 +379,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
     const address = type === 'offline'
       ? emi.offlineLoan?.customerAddress
       : emi.loanApplication?.address;
+    const loanId = type === 'offline' ? emi.offlineLoan?.id : emi.loanApplication?.id;
     
     const hasPenalty = emi.penaltyAmount && emi.penaltyAmount > 0;
     const isMirrorLoan = type === 'offline' && emi.offlineLoan?.isMirrorLoan;
@@ -343,12 +389,11 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
         key={emi.id}
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
-        className={`p-3 rounded-lg border transition-all cursor-pointer ${
+        className={`p-3 rounded-lg border transition-all ${
           hasPenalty 
             ? 'bg-red-50 border-red-300 hover:border-red-400 hover:shadow-md' 
             : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
         }`}
-        onClick={() => openPaymentDialog(emi, type)}
       >
         {/* Penalty Alert Banner */}
         {hasPenalty && (
@@ -374,42 +419,56 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
               {isMirrorLoan && (
                 <Badge className="text-xs bg-purple-100 text-purple-700">Mirror</Badge>
               )}
-              <span className="text-xs text-gray-500">EMI #{emi.installmentNumber}</span>
+              <span className="text-xs text-gray-500 font-semibold">EMI #{emi.installmentNumber}</span>
             </div>
-            <p className="font-medium text-gray-900 truncate">{customerName}</p>
-            <div className="text-xs text-gray-500 space-y-0.5">
+            <p className="font-semibold text-gray-900 truncate text-sm">{customerName}</p>
+            <div className="text-xs text-gray-500 space-y-0.5 mt-1">
               <div className="flex items-center gap-1">
-                <Receipt className="h-3 w-3" />
-                <span className="truncate">{loanNumber}</span>
+                <Receipt className="h-3 w-3 text-gray-400" />
+                <span className="font-mono text-gray-700 truncate">{loanNumber}</span>
               </div>
-              <div className="flex items-center gap-1">
-                <Phone className="h-3 w-3" />
-                <span>{phone}</span>
-              </div>
+              {phone && (
+                <div className="flex items-center gap-1">
+                  <Phone className="h-3 w-3 text-gray-400" />
+                  <span>{phone}</span>
+                </div>
+              )}
             </div>
           </div>
-          <div className="text-right flex-shrink-0">
-            <p className="font-bold text-gray-900">{formatCurrency(emi.totalAmount)}</p>
+
+          <div className="text-right flex-shrink-0 flex flex-col items-end">
+            <p className="font-bold text-gray-900 text-base">{formatCurrency(emi.totalAmount)}</p>
             {hasPenalty && (
               <p className="text-xs text-red-600 font-bold animate-pulse">
                 + {formatCurrency(emi.penaltyAmount || 0)} PENALTY
               </p>
             )}
-            <p className="text-xs text-gray-500">Due: {formatDate(emi.dueDate)}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Due: {formatDate(emi.dueDate)}</p>
             {emi.daysOverdue && emi.daysOverdue > 0 && (
-              <p className="text-xs text-red-500 font-medium">{emi.daysOverdue} days overdue</p>
+              <p className="text-xs text-red-500 font-semibold">{emi.daysOverdue} days overdue</p>
             )}
-            <Button
-              size="sm"
-              className={`mt-2 h-7 ${hasPenalty ? 'bg-red-500 hover:bg-red-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                openPaymentDialog(emi, type);
-              }}
-            >
-              <IndianRupee className="h-3 w-3 mr-1" />
-              Pay {hasPenalty && '+ Penalty'}
-            </Button>
+
+            <div className="flex items-center gap-1.5 mt-2">
+              {onSelectLoan && loanId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
+                  onClick={() => onSelectLoan(loanId, type)}
+                >
+                  <Eye className="h-3 w-3 mr-1" />
+                  View
+                </Button>
+              )}
+              <Button
+                size="sm"
+                className={`h-7 text-xs font-semibold ${hasPenalty ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                onClick={() => openPaymentDialog(emi, type)}
+              >
+                <IndianRupee className="h-3 w-3 mr-1" />
+                Pay {hasPenalty && '+ Penalty'}
+              </Button>
+            </div>
           </div>
         </div>
       </motion.div>
@@ -475,22 +534,74 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
 
   return (
     <>
-      <Card className="overflow-hidden">
-        <CardHeader className="pb-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              EMI Due List
-            </CardTitle>
-            <Badge className="bg-white/20 text-white">
-              {todayEmis.online.length + todayEmis.offline.length + 
-               tomorrowEmis.online.length + tomorrowEmis.offline.length + 
-               overdueEmis.online.length + overdueEmis.offline.length} Total
-            </Badge>
+      <Card className="overflow-hidden border-0 shadow-none">
+        <CardHeader className="pb-3 pt-0 px-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl flex-wrap">
+              <button
+                type="button"
+                onClick={() => setActiveFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeFilter === 'all'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All ({grandTotalCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveFilter('overdue')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  activeFilter === 'overdue'
+                    ? 'bg-red-600 text-white shadow-sm'
+                    : 'text-red-700 hover:bg-red-50'
+                }`}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Overdue ({overdueTotalCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveFilter('today')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  activeFilter === 'today'
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'text-orange-700 hover:bg-orange-50'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                Today ({todayTotalCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveFilter('tomorrow')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  activeFilter === 'tomorrow'
+                    ? 'bg-amber-500 text-white shadow-sm'
+                    : 'text-amber-700 hover:bg-amber-50'
+                }`}
+              >
+                <CheckCircle className="h-3.5 w-3.5" />
+                Tomorrow ({tomorrowTotalCount})
+              </button>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-full sm:w-64">
+              <Input
+                placeholder="Search name, phone, loan #..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 text-xs pl-8 bg-gray-50 border-gray-200"
+              />
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+            </div>
           </div>
         </CardHeader>
 
-        <CardContent className="p-4">
+        <CardContent className="px-0 py-2">
           {loading ? (
             <div className="space-y-3">
               {[1, 2, 3].map(i => (
@@ -499,33 +610,33 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Overdue Section - First Priority */}
-              {renderSection(
+              {/* Overdue Section */}
+              {(activeFilter === 'all' || activeFilter === 'overdue') && renderSection(
                 'Overdue EMIs',
                 <AlertTriangle className="h-5 w-5 text-red-600" />,
-                overdueEmis,
+                filteredOverdue,
                 'overdue',
                 'bg-red-50',
                 'border-red-200',
                 'text-red-600'
               )}
               
-              {/* Today Section - Second Priority */}
-              {renderSection(
-                'Today\'s Due EMIs',
+              {/* Today Section */}
+              {(activeFilter === 'all' || activeFilter === 'today') && renderSection(
+                "Today's Due EMIs",
                 <Clock className="h-5 w-5 text-orange-600" />,
-                todayEmis,
+                filteredToday,
                 'today',
                 'bg-orange-50',
                 'border-orange-200',
                 'text-orange-600'
               )}
               
-              {/* Tomorrow Section - Third Priority */}
-              {renderSection(
-                'Tomorrow\'s Due EMIs',
+              {/* Tomorrow Section */}
+              {(activeFilter === 'all' || activeFilter === 'tomorrow') && renderSection(
+                "Tomorrow's Due EMIs",
                 <Calendar className="h-5 w-5 text-yellow-600" />,
-                tomorrowEmis,
+                filteredTomorrow,
                 'tomorrow',
                 'bg-yellow-50',
                 'border-yellow-200',
@@ -533,12 +644,13 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete }: EMID
               )}
 
               {/* Empty State */}
-              {(todayEmis.online.length + todayEmis.offline.length + 
-                tomorrowEmis.online.length + tomorrowEmis.offline.length + 
-                overdueEmis.online.length + overdueEmis.offline.length) === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                  <p>No EMIs due</p>
+              {grandTotalCount === 0 && (
+                <div className="text-center py-10 text-gray-500 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-2 text-emerald-500 opacity-60" />
+                  <p className="font-semibold text-gray-700">No EMIs found</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {searchQuery ? 'Try clearing your search query' : 'No EMIs due matching the selected filter.'}
+                  </p>
                 </div>
               )}
             </div>
