@@ -181,30 +181,19 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
       );
 
       const mappingMap: Record<string, MirrorLoanMapping> = {};
-      const mirrorLoanIds: string[] = [];
+      const mirrorLoansMap: Record<string, OfflineLoan> = {};
 
       for (const mapping of offlineMappings) {
         if (mapping.originalLoanId) mappingMap[mapping.originalLoanId] = mapping;
         if (mapping.mirrorLoanId) {
           mappingMap[mapping.mirrorLoanId] = mapping;
-          mirrorLoanIds.push(mapping.mirrorLoanId);
+          if ((mapping as any).offlineMirrorLoan) {
+            mirrorLoansMap[mapping.mirrorLoanId] = (mapping as any).offlineMirrorLoan;
+          }
         }
       }
 
-      // Batch-fetch ALL mirror loan details in parallel
-      const mirrorLoansMap: Record<string, OfflineLoan> = {};
-      if (mirrorLoanIds.length > 0) {
-        const results = await Promise.allSettled(
-          mirrorLoanIds.map(id => fetch(`/api/offline-loan?loanId=${id}`).then(r => r.json()))
-        );
-        results.forEach((result, i) => {
-          if (result.status === 'fulfilled' && result.value?.success && result.value?.loan) {
-            mirrorLoansMap[mirrorLoanIds[i]] = result.value.loan;
-          }
-        });
-      }
-
-      // Set BOTH states atomically (no intermediate re-render between them)
+      // Set BOTH states atomically
       setMirrorMappings(mappingMap);
       setMirrorLoans(mirrorLoansMap);
     } catch (error) {

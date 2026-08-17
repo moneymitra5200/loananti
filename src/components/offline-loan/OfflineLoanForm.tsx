@@ -117,6 +117,136 @@ const DOCUMENT_TYPES = [
   { id: 'passbook_photo', name: 'Passbook Photo', desc: 'Bank passbook front page', required: false },
 ];
 
+const FALLBACK_LOAN_PRODUCTS: LoanProduct[] = [
+  {
+    id: 'perm_0',
+    title: 'Personal Loan',
+    description: 'Unsecured personal loans for your various needs.',
+    icon: '👤',
+    code: 'PL',
+    loanType: 'PERSONAL',
+    minInterestRate: 10,
+    maxInterestRate: 24,
+    defaultInterestRate: 15,
+    minTenure: 6,
+    maxTenure: 60,
+    defaultTenure: 24,
+    minAmount: 10000,
+    maxAmount: 5000000,
+    processingFeePercent: 1,
+    isActive: true,
+  },
+  {
+    id: 'perm_1',
+    title: 'Gold Loan',
+    description: 'Get instant loans against your gold jewelry.',
+    icon: '🏆',
+    code: 'GL',
+    loanType: 'GOLD',
+    minInterestRate: 7,
+    maxInterestRate: 15,
+    defaultInterestRate: 10,
+    minTenure: 3,
+    maxTenure: 36,
+    defaultTenure: 12,
+    minAmount: 10000,
+    maxAmount: 50000000,
+    processingFeePercent: 0.5,
+    isActive: true,
+  },
+  {
+    id: 'perm_2',
+    title: 'Silver Loan',
+    description: 'Get instant loans against your silver jewelry and articles.',
+    icon: '🥈',
+    code: 'SL',
+    loanType: 'SILVER',
+    minInterestRate: 7,
+    maxInterestRate: 18,
+    defaultInterestRate: 12,
+    minTenure: 3,
+    maxTenure: 36,
+    defaultTenure: 12,
+    minAmount: 5000,
+    maxAmount: 20000000,
+    processingFeePercent: 0.5,
+    isActive: true,
+  },
+  {
+    id: 'perm_3',
+    title: 'Vehicle Loan',
+    description: 'Finance your dream vehicle with competitive interest rates.',
+    icon: '🚗',
+    code: 'VL',
+    loanType: 'VEHICLE',
+    minInterestRate: 8,
+    maxInterestRate: 18,
+    defaultInterestRate: 12,
+    minTenure: 12,
+    maxTenure: 84,
+    defaultTenure: 36,
+    minAmount: 50000,
+    maxAmount: 10000000,
+    processingFeePercent: 1,
+    isActive: true,
+  },
+  {
+    id: 'perm_4',
+    title: 'Business Loan',
+    description: 'Grow your business with flexible business loans.',
+    icon: '💼',
+    code: 'BL',
+    loanType: 'BUSINESS',
+    minInterestRate: 12,
+    maxInterestRate: 24,
+    defaultInterestRate: 18,
+    minTenure: 12,
+    maxTenure: 84,
+    defaultTenure: 36,
+    minAmount: 100000,
+    maxAmount: 10000000,
+    processingFeePercent: 1.5,
+    isActive: true,
+  },
+  {
+    id: 'perm_5',
+    title: 'Home Loan',
+    description: 'Make your dream home a reality.',
+    icon: '🏠',
+    code: 'HL',
+    loanType: 'HOME',
+    minInterestRate: 8,
+    maxInterestRate: 14,
+    defaultInterestRate: 10,
+    minTenure: 60,
+    maxTenure: 360,
+    defaultTenure: 180,
+    minAmount: 500000,
+    maxAmount: 50000000,
+    processingFeePercent: 0.5,
+    isActive: true,
+  },
+  {
+    id: 'perm_6',
+    title: 'Interest Only Loan',
+    description: 'Pay only interest during the loan period.',
+    icon: '💰',
+    code: 'INTEREST_ONLY',
+    loanType: 'INTEREST_ONLY',
+    isInterestOnly: true,
+    minInterestRate: 10,
+    maxInterestRate: 24,
+    defaultInterestRate: 15,
+    minTenure: 6,
+    maxTenure: 60,
+    defaultTenure: 24,
+    minAmount: 50000,
+    maxAmount: 5000000,
+    processingFeePercent: 1,
+    isActive: true,
+  }
+];
+
 export default function OfflineLoanForm({ createdById, createdByRole, onLoanCreated }: OfflineLoanFormProps) {
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -125,7 +255,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
   const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [loadingBankAccounts, setLoadingBankAccounts] = useState(false);
-  const [loanProducts, setLoanProducts] = useState<LoanProduct[]>([]);
+  const [loanProducts, setLoanProducts] = useState<LoanProduct[]>(FALLBACK_LOAN_PRODUCTS);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState<string | null>(null);
   const [uploadedDocs, setUploadedDocs] = useState<Record<string, UploadedDoc>>({});
@@ -626,7 +756,9 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
       const res = await fetch('/api/cms/product?isActive=true');
       if (res.ok) {
         const data = await res.json();
-        setLoanProducts(data.products || []);
+        if (data.products && Array.isArray(data.products) && data.products.length > 0) {
+          setLoanProducts(data.products);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch loan products:', error);
@@ -1466,7 +1598,7 @@ export default function OfflineLoanForm({ createdById, createdByRole, onLoanCrea
               <h3 className="font-semibold flex items-center gap-2 text-emerald-800 mb-3">
                 <IndianRupee className="h-4 w-4" /> Select Loan Product *
               </h3>
-              {loadingProducts ? (
+              {loadingProducts && loanProducts.length === 0 ? (
                 <div className="flex items-center gap-2 text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin" /> Loading products...
                 </div>

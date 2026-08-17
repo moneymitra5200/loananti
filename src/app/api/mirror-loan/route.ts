@@ -241,14 +241,18 @@ export async function GET(request: NextRequest) {
             status: true,
             loanAmount: true,
             createdAt: true,
+            disbursementDate: true,
             interestRate: true,
             tenure: true,
             emiAmount: true,
             displayColor: true,
             isMirrorLoan: true,
+            isInterestOnlyLoan: true,
+            interestOnlyMonthlyAmount: true,
             originalLoanId: true,
             company: { select: { id: true, name: true, code: true } },
-            customerName: true
+            customerName: true,
+            customerPhone: true
           }
         });
 
