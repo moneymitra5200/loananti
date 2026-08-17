@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  CalendarClock, IndianRupee, History, Info, FileText
+  CalendarClock, IndianRupee, History, Info, FileText, Calendar
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { EMISchedule, LoanDetails } from './types';
@@ -19,6 +19,7 @@ interface Props {
   emiSchedules: EMISchedule[];
   currentUserRole: string;
   onPayEMI: (emi: EMISchedule) => void;
+  onChangeDate?: (emi: EMISchedule) => void;
   isMirrorLoan?: boolean;
 }
 
@@ -27,6 +28,7 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
   emiSchedules, 
   currentUserRole,
   onPayEMI,
+  onChangeDate,
   isMirrorLoan = false
 }: Props) {
   // Calculate total interest paid
@@ -123,13 +125,26 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
                     </div>
                     {!isMirrorLoan ? (
                       currentUserRole !== 'ACCOUNTANT' && (
-                        <Button
-                          className="bg-amber-500 hover:bg-amber-600"
-                          onClick={() => onPayEMI(pendingEmi)}
-                        >
-                          <IndianRupee className="h-4 w-4 mr-1" />
-                          Pay Interest
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            className="bg-amber-500 hover:bg-amber-600"
+                            onClick={() => onPayEMI(pendingEmi)}
+                          >
+                            <IndianRupee className="h-4 w-4 mr-1" />
+                            Pay Interest
+                          </Button>
+                          {onChangeDate && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                              onClick={() => onChangeDate(pendingEmi)}
+                            >
+                              <Calendar className="h-4 w-4 mr-1" />
+                              Change Date
+                            </Button>
+                          )}
+                        </div>
                       )
                     ) : (
                       <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
@@ -169,8 +184,11 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
                             <p className="font-medium text-gray-900">
                               Payment #{arr.length - index}
                             </p>
+                            <p className="text-xs text-gray-600 font-medium">
+                              Due Date: {emi.dueDate ? formatDate(emi.dueDate) : 'N/A'}
+                            </p>
                             <p className="text-xs text-gray-500">
-                              {emi.paidDate ? formatDate(emi.paidDate) : 'N/A'}
+                              Paid Date: {emi.paidDate ? formatDate(emi.paidDate) : 'N/A'}
                             </p>
                           </div>
                           <div className="text-right">

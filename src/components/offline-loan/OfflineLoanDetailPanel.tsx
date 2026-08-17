@@ -1378,13 +1378,14 @@ export default function OfflineLoanDetailPanel({
                     </Button>
                   </>
                 )}
-              {/* Edit button — hidden for mirror loans */}
-                {loan && !loan.isMirrorLoan && (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER' || userRole === 'STAFF') && (
+                {/* Edit button — hidden for mirror loans */}
+                {loan && !loan.isMirrorLoan && (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER' || userRole === 'STAFF' || userRole === 'ADMIN' || userRole === 'COMPANY') && (
                   <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={openEditDialog} title="Edit loan details">
                     <Pencil className="h-4 w-4" />
                   </Button>
                 )}
-                {(userRole === 'SUPER_ADMIN' || user?.role === 'SUPER_ADMIN') && (
+                {/* Delete Loan - Available for non-mirror loans */}
+                {loan && !loan.isMirrorLoan && userRole !== 'ACCOUNTANT' && (
                   <Button
                     size="sm"
                     variant="destructive"
@@ -1398,34 +1399,32 @@ export default function OfflineLoanDetailPanel({
                 )}
                 {/* Close Loan button — visible for ACTIVE loans */}
                 {loan && loan.status === 'ACTIVE' && !loan.isMirrorLoan && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-white hover:bg-red-500/80 gap-1 text-xs"
-                      onClick={() => setCloseLoanDialogOpen(true)}
-                    >
-                      <XCircle className="h-4 w-4" />
-                      <span className="hidden sm:inline">Close Loan</span>
-                    </Button>
-                    
-                    {/* Global Change Date Button for Offline Loans */}
-                    {loan.emis && loan.emis.some(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID') && (
-                      <Button
-                        size="sm"
-                        className="bg-white/20 text-white hover:bg-white/30 border border-white/30"
-                        onClick={() => {
-                          const firstPending = [...loan.emis].sort((a,b) => a.installmentNumber - b.installmentNumber).find(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID');
-                          if (firstPending) {
-                            setDateChangeEMI(firstPending);
-                            setShowDateChangeDialog(true);
-                          }
-                        }}
-                      >
-                        <Calendar className="h-4 w-4 mr-1" /> Change Date
-                      </Button>
-                    )}
-                  </>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-white hover:bg-red-500/80 gap-1 text-xs"
+                    onClick={() => setCloseLoanDialogOpen(true)}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    <span className="hidden sm:inline">Close Loan</span>
+                  </Button>
+                )}
+                {/* Global Change Date Button for Offline Loans — Visible for ACTIVE, ACTIVE_INTEREST_ONLY, and DISBURSED */}
+                {loan && !loan.isMirrorLoan && ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && userRole !== 'ACCOUNTANT' &&
+                  loan.emis && loan.emis.some(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID') && (
+                  <Button
+                    size="sm"
+                    className="bg-white/20 text-white hover:bg-white/30 border border-white/30"
+                    onClick={() => {
+                      const firstPending = [...loan.emis].sort((a,b) => a.installmentNumber - b.installmentNumber).find(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID');
+                      if (firstPending) {
+                        setDateChangeEMI(firstPending);
+                        setShowDateChangeDialog(true);
+                      }
+                    }}
+                  >
+                    <Calendar className="h-4 w-4 mr-1" /> Change Date
+                  </Button>
                 )}
                 <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
                   <X className="h-5 w-5" />
@@ -1964,21 +1963,37 @@ export default function OfflineLoanDetailPanel({
                                             <p className="text-xs text-gray-500">Interest Amount Due</p>
                                           </div>
                                           {!loan.isMirrorLoan ? (
-                                            <Button
-                                              className={isOverdue ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-500 hover:bg-amber-600'}
-                                              onClick={() => {
-                                                setSelectedEmi(pendingEmi);
-                                                setPaymentType('INTEREST_ONLY');
-                                                setPaymentAmount(pendingEmi.totalAmount);
-                                                setPaymentMode('CASH');
-                                                setCreditType('COMPANY');
-                                                setIsInterestOnlyPayment(true);
-                                                setPaymentDialogOpen(true);
-                                              }}
-                                            >
-                                              <IndianRupee className="h-4 w-4 mr-1" />
-                                              Pay Interest
-                                            </Button>
+                                            <div className="flex items-center gap-2">
+                                              <Button
+                                                className={isOverdue ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-amber-500 hover:bg-amber-600'}
+                                                onClick={() => {
+                                                  setSelectedEmi(pendingEmi);
+                                                  setPaymentType('INTEREST_ONLY');
+                                                  setPaymentAmount(pendingEmi.totalAmount);
+                                                  setPaymentMode('CASH');
+                                                  setCreditType('COMPANY');
+                                                  setIsInterestOnlyPayment(true);
+                                                  setPaymentDialogOpen(true);
+                                                }}
+                                              >
+                                                <IndianRupee className="h-4 w-4 mr-1" />
+                                                Pay Interest
+                                              </Button>
+                                              {userRole !== 'ACCOUNTANT' && (
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                                                  onClick={() => {
+                                                    setDateChangeEMI(pendingEmi);
+                                                    setShowDateChangeDialog(true);
+                                                  }}
+                                                >
+                                                  <Calendar className="h-4 w-4 mr-1" />
+                                                  Change Date
+                                                </Button>
+                                              )}
+                                            </div>
                                           ) : (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
                                               Synced from original
@@ -2017,8 +2032,11 @@ export default function OfflineLoanDetailPanel({
                                                   <p className="font-medium text-gray-900">
                                                     Payment #{arr.length - index}
                                                   </p>
+                                                  <p className="text-xs text-gray-600 font-medium">
+                                                    Due Date: {emi.dueDate ? formatDate(emi.dueDate) : 'N/A'}
+                                                  </p>
                                                   <p className="text-xs text-gray-500">
-                                                    {emi.paidDate ? formatDate(emi.paidDate) : 'N/A'}
+                                                    Paid Date: {emi.paidDate ? formatDate(emi.paidDate) : 'N/A'}
                                                   </p>
                                                 </div>
                                                 <div className="text-right">

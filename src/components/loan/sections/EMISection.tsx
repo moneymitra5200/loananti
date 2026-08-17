@@ -499,7 +499,7 @@ const EMISection = memo(function EMISection({
                       </div>
                       {emi.status === 'PAID' && (
                         <div className="text-xs text-green-600 space-y-1 mt-2">
-                          <p>Paid: {formatDate(emi.paidDate!)}</p>
+                          <p className="font-medium">Due Date: {formatDate(emi.dueDate)} • Paid Date: {formatDate(emi.paidDate!)}</p>
                           {/* FIX-43: Show actual paidPrincipal/paidInterest, fallback to schedule amounts */}
                           <p className="text-gray-500">
                             Principal: ₹{formatCurrency(emi.paidPrincipal && emi.paidPrincipal > 0 ? emi.paidPrincipal : emi.principalAmount)}
@@ -560,7 +560,7 @@ const EMISection = memo(function EMISection({
                       )}
                       {emi.status === 'INTEREST_ONLY_PAID' && (
                         <div className="text-xs text-blue-600 space-y-1 mt-2">
-                          <p>Interest Paid: {formatDate(emi.paidDate!)}</p>
+                          <p className="font-medium">Due Date: {formatDate(emi.dueDate)} • Interest Paid: {formatDate(emi.paidDate!)}</p>
                           {/* Show interest amount */}
                           <p className="text-gray-500">
                             Interest Collected: ₹{formatCurrency(emi.paidInterest && emi.paidInterest > 0 ? emi.paidInterest : emi.interestAmount || 0)}
