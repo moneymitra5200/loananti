@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getISTDateKey } from '@/utils/helpers';
 
 /**
  * Returns the penalty per day based on the loan amount.
@@ -310,7 +311,7 @@ export async function GET(request: NextRequest) {
       const calendar: Record<string, CalendarDay> = {};
 
       for (const emi of onlineEmis) {
-        const dateKey = new Date(emi.dueDate).toISOString().slice(0, 10);
+        const dateKey = getISTDateKey(emi.dueDate);
         if (!calendar[dateKey]) {
           calendar[dateKey] = {
             date: dateKey,
@@ -336,7 +337,7 @@ export async function GET(request: NextRequest) {
       }
 
       for (const emi of offlineEmis) {
-        const dateKey = new Date(emi.dueDate).toISOString().slice(0, 10);
+        const dateKey = getISTDateKey(emi.dueDate);
         if (!calendar[dateKey]) {
           calendar[dateKey] = {
             date: dateKey,

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import EMIPaymentDialog from './EMIPaymentDialog';
+import { getISTDateKey } from '@/utils/helpers';
 
 interface EMIItem {
   id: string;
@@ -128,14 +129,14 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             list.push({
               ...e,
               loanTypeLabel: 'online',
-              dateStr: e.dueDate ? new Date(e.dueDate).toISOString().split('T')[0] : ''
+              dateStr: e.dueDate ? getISTDateKey(e.dueDate) : ''
             });
           });
           oData.overdueEmis.offline?.forEach((e: any) => {
             list.push({
               ...e,
               loanTypeLabel: 'offline',
-              dateStr: e.dueDate ? new Date(e.dueDate).toISOString().split('T')[0] : ''
+              dateStr: e.dueDate ? getISTDateKey(e.dueDate) : ''
             });
           });
           setHistoricalOverdue(list);

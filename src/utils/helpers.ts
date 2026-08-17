@@ -1,3 +1,12 @@
+/**
+ * Safely formats a date as YYYY-MM-DD in IST (Asia/Kolkata) timezone.
+ * Prevents UTC shift bug where 00:00 IST on 20th Aug becomes 19th Aug in UTC.
+ */
+export function getISTDateKey(dateInput: Date | string): string {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+}
 
 /**
  * Safely adds/subtracts N months to a date while preserving the target day of month.
