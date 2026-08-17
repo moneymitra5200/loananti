@@ -1,4 +1,4 @@
-import { addMonthsSafe } from '@/utils/helpers';
+import { addMonthsSafe, getISTDateKey } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { processBankTransaction } from '@/lib/bank-transaction-service';
@@ -417,14 +417,14 @@ export async function GET(request: NextRequest) {
       const calendar: Record<string, { emis: typeof emis; total: number; paid: number }> = {};
       
       for (const emi of emis) {
-        const dateKey = new Date(emi.dueDate).toISOString().slice(0, 10);
+        const dateKey = getISTDateKey(emi.dueDate);
         if (!calendar[dateKey]) {
           calendar[dateKey] = { emis: [], total: 0, paid: 0 };
         }
         calendar[dateKey].emis.push(emi);
         calendar[dateKey].total += emi.totalAmount;
         if (emi.paymentStatus === 'PAID') {
-          calendar[dateKey].paid += emi.paidAmount;
+          calendar[dateKey].paid += (emi.paidAmount || emi.totalAmount);
         }
       }
 
