@@ -198,14 +198,14 @@ const CustomerSection = memo(function CustomerSection({ loanDetails, onCopy }: C
               <Phone className="h-4 w-4 text-gray-400" />
               <div>
                 <p className="text-xs text-gray-500">Phone</p>
-                <p className="font-semibold">{loanDetails?.phone || loanDetails?.customer?.phone}</p>
+                <p className="font-semibold break-all">{loanDetails?.phone || loanDetails?.customer?.phone}</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <Mail className="h-4 w-4 text-gray-400" />
               <div>
                 <p className="text-xs text-gray-500">Email</p>
-                <p className="font-semibold">{loanDetails?.customer?.email}</p>
+                <p className="font-semibold break-all">{loanDetails?.customer?.email}</p>
               </div>
             </div>
             <div className="flex items-start gap-3">

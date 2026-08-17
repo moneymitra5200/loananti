@@ -1696,32 +1696,33 @@ export default function OfflineLoanDetailPanel({
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                            <div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">Full Name</p>
-                              <p className="font-medium">{loan.customerName}</p>
+                              <p className="font-medium text-gray-900 break-words">{loan.customerName}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">Phone</p>
-                              <p className="font-medium flex items-center gap-1">
-                                <Phone className="h-3 w-3" />{loan.customerPhone}
+                              <p className="font-medium flex items-start gap-1 text-gray-900 break-all">
+                                <Phone className="h-3.5 w-3.5 mt-0.5 shrink-0 text-gray-400" />
+                                <span className="break-all">{loan.customerPhone}</span>
                               </p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">Email</p>
-                              <p className="font-medium">{loan.customerEmail || 'N/A'}</p>
+                              <p className="font-medium text-gray-900 break-all">{loan.customerEmail || 'N/A'}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">PAN Number</p>
-                              <p className="font-medium font-mono">{loan.customerPan || 'N/A'}</p>
+                              <p className="font-medium font-mono text-gray-900 break-all">{loan.customerPan || 'N/A'}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">Aadhaar Number</p>
-                              <p className="font-medium font-mono">{loan.customerAadhaar ? `XXXX-XXXX-${loan.customerAadhaar.slice(-4)}` : 'N/A'}</p>
+                              <p className="font-medium font-mono text-gray-900 break-all">{loan.customerAadhaar ? `XXXX-XXXX-${loan.customerAadhaar.slice(-4)}` : 'N/A'}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <p className="text-xs text-gray-500">Occupation</p>
-                              <p className="font-medium">{loan.customerOccupation || 'N/A'}</p>
+                              <p className="font-medium text-gray-900 break-words">{loan.customerOccupation || 'N/A'}</p>
                             </div>
                           </div>
                         </CardContent>
