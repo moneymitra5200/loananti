@@ -745,8 +745,13 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             <div className="grid grid-cols-7 gap-1.5">
               {calendarDays.map((day, index) => {
                 const hasEmis = day.emis && (day.emis.online.length > 0 || day.emis.offline.length > 0);
-                const isPaid = day.emis && day.emis.paid >= day.emis.total && hasEmis;
-                const hasPending = day.emis && day.emis.paid < day.emis.total && hasEmis;
+                const allDayEmis = day.emis ? [...day.emis.online, ...day.emis.offline] : [];
+                const isAllEmisStatusPaid = allDayEmis.length > 0 && allDayEmis.every(e => 
+                  e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
+                );
+
+                const isPaid = day.emis && (isAllEmisStatusPaid || (day.emis.paid >= (day.emis.total - 1))) && hasEmis;
+                const hasPending = day.emis && !isAllEmisStatusPaid && ((day.emis.total - day.emis.paid) > 1) && hasEmis;
                 const emiCount = hasEmis ? (day.emis!.online.length + day.emis!.offline.length) : 0;
 
                 const today = new Date();
