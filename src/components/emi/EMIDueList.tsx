@@ -536,16 +536,16 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
     <>
       <Card className="overflow-hidden border-0 shadow-none">
         <CardHeader className="pb-3 pt-0 px-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            {/* Filter Tabs */}
-            <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl flex-wrap">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            {/* Filter Tabs - Single line non-wrapping scrollable row */}
+            <div className="flex items-center gap-1 bg-gray-100/90 p-1.5 rounded-xl overflow-x-auto max-w-full shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   activeFilter === 'all'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white text-gray-900 shadow-sm border border-gray-200/60 font-bold'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
                 }`}
               >
                 All ({grandTotalCount})
@@ -553,50 +553,50 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
               <button
                 type="button"
                 onClick={() => setActiveFilter('overdue')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                   activeFilter === 'overdue'
-                    ? 'bg-red-600 text-white shadow-sm'
-                    : 'text-red-700 hover:bg-red-50'
+                    ? 'bg-red-600 text-white shadow-sm font-bold'
+                    : 'text-red-700 hover:bg-red-100/60'
                 }`}
               >
-                <AlertTriangle className="h-3.5 w-3.5" />
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 Overdue ({overdueTotalCount})
               </button>
               <button
                 type="button"
                 onClick={() => setActiveFilter('today')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                   activeFilter === 'today'
-                    ? 'bg-orange-500 text-white shadow-sm'
-                    : 'text-orange-700 hover:bg-orange-50'
+                    ? 'bg-orange-500 text-white shadow-sm font-bold'
+                    : 'text-orange-700 hover:bg-orange-100/60'
                 }`}
               >
-                <Clock className="h-3.5 w-3.5" />
+                <Clock className="h-3.5 w-3.5 shrink-0" />
                 Today ({todayTotalCount})
               </button>
               <button
                 type="button"
                 onClick={() => setActiveFilter('tomorrow')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                   activeFilter === 'tomorrow'
-                    ? 'bg-amber-500 text-white shadow-sm'
-                    : 'text-amber-700 hover:bg-amber-50'
+                    ? 'bg-amber-500 text-white shadow-sm font-bold'
+                    : 'text-amber-700 hover:bg-amber-100/60'
                 }`}
               >
-                <CheckCircle className="h-3.5 w-3.5" />
+                <CheckCircle className="h-3.5 w-3.5 shrink-0" />
                 Tomorrow ({tomorrowTotalCount})
               </button>
             </div>
 
             {/* Search Input */}
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-64 shrink-0">
               <Input
                 placeholder="Search name, phone, loan #..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 text-xs pl-8 bg-gray-50 border-gray-200"
+                className="h-9 text-xs pl-8 pr-3 bg-white border border-gray-200 rounded-xl focus-visible:ring-1 focus-visible:ring-amber-500 shadow-xs"
               />
-              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-2.5" />
+              <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-3" />
             </div>
           </div>
         </CardHeader>
