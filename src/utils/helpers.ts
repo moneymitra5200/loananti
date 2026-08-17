@@ -9,26 +9,42 @@ export function getISTDateKey(dateInput: Date | string): string {
 }
 
 /**
- * Safely adds/subtracts N months to a date while preserving the target day of month.
+ * Safely extracts day of month (1-31) in IST (Asia/Kolkata) timezone.
+ */
+export function getISTDay(dateInput: Date | string): number {
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return 1;
+  const dayStr = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric' }).format(d);
+  return parseInt(dayStr, 10);
+}
+
+/**
+ * Safely adds/subtracts N months to a date while preserving the target day of month in IST.
  * Handles month-end overflow (e.g. Jan 31 + 1 month = Feb 28/29, then + 2 months = Mar 31).
  */
 export function addMonthsSafe(baseDate: Date | string, monthsToAdd: number, targetDay?: number): Date {
   const d = new Date(baseDate);
   if (isNaN(d.getTime())) return new Date();
   
-  const desiredDay = targetDay ?? d.getDate();
+  const desiredDay = targetDay ?? getISTDay(d);
   
-  // Set day to 1 before modifying month to prevent JavaScript date overflow
-  // (e.g. Jan 31 -> setMonth(+1) would jump to March 3rd if day remained 31)
-  d.setDate(1);
-  d.setMonth(d.getMonth() + monthsToAdd);
+  const istYearStr = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', year: 'numeric' }).format(d);
+  const istMonthStr = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', month: 'numeric' }).format(d);
   
-  // Determine maximum valid day in the resulting target month
-  const lastDayOfTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  let year = parseInt(istYearStr, 10);
+  let month = parseInt(istMonthStr, 10) - 1;
+  
+  month += monthsToAdd;
+  year += Math.floor(month / 12);
+  month = ((month % 12) + 12) % 12;
+  
+  const lastDayOfTargetMonth = new Date(year, month + 1, 0).getDate();
   const safeDay = Math.min(desiredDay, lastDayOfTargetMonth);
   
-  d.setDate(safeDay);
-  return d;
+  const monthFormatted = String(month + 1).padStart(2, '0');
+  const dayFormatted = String(safeDay).padStart(2, '0');
+  
+  return new Date(`${year}-${monthFormatted}-${dayFormatted}T00:00:00.000+05:30`);
 }
 // EMI Calculation Engine
 export interface EMICalculation {
@@ -127,11 +143,14 @@ export function calculateEMI(
 }
 
 export function formatDate(date: Date | string): string {
+  if (!date) return '';
   const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-IN', {
     day: '2-digit',
     month: 'short',
-    year: 'numeric'
+    year: 'numeric',
+    timeZone: 'Asia/Kolkata'
   });
 }
 
