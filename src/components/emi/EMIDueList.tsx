@@ -384,12 +384,21 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
     const hasPenalty = emi.penaltyAmount && emi.penaltyAmount > 0;
     const isMirrorLoan = type === 'offline' && emi.offlineLoan?.isMirrorLoan;
 
+    const handleLoanSelect = () => {
+      if (onSelectLoan && loanId) {
+        onSelectLoan(loanId, type);
+      } else {
+        openPaymentDialog(emi, type);
+      }
+    };
+
     return (
       <motion.div
         key={emi.id}
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
-        className={`p-3 rounded-lg border transition-all ${
+        onClick={handleLoanSelect}
+        className={`p-3 rounded-lg border transition-all cursor-pointer ${
           hasPenalty 
             ? 'bg-red-50 border-red-300 hover:border-red-400 hover:shadow-md' 
             : 'bg-white border-gray-200 hover:border-blue-300 hover:shadow-md'
@@ -449,21 +458,13 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
             )}
 
             <div className="flex items-center gap-1.5 mt-2">
-              {onSelectLoan && loanId && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs border-blue-200 text-blue-700 hover:bg-blue-50"
-                  onClick={() => onSelectLoan(loanId, type)}
-                >
-                  <Eye className="h-3 w-3 mr-1" />
-                  View
-                </Button>
-              )}
               <Button
                 size="sm"
                 className={`h-7 text-xs font-semibold ${hasPenalty ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                onClick={() => openPaymentDialog(emi, type)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleLoanSelect();
+                }}
               >
                 <IndianRupee className="h-3 w-3 mr-1" />
                 Pay {hasPenalty && '+ Penalty'}

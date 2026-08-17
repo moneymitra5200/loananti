@@ -159,6 +159,7 @@ export default function EMIDueAlertBanner({ userId, userRole, onOpenLoanDetail, 
               fetchBannerSummary();
             }}
             onSelectLoan={(loanId, loanType) => {
+              setListDialogOpen(false);
               if (onOpenLoanDetail) {
                 onOpenLoanDetail(loanId, loanType);
               }
