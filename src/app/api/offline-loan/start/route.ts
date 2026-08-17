@@ -1,3 +1,4 @@
+import { addMonthsSafe } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { calculateEMI } from '@/utils/helpers';
@@ -80,11 +81,11 @@ export async function POST(request: NextRequest) {
 
       await tx.offlineLoanEMI.deleteMany({ where: { offlineLoanId: loanId } });
 
+      const emiDayOfMonth = loan.startDate ? new Date(loan.startDate).getDate() : (loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate());
+      const baseStartDate = loan.startDate ? new Date(loan.startDate) : (loan.disbursementDate ? new Date(loan.disbursementDate) : new Date());
+
       const emis = emiCalc.schedule.map((item, index) => {
-        const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
-        const dueDate = new Date();
-        dueDate.setMonth(dueDate.getMonth() + index + 1);
-        dueDate.setDate(emiDayOfMonth);
+        const dueDate = addMonthsSafe(baseStartDate, index + 1, emiDayOfMonth);
         dueDate.setHours(0, 0, 0, 0);
         return {
           offlineLoanId: loanId,
@@ -259,10 +260,7 @@ export async function POST(request: NextRequest) {
 
           // Generate mirror's SHIFTED amortizing schedule (last EMI → first position)
           const mirrorEMIs = shiftedSchedule.map((item, index) => {
-            const emiDayOfMonth = loan.disbursementDate ? new Date(loan.disbursementDate).getDate() : new Date().getDate();
-            const dueDate = new Date();
-            dueDate.setMonth(dueDate.getMonth() + index + 1);
-            dueDate.setDate(emiDayOfMonth);
+            const dueDate = addMonthsSafe(baseStartDate, index + 1, emiDayOfMonth);
             dueDate.setHours(0, 0, 0, 0);
             return {
               offlineLoanId: mirrorLoan.id,

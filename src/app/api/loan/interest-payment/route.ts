@@ -1,3 +1,4 @@
+import { addMonthsSafe } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 // ACID: retry on deadlock + duplicate guard
@@ -318,8 +319,8 @@ export async function POST(request: NextRequest) {
           where: { loanApplicationId: loanId, installmentNumber: nextInstNum },
         });
         if (!nextAlreadyExists) {
-          const nextDue = new Date(currentIOEmi.dueDate);
-          nextDue.setMonth(nextDue.getMonth() + 1);
+          const origDay = loan.interestOnlyStartDate ? new Date(loan.interestOnlyStartDate).getDate() : new Date(currentIOEmi.dueDate).getDate();
+          const nextDue = addMonthsSafe(currentIOEmi.dueDate, 1, origDay);
           await tx.eMISchedule.create({
             data: {
               loanApplicationId: loanId,
@@ -374,8 +375,8 @@ export async function POST(request: NextRequest) {
                 where: { loanApplicationId: partnerLoanIdForSync, installmentNumber: nextPartnerInstNum },
               });
               if (!partnerNextExists) {
-                const nextPartnerDue = new Date(partnerEMI.dueDate);
-                nextPartnerDue.setMonth(nextPartnerDue.getMonth() + 1);
+                const origDay = loan.interestOnlyStartDate ? new Date(loan.interestOnlyStartDate).getDate() : new Date(partnerEMI.dueDate).getDate();
+                const nextPartnerDue = addMonthsSafe(partnerEMI.dueDate, 1, origDay);
                 const partnerExpectedInterest = loanId === mirrorMapForAcct.originalLoanId ? acctAmount : expectedMonthlyInterest;
                 await tx.eMISchedule.create({
                   data: {

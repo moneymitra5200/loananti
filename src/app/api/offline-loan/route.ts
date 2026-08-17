@@ -1,3 +1,4 @@
+import { addMonthsSafe } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { processBankTransaction } from '@/lib/bank-transaction-service';
@@ -1045,7 +1046,7 @@ export async function POST(request: NextRequest) {
           allowInterestOnly: hasExtraEMIs ? false : (allowInterestOnly === true),
           allowPartialPayment: allowPartialPayment === true,
           isInterestOnlyLoan,
-          interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(disbursementDate, 'interestOnlyStartDate') : null,
+          interestOnlyStartDate: isInterestOnlyLoan ? requiredDate(startDate || disbursementDate, 'interestOnlyStartDate') : null,
           interestOnlyMonthlyAmount: isInterestOnlyLoan ? monthlyInterestAmount : null,
           partialPaymentEnabled: !isInterestOnlyLoan,
           applicationLocation: customerLocation,

@@ -1,3 +1,4 @@
+import { addMonthsSafe } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
@@ -166,7 +167,7 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < subsequentEmis.length; i++) {
       const sEmi = subsequentEmis[i];
-      const nextDate = addMonths(newDate, i + 1);
+      const nextDate = addMonthsSafe(newDate, i + 1, newDate.getDate());
       nextDate.setHours(12, 0, 0, 0);
       
       updates.push(
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
         
         for (let i = 0; i < mirrorEmis.length; i++) {
           const mEmi = mirrorEmis[i];
-          const mDate = addMonths(newDate, mEmi.installmentNumber - emi.installmentNumber);
+          const mDate = addMonthsSafe(newDate, mEmi.installmentNumber - emi.installmentNumber, newDate.getDate());
           mDate.setHours(12, 0, 0, 0);
           
           mirrorUpdates.push(

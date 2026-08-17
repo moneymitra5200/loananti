@@ -1,3 +1,26 @@
+
+/**
+ * Safely adds/subtracts N months to a date while preserving the target day of month.
+ * Handles month-end overflow (e.g. Jan 31 + 1 month = Feb 28/29, then + 2 months = Mar 31).
+ */
+export function addMonthsSafe(baseDate: Date | string, monthsToAdd: number, targetDay?: number): Date {
+  const d = new Date(baseDate);
+  if (isNaN(d.getTime())) return new Date();
+  
+  const desiredDay = targetDay ?? d.getDate();
+  
+  // Set day to 1 before modifying month to prevent JavaScript date overflow
+  // (e.g. Jan 31 -> setMonth(+1) would jump to March 3rd if day remained 31)
+  d.setDate(1);
+  d.setMonth(d.getMonth() + monthsToAdd);
+  
+  // Determine maximum valid day in the resulting target month
+  const lastDayOfTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const safeDay = Math.min(desiredDay, lastDayOfTargetMonth);
+  
+  d.setDate(safeDay);
+  return d;
+}
 // EMI Calculation Engine
 export interface EMICalculation {
   emi: number;
@@ -74,8 +97,7 @@ export function calculateEMI(
       outstandingPrincipal = Math.max(0, outstandingPrincipal - principalForMonth);
     }
     
-    const dueDate = new Date(actualStartDate);
-    dueDate.setMonth(dueDate.getMonth() + i);
+    const dueDate = addMonthsSafe(actualStartDate, i, actualStartDate.getDate());
     
     schedule.push({
       installmentNumber: i,
