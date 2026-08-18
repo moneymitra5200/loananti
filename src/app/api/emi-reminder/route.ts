@@ -329,8 +329,8 @@ export async function GET(request: NextRequest) {
         calendar[dateKey].total += emi.totalAmount;
         calendar[dateKey].totalPrincipal += (emi.principalAmount || 0);
         calendar[dateKey].totalInterest += (emi.interestAmount || 0);
-        if (emi.paymentStatus === 'PAID') {
-          calendar[dateKey].paid += (emi.paidAmount || 0);
+        if (emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED') {
+          calendar[dateKey].paid += (emi.paymentStatus === 'WAIVED' ? emi.totalAmount : (emi.paidAmount || emi.totalAmount));
           calendar[dateKey].paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
           calendar[dateKey].paidInterest += (emi.paidInterest || emi.interestAmount || 0);
         }
@@ -355,8 +355,8 @@ export async function GET(request: NextRequest) {
         calendar[dateKey].total += emi.totalAmount;
         calendar[dateKey].totalPrincipal += (emi.principalAmount || 0);
         calendar[dateKey].totalInterest += (emi.interestAmount || 0);
-        if (emi.paymentStatus === 'PAID') {
-          calendar[dateKey].paid += (emi.paidAmount || 0);
+        if (emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED') {
+          calendar[dateKey].paid += (emi.paymentStatus === 'WAIVED' ? emi.totalAmount : (emi.paidAmount || emi.totalAmount));
           calendar[dateKey].paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
           calendar[dateKey].paidInterest += (emi.paidInterest || emi.interestAmount || 0);
         }

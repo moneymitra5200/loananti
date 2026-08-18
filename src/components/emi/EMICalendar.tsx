@@ -841,7 +841,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               day.online.forEach(emi => allEmisInMonth.push({ ...emi, loanTypeLabel: 'online', dateStr: day.date }));
             });
 
-            const pendingList = allEmisInMonth.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'WAIVED');
+            const pendingList = allEmisInMonth.filter(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID' && e.paymentStatus !== 'WAIVED');
             
             // Combine current month overdue + historical past overdue EMIs across all previous months!
             const overdueMap = new Map<string, EMIItem & { loanTypeLabel: 'online' | 'offline'; dateStr: string }>();
@@ -849,7 +849,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
             pendingList.filter(e => e.dateStr < todayStr).forEach(e => overdueMap.set(`${e.loanTypeLabel}-${e.id}`, e));
 
             const overdueList = Array.from(overdueMap.values()).sort((a, b) => (a.dateStr > b.dateStr ? 1 : -1));
-            const paidList = allEmisInMonth.filter(e => e.paymentStatus === 'PAID');
+            const paidList = allEmisInMonth.filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED');
 
             let displayList = allEmisInMonth;
             if (dueFilterTab === 'PENDING') displayList = pendingList;
