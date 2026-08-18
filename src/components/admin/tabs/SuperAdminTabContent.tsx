@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import {
-  FileText, CheckCircle, XCircle, Clock, Users, Wallet, Eye, Building2, UserPlus, Edit, Trash2, Settings, Save, User, Briefcase, Plus, TrendingUp, Activity, DollarSign, BarChart3, RefreshCw, Shield, AlertTriangle, X, MapPin, Phone, Mail, Calendar, FileCheck, CreditCard, Receipt, ExternalLink, Globe, Camera, Landmark, UserCog, Percent
+  FileText, CheckCircle, XCircle, Clock, Users, Wallet, Eye, Building2, UserPlus, Edit, Trash2, Settings, Save, User, Briefcase, Plus, TrendingUp, Activity, DollarSign, BarChart3, RefreshCw, Shield, AlertTriangle, X, MapPin, Phone, Mail, Calendar, FileCheck, CreditCard, Receipt, ExternalLink, Globe, Camera, Landmark, UserCog, Percent, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { motion } from 'framer-motion';
@@ -328,6 +328,9 @@ export function ActiveLoansTab({
   setSelectedLoanId,
   setShowLoanDetailPanel
 }: ActiveLoansTabProps) {
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
   const filteredActiveLoans = allActiveLoans.filter(loan => {
     if (activeLoanFilter === 'all') return true;
     return loan.loanType === activeLoanFilter.toUpperCase();
@@ -467,68 +470,98 @@ export function ActiveLoansTab({
               </Button>
             </div>
           ) : (
-            <div className="space-y-3 pr-2">
-              {filteredActiveLoans.map((loan, index) => {
-                const isOnline = loan.loanType === 'ONLINE';
-                const bgColor = isOnline ? 'bg-blue-50 border-blue-100' : 'bg-purple-50 border-purple-100';
-                const gradientColors = isOnline ? 'from-blue-400 to-cyan-500' : 'from-purple-400 to-pink-500';
-                
-                return (
-                  <motion.div
-                    key={`${loan.loanType}-${loan.id}`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className={`p-4 border rounded-xl hover:shadow-md transition-all ${bgColor}`}
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar className={`h-12 w-12 bg-gradient-to-br ${gradientColors}`}>
-                          <AvatarFallback className="bg-transparent text-white font-semibold">
-                            {loan.customer?.name?.charAt(0) || 'U'}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
-                            <Badge className={isOnline ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
-                              {loan.loanType}
-                            </Badge>
-                            {loan.status && (
-                              <Badge className="bg-green-100 text-green-700">{loan.status}</Badge>
-                            )}
+            <>
+              <div className="space-y-3 pr-2">
+                {filteredActiveLoans
+                  .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+                  .map((loan, index) => {
+                    const isOnline = loan.loanType === 'ONLINE';
+                    const bgColor = isOnline ? 'bg-blue-50 border-blue-100' : 'bg-purple-50 border-purple-100';
+                    const gradientColors = isOnline ? 'from-blue-400 to-cyan-500' : 'from-purple-400 to-pink-500';
+                    
+                    return (
+                      <motion.div
+                        key={`${loan.loanType}-${loan.id}`}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.03 }}
+                        className={`p-4 border rounded-xl hover:shadow-md transition-all ${bgColor}`}
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                          <div className="flex items-center gap-4">
+                            <Avatar className={`h-12 w-12 bg-gradient-to-br ${gradientColors}`}>
+                              <AvatarFallback className="bg-transparent text-white font-semibold">
+                                {loan.customer?.name?.charAt(0) || 'U'}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="font-semibold text-gray-900">{loan.identifier}</h4>
+                                <Badge className={isOnline ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}>
+                                  {loan.loanType}
+                                </Badge>
+                                {loan.status && (
+                                  <Badge className="bg-green-100 text-green-700">{loan.status}</Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-500">{loan.customer?.name}</p>
+                            </div>
                           </div>
-                          <p className="text-sm text-gray-500">{loan.customer?.name}</p>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="font-bold text-lg">{formatCurrency(loan.disbursedAmount || loan.approvedAmount)}</p>
+                              {loan.emiAmount && <p className="text-xs text-gray-500">EMI: {formatCurrency(loan.emiAmount)}/mo</p>}
+                            </div>
+                            <div className="flex gap-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="text-red-600 hover:bg-red-50"
+                                onClick={() => { setLoanToDelete(loan); setShowDeleteLoanDialog(true); }}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="font-bold text-lg">{formatCurrency(loan.disbursedAmount || loan.approvedAmount)}</p>
-                          {loan.emiAmount && <p className="text-xs text-gray-500">EMI: {formatCurrency(loan.emiAmount)}/mo</p>}
-                        </div>
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => { setSelectedLoanId(loan.id); setShowLoanDetailPanel(true); }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="text-red-600 hover:bg-red-50"
-                            onClick={() => { setLoanToDelete(loan); setShowDeleteLoanDialog(true); }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
+                      </motion.div>
+                    );
+                  })}
+              </div>
+
+              {filteredActiveLoans.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4 flex-wrap gap-4">
+                  <p className="text-sm text-gray-500">
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredActiveLoans.length)} of {filteredActiveLoans.length} active loans (Page {page} of {Math.ceil(filteredActiveLoans.length / PAGE_SIZE)})
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= Math.ceil(filteredActiveLoans.length / PAGE_SIZE)}
+                      onClick={() => setPage(p => Math.min(Math.ceil(filteredActiveLoans.length / PAGE_SIZE), p + 1))}
+                    >
+                      Next <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

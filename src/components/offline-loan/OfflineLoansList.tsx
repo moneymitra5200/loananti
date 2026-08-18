@@ -204,7 +204,7 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
   const fetchLoans = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
-      let url = `/api/offline-loan?page=${page}&limit=20`;
+      let url = `/api/offline-loan?page=${page}&limit=15`;
       // Pass userId + userRole so the backend applies role-based visibility
       if (userId) url += `&userId=${userId}`;
       if (userRole) url += `&userRole=${userRole}`;
@@ -606,15 +606,32 @@ export default function OfflineLoansList({ userId, userRole, companyId: lockedCo
           </div>
 
           {/* Pagination */}
-          {total > 20 && (
-            <div className="flex items-center justify-between pt-4 border-t">
-              <p className="text-sm text-gray-500">Page {page} of {Math.ceil(total / 20)}</p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
-                  <ChevronLeft className="h-4 w-4" />
+          {total > 15 && (
+            <div className="flex items-center justify-between pt-4 border-t flex-wrap gap-4">
+              <p className="text-sm text-gray-500">
+                Showing {(page - 1) * 15 + 1}–{Math.min(page * 15, total)} of {total} loans (Page {page} of {Math.ceil(total / 15)})
+              </p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                  <ChevronLeft className="h-4 w-4 mr-1" /> Previous
                 </Button>
-                <Button size="sm" variant="outline" disabled={page >= Math.ceil(total / 20)} onClick={() => setPage(p => p + 1)}>
-                  <ChevronRight className="h-4 w-4" />
+                {Array.from({ length: Math.ceil(total / 15) }, (_, i) => i + 1)
+                  .filter(pNum => pNum === 1 || pNum === Math.ceil(total / 15) || Math.abs(pNum - page) <= 1)
+                  .map((pNum, i, arr) => (
+                    <span key={pNum} className="flex items-center">
+                      {i > 0 && arr[i - 1] !== pNum - 1 && <span className="text-gray-400 px-1 text-xs">...</span>}
+                      <Button
+                        size="sm"
+                        variant={page === pNum ? 'default' : 'outline'}
+                        className={page === pNum ? 'bg-emerald-600 hover:bg-emerald-700 font-bold' : 'w-8 h-8 p-0 text-xs'}
+                        onClick={() => setPage(pNum)}
+                      >
+                        {pNum}
+                      </Button>
+                    </span>
+                  ))}
+                <Button size="sm" variant="outline" disabled={page >= Math.ceil(total / 15)} onClick={() => setPage(p => Math.min(Math.ceil(total / 15), p + 1))}>
+                  Next <ChevronRight className="h-4 w-4 ml-1" />
                 </Button>
               </div>
             </div>

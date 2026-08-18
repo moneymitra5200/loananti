@@ -134,8 +134,13 @@ export default function ActiveLoansTab({
 }: ActiveLoansTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
+  const PAGE_SIZE = 15;
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+
+  // Reset page on search or filter change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, activeLoanFilter]);
   
   // ── EMI Payment Dialog State ───────────────────────────────────────────────
   const [showPayDialog, setShowPayDialog] = useState(false);
@@ -774,15 +779,40 @@ export default function ActiveLoansTab({
               </div>
 
               {filteredActiveLoans.length > PAGE_SIZE && (
-                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                <div className="flex items-center justify-between pt-4 border-t mt-4 flex-wrap gap-4">
                   <p className="text-sm text-gray-500">
-                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredActiveLoans.length)} of {filteredActiveLoans.length} loans (Page {page} of {Math.ceil(filteredActiveLoans.length / PAGE_SIZE)})
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredActiveLoans.length)} of {filteredActiveLoans.length} active loans (Page {page} of {Math.ceil(filteredActiveLoans.length / PAGE_SIZE)})
                   </p>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
                       <ChevronLeft className="h-4 w-4 mr-1" /> Previous
                     </Button>
-                    <Button size="sm" variant="outline" disabled={page >= Math.ceil(filteredActiveLoans.length / PAGE_SIZE)} onClick={() => setPage(p => p + 1)}>
+                    {Array.from({ length: Math.ceil(filteredActiveLoans.length / PAGE_SIZE) }, (_, i) => i + 1)
+                      .filter(pNum => pNum === 1 || pNum === Math.ceil(filteredActiveLoans.length / PAGE_SIZE) || Math.abs(pNum - page) <= 1)
+                      .map((pNum, i, arr) => (
+                        <React.Fragment key={pNum}>
+                          {i > 0 && arr[i - 1] !== pNum - 1 && <span className="text-gray-400 px-1 text-xs">...</span>}
+                          <Button
+                            size="sm"
+                            variant={page === pNum ? 'default' : 'outline'}
+                            className={page === pNum ? 'bg-emerald-600 hover:bg-emerald-700 font-bold' : 'w-8 h-8 p-0 text-xs'}
+                            onClick={() => setPage(pNum)}
+                          >
+                            {pNum}
+                          </Button>
+                        </React.Fragment>
+                      ))}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= Math.ceil(filteredActiveLoans.length / PAGE_SIZE)}
+                      onClick={() => setPage(p => Math.min(Math.ceil(filteredActiveLoans.length / PAGE_SIZE), p + 1))}
+                    >
                       Next <ChevronRight className="h-4 w-4 ml-1" />
                     </Button>
                   </div>

@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Banknote, Eye, Search, RefreshCw, FileText, Receipt } from 'lucide-react';
+import { Banknote, Eye, Search, RefreshCw, FileText, Receipt, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/helpers';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Loan } from './types';
@@ -95,6 +95,13 @@ function ActiveLoansTabComponent({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [loanTypeFilter, setLoanTypeFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
+  // Reset page when search or filters change
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, statusFilter, loanTypeFilter]);
 
   // Fetch mirror mappings on mount
   useEffect(() => {
@@ -430,11 +437,41 @@ function ActiveLoansTabComponent({
             <p>No active loans found</p>
           </div>
         ) : (
-          <div className="space-y-3 pr-2">
-            <AnimatePresence>
-              {filteredLoans.map((loan, index) => renderLoanInParallelView(loan, index))}
-            </AnimatePresence>
-          </div>
+          <>
+            <div className="space-y-3 pr-2">
+              <AnimatePresence>
+                {filteredLoans
+                  .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+                  .map((loan, index) => renderLoanInParallelView(loan, index))}
+              </AnimatePresence>
+            </div>
+
+            {filteredLoans.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between pt-4 border-t mt-4 flex-wrap gap-4">
+                <p className="text-sm text-gray-500">
+                  Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredLoans.length)} of {filteredLoans.length} active loans (Page {page} of {Math.ceil(filteredLoans.length / PAGE_SIZE)})
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= Math.ceil(filteredLoans.length / PAGE_SIZE)}
+                    onClick={() => setPage(p => Math.min(Math.ceil(filteredLoans.length / PAGE_SIZE), p + 1))}
+                  >
+                    Next <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </CardContent>
     </Card>
