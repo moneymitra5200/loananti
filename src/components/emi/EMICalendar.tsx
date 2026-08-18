@@ -301,7 +301,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
       const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
 
       const dayTotalCollected = allDayEmis.reduce((s, e) => {
-        if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
+        if (e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED') return s + (e.totalAmount || 0);
         if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
         return s;
       }, 0);
@@ -382,7 +382,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           ? emi.offlineLoan?.customerPhone
           : emi.loanApplication?.phone;
 
-        const isPaid = emi.paymentStatus === 'PAID';
+        const isPaid = emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED';
         const isOverdue = emi.paymentStatus === 'OVERDUE';
 
         // Card Colors
@@ -463,7 +463,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     const phone = type === 'offline'
       ? emi.offlineLoan?.customerPhone
       : emi.loanApplication?.phone;
-    const canPay = emi.paymentStatus !== 'PAID';
+    const canPay = emi.paymentStatus !== 'PAID' && emi.paymentStatus !== 'INTEREST_ONLY_PAID' && emi.paymentStatus !== 'WAIVED';
     const loanId = type === 'offline' 
       ? (emi.offlineLoan?.id || emi.offlineLoanId) 
       : (emi.loanApplication?.id || emi.loanApplicationId);
@@ -539,8 +539,8 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
           </div>
           <div className="text-right">
             <p className="font-bold text-gray-900">{formatCurrency(emi.totalAmount)}</p>
-            {emi.paymentStatus === 'PAID' && (
-              <p className="text-xs text-green-600">Paid: {formatCurrency(emi.paidAmount)}</p>
+            {(emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED') && (
+              <p className="text-xs text-green-600">Paid: {formatCurrency(emi.paidAmount || emi.totalAmount)}</p>
             )}
             {emi.paymentStatus === 'PARTIALLY_PAID' && (
               <p className="text-xs text-amber-600">Remaining: {formatCurrency(emi.totalAmount - emi.paidAmount)}</p>
@@ -594,7 +594,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
     [...d.online, ...d.offline].forEach(emi => {
       totalPrincipal += (emi.principalAmount || 0);
       totalInterest += (emi.interestAmount || 0);
-      if (emi.paymentStatus === 'PAID') {
+      if (emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED') {
         paidPrincipal += (emi.paidPrincipal || emi.principalAmount || 0);
         paidInterest += (emi.paidInterest || emi.interestAmount || 0);
       }
@@ -928,13 +928,13 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                                   {emi.loanTypeLabel.toUpperCase()} • {loanNo}
                                 </span>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                  emi.paymentStatus === 'PAID'
+                                  emi.paymentStatus === 'PAID' || emi.paymentStatus === 'INTEREST_ONLY_PAID' || emi.paymentStatus === 'WAIVED'
                                     ? 'bg-emerald-100 text-emerald-800'
                                     : emi.dateStr < todayStr
                                     ? 'bg-red-100 text-red-800'
                                     : 'bg-amber-100 text-amber-800'
                                 }`}>
-                                  {emi.paymentStatus === 'PAID' ? 'PAID' : emi.dateStr < todayStr ? 'OVERDUE' : 'DUE'}
+                                  {emi.paymentStatus === 'PAID' ? 'PAID' : emi.paymentStatus === 'INTEREST_ONLY_PAID' ? 'INT. PAID' : emi.paymentStatus === 'WAIVED' ? 'WAIVED' : emi.dateStr < todayStr ? 'OVERDUE' : 'DUE'}
                                 </span>
                               </div>
 
@@ -957,7 +957,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                                 <p className="text-base font-extrabold text-slate-900">{formatCurrency(emi.totalAmount)}</p>
                               </div>
 
-                              {emi.paymentStatus !== 'PAID' ? (
+                              {(emi.paymentStatus !== 'PAID' && emi.paymentStatus !== 'INTEREST_ONLY_PAID' && emi.paymentStatus !== 'WAIVED') ? (
                                 <Button
                                   size="sm"
                                   onClick={() => handlePayEmi(emi, emi.loanTypeLabel)}
@@ -1164,7 +1164,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
               const dayTotalAmount = dayTotalPrincipal + dayTotalInterest;
 
               const dayTotalCollected = allDayEmis.reduce((s, e) => {
-                if (e.paymentStatus === 'PAID') return s + (e.totalAmount || 0);
+                if (e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED') return s + (e.totalAmount || 0);
                 if (e.paymentStatus === 'PARTIALLY_PAID') return s + (e.paidAmount || 0);
                 return s;
               }, 0);
