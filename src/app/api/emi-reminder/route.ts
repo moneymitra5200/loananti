@@ -148,28 +148,24 @@ export async function GET(request: NextRequest) {
 
       // Add penalty info to online EMIs
       const onlineEmisWithPenalty = activeOnlineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       // Add penalty info to offline EMIs
       const offlineEmisWithPenalty = activeOfflineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       // Categorize EMIs using IST date key comparison
@@ -453,42 +449,34 @@ export async function GET(request: NextRequest) {
       ]);
 
       const onlineEmisWithPenalty = onlineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
-        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
-          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
-          : calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       const offlineEmisWithPenalty = offlineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
-        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
-          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
-          : calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       const onlinePaid = onlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
       const onlinePending = onlineEmisWithPenalty.reduce((s, e) => {
-        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        if (['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus)) return s;
         return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
       }, 0);
 
       const offlinePaid = offlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
       const offlinePending = offlineEmisWithPenalty.reduce((s, e) => {
-        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        if (['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus)) return s;
         return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
       }, 0);
 
@@ -604,42 +592,34 @@ export async function GET(request: NextRequest) {
       });
 
       const onlineEmisWithPenalty = onlineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
-        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
-          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
-          : calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       const offlineEmisWithPenalty = offlineEmis.map(e => {
+        const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
-        const { daysOverdue, penaltyAmount, ratePerDay } = ['PAID', 'WAIVED'].includes(e.paymentStatus)
-          ? { daysOverdue: 0, penaltyAmount: e.penaltyAmount || 0, ratePerDay: 0 }
-          : calculatePenalty(e.dueDate, loanAmount, graceDays);
-        return {
-          ...e,
-          loanAmount,
-          daysOverdue,
-          penaltyAmount: e.penaltyAmount || penaltyAmount,
-          ratePerDay
-        };
+        if (isPaid) {
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+        }
+        const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
+        return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
       });
 
       const onlinePaid = onlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
       const onlinePending = onlineEmisWithPenalty.reduce((s, e) => {
-        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        if (['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus)) return s;
         return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
       }, 0);
 
       const offlinePaid = offlineEmisWithPenalty.reduce((s, e) => s + (e.paidAmount || 0), 0);
       const offlinePending = offlineEmisWithPenalty.reduce((s, e) => {
-        if (['PAID', 'WAIVED'].includes(e.paymentStatus)) return s;
+        if (['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus)) return s;
         return s + Math.max(0, (e.totalAmount + (e.penaltyAmount || 0)) - (e.paidAmount || 0));
       }, 0);
 

@@ -491,9 +491,11 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                 : formatCurrency((emi.totalAmount + (emi.penaltyAmount || 0)) - (emi.paidAmount || 0))}
             </p>
             {['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(emi.paymentStatus) ? (
-              <p className="text-xs text-red-500 font-medium">
-                + {formatCurrency(emi.penaltyPaid || 0)} Penalty
-              </p>
+              (emi.penaltyPaid || 0) > 0 ? (
+                <p className="text-xs text-red-500 font-medium">
+                  + {formatCurrency(emi.penaltyPaid || 0)} Penalty
+                </p>
+              ) : null
             ) : emi.penaltyAmount ? (
               <p className="text-xs text-red-500 font-medium">+ {formatCurrency(emi.penaltyAmount)} Penalty</p>
             ) : null}

@@ -1267,7 +1267,7 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
 
             const paidPrincipal = selectedPaidEmi.paidPrincipal || selectedPaidEmi.principalAmount || 0;
             const paidInterest = selectedPaidEmi.paidInterest || selectedPaidEmi.interestAmount || 0;
-            const penaltyPaid = selectedPaidEmi.penaltyPaid || selectedPaidEmi.penaltyAmount || 0;
+            const penaltyPaid = selectedPaidEmi.penaltyPaid || 0;
             const totalPaid = selectedPaidEmi.paidAmount || (paidPrincipal + paidInterest + penaltyPaid);
 
             return (
