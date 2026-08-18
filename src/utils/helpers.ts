@@ -19,6 +19,52 @@ export function getISTDay(dateInput: Date | string): number {
 }
 
 /**
+ * Returns a Date object representing the START of a given day in IST (00:00:00.000 IST).
+ * Use this for database queries instead of `new Date(dateStr); d.setHours(0,0,0,0)`.
+ *
+ * Why: `new Date("2026-08-19")` creates UTC midnight (Aug 19 00:00 UTC = Aug 19 05:30 IST).
+ * But `setHours(0,0,0,0)` sets LOCAL midnight. On a UTC server, this wrongly includes
+ * IST dates that straddle midnight UTC. This function always produces IST midnight as UTC.
+ *
+ * @param dateStr - YYYY-MM-DD string (e.g. "2026-08-19")
+ * @returns Date object at 2026-08-18T18:30:00.000Z (= 2026-08-19 00:00:00 IST)
+ */
+export function getISTDayStart(dateStr: string): Date {
+  // Parse as IST by appending the IST offset
+  return new Date(`${dateStr}T00:00:00.000+05:30`);
+}
+
+/**
+ * Returns a Date object representing the END of a given day in IST (23:59:59.999 IST).
+ * Use this for database queries as the upper bound of a day range.
+ *
+ * @param dateStr - YYYY-MM-DD string (e.g. "2026-08-19")
+ * @returns Date object at 2026-08-19T18:29:59.999Z (= 2026-08-19 23:59:59.999 IST)
+ */
+export function getISTDayEnd(dateStr: string): Date {
+  return new Date(`${dateStr}T23:59:59.999+05:30`);
+}
+
+/**
+ * Returns a Date representing IST "today" start (00:00:00 IST).
+ * Use instead of `new Date(); d.setHours(0,0,0,0)` on server-side code.
+ */
+export function getISTTodayStart(): Date {
+  const now = new Date();
+  const todayIST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+  return getISTDayStart(todayIST);
+}
+
+/**
+ * Returns a Date representing IST "today" end (23:59:59.999 IST).
+ */
+export function getISTTodayEnd(): Date {
+  const now = new Date();
+  const todayIST = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+  return getISTDayEnd(todayIST);
+}
+
+/**
  * Safely adds/subtracts N months to a date while preserving the target day of month in IST.
  * Handles month-end overflow (e.g. Jan 31 + 1 month = Feb 28/29, then + 2 months = Mar 31).
  */

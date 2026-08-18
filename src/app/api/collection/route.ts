@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
+import { getISTDateKey, getISTDayStart, getISTDayEnd, getISTTodayStart } from '@/utils/helpers';
 
 // Local type definition - Prisma schema uses strings, not enums
 
@@ -14,8 +15,8 @@ export async function GET(request: NextRequest) {
 
     // Get today's collection summary
     if (action === 'today') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // IST-safe today boundary
+      const today = getISTTodayStart();
 
       const todayCollection = await db.dailyCollection.findFirst({
         where: { date: today }
@@ -61,9 +62,8 @@ export async function GET(request: NextRequest) {
     // Get collection history
     if (action === 'history') {
       const days = parseInt(searchParams.get('days') || '7');
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      startDate.setHours(0, 0, 0, 0);
+      const startDate = getISTTodayStart();
+      startDate.setTime(startDate.getTime() - days * 24 * 60 * 60 * 1000);
 
       const collections = await db.dailyCollection.findMany({
         where: {
@@ -116,8 +116,8 @@ export async function GET(request: NextRequest) {
 
     // Get specific date collection
     if (dateStr) {
-      const date = new Date(dateStr);
-      date.setHours(0, 0, 0, 0);
+      // IST-safe date parsing
+      const date = getISTDayStart(dateStr);
 
       const collection = await db.dailyCollection.findFirst({
         where: { date }

@@ -1,4 +1,4 @@
-import { addMonthsSafe, getISTDateKey } from '@/utils/helpers';
+import { addMonthsSafe, getISTDateKey, getISTDayStart, getISTDayEnd, getISTTodayStart } from '@/utils/helpers';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { processBankTransaction } from '@/lib/bank-transaction-service';
@@ -311,14 +311,17 @@ export async function GET(request: NextRequest) {
 
     // Get today's and tomorrow's EMIs to collect
     if (action === 'emi-to-collect') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // IST-safe date boundaries
+      const todayKey = getISTDateKey(new Date());
+      const today = getISTDayStart(todayKey);
       
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowDate = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+      const tomorrowKey = getISTDateKey(tomorrowDate);
+      const tomorrow = getISTDayStart(tomorrowKey);
       
-      const dayAfter = new Date(tomorrow);
-      dayAfter.setDate(dayAfter.getDate() + 1);
+      const dayAfterDate = new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000);
+      const dayAfterKey = getISTDateKey(dayAfterDate);
+      const dayAfter = getISTDayStart(dayAfterKey);
 
       // Get all pending/overdue EMIs for original loans only (mirror loans excluded)
       const whereClause: Record<string, unknown> = {
@@ -348,21 +351,18 @@ export async function GET(request: NextRequest) {
       });
 
       const todayEMIs = emis.filter(e => {
-        const dueDate = new Date(e.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
-        return dueDate.getTime() === today.getTime();
+        const dueDateKey = getISTDateKey(e.dueDate);
+        return dueDateKey === todayKey;
       });
 
       const tomorrowEMIs = emis.filter(e => {
-        const dueDate = new Date(e.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
-        return dueDate.getTime() === tomorrow.getTime();
+        const dueDateKey = getISTDateKey(e.dueDate);
+        return dueDateKey === tomorrowKey;
       });
 
       const overdueEMIs = emis.filter(e => {
-        const dueDate = new Date(e.dueDate);
-        dueDate.setHours(0, 0, 0, 0);
-        return dueDate.getTime() < today.getTime();
+        const dueIST = getISTDayStart(getISTDateKey(e.dueDate));
+        return dueIST.getTime() < today.getTime();
       });
 
       return NextResponse.json({
@@ -554,12 +554,9 @@ export async function GET(request: NextRequest) {
       const fromParam = searchParams.get('from');
       const toParam   = searchParams.get('to');
 
-      const fromDate = fromParam ? new Date(fromParam) : new Date();
-      const toDate   = toParam   ? new Date(toParam)   : new Date();
-
-      // Normalise: from = start of day, to = end of day
-      fromDate.setHours(0, 0, 0, 0);
-      toDate.setHours(23, 59, 59, 999);
+      // IST-safe date range
+      const fromDate = fromParam ? getISTDayStart(fromParam) : getISTTodayStart();
+      const toDate   = toParam   ? getISTDayEnd(toParam)     : getISTDayEnd(getISTDateKey(new Date()));
 
       // Role-based loan filter for upcoming EMIs
       const PRIVILEGED_ROLES_UPCOMING = ['SUPER_ADMIN', 'CASHIER', 'ACCOUNTANT'];

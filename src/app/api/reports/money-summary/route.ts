@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { cache, CacheTTL } from '@/lib/cache';
+import { getISTDateKey, getISTDayStart, getISTDayEnd, getISTTodayStart } from '@/utils/helpers';
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,14 +12,15 @@ export async function GET(request: NextRequest) {
 
     let startDate: Date, endDate: Date;
     if (startDateStr && endDateStr) {
-      startDate = new Date(startDateStr); startDate.setHours(0, 0, 0, 0);
-      endDate   = new Date(endDateStr);   endDate.setHours(23, 59, 59, 999);
+      startDate = getISTDayStart(startDateStr);
+      endDate   = getISTDayEnd(endDateStr);
     } else if (dateStr) {
-      startDate = new Date(dateStr); startDate.setHours(0, 0, 0, 0);
-      endDate   = new Date(dateStr); endDate.setHours(23, 59, 59, 999);
+      startDate = getISTDayStart(dateStr);
+      endDate   = getISTDayEnd(dateStr);
     } else {
-      startDate = new Date(); startDate.setHours(0, 0, 0, 0);
-      endDate   = new Date(); endDate.setHours(23, 59, 59, 999);
+      const todayKey = getISTDateKey(new Date());
+      startDate = getISTDayStart(todayKey);
+      endDate   = getISTDayEnd(todayKey);
     }
 
     const isToday  = !dateStr && !startDateStr;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { calculateEMI } from '@/utils/helpers';
+import { calculateEMI, getISTTodayStart } from '@/utils/helpers';
 import { createEMIPaymentEntry, AccountingService } from '@/lib/accounting-service';
 
 // Local type definitions - Prisma schema uses strings, not enums
@@ -193,8 +193,7 @@ export async function POST(request: NextRequest) {
 
 // Update overdue status for all loans
 async function updateOverdueStatus() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const today = getISTTodayStart();
 
   // Get all pending EMIs that are past due date
   const overdueEmis = await db.eMISchedule.findMany({
@@ -948,8 +947,7 @@ export async function PUT(request: NextRequest) {
         });
 
         // Update daily collection
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const today = getISTTodayStart();
         
         const existingCollection = await tx.dailyCollection.findFirst({
           where: { date: today }

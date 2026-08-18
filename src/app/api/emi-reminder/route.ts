@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getISTDateKey } from '@/utils/helpers';
+import { getISTDateKey, getISTDayStart, getISTDayEnd, getISTTodayStart } from '@/utils/helpers';
 
 /**
  * Returns the penalty per day based on the loan amount.
@@ -20,13 +20,12 @@ function getPenaltyPerDay(loanAmount: number): number {
  * Calculate penalty for an EMI based on days overdue and loan amount
  */
 function calculatePenalty(dueDate: Date, loanAmount: number, graceDays: number = 0): { daysOverdue: number; penaltyAmount: number; ratePerDay: number } {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate);
-  due.setHours(0, 0, 0, 0);
+  const today = getISTTodayStart();
+  // Use IST date key to get the correct IST date for the due date, then convert to IST midnight
+  const dueIST = getISTDayStart(getISTDateKey(dueDate));
   
   const msPerDay = 1000 * 60 * 60 * 24;
-  const daysOverdue = Math.max(0, Math.floor((today.getTime() - due.getTime()) / msPerDay) - graceDays);
+  const daysOverdue = Math.max(0, Math.floor((today.getTime() - dueIST.getTime()) / msPerDay) - graceDays);
   const ratePerDay = getPenaltyPerDay(loanAmount);
   const penaltyAmount = daysOverdue * ratePerDay;
   
@@ -58,14 +57,17 @@ export async function GET(request: NextRequest) {
 
     // Get today's and tomorrow's EMIs (both online and offline)
     if (action === 'today-tomorrow') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // IST-safe: get today's date key in IST, then derive boundaries
+      const todayKey = getISTDateKey(new Date());
+      const today = getISTDayStart(todayKey);
       
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowDate = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+      const tomorrowKey = getISTDateKey(tomorrowDate);
+      const tomorrow = getISTDayStart(tomorrowKey);
       
-      const dayAfter = new Date(tomorrow);
-      dayAfter.setDate(dayAfter.getDate() + 1);
+      const dayAfterDate = new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000);
+      const dayAfterKey = getISTDateKey(dayAfterDate);
+      const dayAfter = getISTDayStart(dayAfterKey);
 
       // Get online loan EMIs with loan amount for penalty calculation
       const onlineEmiWhere: Record<string, unknown> = {
@@ -170,43 +172,25 @@ export async function GET(request: NextRequest) {
         };
       });
 
-      // Categorize EMIs
+      // Categorize EMIs using IST date key comparison
       const todayEmis = {
-        online: onlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() === today.getTime();
-        }),
-        offline: offlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() === today.getTime();
-        })
+        online: onlineEmisWithPenalty.filter(e => getISTDateKey(e.dueDate) === todayKey),
+        offline: offlineEmisWithPenalty.filter(e => getISTDateKey(e.dueDate) === todayKey)
       };
 
       const tomorrowEmis = {
-        online: onlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() === tomorrow.getTime();
-        }),
-        offline: offlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() === tomorrow.getTime();
-        })
+        online: onlineEmisWithPenalty.filter(e => getISTDateKey(e.dueDate) === tomorrowKey),
+        offline: offlineEmisWithPenalty.filter(e => getISTDateKey(e.dueDate) === tomorrowKey)
       };
 
       const overdueEmis = {
         online: onlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() < today.getTime();
+          const dueIST = getISTDayStart(getISTDateKey(e.dueDate));
+          return dueIST.getTime() < today.getTime();
         }),
         offline: offlineEmisWithPenalty.filter(e => {
-          const dueDate = new Date(e.dueDate);
-          dueDate.setHours(0, 0, 0, 0);
-          return dueDate.getTime() < today.getTime();
+          const dueIST = getISTDayStart(getISTDateKey(e.dueDate));
+          return dueIST.getTime() < today.getTime();
         })
       };
 
@@ -407,10 +391,9 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'startDate and endDate required (YYYY-MM-DD)' }, { status: 400 });
       }
 
-      const rangeStart = new Date(startDateStr);
-      rangeStart.setHours(0, 0, 0, 0);
-      const rangeEnd = new Date(endDateStr);
-      rangeEnd.setHours(23, 59, 59, 999);
+      // IST-safe date range boundaries
+      const rangeStart = getISTDayStart(startDateStr);
+      const rangeEnd = getISTDayEnd(endDateStr);
 
       const onlineEmiWhere: Record<string, unknown> = {
         dueDate: { gte: rangeStart, lte: rangeEnd }
@@ -554,11 +537,9 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'date parameter is required (YYYY-MM-DD format)' }, { status: 400 });
       }
 
-      const selectedDate = new Date(dateStr);
-      selectedDate.setHours(0, 0, 0, 0);
-
-      const nextDay = new Date(selectedDate);
-      nextDay.setDate(nextDay.getDate() + 1);
+      // IST-safe: convert YYYY-MM-DD to IST midnight boundaries
+      const selectedDate = getISTDayStart(dateStr);
+      const nextDay = new Date(getISTDayEnd(dateStr).getTime() + 1);
 
       // Get online EMIs for the selected date
       const onlineEmiWhere: Record<string, unknown> = {
@@ -701,14 +682,17 @@ export async function GET(request: NextRequest) {
 
     // Get all EMIs to collect (for SuperAdmin view)
     if (action === 'all-to-collect') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // IST-safe date boundaries
+      const todayKey = getISTDateKey(new Date());
+      const today = getISTDayStart(todayKey);
 
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowDate = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+      const tomorrowKey = getISTDateKey(tomorrowDate);
+      const tomorrow = getISTDayStart(tomorrowKey);
 
-      const dayAfter = new Date(tomorrow);
-      dayAfter.setDate(dayAfter.getDate() + 1);
+      const dayAfterDate = new Date(tomorrow.getTime() + 24 * 60 * 60 * 1000);
+      const dayAfterKey = getISTDateKey(dayAfterDate);
+      const dayAfter = getISTDayStart(dayAfterKey);
 
       // Get all pending/overdue EMIs
       const onlineWhere: Record<string, any> = {
