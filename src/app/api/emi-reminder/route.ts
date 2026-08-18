@@ -151,7 +151,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
@@ -162,7 +164,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
@@ -452,7 +456,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
@@ -462,7 +468,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
@@ -595,7 +603,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.loanApplication?.sessionForm?.approvedAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };
@@ -605,7 +615,9 @@ export async function GET(request: NextRequest) {
         const isPaid = ['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
         const loanAmount = e.offlineLoan?.loanAmount || e.totalAmount;
         if (isPaid) {
-          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: e.penaltyPaid || 0, ratePerDay: 0 };
+          const isPaidOnTime = e.paidDate && e.dueDate && new Date(e.paidDate) <= new Date(e.dueDate);
+          const actualPenaltyPaid = isPaidOnTime ? 0 : (e.penaltyPaid || 0);
+          return { ...e, loanAmount, daysOverdue: 0, penaltyAmount: actualPenaltyPaid, penaltyPaid: actualPenaltyPaid, ratePerDay: 0 };
         }
         const { daysOverdue, penaltyAmount, ratePerDay } = calculatePenalty(e.dueDate, loanAmount, graceDays);
         return { ...e, loanAmount, daysOverdue, penaltyAmount: e.penaltyAmount || penaltyAmount, ratePerDay };

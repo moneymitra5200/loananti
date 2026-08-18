@@ -509,7 +509,7 @@ export default function EMICollectionSection({ userId, userRole, onPaymentComple
                   userId={userId}
                 />
               )}
-              {['PAID', 'WAIVED'].includes(emi.paymentStatus) ? (
+              {['PAID', 'WAIVED', 'INTEREST_ONLY_PAID'].includes(emi.paymentStatus) ? (
                 <div className="text-xs text-emerald-600 font-semibold flex items-center gap-1 py-1.5 px-2 bg-emerald-50 border border-emerald-200 rounded">
                   <CheckCircle className="h-3.5 w-3.5" />
                   Collected
