@@ -2027,11 +2027,18 @@ export default function OfflineLoanDetailPanel({
                                           .filter(e => e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID')
                                           .sort((a, b) => b.installmentNumber - a.installmentNumber)
                                           .map((emi, index, arr) => (
-                                            <div key={emi.id} className="p-3 bg-white rounded-lg border border-gray-200">
+                                            <div
+                                              key={emi.id}
+                                              className="p-3 bg-white rounded-lg border border-gray-200 hover:border-purple-300 hover:shadow-sm transition-all cursor-pointer group"
+                                              onClick={() => openPaymentHistoryDialog(emi)}
+                                            >
                                               <div className="flex items-center justify-between">
                                                 <div>
-                                                  <p className="font-medium text-gray-900">
+                                                  <p className="font-medium text-gray-900 flex items-center gap-2">
                                                     Payment #{arr.length - index}
+                                                    <span className="text-xs font-normal text-purple-600 opacity-80 group-hover:opacity-100 flex items-center gap-0.5">
+                                                      <Eye className="h-3 w-3" /> View details →
+                                                    </span>
                                                   </p>
                                                   <p className="text-xs text-gray-600 font-medium">
                                                     Due Date: {emi.dueDate ? formatDate(emi.dueDate) : 'N/A'}
@@ -2040,20 +2047,34 @@ export default function OfflineLoanDetailPanel({
                                                     Paid Date: {emi.paidDate ? formatDate(emi.paidDate) : 'N/A'}
                                                   </p>
                                                 </div>
-                                                <div className="text-right">
-                                                  <p className="font-bold text-green-600">
-                                                    {formatCurrency(emi.paidAmount)}
-                                                  </p>
-                                                  <div className="flex items-center gap-1">
-                                                    <Badge className="bg-gray-100 text-gray-600 text-xs">
-                                                      {emi.paymentMode || 'CASH'}
-                                                    </Badge>
-                                                    {emi.paymentStatus === 'INTEREST_ONLY_PAID' && (
-                                                      <Badge className="bg-purple-100 text-purple-600 text-xs">
-                                                        Interest Only
+                                                <div className="text-right flex items-center gap-3">
+                                                  <div>
+                                                    <p className="font-bold text-green-600">
+                                                      {formatCurrency(emi.paidAmount)}
+                                                    </p>
+                                                    <div className="flex items-center gap-1 justify-end">
+                                                      <Badge className="bg-gray-100 text-gray-600 text-xs">
+                                                        {emi.paymentMode || 'CASH'}
                                                       </Badge>
-                                                    )}
+                                                      {emi.paymentStatus === 'INTEREST_ONLY_PAID' && (
+                                                        <Badge className="bg-purple-100 text-purple-600 text-xs">
+                                                          Interest Only
+                                                        </Badge>
+                                                      )}
+                                                    </div>
                                                   </div>
+                                                  <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="h-8 border-purple-200 text-purple-700 hover:bg-purple-50 hover:border-purple-300 flex items-center gap-1 text-xs shrink-0"
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      openPaymentHistoryDialog(emi);
+                                                    }}
+                                                  >
+                                                    <Eye className="h-3.5 w-3.5" />
+                                                    View
+                                                  </Button>
                                                 </div>
                                               </div>
                                               {/* Payment Proof */}
@@ -4141,10 +4162,17 @@ export default function OfflineLoanDetailPanel({
 
               {/* Payment Breakdown */}
               <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-200">
-                <h4 className="font-medium text-emerald-800 mb-3 flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4" />
-                  Payment Summary
-                </h4>
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="font-medium text-emerald-800 flex items-center gap-2">
+                    <CheckCircle className="h-4 w-4" />
+                    Payment Summary
+                  </h4>
+                  {(selectedEmiForHistory.paymentStatus === 'INTEREST_ONLY_PAID' || selectedEmiForHistory.isInterestOnly) && (
+                    <Badge className="bg-purple-100 text-purple-700 font-medium text-xs">
+                      Phase 1 - Monthly Interest Payment
+                    </Badge>
+                  )}
+                </div>
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-emerald-700">Amount Paid</span>
