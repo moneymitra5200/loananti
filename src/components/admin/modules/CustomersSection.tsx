@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Users, CheckCircle, Wallet, FileText, User, Eye, UserPlus, X, Loader2 } from 'lucide-react';
+import { Users, CheckCircle, Wallet, FileText, User, Eye, UserPlus, X, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 
 interface Loan {
@@ -59,6 +59,13 @@ function CustomersSection({
   const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<any>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery]);
 
   const customerSearchQuery = searchQuery.toLowerCase();
   const filteredCustomers = customers.filter(c => {
@@ -235,79 +242,122 @@ function CustomersSection({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCustomers.map((customer) => {
-                    const customerLoans = getUniqueLoans(customer);
-                    const activeLoan = customerLoans.find(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
-                    const totalBorrowed = customerLoans.reduce((sum, l) => {
-                      const amt = Number(l.sessionForm?.approvedAmount || (l as any).approvedAmount || (l as any).loanAmount || l.requestedAmount || 0);
-                      return sum + (isNaN(amt) ? 0 : amt);
-                    }, 0);
-                    const uniqueLoanCount = getUniqueLoanCount(customer);
-                    
-                    return (
-                      <TableRow key={customer.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-10 w-10">
-                              <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold">{customer.name.charAt(0)}</AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <p className="font-medium">{customer.name}</p>
-                              <p className="text-xs text-gray-500">{customer.email}</p>
+                  {filteredCustomers
+                    .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+                    .map((customer) => {
+                      const customerLoans = getUniqueLoans(customer);
+                      const activeLoan = customerLoans.find(l => ['ACTIVE', 'DISBURSED'].includes(l.status));
+                      const totalBorrowed = customerLoans.reduce((sum, l) => {
+                        const amt = Number(l.sessionForm?.approvedAmount || (l as any).approvedAmount || (l as any).loanAmount || l.requestedAmount || 0);
+                        return sum + (isNaN(amt) ? 0 : amt);
+                      }, 0);
+                      const uniqueLoanCount = getUniqueLoanCount(customer);
+                      
+                      return (
+                        <TableRow key={customer.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-10 w-10">
+                                <AvatarFallback className="bg-emerald-100 text-emerald-700 font-semibold">{customer.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="font-medium">{customer.name}</p>
+                                <p className="text-xs text-gray-500">{customer.email}</p>
+                              </div>
                             </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm">{customer.phone || 'N/A'}</p>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={customer.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
-                            {customer.isActive ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{uniqueLoanCount}</span>
-                            {uniqueLoanCount > 0 && (
-                              <span className="text-xs text-gray-500">(₹{totalBorrowed.toLocaleString()})</span>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm">{customer.phone || 'N/A'}</p>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={customer.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}>
+                              {customer.isActive ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{uniqueLoanCount}</span>
+                              {uniqueLoanCount > 0 && (
+                                <span className="text-xs text-gray-500">(₹{totalBorrowed.toLocaleString()})</span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {activeLoan ? (
+                              <div>
+                                <p className="font-medium text-green-600">{formatCurrency(activeLoan.sessionForm?.approvedAmount || activeLoan.requestedAmount)}</p>
+                                <p className="text-xs text-gray-500">{activeLoan.applicationNo}</p>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400">None</span>
                             )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {activeLoan ? (
-                            <div>
-                              <p className="font-medium text-green-600">{formatCurrency(activeLoan.sessionForm?.approvedAmount || activeLoan.requestedAmount)}</p>
-                              <p className="text-xs text-gray-500">{activeLoan.applicationNo}</p>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm">{formatDate(customer.createdAt)}</p>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => {
+                                  if (onViewCustomer) {
+                                    onViewCustomer(customer);
+                                  } else {
+                                    handleViewDetails(customer);
+                                  }
+                                }}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />View
+                              </Button>
                             </div>
-                          ) : (
-                            <span className="text-gray-400">None</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <p className="text-sm">{formatDate(customer.createdAt)}</p>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button 
-                              size="sm" 
-                              variant="outline" 
-                              onClick={() => {
-                                if (onViewCustomer) {
-                                  onViewCustomer(customer);
-                                } else {
-                                  handleViewDetails(customer);
-                                }
-                              }}
-                            >
-                              <Eye className="h-4 w-4 mr-1" />View
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                 </TableBody>
               </Table>
+
+              {filteredCustomers.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4 flex-wrap gap-4">
+                  <p className="text-sm text-gray-500">
+                    Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filteredCustomers.length)} of {filteredCustomers.length} customers (Page {page} of {Math.ceil(filteredCustomers.length / PAGE_SIZE)})
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page <= 1}
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                    </Button>
+                    {Array.from({ length: Math.ceil(filteredCustomers.length / PAGE_SIZE) }, (_, i) => i + 1)
+                      .filter(pNum => pNum === 1 || pNum === Math.ceil(filteredCustomers.length / PAGE_SIZE) || Math.abs(pNum - page) <= 1)
+                      .map((pNum, i, arr) => (
+                        <React.Fragment key={pNum}>
+                          {i > 0 && arr[i - 1] !== pNum - 1 && <span className="text-gray-400 px-1 text-xs">...</span>}
+                          <Button
+                            size="sm"
+                            variant={page === pNum ? 'default' : 'outline'}
+                            className={page === pNum ? 'bg-emerald-600 hover:bg-emerald-700 font-bold' : 'w-8 h-8 p-0 text-xs'}
+                            onClick={() => setPage(pNum)}
+                          >
+                            {pNum}
+                          </Button>
+                        </React.Fragment>
+                      ))}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={page >= Math.ceil(filteredCustomers.length / PAGE_SIZE)}
+                      onClick={() => setPage(p => Math.min(Math.ceil(filteredCustomers.length / PAGE_SIZE), p + 1))}
+                    >
+                      Next <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

@@ -11,9 +11,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const filter = searchParams.get('filter') || 'all'; // 'all', 'online', 'offline'
     const includePassbook = searchParams.get('passbook') === 'true';
+    const page = parseInt(searchParams.get('page') || '0', 10);
+    const limit = parseInt(searchParams.get('limit') || '0', 10);
 
     // Generate cache key
-    const cacheKey = `active-loans:${filter}:${includePassbook}`;
+    const cacheKey = `active-loans:${filter}:${includePassbook}:${page}:${limit}`;
     const noCache = searchParams.get('noCache') === 'true';
 
     // Check cache first — skip when noCache=true (e.g. right after a new loan is created)
@@ -512,10 +514,19 @@ export async function GET(request: NextRequest) {
       totalAmount: allLoans.reduce((sum, l) => sum + l.approvedAmount, 0)
     };
 
+    let resultLoans = allLoans;
+    if (page > 0 && limit > 0) {
+      resultLoans = allLoans.slice((page - 1) * limit, page * limit);
+    }
+
     const response = {
-      loans: allLoans,
+      loans: resultLoans,
       onlineLoans: formattedOnlineLoans,
       offlineLoans: formattedOfflineLoans,
+      total: allLoans.length,
+      page: page > 0 ? page : 1,
+      limit: limit > 0 ? limit : allLoans.length,
+      totalPages: limit > 0 ? Math.ceil(allLoans.length / limit) : 1,
       stats
     };
 

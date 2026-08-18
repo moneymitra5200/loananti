@@ -1,7 +1,7 @@
 'use client';
 import RoleAuditPanel from '@/components/shared/RoleAuditPanel';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import DashboardLayout, { ROLE_MENU_ITEMS } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Banknote, FileText, CheckCircle, CreditCard, DollarSign, 
   TrendingUp, Eye, Receipt, Send, Activity, Landmark, Percent, PartyPopper,
-  Navigation, MapPin, Loader2
+  Navigation, MapPin, Loader2, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import SuccessDialog from '@/components/shared/SuccessDialog';
 import { formatCurrency, formatDate, generateTransactionId } from '@/utils/helpers';
@@ -322,6 +322,8 @@ export default function CashierDashboard() {
   const [selectedOfflineLoanId, setSelectedOfflineLoanId] = useState<string | null>(null);
   const [showOfflineLoanPanel, setShowOfflineLoanPanel] = useState(false);
   const [mirrorMappings, setMirrorMappings] = useState<Record<string, any>>({});
+  const [activeLoanPage, setActiveLoanPage] = useState(1);
+  const PAGE_SIZE = 15;
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   // CashBooks list for all companies
   const [allCashBooks, setAllCashBooks] = useState<any[]>([]);
@@ -1225,123 +1227,168 @@ export default function CashierDashboard() {
                 <p>No active loans found</p>
               </div>
             ) : (
-              <div className="space-y-3">
-                <AnimatePresence>
-                  {parallelLoans.map((loan: any) => {
-                    // Prefer the separately-fetched mirrorMappings state (richer data);
-                    // fall back to the mirrorMapping embedded in the loan by all-active API.
-                    // This prevents a blank right panel immediately after disbursement while
-                    // the mirrorMappings state is still being refreshed.
-                    const mapping = mirrorMappings[loan.id] || loan.mirrorMapping || null;
+              <>
+                <div className="space-y-3">
+                  <AnimatePresence>
+                    {parallelLoans
+                      .slice((activeLoanPage - 1) * PAGE_SIZE, activeLoanPage * PAGE_SIZE)
+                      .map((loan: any) => {
+                        // Prefer the separately-fetched mirrorMappings state (richer data);
+                        // fall back to the mirrorMapping embedded in the loan by all-active API.
+                        // This prevents a blank right panel immediately after disbursement while
+                        // the mirrorMappings state is still being refreshed.
+                        const mapping = mirrorMappings[loan.id] || loan.mirrorMapping || null;
 
-                    // Resolve mirror loan source: online loans use `mirrorLoan`, offline use `offlineMirrorLoan`
-                    const mirrorSource = mapping?.mirrorLoan || mapping?.offlineMirrorLoan || null;
-                    // Fallback customer: offline originals store customerName on the original record
-                    const fallbackCustomerName = mapping?.offlineOriginalLoan?.customerName
-                      || mapping?.mirrorLoan?.customer?.name
-                      || loan.customerName
-                      || loan.customer?.name;
+                        // Resolve mirror loan source: online loans use `mirrorLoan`, offline use `offlineMirrorLoan`
+                        const mirrorSource = mapping?.mirrorLoan || mapping?.offlineMirrorLoan || null;
+                        // Fallback customer: offline originals store customerName on the original record
+                        const fallbackCustomerName = mapping?.offlineOriginalLoan?.customerName
+                          || mapping?.mirrorLoan?.customer?.name
+                          || loan.customerName
+                          || loan.customer?.name;
 
-                    const mirrorLoanData = mirrorSource ? {
-                      id: mirrorSource.id,
-                      loanNumber: mirrorSource.loanNumber || mirrorSource.applicationNo,
-                      identifier: mirrorSource.loanNumber || mirrorSource.applicationNo || mirrorSource.identifier,
-                      applicationNo: mirrorSource.applicationNo || mirrorSource.loanNumber,
-                      customer: mirrorSource.customer || (fallbackCustomerName ? { name: fallbackCustomerName } : undefined),
-                      customerName: mirrorSource.customerName || mirrorSource.customer?.name || fallbackCustomerName,
-                      customerPhone: mirrorSource.customerPhone || mirrorSource.customer?.phone,
-                      loanAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
-                      approvedAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
-                      interestRate: mapping?.mirrorInterestRate || mirrorSource.interestRate || 0,
-                      tenure: mapping?.mirrorTenure || mirrorSource.tenure || 0,
-                      emiAmount: mapping?.originalEMIAmount || mirrorSource.emiAmount || 0,
-                      status: mirrorSource.status || 'ACTIVE',
-                      loanType: mirrorSource.loanType || (mirrorSource.loanNumber ? 'OFFLINE' : 'ONLINE'),
-                      company: mirrorSource.company || mapping?.mirrorCompany,
-                      createdAt: mirrorSource.createdAt || new Date().toISOString(),
-                      disbursementDate: mirrorSource.disbursementDate,
-                      _count: (mirrorSource as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
-                      outstandingAmount: mirrorSource.outstandingAmount
-                    } : null;
+                        const mirrorLoanData = mirrorSource ? {
+                          id: mirrorSource.id,
+                          loanNumber: mirrorSource.loanNumber || mirrorSource.applicationNo,
+                          identifier: mirrorSource.loanNumber || mirrorSource.applicationNo || mirrorSource.identifier,
+                          applicationNo: mirrorSource.applicationNo || mirrorSource.loanNumber,
+                          customer: mirrorSource.customer || (fallbackCustomerName ? { name: fallbackCustomerName } : undefined),
+                          customerName: mirrorSource.customerName || mirrorSource.customer?.name || fallbackCustomerName,
+                          customerPhone: mirrorSource.customerPhone || mirrorSource.customer?.phone,
+                          loanAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
+                          approvedAmount: mirrorSource.loanAmount || mirrorSource.approvedAmount || mirrorSource.sessionForm?.approvedAmount || 0,
+                          interestRate: mapping?.mirrorInterestRate || mirrorSource.interestRate || 0,
+                          tenure: mapping?.mirrorTenure || mirrorSource.tenure || 0,
+                          emiAmount: mapping?.originalEMIAmount || mirrorSource.emiAmount || 0,
+                          status: mirrorSource.status || 'ACTIVE',
+                          loanType: mirrorSource.loanType || (mirrorSource.loanNumber ? 'OFFLINE' : 'ONLINE'),
+                          company: mirrorSource.company || mapping?.mirrorCompany,
+                          createdAt: mirrorSource.createdAt || new Date().toISOString(),
+                          disbursementDate: mirrorSource.disbursementDate,
+                          _count: (mirrorSource as any)._count || (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+                          outstandingAmount: mirrorSource.outstandingAmount
+                        } : null;
 
-                    // ID of mirror loan for opening detail panel
-                    const mirrorLoanId = mirrorSource?.id || mapping?.mirrorLoanId;
+                        // ID of mirror loan for opening detail panel
+                        const mirrorLoanId = mirrorSource?.id || mapping?.mirrorLoanId;
 
-                    return (
-                      <ParallelLoanView
-                        key={loan.id}
-                        originalLoan={{
-                          id: loan.id,
-                          loanNumber: loan.loanNumber || loan.identifier,
-                          identifier: loan.identifier || loan.loanNumber,
-                          customer: loan.customer,
-                          customerName: loan.customerName,
-                          customerPhone: loan.customerPhone,
-                          loanAmount: loan.loanAmount || loan.approvedAmount,
-                          approvedAmount: loan.approvedAmount || loan.loanAmount,
-                          interestRate: loan.interestRate,
-                          tenure: loan.tenure,
-                          emiAmount: loan.emiAmount,
-                          status: loan.status,
-                          loanType: loan.loanType,
-                          company: loan.company,
-                          createdAt: loan.createdAt ? new Date(loan.createdAt).toISOString() : new Date().toISOString(),
-                          disbursementDate: loan.disbursementDate ? new Date(loan.disbursementDate).toISOString() : undefined,
-                          summary: loan.summary,
-                          _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
-                          outstandingAmount: loan.outstandingAmount
-                        }}
-                        mirrorLoan={mirrorLoanData}
-                        mirrorMapping={mapping ? {
-                          displayColor: mapping.displayColor,
-                          extraEMICount: mapping.extraEMICount ?? undefined,
-                          mirrorInterestRate: mapping.mirrorInterestRate ?? undefined,
-                          mirrorTenure: mapping.mirrorTenure ?? undefined,
-                          mirrorEMIsPaid: mapping.mirrorEMIsPaid ?? undefined,
-                          extraEMIsPaid: mapping.extraEMIsPaid ?? undefined,
-                          mirrorCompanyId: mapping.mirrorCompanyId,
-                          originalCompanyId: mapping.originalCompanyId,
-                        } : null}
-                        onViewOriginal={() => {
-                          if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
-                            setSelectedOfflineLoanId(loan.id);
-                            setShowOfflineLoanPanel(true);
-                          } else {
-                            setSelectedLoan(loan);
-                            setShowLoanDetailPanel(true);
-                          }
-                        }}
-                        onViewMirror={() => {
-                          if (mirrorLoanId) {
-                            // Check if it's an offline loan mirror
-                            if (mapping?.isOfflineLoan || mapping?.offlineMirrorLoan) {
-                              setSelectedOfflineLoanId(mirrorLoanId);
-                              setShowOfflineLoanPanel(true);
-                            } else {
-                              setSelectedLoan({ id: mirrorLoanId } as any);
-                              setShowLoanDetailPanel(true);
-                            }
-                          } else {
-                            setSelectedLoan(loan);
-                            setShowLoanDetailPanel(true);
-                          }
-                        }}
-                        onPayEmi={() => {
-                          if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
-                            setSelectedOfflineLoanId(loan.id);
-                            setShowOfflineLoanPanel(true);
-                          } else {
-                            setSelectedLoan(loan);
-                            setShowLoanDetailPanel(true);
-                          }
-                        }}
-                        showPayButton={true}
-                        showEmiProgress={true}
-                      />
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
+                        return (
+                          <ParallelLoanView
+                            key={loan.id}
+                            originalLoan={{
+                              id: loan.id,
+                              loanNumber: loan.loanNumber || loan.identifier,
+                              identifier: loan.identifier || loan.loanNumber,
+                              customer: loan.customer,
+                              customerName: loan.customerName,
+                              customerPhone: loan.customerPhone,
+                              loanAmount: loan.loanAmount || loan.approvedAmount,
+                              approvedAmount: loan.approvedAmount || loan.loanAmount,
+                              interestRate: loan.interestRate,
+                              tenure: loan.tenure,
+                              emiAmount: loan.emiAmount,
+                              status: loan.status,
+                              loanType: loan.loanType,
+                              company: loan.company,
+                              createdAt: loan.createdAt ? new Date(loan.createdAt).toISOString() : new Date().toISOString(),
+                              disbursementDate: loan.disbursementDate ? new Date(loan.disbursementDate).toISOString() : undefined,
+                              summary: loan.summary,
+                              _count: (loan as any)._count || { emiSchedules: (loan as any).emiSchedules?.length || loan.tenure || (loan as any).sessionForm?.tenure || 0 },
+                              outstandingAmount: loan.outstandingAmount
+                            }}
+                            mirrorLoan={mirrorLoanData}
+                            mirrorMapping={mapping ? {
+                              displayColor: mapping.displayColor,
+                              extraEMICount: mapping.extraEMICount ?? undefined,
+                              mirrorInterestRate: mapping.mirrorInterestRate ?? undefined,
+                              mirrorTenure: mapping.mirrorTenure ?? undefined,
+                              mirrorEMIsPaid: mapping.mirrorEMIsPaid ?? undefined,
+                              extraEMIsPaid: mapping.extraEMIsPaid ?? undefined,
+                              mirrorCompanyId: mapping.mirrorCompanyId,
+                              originalCompanyId: mapping.originalCompanyId,
+                            } : null}
+                            onViewOriginal={() => {
+                              if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
+                                setSelectedOfflineLoanId(loan.id);
+                                setShowOfflineLoanPanel(true);
+                              } else {
+                                setSelectedLoan(loan);
+                                setShowLoanDetailPanel(true);
+                              }
+                            }}
+                            onViewMirror={() => {
+                              if (mirrorLoanId) {
+                                // Check if it's an offline loan mirror
+                                if (mapping?.isOfflineLoan || mapping?.offlineMirrorLoan) {
+                                  setSelectedOfflineLoanId(mirrorLoanId);
+                                  setShowOfflineLoanPanel(true);
+                                } else {
+                                  setSelectedLoan({ id: mirrorLoanId } as any);
+                                  setShowLoanDetailPanel(true);
+                                }
+                              } else {
+                                setSelectedLoan(loan);
+                                setShowLoanDetailPanel(true);
+                              }
+                            }}
+                            onPayEmi={() => {
+                              if (loan.loanType === 'OFFLINE' || loan.loanNumber) {
+                                setSelectedOfflineLoanId(loan.id);
+                                setShowOfflineLoanPanel(true);
+                              } else {
+                                setSelectedLoan(loan);
+                                setShowLoanDetailPanel(true);
+                              }
+                            }}
+                            showPayButton={true}
+                            showEmiProgress={true}
+                          />
+                        );
+                      })}
+                  </AnimatePresence>
+                </div>
+
+                {parallelLoans.length > PAGE_SIZE && (
+                  <div className="flex items-center justify-between pt-4 border-t mt-4 flex-wrap gap-4">
+                    <p className="text-sm text-gray-500">
+                      Showing {(activeLoanPage - 1) * PAGE_SIZE + 1}–{Math.min(activeLoanPage * PAGE_SIZE, parallelLoans.length)} of {parallelLoans.length} active loans (Page {activeLoanPage} of {Math.ceil(parallelLoans.length / PAGE_SIZE)})
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={activeLoanPage <= 1}
+                        onClick={() => setActiveLoanPage(p => Math.max(1, p - 1))}
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                      </Button>
+                      {Array.from({ length: Math.ceil(parallelLoans.length / PAGE_SIZE) }, (_, i) => i + 1)
+                        .filter(pNum => pNum === 1 || pNum === Math.ceil(parallelLoans.length / PAGE_SIZE) || Math.abs(pNum - activeLoanPage) <= 1)
+                        .map((pNum, i, arr) => (
+                          <React.Fragment key={pNum}>
+                            {i > 0 && arr[i - 1] !== pNum - 1 && <span className="text-gray-400 px-1 text-xs">...</span>}
+                            <Button
+                              size="sm"
+                              variant={activeLoanPage === pNum ? 'default' : 'outline'}
+                              className={activeLoanPage === pNum ? 'bg-emerald-600 hover:bg-emerald-700 font-bold' : 'w-8 h-8 p-0 text-xs'}
+                              onClick={() => setActiveLoanPage(pNum)}
+                            >
+                              {pNum}
+                            </Button>
+                          </React.Fragment>
+                        ))}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={activeLoanPage >= Math.ceil(parallelLoans.length / PAGE_SIZE)}
+                        onClick={() => setActiveLoanPage(p => Math.min(Math.ceil(parallelLoans.length / PAGE_SIZE), p + 1))}
+                      >
+                        Next <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
