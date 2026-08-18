@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Users, Loader2, Key, Mail, Save, X } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import { toast } from '@/hooks/use-toast';
+import OfflineLoanDetailPanel from '@/components/offline-loan/OfflineLoanDetailPanel';
 
 interface UserDetailsDialogProps {
   open: boolean;
@@ -29,6 +30,8 @@ export default function UserDetailsDialog({
   const [newPassword, setNewPassword] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [selectedOfflineLoanId, setSelectedOfflineLoanId] = useState<string | null>(null);
+  const [showOfflineLoanPanel, setShowOfflineLoanPanel] = useState(false);
 
   const getRoleBadgeClass = (role: string) => {
     const classes: Record<string, string> = {
@@ -354,8 +357,18 @@ export default function UserDetailsDialog({
                               </tr>
                             ))}
                             {(selectedUserDetails.roleSpecificData.offlineLoans || []).map((loan: any) => (
-                              <tr key={loan.id}>
-                                <td className="px-3 py-2 font-semibold text-purple-700">{loan.loanNumber}</td>
+                              <tr 
+                                key={loan.id} 
+                                className="hover:bg-purple-50/60 cursor-pointer transition-colors"
+                                onClick={() => {
+                                  setSelectedOfflineLoanId(loan.id);
+                                  setShowOfflineLoanPanel(true);
+                                }}
+                              >
+                                <td className="px-3 py-2 font-semibold text-purple-700 flex items-center gap-1.5">
+                                  {loan.loanNumber}
+                                  <span className="text-[10px] text-purple-600 font-normal underline">view →</span>
+                                </td>
                                 <td className="px-3 py-2"><Badge className="bg-purple-100 text-purple-700">OFFLINE</Badge></td>
                                 <td className="px-3 py-2 font-medium">{formatCurrency(loan.loanAmount || 0)}</td>
                                 <td className="px-3 py-2">{loan.emiAmount ? formatCurrency(loan.emiAmount) : 'N/A'}</td>
@@ -497,6 +510,16 @@ export default function UserDetailsDialog({
           </div>
         ) : null}
       </DialogContent>
+      {showOfflineLoanPanel && selectedOfflineLoanId && (
+        <OfflineLoanDetailPanel
+          loanId={selectedOfflineLoanId}
+          open={showOfflineLoanPanel}
+          onClose={() => {
+            setShowOfflineLoanPanel(false);
+            setSelectedOfflineLoanId(null);
+          }}
+        />
+      )}
     </Dialog>
   );
 }

@@ -17,11 +17,13 @@ import {
   Receipt, Calculator, ArrowUpRight, ArrowDownRight, RefreshCw, Percent
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
+import OfflineLoanDetailPanel from '@/components/offline-loan/OfflineLoanDetailPanel';
 
 interface UserDetailsSheetProps {
   userId: string | null;
   open: boolean;
   onClose: () => void;
+  onSelectOfflineLoan?: (loanId: string) => void;
 }
 
 interface UserDetails {
@@ -115,11 +117,21 @@ interface UserDetails {
   creditTransactions?: any[];
 }
 
-export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsSheetProps) {
+export default function UserDetailsSheet({ userId, open, onClose, onSelectOfflineLoan }: UserDetailsSheetProps) {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<UserDetails | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const [error, setError] = useState<string | null>(null);
+  const [selectedOfflineLoanId, setSelectedOfflineLoanId] = useState<string | null>(null);
+  const [showOfflineLoanPanel, setShowOfflineLoanPanel] = useState(false);
+
+  const handleOpenOfflineLoan = (loanId: string) => {
+    setSelectedOfflineLoanId(loanId);
+    setShowOfflineLoanPanel(true);
+    if (onSelectOfflineLoan) {
+      onSelectOfflineLoan(loanId);
+    }
+  };
 
   // Reset state when sheet closes
   useEffect(() => {
@@ -127,6 +139,8 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
       setUser(null);
       setError(null);
       setActiveTab('overview');
+      setSelectedOfflineLoanId(null);
+      setShowOfflineLoanPanel(false);
     }
   }, [open]);
 
@@ -802,11 +816,20 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
                   {user.isOffline && (
                     <TabsContent value="offline-loans" className="mt-0 space-y-6">
                       {user.roleSpecificData?.offlineLoans?.map((loan: any) => (
-                        <Card key={loan.id} className="border border-gray-100 shadow-sm overflow-hidden bg-white">
+                        <Card 
+                          key={loan.id} 
+                          className="border border-gray-100 shadow-sm overflow-hidden bg-white hover:border-emerald-400 hover:shadow-md transition-all cursor-pointer group"
+                          onClick={() => handleOpenOfflineLoan(loan.id)}
+                        >
                           <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50/50 pb-3">
                             <div className="flex items-center justify-between flex-wrap gap-2">
                               <div>
-                                <CardTitle className="text-base font-bold text-gray-900">{loan.loanNumber}</CardTitle>
+                                <CardTitle className="text-base font-bold text-gray-900 group-hover:text-emerald-700 transition-colors flex items-center gap-2">
+                                  {loan.loanNumber}
+                                  <span className="text-[11px] font-normal text-emerald-600 bg-emerald-100/80 px-2 py-0.5 rounded-full group-hover:bg-emerald-600 group-hover:text-white transition-all">
+                                    Click to view details →
+                                  </span>
+                                </CardTitle>
                                 <p className="text-xs text-gray-500 mt-0.5">Disbursed on {formatDate(loan.disbursementDate)}</p>
                               </div>
                               <Badge className={
@@ -915,6 +938,16 @@ export default function UserDetailsSheet({ userId, open, onClose }: UserDetailsS
           )}
         </div>
       </SheetContent>
+      {showOfflineLoanPanel && selectedOfflineLoanId && (
+        <OfflineLoanDetailPanel
+          loanId={selectedOfflineLoanId}
+          open={showOfflineLoanPanel}
+          onClose={() => {
+            setShowOfflineLoanPanel(false);
+            setSelectedOfflineLoanId(null);
+          }}
+        />
+      )}
     </Sheet>
   );
 }
