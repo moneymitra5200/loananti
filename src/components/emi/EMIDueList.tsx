@@ -381,7 +381,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
       : emi.loanApplication?.address;
     const loanId = type === 'offline' ? emi.offlineLoan?.id : emi.loanApplication?.id;
     
-    const hasPenalty = emi.penaltyAmount && emi.penaltyAmount > 0;
+    const hasPenalty = Boolean(emi.penaltyAmount && emi.penaltyAmount > 0);
     const isMirrorLoan = type === 'offline' && emi.offlineLoan?.isMirrorLoan;
 
     const handleLoanSelect = () => {
@@ -405,7 +405,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
         }`}
       >
         {/* Penalty Alert Banner */}
-        {hasPenalty && (
+        {hasPenalty ? (
           <div className="flex items-center gap-2 mb-2 p-2 bg-red-100 rounded border border-red-200">
             <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
             <div className="flex-1 min-w-0">
@@ -417,7 +417,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
               </p>
             </div>
           </div>
-        )}
+        ) : null}
         
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
@@ -436,26 +436,36 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
                 <Receipt className="h-3 w-3 text-gray-400" />
                 <span className="font-mono text-gray-700 truncate">{loanNumber}</span>
               </div>
-              {phone && (
+              {phone ? (
                 <div className="flex items-center gap-1">
                   <Phone className="h-3 w-3 text-gray-400" />
                   <span>{phone}</span>
                 </div>
-              )}
+              ) : null}
+            </div>
+
+            {/* Principal (P) & Interest (I) Breakdown */}
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/70">
+                P: {formatCurrency(emi.principalAmount || 0)}
+              </span>
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/70">
+                I: {formatCurrency(emi.interestAmount || 0)}
+              </span>
             </div>
           </div>
 
           <div className="text-right flex-shrink-0 flex flex-col items-end">
             <p className="font-bold text-gray-900 text-base">{formatCurrency(emi.totalAmount)}</p>
-            {hasPenalty && (
+            {hasPenalty ? (
               <p className="text-xs text-red-600 font-bold animate-pulse">
                 + {formatCurrency(emi.penaltyAmount || 0)} PENALTY
               </p>
-            )}
+            ) : null}
             <p className="text-xs text-gray-500 mt-0.5">Due: {formatDate(emi.dueDate)}</p>
-            {emi.daysOverdue && emi.daysOverdue > 0 && (
+            {(emi.daysOverdue ?? 0) > 0 ? (
               <p className="text-xs text-red-500 font-semibold">{emi.daysOverdue} days overdue</p>
-            )}
+            ) : null}
 
             <div className="flex items-center gap-1.5 mt-2">
               <Button
@@ -467,7 +477,7 @@ export default function EMIDueList({ userId, userRole, onPaymentComplete, initia
                 }}
               >
                 <IndianRupee className="h-3 w-3 mr-1" />
-                Pay {hasPenalty && '+ Penalty'}
+                Pay {hasPenalty ? '+ Penalty' : ''}
               </Button>
             </div>
           </div>
