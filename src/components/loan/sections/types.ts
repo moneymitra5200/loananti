@@ -9,6 +9,7 @@ export interface LoanDetails {
   requestedTenure?: number;
   requestedInterestRate?: number;
   loanType: string;
+  isInterestOnlyLoan?: boolean;
   purpose: string;
   createdAt: string;
   riskScore: number;

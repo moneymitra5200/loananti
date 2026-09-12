@@ -847,6 +847,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
       PARTIALLY_PAID: { className: 'bg-orange-100 text-orange-700', label: 'Partial' },
       ACTIVE: { className: 'bg-green-100 text-green-700', label: 'Active' },
       ACTIVE_INTEREST_ONLY: { className: 'bg-amber-100 text-amber-700', label: 'Interest Only' },
+      INTEREST_ONLY: { className: 'bg-amber-100 text-amber-700', label: 'Interest Only' },
       DISBURSED: { className: 'bg-blue-100 text-blue-700', label: 'Disbursed' },
       CLOSED: { className: 'bg-gray-200 text-gray-700 font-semibold', label: 'Closed ✓' },
     };
@@ -855,7 +856,7 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
   };
 
   const shouldRender = open && loanId && loanId !== '';
-  const isInterestOnlyLoan = loanDetails?.status === 'ACTIVE_INTEREST_ONLY';
+  const isInterestOnlyLoan = loanDetails?.status === 'ACTIVE_INTEREST_ONLY' || loanDetails?.status === 'INTEREST_ONLY' || Boolean(loanDetails?.isInterestOnlyLoan);
 
   return (
     <>
@@ -953,10 +954,10 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 </Button>
               </>
             )}
-            {/* Close Loan button — SA and Cashier on active loans */}
-            {(currentUserRole === 'SUPER_ADMIN' || currentUserRole === 'CASHIER') &&
+            {/* Close Loan button */}
+            {currentUserRole !== 'ACCOUNTANT' &&
              !isMirrorLoan && loanDetails &&
-             ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY'].includes(loanDetails.status) && (
+             ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY','INTEREST_ONLY'].includes(loanDetails.status) && (
               <Button
                 size="sm"
                 className="bg-red-500/80 text-white hover:bg-red-600/90 border border-red-300/30"
@@ -965,8 +966,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                 <Calculator className="h-4 w-4 mr-1" /> Close Loan
               </Button>
             )}
-            {/* Global Change Date Button — Available for ACTIVE, DISBURSED, and ACTIVE_INTEREST_ONLY loans */}
-            {!isMirrorLoan && loanDetails && ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY'].includes(loanDetails.status) && currentUserRole !== 'ACCOUNTANT' &&
+            {/* Global Change Date Button — Available for ACTIVE, DISBURSED, and interest-only loans */}
+            {!isMirrorLoan && loanDetails && ['ACTIVE','DISBURSED','ACTIVE_INTEREST_ONLY','INTEREST_ONLY'].includes(loanDetails.status) && currentUserRole !== 'ACCOUNTANT' &&
              emiSchedules.some(e => e.status !== 'PAID' && e.status !== 'INTEREST_ONLY_PAID') && (
               <Button
                 size="sm"
