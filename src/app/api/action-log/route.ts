@@ -976,24 +976,37 @@ export async function PUT(request: NextRequest) {
 
           // CLOSE → re-activate the loan
           else if (actionLog.actionType === 'CLOSE' && previousData) {
-            // 1. Re-activate loan
+            // 1. Re-activate loan (preserving INTEREST_ONLY if applicable)
+            const currentLoan = await tx.offlineLoan.findUnique({
+              where: { id: actionLog.recordId },
+              select: { isInterestOnlyLoan: true }
+            });
+            const reopenStatus = previousData.status || (currentLoan?.isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE');
             await tx.offlineLoan.update({
               where: { id: actionLog.recordId },
-              data: { status: previousData.status || 'ACTIVE', closedAt: null }
+              data: { status: reopenStatus, closedAt: null }
             });
 
-            // 1.5. Re-activate mirror loan if it exists
+            // 1.5. Re-activate mirror loan if it exists (bidirectional lookup)
             const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
-              where: { originalLoanId: actionLog.recordId }
+              where: {
+                OR: [
+                  { originalLoanId: actionLog.recordId },
+                  { mirrorLoanId: actionLog.recordId }
+                ]
+              }
             });
-            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
+            const partnerOfflineLoanId = mirrorMapping
+              ? (actionLog.recordId === mirrorMapping.originalLoanId ? mirrorMapping.mirrorLoanId : mirrorMapping.originalLoanId)
+              : null;
+            if (partnerOfflineLoanId) {
               const mirrorLoan = await tx.offlineLoan.findUnique({
-                where: { id: mirrorMapping.mirrorLoanId },
+                where: { id: partnerOfflineLoanId },
                 select: { isInterestOnlyLoan: true }
               });
               const mirrorReopenStatus = mirrorLoan?.isInterestOnlyLoan ? 'INTEREST_ONLY' : 'ACTIVE';
               await tx.offlineLoan.update({
-                where: { id: mirrorMapping.mirrorLoanId },
+                where: { id: partnerOfflineLoanId },
                 data: { status: mirrorReopenStatus, closedAt: null }
               });
             }
@@ -1056,10 +1069,10 @@ export async function PUT(request: NextRequest) {
             }
 
             // 2.5. Revert corresponding mirror EMIs
-            if (mirrorMapping && mirrorMapping.mirrorLoanId && revertedInstNumbers.length > 0) {
+            if (partnerOfflineLoanId && revertedInstNumbers.length > 0) {
               await tx.offlineLoanEMI.updateMany({
                 where: {
-                  offlineLoanId: mirrorMapping.mirrorLoanId,
+                  offlineLoanId: partnerOfflineLoanId,
                   installmentNumber: { in: revertedInstNumbers }
                 },
                 data: {
@@ -1078,19 +1091,22 @@ export async function PUT(request: NextRequest) {
 
             // 3. Delete foreclosure bank/cash transactions and revert balances
             await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
+            await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, tx);
             await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
-            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
-              await deleteBankOrCashEntriesForRef(`${mirrorMapping.mirrorLoanId}-FORECLOSURE`, tx);
+            if (partnerOfflineLoanId) {
+              await deleteBankOrCashEntriesForRef(`${partnerOfflineLoanId}-FORECLOSURE`, tx);
+              await deleteBankOrCashEntriesForRef(partnerOfflineLoanId, tx);
             }
 
             // Revert collector credit for foreclosure if applicable
-            if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
+            const collectorId = newData?.collectorId || actionLog.userId;
+            if (newData && newData.closeType === 'PAYMENT' && collectorId) {
               const paymentAmount = newData.totalForeclosureAmount || 0;
               const paymentMode = (newData.paymentMode || '').toUpperCase();
               const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
               if (paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
-                const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
+                const user = await tx.user.findUnique({ where: { id: collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
                 if (user) {
                   const companyCreditBefore = user.companyCredit || 0;
                   const personalCreditBefore = user.personalCredit || 0;
@@ -1100,7 +1116,7 @@ export async function PUT(request: NextRequest) {
                   const creditAfter = companyCreditAfter + personalCreditAfter;
                   
                   await tx.user.update({
-                    where: { id: newData.collectorId },
+                    where: { id: collectorId },
                     data: {
                       credit: creditAfter,
                       companyCredit: companyCreditAfter,
@@ -1108,7 +1124,7 @@ export async function PUT(request: NextRequest) {
                     }
                   });
                 } else {
-                  console.warn(`[Undo] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                  console.warn(`[Undo] Collector user ${collectorId} not found; skipping credit reversion`);
                 }
               }
             }
@@ -1117,16 +1133,23 @@ export async function PUT(request: NextRequest) {
             await tx.creditTransaction.deleteMany({
               where: {
                 sourceType: 'FORECLOSURE',
-                sourceId: `${actionLog.recordId}-FORECLOSURE`
+                OR: [
+                  { sourceId: `${actionLog.recordId}-FORECLOSURE` },
+                  { loanApplicationId: actionLog.recordId },
+                  ...(partnerOfflineLoanId ? [
+                    { sourceId: `${partnerOfflineLoanId}-FORECLOSURE` },
+                    { loanApplicationId: partnerOfflineLoanId }
+                  ] : [])
+                ]
               }
             });
 
             // 4. Delete writeoff / foreclosure journal entries
             await reverseJournalEntriesForRef(`${actionLog.recordId}-LOSS`, userId, tx);
             await reverseJournalEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, userId, tx);
-            if (mirrorMapping && mirrorMapping.mirrorLoanId) {
-              await reverseJournalEntriesForRef(`${mirrorMapping.mirrorLoanId}-FORECLOSURE`, userId, tx);
-              await reverseJournalEntriesForRef(`${mirrorMapping.mirrorLoanId}-LOSS`, userId, tx);
+            if (partnerOfflineLoanId) {
+              await reverseJournalEntriesForRef(`${partnerOfflineLoanId}-FORECLOSURE`, userId, tx);
+              await reverseJournalEntriesForRef(`${partnerOfflineLoanId}-LOSS`, userId, tx);
             }
 
             localUndoResult = { type: 'loan_reopened', recordId: actionLog.recordId };
@@ -1983,10 +2006,15 @@ export async function PUT(request: NextRequest) {
         // ── LOAN CLOSE (Online) ───────────────────────────────────────────────
         else if (actionLog.module === 'LOAN_CLOSE' || actionLog.module === 'LOAN') {
           if (actionLog.actionType === 'CLOSE' && previousData) {
-            // 1. Re-activate loan
+            // 1. Re-activate loan (preserving ACTIVE_INTEREST_ONLY if applicable)
+            const currentOnlineLoan = await tx.loanApplication.findUnique({
+              where: { id: actionLog.recordId },
+              select: { isInterestOnlyLoan: true }
+            });
+            const reopenStatus = previousData.status || (currentOnlineLoan?.isInterestOnlyLoan ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE');
             await tx.loanApplication.update({
               where: { id: actionLog.recordId },
-              data: { status: previousData.status || 'ACTIVE', closedAt: null }
+              data: { status: reopenStatus, closedAt: null }
             });
 
             // 1.5. Re-activate partner loan if it exists
@@ -2004,9 +2032,9 @@ export async function PUT(request: NextRequest) {
             if (partnerLoanId) {
               const partnerLoan = await tx.loanApplication.findUnique({
                 where: { id: partnerLoanId },
-                select: { sessionForm: { select: { interestRate: true } } }
+                select: { isInterestOnlyLoan: true, sessionForm: { select: { interestRate: true } } }
               });
-              const isIO = partnerLoan?.sessionForm?.interestRate === 0;
+              const isIO = Boolean(partnerLoan?.isInterestOnlyLoan || partnerLoan?.sessionForm?.interestRate === 0);
               await tx.loanApplication.update({
                 where: { id: partnerLoanId },
                 data: { status: isIO ? 'ACTIVE_INTEREST_ONLY' : 'ACTIVE', closedAt: null }
@@ -2092,19 +2120,22 @@ export async function PUT(request: NextRequest) {
 
             // 3. Delete bank/cash transactions & revert balances
             await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-REV-CLOSE`, tx);
+            await deleteBankOrCashEntriesForRef(`${actionLog.recordId}-FORECLOSURE`, tx);
             await deleteBankOrCashEntriesForRef(actionLog.recordId, tx);
             if (partnerLoanId) {
               await deleteBankOrCashEntriesForRef(`${partnerLoanId}-FORECLOSURE`, tx);
+              await deleteBankOrCashEntriesForRef(partnerLoanId, tx);
             }
 
             // Revert collector credit
-            if (newData && newData.closeType === 'PAYMENT' && newData.collectorId) {
+            const collectorId = newData?.collectorId || actionLog.userId;
+            if (newData && newData.closeType === 'PAYMENT' && collectorId) {
               const paymentAmount = newData.totalForeclosureAmount || 0;
               const paymentMode = (newData.paymentMode || '').toUpperCase();
               const isOnlinePayment = ['ONLINE','UPI','BANK_TRANSFER','NEFT','RTGS','IMPS','CHEQUE'].includes(paymentMode);
               if (paymentAmount > 0 && !isOnlinePayment) {
                 const creditType = newData.creditType || 'COMPANY';
-                const user = await tx.user.findUnique({ where: { id: newData.collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
+                const user = await tx.user.findUnique({ where: { id: collectorId }, select: { credit: true, personalCredit: true, companyCredit: true } });
                 if (user) {
                   const companyCreditBefore = user.companyCredit || 0;
                   const personalCreditBefore = user.personalCredit || 0;
@@ -2114,7 +2145,7 @@ export async function PUT(request: NextRequest) {
                   const creditAfter = companyCreditAfter + personalCreditAfter;
 
                   await tx.user.update({
-                    where: { id: newData.collectorId },
+                    where: { id: collectorId },
                     data: {
                       credit: creditAfter,
                       companyCredit: companyCreditAfter,
@@ -2122,7 +2153,7 @@ export async function PUT(request: NextRequest) {
                     }
                   });
                 } else {
-                  console.warn(`[Undo] Collector user ${newData.collectorId} not found; skipping credit reversion`);
+                  console.warn(`[Undo] Collector user ${collectorId} not found; skipping credit reversion`);
                 }
               }
             }
@@ -2328,6 +2359,29 @@ export async function PUT(request: NextRequest) {
             const { id: _id, createdAt: _c, updatedAt: _u, ...safeFields } = newData;
             await tx.offlineLoan.update({ where: { id: actionLog.recordId }, data: safeFields });
             localRedoResult = { type: 'loan_updated', recordId: actionLog.recordId };
+          } else if (actionLog.actionType === 'CLOSE' && newData) {
+            await tx.offlineLoan.update({
+              where: { id: actionLog.recordId },
+              data: { status: 'CLOSED', closedAt: new Date() }
+            });
+            const mirrorMapping = await tx.mirrorLoanMapping.findFirst({
+              where: {
+                OR: [
+                  { originalLoanId: actionLog.recordId },
+                  { mirrorLoanId: actionLog.recordId }
+                ]
+              }
+            });
+            const partnerOfflineLoanId = mirrorMapping
+              ? (actionLog.recordId === mirrorMapping.originalLoanId ? mirrorMapping.mirrorLoanId : mirrorMapping.originalLoanId)
+              : null;
+            if (partnerOfflineLoanId) {
+              await tx.offlineLoan.update({
+                where: { id: partnerOfflineLoanId },
+                data: { status: 'CLOSED', closedAt: new Date() }
+              });
+            }
+            localRedoResult = { type: 'loan_closed_re_applied', recordId: actionLog.recordId };
           }
         }
 

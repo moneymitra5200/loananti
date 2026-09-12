@@ -1397,8 +1397,8 @@ export default function OfflineLoanDetailPanel({
                     <span className="hidden sm:inline">Delete Loan</span>
                   </Button>
                 )}
-                {/* Close Loan button — visible for ACTIVE loans */}
-                {loan && loan.status === 'ACTIVE' && !loan.isMirrorLoan && (
+                {/* Close Loan button — visible for ACTIVE, INTEREST_ONLY, and DISBURSED loans */}
+                {loan && ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && !loan.isMirrorLoan && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1409,8 +1409,8 @@ export default function OfflineLoanDetailPanel({
                     <span className="hidden sm:inline">Close Loan</span>
                   </Button>
                 )}
-                {/* Global Change Date Button for Offline Loans — Visible for ACTIVE, ACTIVE_INTEREST_ONLY, and DISBURSED */}
-                {loan && !loan.isMirrorLoan && ['ACTIVE', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && userRole !== 'ACCOUNTANT' &&
+                {/* Global Change Date Button for Offline Loans — Visible for ACTIVE, INTEREST_ONLY, ACTIVE_INTEREST_ONLY, and DISBURSED */}
+                {loan && !loan.isMirrorLoan && ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && userRole !== 'ACCOUNTANT' &&
                   loan.emis && loan.emis.some(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID') && (
                   <Button
                     size="sm"

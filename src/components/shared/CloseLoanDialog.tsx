@@ -39,6 +39,7 @@ interface ForeclosureData {
   totalForeclosureAmount: number;
   savings: number;
   interestRate: number;
+  isInterestOnlyLoan?: boolean;
   emiDetails: Array<{
     installmentNumber: number;
     dueDate: string;
@@ -215,7 +216,9 @@ export default function CloseLoanDialog({
           </DialogTitle>
           <DialogDescription className="text-sm text-gray-500">
             {data
-              ? `${data.applicationNo} · ${data.paidEMIs}/${data.totalEMIs} EMIs paid · ${data.unpaidEMICount} remaining`
+              ? data.isInterestOnlyLoan
+                ? `${data.applicationNo} · Interest-Only Loan · ₹${formatCurrency(data.totalPrincipal)} Principal Taken`
+                : `${data.applicationNo} · ${data.paidEMIs}/${data.totalEMIs} EMIs paid · ${data.unpaidEMICount} remaining`
               : 'Loading foreclosure data…'}
           </DialogDescription>
         </DialogHeader>
@@ -304,11 +307,15 @@ export default function CloseLoanDialog({
             {/* ── Summary cards (same style as EMI payment dialog) ── */}
             <div className="grid grid-cols-3 gap-3">
               <div className="bg-blue-50 rounded-xl p-3 text-center">
-                <p className="text-xs text-blue-500 font-medium mb-1">Principal</p>
+                <p className="text-xs text-blue-500 font-medium mb-1">
+                  {data.isInterestOnlyLoan ? 'Taken Principal' : 'Principal'}
+                </p>
                 <p className="text-lg font-bold text-blue-700">₹{formatCurrency(totalP)}</p>
               </div>
               <div className="bg-orange-50 rounded-xl p-3 text-center">
-                <p className="text-xs text-orange-500 font-medium mb-1">Interest</p>
+                <p className="text-xs text-orange-500 font-medium mb-1">
+                  {data.isInterestOnlyLoan ? 'Monthly Interest' : 'Interest'}
+                </p>
                 <p className="text-lg font-bold text-orange-700">₹{formatCurrency(totalI)}</p>
                 {totalI === 0 && (
                   <p className="text-[10px] text-orange-400">Waived (future)</p>
@@ -332,13 +339,19 @@ export default function CloseLoanDialog({
               <div className="border rounded-xl overflow-hidden">
                 <div className="bg-gray-50 px-4 py-2 flex items-center gap-2">
                   <IndianRupee className="h-3.5 w-3.5 text-gray-500" />
-                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">EMI Breakdown</span>
+                  <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                    {data.isInterestOnlyLoan ? 'Settlement Breakdown' : 'EMI Breakdown'}
+                  </span>
                 </div>
                 <div className="divide-y">
-                  {data.emiDetails.map(e => (
-                    <div key={e.installmentNumber} className="px-4 py-2.5 flex items-center justify-between">
+                  {data.emiDetails.map((e, idx) => (
+                    <div key={e.installmentNumber || idx} className="px-4 py-2.5 flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-gray-800">EMI #{e.installmentNumber}</p>
+                        <p className="text-sm font-medium text-gray-800">
+                          {data.isInterestOnlyLoan 
+                            ? (e.principalToPay > 0 ? `Loan Principal + Interest #${e.installmentNumber}` : `Interest Payment #${e.installmentNumber}`)
+                            : `EMI #${e.installmentNumber}`}
+                        </p>
                         <p className="text-xs text-gray-400">
                           {new Date(e.dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                           {!e.monthHasStarted && (

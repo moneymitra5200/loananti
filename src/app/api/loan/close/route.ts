@@ -28,42 +28,98 @@ export async function GET(request: NextRequest) {
     }
 
     const now = new Date();
+    const isInterestOnlyLoan = Boolean(
+      loan.isInterestOnlyLoan ||
+      loan.status === 'ACTIVE_INTEREST_ONLY'
+    );
     // INTEREST_ONLY_PAID = interest paid, principal deferred to new EMI — already accounted for
     const isCloseable = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
     const unpaidEMIs  = loan.emiSchedules.filter(isCloseable);
     const paidCnt     = loan.emiSchedules.length - unpaidEMIs.length;
 
-    if (unpaidEMIs.length === 0) {
+    const loanPrincipal = Number(loan.sessionForm?.approvedAmount || loan.requestedAmount || 0);
+    const totalPaidPrincipal = loan.emiSchedules.reduce((sum, e) => sum + Number(e.paidPrincipal ?? 0), 0);
+    const remainingLoanPrincipal = Math.max(0, loanPrincipal - totalPaidPrincipal);
+
+    if (!isInterestOnlyLoan && unpaidEMIs.length === 0) {
+      return NextResponse.json({ error: 'No pending EMIs. Loan is already fully paid.' }, { status: 400 });
+    }
+    if (isInterestOnlyLoan && unpaidEMIs.length === 0 && remainingLoanPrincipal === 0) {
       return NextResponse.json({ error: 'No pending EMIs. Loan is already fully paid.' }, { status: 400 });
     }
 
     let totalPrincipal = 0;
     let totalInterest  = 0;
-    const emiDetails = unpaidEMIs.map((emi) => {
-      const monthHasStarted = new Date(emi.dueDate) <= now;
-      const paidP = Number(emi.paidPrincipal ?? 0);
-      const paidI = Number(emi.paidInterest  ?? 0);
-      const remainingP = Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
-      const remainingI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - paidI) : 0;
-      totalPrincipal += remainingP;
-      totalInterest  += remainingI;
-      return {
-        installmentNumber: emi.installmentNumber,
-        dueDate:           emi.dueDate,
-        totalAmount:       Number(emi.totalAmount ?? 0),
-        paidAmount:        Number(emi.paidAmount  ?? 0),
-        remainingAmount:   Number(emi.totalAmount ?? 0) - Number(emi.paidAmount ?? 0),
-        principalToPay:   remainingP,
-        interestToPay:    remainingI,
-        monthHasStarted,
-        amountToPay:      remainingP + remainingI,
-      };
-    });
+    let emiDetails: any[] = [];
 
-    const originalRemainingAmount = unpaidEMIs.reduce(
-      (s, e) => s + Number(e.totalAmount ?? 0) - Number(e.paidAmount ?? 0), 0);
+    if (isInterestOnlyLoan) {
+      totalPrincipal = remainingLoanPrincipal;
+      for (const emi of unpaidEMIs) {
+        const monthHasStarted = new Date(emi.dueDate) <= now;
+        const paidI = Number(emi.paidInterest ?? 0);
+        const remainingI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - paidI) : 0;
+        totalInterest += remainingI;
+      }
+
+      if (unpaidEMIs.length > 0) {
+        emiDetails = unpaidEMIs.map((emi, idx) => {
+          const monthHasStarted = new Date(emi.dueDate) <= now;
+          const paidI = Number(emi.paidInterest ?? 0);
+          const remainingI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - paidI) : 0;
+          const principalToPay = idx === 0 ? remainingLoanPrincipal : 0;
+          return {
+            installmentNumber: emi.installmentNumber,
+            dueDate:           emi.dueDate,
+            totalAmount:       Number(emi.totalAmount ?? 0) + principalToPay,
+            paidAmount:        Number(emi.paidAmount  ?? 0),
+            remainingAmount:   (Number(emi.totalAmount ?? 0) - Number(emi.paidAmount ?? 0)) + principalToPay,
+            principalToPay,
+            interestToPay:     remainingI,
+            monthHasStarted,
+            amountToPay:       principalToPay + remainingI,
+          };
+        });
+      } else {
+        emiDetails = [{
+          installmentNumber: 1,
+          dueDate:           now.toISOString(),
+          totalAmount:       remainingLoanPrincipal,
+          paidAmount:        0,
+          remainingAmount:   remainingLoanPrincipal,
+          principalToPay:    remainingLoanPrincipal,
+          interestToPay:     0,
+          monthHasStarted:   true,
+          amountToPay:       remainingLoanPrincipal,
+        }];
+      }
+    } else {
+      emiDetails = unpaidEMIs.map((emi) => {
+        const monthHasStarted = new Date(emi.dueDate) <= now;
+        const paidP = Number(emi.paidPrincipal ?? 0);
+        const paidI = Number(emi.paidInterest  ?? 0);
+        const remainingP = Math.max(0, Number(emi.principalAmount ?? 0) - paidP);
+        const remainingI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - paidI) : 0;
+        totalPrincipal += remainingP;
+        totalInterest  += remainingI;
+        return {
+          installmentNumber: emi.installmentNumber,
+          dueDate:           emi.dueDate,
+          totalAmount:       Number(emi.totalAmount ?? 0),
+          paidAmount:        Number(emi.paidAmount  ?? 0),
+          remainingAmount:   Number(emi.totalAmount ?? 0) - Number(emi.paidAmount ?? 0),
+          principalToPay:   remainingP,
+          interestToPay:    remainingI,
+          monthHasStarted,
+          amountToPay:      remainingP + remainingI,
+        };
+      });
+    }
+
+    const originalRemainingAmount = isInterestOnlyLoan
+      ? remainingLoanPrincipal + unpaidEMIs.reduce((s, e) => s + Number(e.totalAmount ?? 0) - Number(e.paidAmount ?? 0), 0)
+      : unpaidEMIs.reduce((s, e) => s + Number(e.totalAmount ?? 0) - Number(e.paidAmount ?? 0), 0);
     const totalForeclosureAmount = totalPrincipal + totalInterest;
-    const savings = originalRemainingAmount - totalForeclosureAmount;
+    const savings = Math.max(0, originalRemainingAmount - totalForeclosureAmount);
 
     const mirrorMapping = await db.mirrorLoanMapping.findFirst({
       where: {
@@ -89,18 +145,34 @@ export async function GET(request: NextRequest) {
       if (!isMirrorChild && mirrorMapping.mirrorLoanId) {
         const mirrorLoan = await db.loanApplication.findUnique({
           where: { id: mirrorMapping.mirrorLoanId },
-          include: { emiSchedules: { orderBy: { installmentNumber: 'asc' } } }
+          include: {
+            sessionForm: true,
+            emiSchedules: { orderBy: { installmentNumber: 'asc' } }
+          }
         });
         if (mirrorLoan) {
-          const mirrorUnpaid = mirrorLoan.emiSchedules.filter(isCloseable);
+          const isMirrorIO = Boolean(
+            mirrorLoan.isInterestOnlyLoan ||
+            mirrorLoan.status === 'ACTIVE_INTEREST_ONLY' ||
+            isInterestOnlyLoan
+          );
+          const mirrorEmis = mirrorLoan.emiSchedules ?? [];
+          const mirrorUnpaid = mirrorEmis.filter(isCloseable);
           let mirrorP = 0;
           let mirrorI = 0;
           for (const emi of mirrorUnpaid) {
             const monthHasStarted = new Date(emi.dueDate) <= now;
-            mirrorP += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+            if (!isMirrorIO) {
+              mirrorP += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+            }
             if (monthHasStarted) {
               mirrorI += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
             }
+          }
+          if (isMirrorIO) {
+            const mPrincipal = Number(mirrorLoan.sessionForm?.approvedAmount || mirrorLoan.requestedAmount || 0);
+            const mPaidP = mirrorEmis.reduce((sum, e) => sum + Number(e.paidPrincipal ?? 0), 0);
+            mirrorP = Math.max(0, mPrincipal - mPaidP);
           }
           mirrorDetails = {
             loanNumber: mirrorLoan.applicationNo,
@@ -137,6 +209,7 @@ export async function GET(request: NextRequest) {
         totalForeclosureAmount,
         savings,
         interestRate:           loan.sessionForm.interestRate,
+        isInterestOnlyLoan,
         emiDetails,
         mirrorLoan: mirrorMapping
           ? {
@@ -196,10 +269,16 @@ export async function POST(request: NextRequest) {
     });
 
     const effectiveCompanyId = companyId || loan.companyId || '';
+    const effectiveCreditType = creditType === 'PERSONAL' ? 'PERSONAL' : 'COMPANY';
     const isCloseable        = (e: any) => !['PAID', 'INTEREST_ONLY_PAID'].includes(e.paymentStatus);
     const unpaidEMIs         = loan.emiSchedules.filter(isCloseable);
     const unpaidEMIIds       = unpaidEMIs.map((e: any) => e.id);
     const accountingWarnings: string[] = [];
+
+    const isInterestOnlyLoan = Boolean(
+      loan.isInterestOnlyLoan ||
+      loan.status === 'ACTIVE_INTEREST_ONLY'
+    );
 
     // Resolve partner loan details if mapping exists
     let partnerLoan: any = null;
@@ -217,16 +296,31 @@ export async function POST(request: NextRequest) {
     if (partnerLoanId) {
       partnerLoan = await db.loanApplication.findUnique({
         where: { id: partnerLoanId },
-        include: { emiSchedules: { orderBy: { installmentNumber: 'asc' } } }
+        include: {
+          sessionForm: true,
+          emiSchedules: { orderBy: { installmentNumber: 'asc' } }
+        }
       });
       if (partnerLoan) {
+        const isPartnerIO = Boolean(
+          partnerLoan.isInterestOnlyLoan ||
+          partnerLoan.status === 'ACTIVE_INTEREST_ONLY' ||
+          isInterestOnlyLoan
+        );
         partnerUnpaidEMIs = partnerLoan.emiSchedules.filter(isCloseable);
         for (const emi of partnerUnpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
-          partnerTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          if (!isPartnerIO) {
+            partnerTotalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          }
           if (monthHasStarted) {
             partnerTotalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
           }
+        }
+        if (isPartnerIO) {
+          const pPrincipal = Number(partnerLoan.sessionForm?.approvedAmount || partnerLoan.requestedAmount || 0);
+          const pPaidP = partnerLoan.emiSchedules.reduce((sum: number, e: any) => sum + Number(e.paidPrincipal ?? 0), 0);
+          partnerTotalPrincipal = Math.max(0, pPrincipal - pPaidP);
         }
         partnerTotalForeclosureAmount = partnerTotalPrincipal + partnerTotalInterest;
       }
@@ -272,9 +366,18 @@ export async function POST(request: NextRequest) {
       let totalRemainingPrincipal = 0;
       let totalRemainingInterest  = 0;
 
-      for (const emi of unpaidEMIs) {
-        totalRemainingPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
-        totalRemainingInterest  += Math.max(0, Number(emi.interestAmount  ?? 0) - Number(emi.paidInterest  ?? 0));
+      if (isInterestOnlyLoan) {
+        const totalPaidP = loan.emiSchedules.reduce((sum, e) => sum + Number(e.paidPrincipal ?? 0), 0);
+        const loanPrincipal = Number(loan.sessionForm?.approvedAmount || loan.requestedAmount || 0);
+        totalRemainingPrincipal = Math.max(0, loanPrincipal - totalPaidP);
+        for (const emi of unpaidEMIs) {
+          totalRemainingInterest += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
+        }
+      } else {
+        for (const emi of unpaidEMIs) {
+          totalRemainingPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          totalRemainingInterest  += Math.max(0, Number(emi.interestAmount  ?? 0) - Number(emi.paidInterest  ?? 0));
+        }
       }
 
       const totalWriteOff = writeOffInterestOnly
@@ -315,7 +418,13 @@ export async function POST(request: NextRequest) {
           recordId: loanId, recordType: 'LoanApplication',
           // previousData enables undo handler to reopen the loan
           previousData: JSON.stringify({ status: loan.status, closedAt: null }),
-          newData: JSON.stringify({ closeType: 'LOSS', totalWriteOff, lossType, companyId: effectiveCompanyId }),
+          newData: JSON.stringify({
+            closeType: 'LOSS',
+            totalWriteOff,
+            lossType,
+            companyId: effectiveCompanyId,
+            closedEMIIds: unpaidEMIIds,
+          }),
           description: `Loan ${loan.applicationNo} written off as loss (${writeOffInterestOnly ? 'P-only' : 'P+I'}). P:₹${totalRemainingPrincipal.toFixed(2)}, I:₹${writeOffInterestOnly ? 0 : totalRemainingInterest.toFixed(2)}`,
           canUndo: true,
         }
@@ -437,8 +546,20 @@ export async function POST(request: NextRequest) {
               }
             }
 
+            const isPartnerIO = Boolean(
+              partnerLoan.isInterestOnlyLoan ||
+              partnerLoan.status === 'ACTIVE_INTEREST_ONLY' ||
+              isInterestOnlyLoan
+            );
+            if (isPartnerIO) {
+              const pPrincipal = Number(partnerLoan.sessionForm?.approvedAmount || partnerLoan.requestedAmount || 0);
+              const pPaidP = partnerLoan.emiSchedules.reduce((sum: number, e: any) => sum + Number(e.paidPrincipal ?? 0), 0);
+              partnerP = Math.max(0, pPrincipal - pPaidP);
+            }
             for (const e of partnerUnpaid) {
-              partnerP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
+              if (!isPartnerIO) {
+                partnerP += Math.max(0, Number(e.principalAmount ?? 0) - Number(e.paidPrincipal ?? 0));
+              }
               const remI = Math.max(0, Number(e.interestAmount ?? 0) - Number(e.paidInterest ?? 0));
               if (remI > 0) {
                 const type = partnerAccrualMap.get(e.id);
@@ -504,10 +625,17 @@ export async function POST(request: NextRequest) {
     let totalInterest  = 0;
     for (const emi of unpaidEMIs) {
       const monthHasStarted = new Date(emi.dueDate) <= now;
-      totalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+      if (!isInterestOnlyLoan) {
+        totalPrincipal += Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+      }
       if (monthHasStarted) {
         totalInterest += Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0));
       }
+    }
+    if (isInterestOnlyLoan) {
+      const totalPaidP = loan.emiSchedules.reduce((sum, e) => sum + Number(e.paidPrincipal ?? 0), 0);
+      const loanPrincipal = Number(loan.sessionForm?.approvedAmount || loan.requestedAmount || 0);
+      totalPrincipal = Math.max(0, loanPrincipal - totalPaidP);
     }
     const totalForeclosureAmount = totalPrincipal + totalInterest;
     // ── ACID: Core DB ops — BATCH updateMany + loan update + payment + credit ──
@@ -639,28 +767,33 @@ export async function POST(request: NextRequest) {
       try {
         for (const emi of unpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
-          const collectP = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+          const collectP = isInterestOnlyLoan ? 0 : Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
           const collectI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0)) : 0;
           await db.eMISchedule.update({
             where: { id: emi.id },
             data: {
               paidAmount:    Number(emi.paidAmount ?? 0) + collectP + collectI,
-              paidPrincipal: Number(emi.principalAmount ?? 0),
+              paidPrincipal: isInterestOnlyLoan ? Number(emi.paidPrincipal ?? 0) : Number(emi.principalAmount ?? 0),
               paidInterest:  monthHasStarted ? Number(emi.interestAmount ?? 0) : Number(emi.paidInterest ?? 0),
             }
           }).catch(() => {});
         }
 
         if (partnerLoanId && partnerUnpaidEMIs.length > 0) {
+          const isPartnerIO = Boolean(
+            partnerLoan?.isInterestOnlyLoan ||
+            partnerLoan?.status === 'ACTIVE_INTEREST_ONLY' ||
+            isInterestOnlyLoan
+          );
           for (const emi of partnerUnpaidEMIs) {
             const monthHasStarted = new Date(emi.dueDate) <= now;
-            const collectP = Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
+            const collectP = isPartnerIO ? 0 : Math.max(0, Number(emi.principalAmount ?? 0) - Number(emi.paidPrincipal ?? 0));
             const collectI = monthHasStarted ? Math.max(0, Number(emi.interestAmount ?? 0) - Number(emi.paidInterest ?? 0)) : 0;
             await db.eMISchedule.update({
               where: { id: emi.id },
               data: {
                 paidAmount:    Number(emi.paidAmount ?? 0) + collectP + collectI,
-                paidPrincipal: Number(emi.principalAmount ?? 0),
+                paidPrincipal: isPartnerIO ? Number(emi.paidPrincipal ?? 0) : Number(emi.principalAmount ?? 0),
                 paidInterest:  monthHasStarted ? Number(emi.interestAmount ?? 0) : Number(emi.paidInterest ?? 0),
               }
             }).catch(() => {});
@@ -676,7 +809,16 @@ export async function POST(request: NextRequest) {
         recordId: loanId, recordType: 'LoanApplication',
         // previousData enables undo handler to reopen the loan
         previousData: JSON.stringify({ status: loan.status, closedAt: null }),
-        newData: JSON.stringify({ closeType: 'PAYMENT', totalForeclosureAmount, paymentMode, companyId: effectiveCompanyId }),
+        newData: JSON.stringify({
+          closeType: 'PAYMENT',
+          totalForeclosureAmount,
+          paymentMode,
+          companyId: effectiveCompanyId,
+          collectorId: userId,
+          creditType: effectiveCreditType,
+          customerName: loan.customer?.name,
+          closedEMIIds: unpaidEMIIds,
+        }),
         description: `Loan ${loan.applicationNo} closed via foreclosure. ₹${totalForeclosureAmount.toFixed(2)} via ${paymentMode}`,
         canUndo: true,
       }
@@ -738,7 +880,6 @@ export async function POST(request: NextRequest) {
 
         let totalAccruedInterest = 0;
         let totalReclassifiedInterest = 0;
-        let totalDirectInterest = 0;
 
         for (const emi of unpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
@@ -750,12 +891,13 @@ export async function POST(request: NextRequest) {
                 totalReclassifiedInterest += remI;
               } else if (type === 'INTEREST_ACCRUAL') {
                 totalAccruedInterest += remI;
-              } else {
-                totalDirectInterest += remI;
               }
             }
           }
         }
+        totalAccruedInterest = Math.min(totalAccruedInterest, totalInterest);
+        totalReclassifiedInterest = Math.min(totalReclassifiedInterest, Math.max(0, totalInterest - totalAccruedInterest));
+        const totalDirectInterest = Math.max(0, totalInterest - totalAccruedInterest - totalReclassifiedInterest);
 
         const lines: any[] = [
           { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: totalForeclosureAmount, creditAmount: 0, narration: `Foreclosure collected (${paymentMode})`, loanId: loanId, customerId: loan.customerId },
@@ -845,7 +987,6 @@ export async function POST(request: NextRequest) {
 
         let totalAccruedInterest = 0;
         let totalReclassifiedInterest = 0;
-        let totalDirectInterest = 0;
 
         for (const emi of partnerUnpaidEMIs) {
           const monthHasStarted = new Date(emi.dueDate) <= now;
@@ -857,12 +998,13 @@ export async function POST(request: NextRequest) {
                 totalReclassifiedInterest += remI;
               } else if (type === 'INTEREST_ACCRUAL') {
                 totalAccruedInterest += remI;
-              } else {
-                totalDirectInterest += remI;
               }
             }
           }
         }
+        totalAccruedInterest = Math.min(totalAccruedInterest, partnerTotalInterest);
+        totalReclassifiedInterest = Math.min(totalReclassifiedInterest, Math.max(0, partnerTotalInterest - totalAccruedInterest));
+        const totalDirectInterest = Math.max(0, partnerTotalInterest - totalAccruedInterest - totalReclassifiedInterest);
 
         const lines: any[] = [
           { accountCode: isOnlineMode ? ACCOUNT_CODES.BANK_ACCOUNT : ACCOUNT_CODES.CASH_IN_HAND, debitAmount: partnerTotalForeclosureAmount, creditAmount: 0, narration: `[PARTNER] Foreclosure collected (${paymentMode})`, loanId: partnerLoanId, customerId: loan.customerId },
