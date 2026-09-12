@@ -8,7 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  CalendarClock, IndianRupee, History, Info, FileText, Calendar
+  CalendarClock, IndianRupee, History, Info, FileText, Calendar, Calculator, XCircle
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/helpers';
 import type { EMISchedule, LoanDetails } from './types';
@@ -20,6 +20,7 @@ interface Props {
   currentUserRole: string;
   onPayEMI: (emi: EMISchedule) => void;
   onChangeDate?: (emi: EMISchedule) => void;
+  onCloseLoan?: () => void;
   isMirrorLoan?: boolean;
 }
 
@@ -29,6 +30,7 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
   currentUserRole,
   onPayEMI,
   onChangeDate,
+  onCloseLoan,
   isMirrorLoan = false
 }: Props) {
   // Calculate total interest paid
@@ -144,6 +146,17 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
                               Change Date
                             </Button>
                           )}
+                          {onCloseLoan && (
+                            <Button
+                              size="sm"
+                              className="bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm gap-1"
+                              onClick={onCloseLoan}
+                              title="Close this loan and settle principal"
+                            >
+                              <XCircle className="h-4 w-4" />
+                              Close Loan
+                            </Button>
+                          )}
                         </div>
                       )
                     ) : (
@@ -244,12 +257,35 @@ const InterestOnlyEMISection = memo(function InterestOnlyEMISection({
             )}
           </div>
 
+          {/* Principal Settlement & Close Loan Card */}
+          {onCloseLoan && !isMirrorLoan && currentUserRole !== 'ACCOUNTANT' && (
+            <div className="p-3.5 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+              <div>
+                <p className="text-sm font-semibold text-red-900 flex items-center gap-1.5">
+                  <XCircle className="h-4 w-4 text-red-600 shrink-0" />
+                  Full Principal Settlement (Close Loan)
+                </p>
+                <p className="text-xs text-red-700 mt-0.5">
+                  Customer wants to clear taken principal ({formatCurrency(loanDetails.sessionForm?.approvedAmount || loanDetails.requestedAmount)}) and close the loan without starting Phase 2.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm gap-1.5 shrink-0"
+                onClick={onCloseLoan}
+              >
+                <XCircle className="h-4 w-4" />
+                Close Loan ({formatCurrency(loanDetails.sessionForm?.approvedAmount || loanDetails.requestedAmount)})
+              </Button>
+            </div>
+          )}
+
           {/* Info Alert */}
           <Alert className="bg-blue-50 border-blue-200">
             <Info className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-700 text-sm">
               You are in the Interest Only phase. Pay monthly interest until ready to start full EMI payments.
-              Click "Start Loan" button above when you want to begin regular EMI payments.
+              Click "Start Loan" button above when you want to begin regular EMI payments, or click "Close Loan" to fully settle and close this loan.
             </AlertDescription>
           </Alert>
         </div>

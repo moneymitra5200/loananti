@@ -208,6 +208,7 @@ export default function OfflineLoanDetailPanel({
 }: OfflineLoanDetailPanelProps) {
   const { user } = useAuth();
   const currentUserId = userId || user?.id || '';
+  const effectiveUserRole = (userRole || user?.role || '').toUpperCase();
 
   const [loading, setLoading] = useState(false);
   const [loan, setLoan] = useState<LoanDetail | null>(null);
@@ -1320,39 +1321,48 @@ export default function OfflineLoanDetailPanel({
           >
             {/* Header */}
             <div 
-              className="flex flex-wrap items-center justify-between p-4 border-b text-white bg-gradient-to-r from-[#737301] to-[#b0a828] gap-4"
+              className="flex flex-col p-4 border-b text-white bg-gradient-to-r from-[#737301] to-[#b0a828] gap-3"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-                  <Receipt className="h-5 w-5" />
+              {/* Top Row: Title, Badges & Close Drawer X Button */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                    <Receipt className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-bold text-lg flex flex-wrap items-center gap-2">
+                      <span>{loan?.isMirrorLoan ? 'Mirror Loan' : isInterestOnlyLoan ? 'Interest-Only Loan' : 'Offline Loan Details'}</span>
+                      {loan?.isMirrorLoan && (
+                        <Badge className="bg-white/30 text-white border-white/50 text-xs">Synced from Original</Badge>
+                      )}
+                      {loan?.isMirrored && !loan?.isMirrorLoan && (
+                        <Badge className="bg-white/30 text-white border-white/50 text-xs">Has Mirror</Badge>
+                      )}
+                      {!loan?.isMirrorLoan && !isInterestOnlyLoan && (
+                        <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal">
+                          💵 OFFLINE MODE
+                        </span>
+                      )}
+                    </h2>
+                    <p className="text-sm text-white/80">{loan?.loanNumber || 'Loading...'}</p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="font-bold text-lg flex flex-wrap items-center gap-2">
-                    {loan?.isMirrorLoan ? 'Mirror Loan' : isInterestOnlyLoan ? 'Interest-Only Loan' : 'Offline Loan Details'}
-                    {loan?.isMirrorLoan && (
-                      <Badge className="bg-white/30 text-white border-white/50">Synced from Original</Badge>
-                    )}
-                    {loan?.isMirrored && !loan?.isMirrorLoan && (
-                      <Badge className="bg-white/30 text-white border-white/50">Has Mirror</Badge>
-                    )}
-                    {/* Mode indicator */}
-                    {!loan?.isMirrorLoan && !isInterestOnlyLoan && (
-                      <span className="text-xs bg-white/20 border border-white/30 px-2 py-0.5 rounded-full font-normal">
-                        💵 OFFLINE MODE
-                      </span>
-                    )}
-                  </h2>
-                  <p className="text-sm text-white/80">{loan?.loanNumber || 'Loading...'}</p>
-                </div>
+                <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20 shrink-0" title="Close Drawer">
+                  <X className="h-5 w-5" />
+                </Button>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+
+              {/* Action Buttons Row - Always fully visible, wraps cleanly */}
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-white/15">
                 {loan && getStatusBadge(loan.status)}
+
+                {/* Pay Monthly Interest & Start Loan for Interest-Only Loans */}
                 {isInterestOnlyLoan && !loan?.isMirrorLoan && (
                   <>
-                    {userRole !== 'ACCOUNTANT' && (
+                    {effectiveUserRole !== 'ACCOUNTANT' && (
                       <Button
                         size="sm"
-                        className="bg-purple-500 text-white hover:bg-purple-600 border border-purple-400"
+                        className="bg-purple-600 text-white hover:bg-purple-700 border border-purple-400 font-semibold shadow-sm"
                         onClick={() => {
                           const pendingEmi = loan?.emis.find(e => e.paymentStatus === 'PENDING' && e.isInterestOnly);
                           if (pendingEmi) {
@@ -1372,45 +1382,31 @@ export default function OfflineLoanDetailPanel({
                         Pay Monthly Interest
                       </Button>
                     )}
-                    <Button size="sm" className="bg-white text-purple-600 hover:bg-purple-50 border border-purple-200" onClick={openStartLoanDialog}>
+                    <Button size="sm" className="bg-white text-purple-700 hover:bg-purple-50 border border-purple-200 font-semibold shadow-sm" onClick={openStartLoanDialog}>
                       <PlayCircle className="h-4 w-4 mr-1" />
                       Start Loan
                     </Button>
                   </>
                 )}
-                {/* Edit button — hidden for mirror loans */}
-                {loan && !loan.isMirrorLoan && (userRole === 'SUPER_ADMIN' || userRole === 'CASHIER' || userRole === 'STAFF' || userRole === 'ADMIN' || userRole === 'COMPANY') && (
-                  <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={openEditDialog} title="Edit loan details">
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                )}
-                {/* Delete Loan - Available for non-mirror loans */}
-                {loan && !loan.isMirrorLoan && userRole !== 'ACCOUNTANT' && (
+
+                {/* Close Loan button — visible for ACTIVE, INTEREST_ONLY, ACTIVE_INTEREST_ONLY, and DISBURSED loans */}
+                {loan && !loan.isMirrorLoan && effectiveUserRole !== 'ACCOUNTANT' && (
+                  ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes((loan.status || '').toUpperCase().trim()) ||
+                  loan.isInterestOnlyLoan
+                ) && (
                   <Button
                     size="sm"
-                    variant="destructive"
-                    className="bg-red-600 hover:bg-red-700 text-white gap-1 font-medium shadow-sm"
-                    onClick={() => setDeleteDialogOpen(true)}
-                    title="Delete this loan and all associated entries"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">Delete Loan</span>
-                  </Button>
-                )}
-                {/* Close Loan button — visible for ACTIVE, INTEREST_ONLY, and DISBURSED loans */}
-                {loan && ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && !loan.isMirrorLoan && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-white hover:bg-red-500/80 gap-1 text-xs"
+                    className="bg-red-600 hover:bg-red-700 text-white gap-1.5 text-xs font-semibold shadow-sm border border-red-400/50"
                     onClick={() => setCloseLoanDialogOpen(true)}
+                    title="Close this loan and settle taken principal"
                   >
                     <XCircle className="h-4 w-4" />
-                    <span className="hidden sm:inline">Close Loan</span>
+                    <span>Close Loan</span>
                   </Button>
                 )}
-                {/* Global Change Date Button for Offline Loans — Visible for ACTIVE, INTEREST_ONLY, ACTIVE_INTEREST_ONLY, and DISBURSED */}
-                {loan && !loan.isMirrorLoan && ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes(loan.status) && userRole !== 'ACCOUNTANT' &&
+
+                {/* Global Change Date Button for Offline Loans */}
+                {loan && !loan.isMirrorLoan && ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes((loan.status || '').toUpperCase().trim()) && effectiveUserRole !== 'ACCOUNTANT' &&
                   loan.emis && loan.emis.some(e => e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID') && (
                   <Button
                     size="sm"
@@ -1426,9 +1422,27 @@ export default function OfflineLoanDetailPanel({
                     <Calendar className="h-4 w-4 mr-1" /> Change Date
                   </Button>
                 )}
-                <Button variant="ghost" size="icon" onClick={onClose} className="text-white hover:bg-white/20">
-                  <X className="h-5 w-5" />
-                </Button>
+
+                {/* Edit button — hidden for mirror loans */}
+                {loan && !loan.isMirrorLoan && (effectiveUserRole === 'SUPER_ADMIN' || effectiveUserRole === 'CASHIER' || effectiveUserRole === 'STAFF' || effectiveUserRole === 'ADMIN' || effectiveUserRole === 'COMPANY') && (
+                  <Button size="sm" variant="ghost" className="text-white hover:bg-white/20" onClick={openEditDialog} title="Edit loan details">
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
+
+                {/* Delete Loan - Available for non-mirror loans */}
+                {loan && !loan.isMirrorLoan && effectiveUserRole !== 'ACCOUNTANT' && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="bg-red-700 hover:bg-red-800 text-white gap-1 font-medium shadow-sm ml-auto"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    title="Delete this loan and all associated entries"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>Delete Loan</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1612,6 +1626,34 @@ export default function OfflineLoanDetailPanel({
                           </CardContent>
                         </Card>
                       </div>
+
+                      {/* Quick Action for Active / Interest-Only Loans in Overview */}
+                      {!loan.isMirrorLoan && effectiveUserRole !== 'ACCOUNTANT' && (
+                        ['ACTIVE', 'INTEREST_ONLY', 'ACTIVE_INTEREST_ONLY', 'DISBURSED'].includes((loan.status || '').toUpperCase().trim()) ||
+                        loan.isInterestOnlyLoan
+                      ) && (
+                        <div className="p-3.5 bg-gradient-to-r from-red-50 to-rose-50 rounded-lg border border-red-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                          <div>
+                            <p className="text-sm font-semibold text-red-900 flex items-center gap-1.5">
+                              <XCircle className="h-4 w-4 text-red-600 shrink-0" />
+                              {isInterestOnlyLoan ? `Close Interest-Only Loan (${formatCurrency(loan.loanAmount)})` : `Close Loan (Settlement)`}
+                            </p>
+                            <p className="text-xs text-red-700 mt-0.5">
+                              {isInterestOnlyLoan 
+                                ? `Receive taken principal of ${formatCurrency(loan.loanAmount)} and close loan directly.`
+                                : `Receive outstanding loan amount and mark this loan as closed.`}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="bg-red-600 hover:bg-red-700 text-white font-medium shadow-sm gap-1.5 shrink-0"
+                            onClick={() => setCloseLoanDialogOpen(true)}
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Close Loan
+                          </Button>
+                        </div>
+                      )}
 
                       <Card>
                         <CardHeader className="pb-2">
@@ -1994,6 +2036,17 @@ export default function OfflineLoanDetailPanel({
                                                   Change Date
                                                 </Button>
                                               )}
+                                              {effectiveUserRole !== 'ACCOUNTANT' && (
+                                                <Button
+                                                  size="sm"
+                                                  className="bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm gap-1"
+                                                  onClick={() => setCloseLoanDialogOpen(true)}
+                                                  title="Close this loan and settle taken principal"
+                                                >
+                                                  <XCircle className="h-4 w-4" />
+                                                  Close Loan
+                                                </Button>
+                                              )}
                                             </div>
                                           ) : (
                                             <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">
@@ -2011,6 +2064,29 @@ export default function OfflineLoanDetailPanel({
                                     </div>
                                   );
                                 })()}
+
+                                {/* Full Principal Settlement & Close Loan Card */}
+                                {!loan.isMirrorLoan && effectiveUserRole !== 'ACCOUNTANT' && (
+                                  <div className="p-3.5 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg border border-red-200 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+                                    <div>
+                                      <p className="text-sm font-semibold text-red-900 flex items-center gap-1.5">
+                                        <XCircle className="h-4 w-4 text-red-600 shrink-0" />
+                                        Full Principal Settlement (Close Loan)
+                                      </p>
+                                      <p className="text-xs text-red-700 mt-0.5">
+                                        Customer wants to clear taken principal ({formatCurrency(loan.loanAmount)}) and close the loan without starting Phase 2.
+                                      </p>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      className="bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm gap-1.5 shrink-0"
+                                      onClick={() => setCloseLoanDialogOpen(true)}
+                                    >
+                                      <XCircle className="h-4 w-4" />
+                                      Close Loan ({formatCurrency(loan.loanAmount)})
+                                    </Button>
+                                  </div>
+                                )}
 
                                 <Separator />
 
@@ -2119,7 +2195,7 @@ export default function OfflineLoanDetailPanel({
                                   <Info className="h-4 w-4 text-blue-600" />
                                   <AlertDescription className="text-blue-700 text-sm">
                                     You are in the Interest Only phase. Pay monthly interest until ready to start full EMI payments.
-                                    Click "Start Loan" button above when you want to begin regular EMI payments.
+                                    Click "Start Loan" button above when you want to begin regular EMI payments, or click "Close Loan" to settle taken principal and close this loan completely.
                                   </AlertDescription>
                                 </Alert>
                               </div>

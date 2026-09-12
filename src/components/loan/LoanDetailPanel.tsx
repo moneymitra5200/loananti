@@ -1096,6 +1096,8 @@ export default function LoanDetailPanel({ loanId, open, onClose, onEMIPaid, user
                       emiSchedules={emiSchedules}
                       currentUserRole={currentUserRole}
                       onPayEMI={openEMIPaymentDialog}
+                      onChangeDate={openDateChangeDialog}
+                      onCloseLoan={() => setShowCloseLoanDialog(true)}
                       isMirrorLoan={isMirrorLoan}
                     />
                   ) : (
