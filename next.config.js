@@ -126,6 +126,8 @@ const nextConfig = {
   },
   // Reduce JS bundle size
   experimental: {
+    // Limit parallel workers — Hostinger shared hosting can't handle 63 workers (os error 11 / EAGAIN)
+    cpus: 2,
     optimizePackageImports: [
       "lucide-react",
       "@radix-ui/react-dialog",
