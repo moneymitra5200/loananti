@@ -1070,7 +1070,8 @@ export async function POST(request: NextRequest) {
       // Generate EMI schedule inside the same transaction
       if (isInterestOnlyLoan) {
         // Safe addOneMonth — avoids JS setMonth overflow (e.g. Jan 31 → Mar 1)
-        const _d = requiredDate(disbursementDate, 'disbursementDate');
+        // EMI day must follow the user-selected EMI Start Date (not Disbursement Date)
+        const _d = requiredDate(startDate || disbursementDate, 'startDate');
         const _year  = _d.getMonth() === 11 ? _d.getFullYear() + 1 : _d.getFullYear();
         const _month = (_d.getMonth() + 1) % 12; // next month, 0-indexed
         const _lastDay = new Date(_year, _month + 1, 0).getDate(); // last day of next month
@@ -1263,9 +1264,10 @@ export async function POST(request: NextRequest) {
           // payment via an `alreadyExists` guard. Pre-populating ALL EMIs breaks that guard —
           // `alreadyExists` is always true, so no next-EMI is ever created.
           const monthlyMirrorInterest = Math.round((loanAmount * mirrorRate / 100 / 12) * 100) / 100;
-          const firstDueDate = requiredDate(disbursementDate, 'disbursementDate');
+          // EMI day must follow the user-selected EMI Start Date (not Disbursement Date)
+          const firstDueDate = requiredDate(startDate || disbursementDate, 'startDate');
           firstDueDate.setMonth(firstDueDate.getMonth() + 1);
-          firstDueDate.setDate(requiredDate(disbursementDate, 'disbursementDate').getDate());
+          firstDueDate.setDate(requiredDate(startDate || disbursementDate, 'startDate').getDate());
           firstDueDate.setHours(0, 0, 0, 0);
           mirrorEmisData = [{
             offlineLoanId: mirrorLoan.id,
