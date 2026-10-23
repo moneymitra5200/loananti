@@ -72,9 +72,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  turbopack: {
-    root: __dirname,
-  },                          // silences Next.js 16 warning for next-pwa
+  // Note: turbopack config removed — was causing CSS PostCSS panic on deploy server (Next.js 16 Turbopack bug)
   images: {
     unoptimized: true,
   },
