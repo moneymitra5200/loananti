@@ -750,8 +750,11 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                   e.paymentStatus === 'PAID' || e.paymentStatus === 'INTEREST_ONLY_PAID' || e.paymentStatus === 'WAIVED'
                 );
 
-                const isPaid = day.emis && (isAllEmisStatusPaid || (day.emis.paid >= (day.emis.total - 1))) && hasEmis;
-                const hasPending = day.emis && !isAllEmisStatusPaid && ((day.emis.total - day.emis.paid) > 1) && hasEmis;
+                const isPaid = day.emis && isAllEmisStatusPaid && hasEmis;
+                const pendingCount = allDayEmis.filter(e =>
+                  e.paymentStatus !== 'PAID' && e.paymentStatus !== 'INTEREST_ONLY_PAID' && e.paymentStatus !== 'WAIVED'
+                ).length;
+                const hasPending = hasEmis && pendingCount > 0;
                 const emiCount = hasEmis ? (day.emis!.online.length + day.emis!.offline.length) : 0;
 
                 const today = new Date();
@@ -785,17 +788,26 @@ export default function EMICalendar({ userId, userRole, onSelectLoan }: EMICalen
                   >
                     <span className="text-sm font-semibold">{day.day}</span>
                     {hasEmis ? (
-                      <div className="flex items-center gap-1 bg-white/90 px-1.5 py-0.5 rounded-full border border-gray-200 shadow-2xs">
+                      <div
+                        className="flex items-center gap-1 bg-white/95 px-1.5 py-0.5 rounded-full border border-gray-200 shadow-2xs max-w-full"
+                        title={`${emiCount} Total EMIs${pendingCount > 0 ? ` (${pendingCount} Pending Due)` : ' (All Paid)'}`}
+                      >
                         {day.emis!.online.length > 0 && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" title="Online Loan EMI" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" title="Online Loan EMI" />
                         )}
                         {day.emis!.offline.length > 0 && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-purple-500" title="Offline Loan EMI" />
+                          <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" title="Offline Loan EMI" />
                         )}
-                        <span className={`text-[10px] font-bold ${
+                        <span className={`text-[9.5px] font-bold tracking-tight whitespace-nowrap truncate ${
                           isOverdueUnpaid ? 'text-red-700 font-extrabold' : isPaid ? 'text-emerald-700' : 'text-amber-700'
                         }`}>
-                          {emiCount} {emiCount === 1 ? 'EMI' : 'EMIs'}
+                          {isPaid
+                            ? `${emiCount} ${emiCount === 1 ? 'EMI' : 'EMIs'}`
+                            : isOverdueUnpaid
+                            ? `${emiCount} ${emiCount === 1 ? 'EMI' : 'EMIs'} · ${pendingCount} Due`
+                            : pendingCount > 0 && pendingCount < emiCount
+                            ? `${emiCount} ${emiCount === 1 ? 'EMI' : 'EMIs'} · ${pendingCount} Due`
+                            : `${emiCount} ${emiCount === 1 ? 'EMI' : 'EMIs'}`}
                         </span>
                       </div>
                     ) : (
